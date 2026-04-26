@@ -1,0 +1,124 @@
+"""Custom mkio service: bridges UI commands to the FIX engine."""
+
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
+
+from mkio.services.base import Service
+from mkio.ws_protocol import make_result, make_error
+
+if TYPE_CHECKING:
+    from aiohttp.web import WebSocketResponse
+    from mkfix.fix.engine import FixEngine
+
+
+class FixCommandService(Service):
+    """Receives commands from the UI via WebSocket and dispatches to the FIX engine.
+
+    Commands are sent as transaction-style messages with an "op" field:
+        {"service": "fix_cmd", "op": "start_session", "data": {"session_id": "..."}}
+    """
+
+    def __init__(self, **kwargs: Any):
+        super().__init__(**kwargs)
+        self._engine: FixEngine | None = None
+
+    def set_engine(self, engine: FixEngine) -> None:
+        self._engine = engine
+
+    async def on_message(self, ws: WebSocketResponse, msg: dict[str, Any]) -> None:
+        ref = msg.get("ref")
+        msgid = msg.get("msgid")
+        data = msg.get("data", {})
+        command = msg.get("op", data.get("command", ""))
+
+        await self.notify_monitors("in", msg)
+
+        if not self._engine:
+            await ws.send_bytes(make_error(ref, "FIX engine not initialized", msgid=msgid))
+            return
+
+        try:
+            result = await self._dispatch(command, data)
+            resp = make_result(ref, self.name, result, msgid=msgid)
+            await ws.send_bytes(resp)
+            await self.notify_monitors("out", result)
+        except Exception as e:
+            await ws.send_bytes(make_error(ref, str(e), msgid=msgid))
+
+    async def _dispatch(self, command: str, data: dict[str, Any]) -> dict[str, Any]:
+        engine = self._engine
+
+        if command == "start_session":
+            await engine.start_session(data["session_id"])
+            return {"ok": True}
+
+        elif command == "stop_session":
+            await engine.stop_session(data["session_id"])
+            return {"ok": True}
+
+        elif command == "send_new_order":
+            cl_ord_id = await engine.send_new_order(
+                session_id=data["session_id"],
+                symbol=data["symbol"],
+                side=data["side"],
+                qty=float(data["qty"]),
+                ord_type=data.get("ord_type", "2"),
+                price=float(data["price"]) if data.get("price") else None,
+                tif=data.get("tif", "0"),
+                account=data.get("account"),
+            )
+            return {"ok": True, "cl_ord_id": cl_ord_id}
+
+        elif command == "send_cancel":
+            cl_ord_id = await engine.send_cancel(
+                session_id=data["session_id"],
+                orig_cl_ord_id=data["orig_cl_ord_id"],
+                symbol=data["symbol"],
+                side=data["side"],
+                qty=float(data.get("qty", 0)),
+            )
+            return {"ok": True, "cl_ord_id": cl_ord_id}
+
+        elif command == "send_cancel_replace":
+            cl_ord_id = await engine.send_cancel_replace(
+                session_id=data["session_id"],
+                orig_cl_ord_id=data["orig_cl_ord_id"],
+                symbol=data["symbol"],
+                side=data["side"],
+                qty=float(data["qty"]),
+                ord_type=data.get("ord_type", "2"),
+                price=float(data["price"]) if data.get("price") else None,
+            )
+            return {"ok": True, "cl_ord_id": cl_ord_id}
+
+        elif command == "reset_sequence":
+            await engine.reset_sequence(
+                session_id=data["session_id"],
+                tx=int(data.get("tx_seq_num", 1)),
+                rx=int(data.get("rx_seq_num", 1)),
+            )
+            return {"ok": True}
+
+        elif command == "reload_session":
+            await engine.reload_session(data["session_id"])
+            return {"ok": True}
+
+        elif command == "start_replay":
+            await engine.start_replay(int(data["job_id"]))
+            return {"ok": True}
+
+        elif command == "pause_replay":
+            await engine.pause_replay(int(data["job_id"]))
+            return {"ok": True}
+
+        elif command == "resume_replay":
+            await engine.resume_replay(int(data["job_id"]))
+            return {"ok": True}
+
+        elif command == "stop_replay":
+            await engine.stop_replay(int(data["job_id"]))
+            return {"ok": True}
+
+        else:
+            raise ValueError(f"Unknown command: {command}")

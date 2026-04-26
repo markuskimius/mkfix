@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>mkfix — FIX Protocol Testing Engine</title>
+  <link rel="stylesheet" href="/mkui/styles/mkui.css">
+  <link rel="stylesheet" href="/mkfix.css">
+  <script type="module">
+    import "/mkui/src/index.js";
+    import "./panes/session-manager.js";
+    import "./panes/raw-messages.js";
+    import "./panes/translated-messages.js";
+    import "./panes/message-detail.js";
+    import "./panes/order-pad.js";
+    import "./panes/replay-control.js";
+    import "./widgets/form.js";
+
+    const res = await fetch("/app.json");
+    const config = await res.json();
+    const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+    config.mkio.url = `${wsProto}//${location.host}/ws`;
+    document.querySelector("mkui-app").setConfig(config);
+  </script>
+</head>
+<body>
+  <mkui-app></mkui-app>
+</body>
+</html>

@@ -1,0 +1,132 @@
+port = 8080
+host = "0.0.0.0"
+db_path = "mkfix.db"
+auto_migrate = true
+batch_max_size = 1000
+batch_max_wait_ms = 2.0
+
+# ─── Tables ─────────────────────────────────────────────────────────
+
+[tables.fix_sessions]
+columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''" }
+
+[tables.fix_session_state]
+columns = { session_id = "TEXT PRIMARY KEY", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1", last_tx_time = "TEXT DEFAULT ''", last_rx_time = "TEXT DEFAULT ''", session_start = "TEXT DEFAULT ''", error_text = "TEXT DEFAULT ''" }
+
+[tables.fix_messages]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", timestamp = "TEXT NOT NULL", direction = "TEXT NOT NULL", seq_num = "INTEGER DEFAULT 0", msg_type = "TEXT DEFAULT ''", msg_type_name = "TEXT DEFAULT ''", category = "TEXT DEFAULT 'APP'", raw_message = "TEXT NOT NULL", sender_comp = "TEXT DEFAULT ''", target_comp = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", exec_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", body_length = "INTEGER DEFAULT 0", checksum = "TEXT DEFAULT ''" }
+
+[tables.fix_orders]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", ord_type = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+
+[tables.fix_executions]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''" }
+
+[tables.fix_iois]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", ioi_id = "TEXT NOT NULL", ioi_trans_type = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ioi_qty = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", valid_until = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
+
+[tables.fix_allocations]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", alloc_id = "TEXT NOT NULL", alloc_trans_type = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", quantity = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", trade_date = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", num_allocs = "INTEGER DEFAULT 0", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
+
+[tables.fix_replay_jobs]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", file_path = "TEXT NOT NULL", status = "TEXT DEFAULT 'loaded'", target_session = "TEXT DEFAULT ''", speed = "REAL DEFAULT 1.0", msg_filter = "TEXT DEFAULT ''", total_messages = "INTEGER DEFAULT 0", sent_messages = "INTEGER DEFAULT 0", error_text = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''" }
+
+# ─��─ Transaction Services ───────────────────────────────────────────
+
+[services.session_mgmt]
+protocol = "transaction"
+
+[services.session_mgmt.ops]
+add = [
+    { table = "fix_sessions", op_type = "insert", fields = ["session_id", "fix_version", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "reset_on_logon", "description"], defaults = { fix_version = "FIX.4.2", host = "", port = 9876, heartbeat_interval = 30, reset_on_logon = 0, description = "" } },
+    { table = "fix_session_state", op_type = "insert", fields = ["session_id"], defaults = { status = "DOWN" } },
+]
+update = [
+    { table = "fix_sessions", op_type = "update", key = ["session_id"], fields = ["fix_version", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "reset_on_logon", "enabled", "description"] },
+]
+delete = [
+    { table = "fix_session_state", op_type = "delete", key = ["session_id"] },
+    { table = "fix_sessions", op_type = "delete", key = ["session_id"] },
+]
+
+[services.replay_mgmt]
+protocol = "transaction"
+
+[services.replay_mgmt.ops]
+create = [
+    { table = "fix_replay_jobs", op_type = "insert", fields = ["name", "file_path", "target_session", "speed", "msg_filter"] },
+]
+update_status = [
+    { table = "fix_replay_jobs", op_type = "update", key = ["id"], fields = ["status", "sent_messages", "error_text"] },
+]
+
+# ─── Custom FIX Command Service ─────────────────────────────────────
+
+[services.fix_cmd]
+protocol = "mkfix.services.fix_command.FixCommandService"
+
+# ─── Query Services ─────────────────────────────────────────────────
+
+[services.sessions_query]
+protocol = "query"
+primary_table = "fix_sessions"
+filterable = ["session_id", "enabled"]
+
+[services.session_state_query]
+protocol = "query"
+primary_table = "fix_session_state"
+
+[services.orders_query]
+protocol = "query"
+primary_table = "fix_orders"
+filterable = ["session_id", "status", "symbol", "side"]
+
+[services.executions_query]
+protocol = "query"
+primary_table = "fix_executions"
+filterable = ["session_id", "symbol", "side"]
+
+[services.messages_query]
+protocol = "query"
+primary_table = "fix_messages"
+filterable = ["session_id", "direction", "msg_type", "category", "symbol"]
+
+[services.iois_query]
+protocol = "query"
+primary_table = "fix_iois"
+filterable = ["session_id", "symbol", "side"]
+
+[services.allocations_query]
+protocol = "query"
+primary_table = "fix_allocations"
+filterable = ["session_id", "symbol"]
+
+[services.replay_jobs]
+protocol = "query"
+primary_table = "fix_replay_jobs"
+
+# ─── Stream Services ────────────────────────────────────────────────
+
+[services.messages_stream]
+protocol = "stream"
+primary_table = "fix_messages"
+buffer_size = 50000
+filterable = ["session_id", "direction", "msg_type", "category"]
+
+[services.executions_stream]
+protocol = "stream"
+primary_table = "fix_executions"
+buffer_size = 50000
+
+# ─── SubPub Services ────────────────────────────────────────────────
+
+[services.session_live]
+protocol = "subpub"
+primary_table = "fix_session_state"
+topic = "session_id"
+
+# ─── Static Serving ─────────────────────────────────────────────────
+
+[static]
+"/" = "./static"
+"/mkui" = "__mkui__"

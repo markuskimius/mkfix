@@ -1,0 +1,343 @@
+/* mkfix custom styles — complements mkui's dark theme */
+
+/* ── Toolbar ──────────────────────────────────────────────────────── */
+
+.mkfix-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+  background: var(--mkui-bg-alt, #252526);
+  flex-shrink: 0;
+}
+
+.mkfix-toolbar .mkui-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.mkfix-filter-label {
+  font-size: 11px;
+  color: var(--mkui-fg-mute, #858585);
+  margin-left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mkfix-filter-select {
+  font-size: 11px;
+  padding: 1px 4px;
+  max-width: 120px;
+}
+
+/* ── Form elements ────────────────────────────────────────────────── */
+
+.mkfix-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.mkfix-field-check {
+  margin: 4px 0;
+}
+
+.mkfix-label {
+  font-size: 11px;
+  color: var(--mkui-fg-mute, #858585);
+  min-width: 60px;
+  text-align: right;
+}
+
+.mkfix-label-inline {
+  font-size: 12px;
+  color: var(--mkui-fg, #d4d4d4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mkfix-input,
+.mkfix-select {
+  background: var(--mkui-bg, #1e1e1e);
+  color: var(--mkui-fg, #d4d4d4);
+  border: 1px solid var(--mkui-border, #3c3c3c);
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: 2px;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.mkfix-input:focus,
+.mkfix-select:focus {
+  border-color: var(--mkui-accent, #0e639c);
+}
+
+.mkfix-input[type="number"] {
+  max-width: 100px;
+}
+
+.mkfix-checkbox {
+  accent-color: var(--mkui-accent, #0e639c);
+}
+
+/* ── Session form ─────────────────────────────────────────────────── */
+
+.mkfix-session-form {
+  padding: 8px;
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+  background: var(--mkui-bg, #1e1e1e);
+}
+
+.mkfix-form-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.mkfix-form-row label {
+  font-size: 11px;
+  color: var(--mkui-fg-mute, #858585);
+  min-width: 80px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.mkfix-form-row input,
+.mkfix-form-row select {
+  background: var(--mkui-bg-alt, #252526);
+  color: var(--mkui-fg, #d4d4d4);
+  border: 1px solid var(--mkui-border, #3c3c3c);
+  padding: 3px 6px;
+  font-size: 12px;
+  border-radius: 2px;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.mkfix-form-row input:focus,
+.mkfix-form-row select:focus {
+  border-color: var(--mkui-accent, #0e639c);
+}
+
+/* ── Table row selection ──────────────────────────────────────────── */
+
+.mkui-table tbody tr {
+  cursor: pointer;
+}
+
+.mkui-table tbody tr.selected {
+  background: var(--mkui-accent, #0e639c) !important;
+  color: var(--mkui-accent-fg, #ffffff);
+}
+
+.mkui-table tbody tr:hover:not(.selected) {
+  background: var(--mkui-bg-hover, #2a2d2e);
+}
+
+/* ── Raw message viewer ───────────────────────────────────────────── */
+
+.mkfix-message-list {
+  background: var(--mkui-bg, #1e1e1e);
+}
+
+.mkfix-raw-msg {
+  display: flex;
+  gap: 8px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mkfix-raw-msg:hover {
+  background: var(--mkui-bg-hover, #2a2d2e);
+}
+
+.mkfix-raw-msg.selected {
+  background: var(--mkui-accent, #0e639c);
+}
+
+.mkfix-msg-time {
+  color: var(--mkui-fg-mute, #858585);
+  font-size: 11px;
+  flex-shrink: 0;
+  width: 160px;
+}
+
+.mkfix-msg-dir {
+  font-weight: bold;
+  flex-shrink: 0;
+  width: 30px;
+}
+
+.mkfix-msg-seq {
+  color: var(--mkui-fg-mute, #858585);
+  flex-shrink: 0;
+  width: 40px;
+  text-align: right;
+}
+
+.mkfix-msg-type {
+  color: #dcdcaa;
+  flex-shrink: 0;
+  width: 160px;
+}
+
+.mkfix-msg-raw {
+  color: var(--mkui-fg, #d4d4d4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Translated message viewer ────────────────────────────────────── */
+
+.mkfix-trans-msg {
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+}
+
+.mkfix-trans-header {
+  display: flex;
+  gap: 8px;
+  padding: 3px 8px;
+  cursor: pointer;
+  align-items: center;
+}
+
+.mkfix-trans-header:hover {
+  background: var(--mkui-bg-hover, #2a2d2e);
+}
+
+.mkfix-trans-summary {
+  color: var(--mkui-fg, #d4d4d4);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mkfix-expand-btn {
+  color: var(--mkui-fg-mute, #858585);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.mkfix-trans-detail {
+  padding: 4px 16px 8px;
+  background: var(--mkui-bg-alt, #252526);
+}
+
+/* ── Detail table ─────────────────────────────────────────────────── */
+
+.mkfix-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.mkfix-detail-table th {
+  text-align: left;
+  padding: 2px 8px;
+  color: var(--mkui-fg-mute, #858585);
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+}
+
+.mkfix-detail-table td {
+  padding: 1px 8px;
+}
+
+.mkfix-detail-tag {
+  color: var(--mkui-fg-mute, #858585);
+  width: 40px;
+}
+
+.mkfix-detail-name {
+  color: #569cd6;
+  width: 140px;
+}
+
+.mkfix-detail-raw {
+  color: var(--mkui-fg-mute, #858585);
+  width: 120px;
+}
+
+.mkfix-detail-translated {
+  color: #4ec9b0;
+}
+
+.mkfix-detail-header {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+}
+
+/* ── Order pad ────────────────────────────────────────────────────── */
+
+.mkfix-pad-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+}
+
+.mkfix-pad-tabs .mkui-btn.active {
+  background: var(--mkui-accent, #0e639c);
+  color: var(--mkui-accent-fg, #ffffff);
+}
+
+.mkfix-order-form {
+  padding: 8px;
+}
+
+.mkfix-order-form .mkfix-form-row label {
+  min-width: 100px;
+}
+
+.mkfix-submit {
+  background: var(--mkui-accent, #0e639c) !important;
+  color: var(--mkui-accent-fg, #ffffff) !important;
+  font-weight: bold;
+  padding: 4px 16px !important;
+  margin-top: 4px;
+}
+
+.mkfix-pad-status {
+  padding: 4px 8px;
+  font-size: 12px;
+  min-height: 20px;
+}
+
+/* ── Replay control ──────────────────────────────────────────────── */
+
+.mkfix-replay-form {
+  padding: 8px;
+  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
+  background: var(--mkui-bg, #1e1e1e);
+}
+
+.mkfix-replay-jobs {
+  overflow: auto;
+  flex: 1;
+}
+
+.mkfix-replay-status {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+
+.mkfix-replay-loaded { color: var(--mkui-fg-mute, #858585); }
+.mkfix-replay-running { color: #4ec9b0; }
+.mkfix-replay-paused { color: #dcdcaa; }
+.mkfix-replay-completed { color: #6a9955; }
+.mkfix-replay-stopped { color: var(--mkui-fg-mute, #858585); }
+.mkfix-replay-error { color: #f44747; }

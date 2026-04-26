@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mkfix"
+version = "0.1.0"
+description = "FIX protocol testing engine built on mkio and mkui"
+readme = "README.md"
+license = "GPL-2.0-only"
+requires-python = ">=3.11"
+authors = [{ name = "Mark Kim" }]
+dependencies = [
+    "mkio>=0.1.36",
+    "mkui>=0.1.10",
+]
+
+[project.scripts]
+mkfix = "mkfix.__main__:main"
