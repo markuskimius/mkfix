@@ -22,8 +22,8 @@ classifiers = [
     "Topic :: Office/Business :: Financial",
 ]
 dependencies = [
-    "mkio>=0.1.36",
-    "mkui>=0.1.10",
+    "mkio>=0.1.39",
+    "mkui>=0.1.14",
 ]
 
 [project.optional-dependencies]
