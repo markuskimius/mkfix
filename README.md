@@ -8,13 +8,15 @@ A FIX protocol testing engine for capital markets connectivity, built on
 
 - **Session Management** -- Configure and run FIX sessions as initiator or
   acceptor. Multiple sessions on the same port with different CompIDs.
-- **Raw Message Viewer** -- Real-time stream of FIX messages in tag=value format
-  with filtering by session, direction, and category.
+- **Raw Message Viewer** -- Live virtualized table of FIX messages in tag=value
+  format with time-based paging, per-column filters, sorting, and clipboard
+  copy.
 - **Translated Message Viewer** -- Human-readable view with field names, enum
   translations, and expandable detail rows.
 - **Order Pad** -- Send NewOrderSingle, Cancel, and Cancel/Replace requests.
 - **Order & Trade Blotters** -- Live order state machine driven by
-  ExecutionReports; fill and partial fill records.
+  ExecutionReports; fill and partial fill records. Cancel and Cancel/Replace
+  working orders directly from the blotter.
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
@@ -75,9 +77,9 @@ the built-in `mkfix.toml` for the full schema.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 0.1.36 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 0.1.65 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.1.10 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.1.48 -- Web Components UI
   framework
 
 ## License

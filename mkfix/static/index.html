@@ -4,18 +4,16 @@
   <meta charset="utf-8">
   <title>mkfix — FIX Protocol Testing Engine</title>
   <link rel="stylesheet" href="/mkui/styles/mkui.css">
-  <link rel="stylesheet" href="/mkfix.css">
+  <link rel="stylesheet" href="/static/mkfix.css">
   <script type="module">
     import "/mkui/src/index.js";
-    import "./panes/session-manager.js";
-    import "./panes/raw-messages.js";
-    import "./panes/translated-messages.js";
-    import "./panes/message-detail.js";
-    import "./panes/order-pad.js";
-    import "./panes/replay-control.js";
-    import "./widgets/form.js";
+    import "/static/panes/session-manager.js";
+    import "/static/panes/translated-messages.js";
+    import "/static/panes/message-detail.js";
+    import "/static/panes/order-pad.js";
+    import "/static/panes/replay-control.js";
 
-    const res = await fetch("/app.json");
+    const res = await fetch("/static/app.json");
     const config = await res.json();
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     config.mkio.url = `${wsProto}//${location.host}/ws`;

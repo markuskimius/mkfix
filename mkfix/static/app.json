@@ -17,6 +17,13 @@
       ]
     },
     {
+      "label": "Edit",
+      "items": [
+        { "label": "Copy", "action": "edit.copy", "shortcut": "mod+C" },
+        { "label": "Select All", "action": "edit.selectAll", "shortcut": "mod+A" }
+      ]
+    },
+    {
       "label": "Messages",
       "items": [
         { "label": "Raw Messages", "action": "pane.show", "args": "raw-messages" },
@@ -48,7 +55,9 @@
         { "label": "Tile Horizontal", "action": "window.tileH" },
         { "label": "Tile Vertical", "action": "window.tileV" },
         { "label": "Grid", "action": "window.grid" },
-        { "label": "Cascade", "action": "window.cascade" }
+        { "label": "Cascade", "action": "window.cascade" },
+        { "sep": true },
+        { "windows": true }
       ]
     }
   ],
@@ -57,7 +66,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.1" }
+      { "type": "text", "text": "mkfix v0.2" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -68,9 +77,12 @@
     },
     "raw-messages": {
       "title": "Raw Messages",
-      "type": "raw-messages",
+      "type": "mkio-table",
       "service": "messages_stream",
-      "protocol": "stream"
+      "protocol": "stream",
+      "start": "today",
+      "columns": ["timestamp", "direction", "seq_num", "session_id", "msg_type_name", "raw_message"],
+      "labels": { "timestamp": "Time", "direction": "Dir", "seq_num": "Seq", "session_id": "Session", "msg_type_name": "Type", "raw_message": "Message" }
     },
     "translated-messages": {
       "title": "Translated Messages",
@@ -91,26 +103,80 @@
       "type": "mkio-table",
       "service": "orders_query",
       "protocol": "query",
-      "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"]
+      "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
+      "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "buttons": [
+        {
+          "label": "Cancel",
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "send_cancel",
+            "data": {
+              "session_id": "${row.session_id}",
+              "orig_cl_ord_id": "${row.cl_ord_id}",
+              "symbol": "${row.symbol}",
+              "side": "${row.side_code}",
+              "qty": "${row.order_qty}"
+            }
+          }
+        },
+        {
+          "label": "Cancel/Replace",
+          "unit": "row",
+          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Cancel/Replace ${row.cl_ord_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "orig_cl_ord_id": "${row.cl_ord_id}",
+                "symbol": "${row.symbol}",
+                "side": "${row.side_code}",
+                "ord_type": "${row.ord_type_code}"
+              },
+              "fields": [
+                {
+                  "row": [
+                    { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.order_qty}", "width": 0.5, "required": true },
+                    { "name": "price", "label": "Price", "type": "text", "value": "${row.price}", "width": 0.5 }
+                  ]
+                }
+              ],
+              "submit": { "label": "Replace", "service": "fix_cmd", "op": "send_cancel_replace" }
+            }
+          }
+        }
+      ]
     },
     "trade-blotter": {
       "title": "Trades",
       "type": "mkio-table",
       "service": "executions_query",
       "protocol": "query",
-      "columns": ["exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"]
+      "columns": ["exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
+      "labels": { "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" }
     },
     "ioi-viewer": {
       "title": "IOIs",
       "type": "mkio-table",
       "service": "iois_query",
-      "protocol": "query"
+      "protocol": "query",
+      "columns": ["ioi_id", "session_id", "ioi_trans_type", "symbol", "side", "ioi_qty", "price", "valid_until", "direction", "timestamp"],
+      "labels": { "ioi_id": "IOI ID", "session_id": "Session", "ioi_trans_type": "Trans Type", "symbol": "Symbol", "side": "Side", "ioi_qty": "Qty", "price": "Price", "valid_until": "Valid Until", "direction": "Dir", "timestamp": "Time" }
     },
     "allocation-viewer": {
       "title": "Allocations",
       "type": "mkio-table",
       "service": "allocations_query",
-      "protocol": "query"
+      "protocol": "query",
+      "columns": ["alloc_id", "session_id", "alloc_trans_type", "alloc_type", "symbol", "side", "quantity", "avg_price", "trade_date", "alloc_status", "num_allocs", "direction", "timestamp"],
+      "labels": { "alloc_id": "AllocID", "session_id": "Session", "alloc_trans_type": "Trans Type", "alloc_type": "Alloc Type", "symbol": "Symbol", "side": "Side", "quantity": "Qty", "avg_price": "Avg Px", "trade_date": "Trade Date", "alloc_status": "Status", "num_allocs": "Allocs", "direction": "Dir", "timestamp": "Time" }
     },
     "replay-control": {
       "title": "Replay",
@@ -149,7 +215,9 @@
   ],
   "mkio": {
     "url": "auto",
+    "expect": { "name": "mkfix", "version": "0.2", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
-    "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" }
+    "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
+    "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }
   }
 }

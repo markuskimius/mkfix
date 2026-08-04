@@ -12,7 +12,6 @@ from mkfix.fix.replay import ReplayTask, parse_log_file
 from mkfix.fix.session import FixSession
 
 if TYPE_CHECKING:
-    from mkio.change_bus import ChangeBus
     from mkio.database import Database
     from mkio.writer import WriteBatcher, CompiledOp
 
@@ -20,10 +19,9 @@ if TYPE_CHECKING:
 class FixEngine:
     """Manages all FIX sessions and bridges messages to mkio's database."""
 
-    def __init__(self, db: Database, writer: WriteBatcher, bus: ChangeBus):
+    def __init__(self, db: Database, writer: WriteBatcher):
         self.db = db
         self.writer = writer
-        self.bus = bus
         self.sessions: dict[str, FixSession] = {}
         self._compiled_ops: dict[str, tuple[CompiledOp, ...]] = {}
         self._ord_id_counter = 0
@@ -72,15 +70,15 @@ class FixEngine:
             sql=(
                 f"INSERT INTO fix_session_state ({', '.join(state_cols)}, _mkio_ref) "
                 f"VALUES ({', '.join(['?'] * (len(state_cols) + 1))}) "
-                f"ON CONFLICT(session_id) DO UPDATE SET {set_clause}, _mkio_ref = ? "
+                f"ON CONFLICT(session_id) DO UPDATE SET {set_clause}, _mkio_ref = excluded._mkio_ref "
                 f"RETURNING *"
             ),
-            param_names=tuple(state_cols + ["_mkio_ref"] + state_cols[1:] + ["_mkio_ref2"]),
+            param_names=tuple(state_cols + ["_mkio_ref"] + state_cols[1:]),
         ),)
 
         order_cols = [
             "cl_ord_id", "session_id", "order_id", "orig_cl_ord_id", "symbol",
-            "side", "ord_type", "price", "stop_price", "order_qty",
+            "side", "side_code", "ord_type", "ord_type_code", "price", "stop_price", "order_qty",
             "time_in_force", "status", "cum_qty", "avg_price", "leaves_qty",
             "last_qty", "last_price", "text", "transact_time", "created_at", "updated_at",
         ]
@@ -95,10 +93,10 @@ class FixEngine:
             sql=(
                 f"INSERT INTO fix_orders ({', '.join(order_cols)}, _mkio_ref) "
                 f"VALUES ({', '.join(['?'] * (len(order_cols) + 1))}) "
-                f"ON CONFLICT(cl_ord_id, session_id) DO UPDATE SET {order_set}, _mkio_ref = ? "
+                f"ON CONFLICT(cl_ord_id, session_id) DO UPDATE SET {order_set}, _mkio_ref = excluded._mkio_ref "
                 f"RETURNING *"
             ),
-            param_names=tuple(order_cols + ["_mkio_ref"] + order_update_cols + ["_mkio_ref2"]),
+            param_names=tuple(order_cols + ["_mkio_ref"] + order_update_cols),
         ),)
 
         exec_cols = [
@@ -263,7 +261,6 @@ class FixEngine:
             state["last_rx_time"],
             state["session_start"],
             state["error_text"],
-            None,  # _mkio_ref2
         )
 
         ops = self._compiled_ops["upsert_state"]
@@ -298,7 +295,9 @@ class FixEngine:
             msg.get("41", ""),
             msg.get("55", ""),
             dictionary.enum_name("54", side_code),
+            side_code,
             dictionary.enum_name("40", ord_type_code),
+            ord_type_code,
             msg.get_float("44", 0.0),
             msg.get_float("99", 0.0),
             msg.get_float("38", 0.0),
@@ -325,7 +324,6 @@ class FixEngine:
             msg.get("58", ""),
             msg.get("60", ""),
             now,
-            None,  # _mkio_ref2
         )
 
         ops = self._compiled_ops["upsert_order"]
@@ -398,7 +396,9 @@ class FixEngine:
             "",  # orig_cl_ord_id
             symbol,
             dictionary.enum_name("54", side),
+            side,
             dictionary.enum_name("40", ord_type),
+            ord_type,
             price or 0.0,
             0.0,  # stop_price
             qty,
@@ -418,7 +418,6 @@ class FixEngine:
             "",  # order_id
             "PendingNew",
             0.0, 0.0, qty, 0.0, 0.0, "", now, now,
-            None,  # _mkio_ref2
         )
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (order_params,), {"cl_ord_id": cl_ord_id})

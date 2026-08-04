@@ -84,7 +84,7 @@ registerPaneType("session-manager", async (spec, app, host) => {
   host.appendChild(tableWrap);
 
   const table = document.createElement("table");
-  table.className = "mkui-table";
+  table.className = "mkui-table mkfix-table";
   tableWrap.appendChild(table);
 
   const thead = document.createElement("thead");
@@ -101,9 +101,25 @@ registerPaneType("session-manager", async (spec, app, host) => {
   let selectedSessionId = null;
   let formMode = null; // "new" or "edit"
 
+  let configSubId = null;
+  let stateSubId = null;
+
+  function subscribeAll() {
+    subscribeConfig();
+    subscribeState();
+  }
+
+  function unsubscribeAll() {
+    if (configSubId) client.unsubscribe(configSubId);
+    if (stateSubId) client.unsubscribe(stateSubId);
+    configSubId = null;
+    stateSubId = null;
+  }
+
   // ── Session config subscription ──
-  const configSubId = `session-mgr-config-${Date.now()}`;
-  client.subscribe("sessions_query", "query", {
+  function subscribeConfig() {
+    configSubId = `session-mgr-config-${Date.now()}`;
+    client.subscribe("sessions_query", "query", {
     subid: configSubId,
     onSnapshot: (snapRows) => {
       rows.clear();
@@ -128,11 +144,13 @@ registerPaneType("session-manager", async (spec, app, host) => {
         }
       }
     },
-  });
+    });
+  }
 
   // ── Session state subscription ──
-  const stateSubId = `session-mgr-state-${Date.now()}`;
-  client.subscribe("session_state_query", "query", {
+  function subscribeState() {
+    stateSubId = `session-mgr-state-${Date.now()}`;
+    client.subscribe("session_state_query", "query", {
     subid: stateSubId,
     onSnapshot: (snapRows) => {
       for (const row of snapRows) {
@@ -150,7 +168,10 @@ registerPaneType("session-manager", async (spec, app, host) => {
         updateRowState(row.session_id);
       }
     },
-  });
+    });
+  }
+
+  subscribeAll();
 
   function renderRow(data) {
     const key = data._mkio_row || data.session_id;
@@ -276,4 +297,12 @@ registerPaneType("session-manager", async (spec, app, host) => {
       description: form.querySelector("[name=description]").value,
     };
   }
+
+  // Panes are pooled: closing a frame parks the pane and showPane() re-hosts
+  // it without re-running this factory, so re-subscribe on reopen.
+  const paneEl = host.closest("mkui-pane");
+  paneEl?.addEventListener("mkui-pane-close", unsubscribeAll);
+  paneEl?.addEventListener("mkui-pane-open", () => {
+    if (!configSubId) subscribeAll();
+  });
 });

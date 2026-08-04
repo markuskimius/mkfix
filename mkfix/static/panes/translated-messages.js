@@ -29,24 +29,40 @@ registerPaneType("translated-messages", async (spec, app, host) => {
 
   const protocol = spec.protocol || "stream";
   const service = spec.service || "messages_stream";
-  const subid = `trans-msg-${Date.now()}`;
+  let subid = null;
 
-  client.subscribe(service, protocol, {
-    subid, ref: "0",
-    onSnapshot: (rows) => {
-      listWrap.innerHTML = "";
-      messageEls.length = 0;
-      for (const row of rows) addMessage(row);
-      if (autoScroll) listWrap.scrollTop = listWrap.scrollHeight;
-    },
-    onUpdate: (op, row) => {
-      if (op !== "delete") addMessage(row);
-    },
-    onDelta: (changes) => {
-      for (const { op, row } of changes) {
+  function subscribe() {
+    subid = `trans-msg-${Date.now()}`;
+    client.subscribe(service, protocol, {
+      subid,
+      onSnapshot: (rows) => {
+        listWrap.innerHTML = "";
+        messageEls.length = 0;
+        for (const row of rows) addMessage(row);
+        if (autoScroll) listWrap.scrollTop = listWrap.scrollHeight;
+      },
+      onUpdate: (op, row) => {
         if (op !== "delete") addMessage(row);
-      }
-    },
+      },
+      onDelta: (changes) => {
+        for (const { op, row } of changes) {
+          if (op !== "delete") addMessage(row);
+        }
+      },
+    });
+  }
+
+  subscribe();
+
+  // Panes are pooled: closing a frame parks the pane and showPane() re-hosts
+  // it without re-running this factory, so re-subscribe on reopen.
+  const paneEl = host.closest("mkui-pane");
+  paneEl?.addEventListener("mkui-pane-close", () => {
+    if (subid) client.unsubscribe(subid);
+    subid = null;
+  });
+  paneEl?.addEventListener("mkui-pane-open", () => {
+    if (!subid) subscribe();
   });
 
   function addMessage(row) {

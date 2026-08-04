@@ -94,10 +94,12 @@ registerPaneType("order-pad", async (spec, app, host) => {
   });
 
   // ── Populate session dropdowns from live sessions ──
-  const sessionSubId = `pad-sessions-${Date.now()}`;
+  let sessionSubId = null;
   const sessionOptions = [];
 
-  client.subscribe("sessions_query", "query", {
+  function subscribe() {
+    sessionSubId = `pad-sessions-${Date.now()}`;
+    client.subscribe("sessions_query", "query", {
     subid: sessionSubId,
     onSnapshot: (rows) => {
       sessionOptions.length = 0;
@@ -128,6 +130,20 @@ registerPaneType("order-pad", async (spec, app, host) => {
       }
       updateSessionSelects();
     },
+    });
+  }
+
+  subscribe();
+
+  // Panes are pooled: closing a frame parks the pane and showPane() re-hosts
+  // it without re-running this factory, so re-subscribe on reopen.
+  const paneEl = host.closest("mkui-pane");
+  paneEl?.addEventListener("mkui-pane-close", () => {
+    if (sessionSubId) client.unsubscribe(sessionSubId);
+    sessionSubId = null;
+  });
+  paneEl?.addEventListener("mkui-pane-open", () => {
+    if (!sessionSubId) subscribe();
   });
 
   function updateSessionSelects() {

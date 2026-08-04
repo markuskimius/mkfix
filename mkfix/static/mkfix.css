@@ -129,18 +129,29 @@
   border-color: var(--mkui-accent, #0e639c);
 }
 
-/* ── Table row selection ──────────────────────────────────────────── */
+/* ── Hand-built tables (session manager, replay jobs) ─────────────────
+   Scoped to .mkfix-table so mkui's mkio-table selection model
+   (.mkui-selected, .mkui-row-hl) is left untouched in blotter panes. */
 
-.mkui-table tbody tr {
+.mkfix-table {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.mkfix-table th {
+  cursor: default;
+}
+
+.mkfix-table tbody tr {
   cursor: pointer;
 }
 
-.mkui-table tbody tr.selected {
+.mkfix-table tbody tr.selected {
   background: var(--mkui-accent, #0e639c) !important;
   color: var(--mkui-accent-fg, #ffffff);
 }
 
-.mkui-table tbody tr:hover:not(.selected) {
+.mkfix-table tbody tr:hover:not(.selected) {
   background: var(--mkui-bg-hover, #2a2d2e);
 }
 

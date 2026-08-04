@@ -39,12 +39,15 @@ mkfix/
 
 ## Architecture
 
-mkfix wraps mkio's aiohttp server. The FIX TCP engine runs in the same asyncio event loop. FIX messages are written to SQLite via mkio's `WriteBatcher.submit()` with pre-compiled `CompiledOp` objects. The UI is an mkui app with custom pane types. UI commands flow through `FixCommandService`, a custom mkio `Service` subclass.
+mkfix builds its server with mkio's programmatic API: `create_app(cfg)` in `__main__.py` returns an `MkioApp`, which runs schema migration and service preflight before the event loop starts. The FIX TCP engine runs in the same asyncio event loop. FIX messages are written to SQLite via mkio's `WriteBatcher.submit()` with pre-compiled `CompiledOp` objects. The UI is an mkui app with custom pane types. UI commands flow through `FixCommandService`, a custom mkio `Service` subclass.
 
 Key integration points:
+- `create_app` / `MkioApp` — server bootstrap; `app.db` / `app.writer` / `app.change_bus` / `app.services` expose internals to the engine
+- `app.add_service("fix_cmd", FixCommandService)` — custom service registration (not in TOML)
+- `app.on_startup` / `app.on_shutdown` — no-arg async hooks; startup fires after services start, shutdown before they stop
 - `WriteBatcher.submit(ops, params_list, data)` — batched writes from FIX engine
 - `ChangeBus` — drives live UI updates when tables change
-- Custom service protocol via dotted-path string in TOML (`"mkfix.services.fix_command.FixCommandService"`)
+- `[static] "/" = "./static"` — mkio serves `index.html` at `/` and the directory's assets under `/static`; non-root routes (e.g. `/mkui`) serve at their own prefix
 
 ## FIX session protocol
 
@@ -59,9 +62,13 @@ The session state machine in `session.py` handles:
 
 The `FixServer` in `transport.py` reads the first message from each TCP connection to route by CompID pair. It re-serializes the Logon back into the parser buffer so the session can process it normally.
 
+## UI panes
+
+Blotter/viewer panes are declarative `mkio-table` configs in app.json. `fix_orders` stores raw FIX codes (`side_code`, `ord_type_code`) alongside display names so blotter buttons can send `fix_cmd` transactions with `${row.*}` interpolation. `session-manager` stays a custom pane by necessity: it merges `sessions_query` and `session_state_query`, and an mkio query service with JOIN sql drops change events from non-primary watch tables (`query.py` `_listen_changes`), so a joined view cannot live-update status.
+
 ## mkio stream subscriptions
 
-Stream services require a non-empty `ref` string as a cursor. Use `ref: "0"` for initial subscription — empty string is falsy in Python and gets rejected.
+`ref` is optional since mkio 0.1.55 — omitting it starts from the beginning of the buffer. Stream panes may also page backward with `before: true` + `maxcount`.
 
 ## mkio transaction defaults
 

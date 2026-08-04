@@ -3,25 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import sys
 from pathlib import Path
 from typing import Any
 
-from aiohttp import web
+from mkio import create_app
+from mkio.config import load_config
 
 from mkfix import __version__
-from mkio.config import load_config
-from mkio.server import (
-    _on_startup as mkio_on_startup,
-    _on_shutdown as mkio_on_shutdown,
-    _api_services,
-    _api_service_detail,
-    _ws_handler,
-    _make_index_handler,
-)
-
 from mkfix.fix.engine import FixEngine
+from mkfix.services.fix_command import FixCommandService
 
 
 def serve(
@@ -39,56 +30,24 @@ def serve(
     if db_path is not None:
         cfg["db_path"] = db_path
 
-    try:
-        import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    except ImportError:
-        pass
+    app = create_app(cfg)
+    app.add_service("fix_cmd", FixCommandService)
 
-    app = web.Application()
-    app["config"] = cfg
+    engine: FixEngine | None = None
 
-    app.on_startup.append(mkio_on_startup)
-    app.on_startup.append(_start_fix_engine)
-    app.on_shutdown.append(_stop_fix_engine)
-    app.on_shutdown.append(mkio_on_shutdown)
+    async def start_fix_engine() -> None:
+        nonlocal engine
+        engine = FixEngine(db=app.db, writer=app.writer)
+        app.services["fix_cmd"].set_engine(engine)
+        await engine.start()
 
-    # API routes
-    app.router.add_get("/api/services", _api_services)
-    app.router.add_get("/api/services/{service_name}", _api_service_detail)
+    async def stop_fix_engine() -> None:
+        if engine is not None:
+            await engine.stop()
 
-    # WebSocket routes
-    app.router.add_get("/ws", _ws_handler)
-    app.router.add_get("/ws/{service_name}", _ws_handler)
-
-    # Serve mkio.js client library
-    js_path = Path(__import__("mkio").__file__).parent / "client" / "mkio.js"
-    if js_path.exists():
-        async def serve_js(request: web.Request) -> web.FileResponse:
-            return web.FileResponse(
-                js_path, headers={"Content-Type": "application/javascript"}
-            )
-        app.router.add_get("/mkio.js", serve_js)
-
-    # Static file routes — register "/" last so explicit routes take priority
-    deferred_root = None
-    for route, directory in cfg.get("static", {}).items():
-        path = Path(directory).resolve()
-        if route == "/":
-            deferred_root = path
-        else:
-            app.router.add_static(route, path)
-
-    if deferred_root is not None:
-        app.router.add_get("/", _make_index_handler(deferred_root))
-        app.router.add_static("/", deferred_root)
-
-    web.run_app(
-        app,
-        host=cfg.get("host", "0.0.0.0"),
-        port=cfg.get("port", 8080),
-        shutdown_timeout=cfg.get("shutdown_timeout", 0),
-    )
+    app.on_startup(start_fix_engine)
+    app.on_shutdown(stop_fix_engine)
+    app.run()
 
 
 def _load_config(config: str | Path | dict[str, Any]) -> dict[str, Any]:
@@ -106,31 +65,6 @@ def _load_config(config: str | Path | dict[str, Any]) -> dict[str, Any]:
             statics[route] = str(resolved)
 
     return cfg
-
-
-async def _start_fix_engine(app: web.Application) -> None:
-    """Create and start the FIX engine after mkio services are ready."""
-    engine = FixEngine(
-        db=app["db"],
-        writer=app["writer"],
-        bus=app["bus"],
-    )
-    app["fix_engine"] = engine
-
-    # Wire the engine into the FixCommandService
-    from mkfix.services.fix_command import FixCommandService
-    for svc in app["services"].values():
-        if isinstance(svc, FixCommandService):
-            svc.set_engine(engine)
-
-    await engine.start()
-
-
-async def _stop_fix_engine(app: web.Application) -> None:
-    """Stop the FIX engine before mkio shutdown."""
-    engine = app.get("fix_engine")
-    if engine:
-        await engine.stop()
 
 
 def main() -> None:

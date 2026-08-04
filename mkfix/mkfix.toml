@@ -1,3 +1,5 @@
+name = "mkfix"
+version = "0.2.0"
 port = 8080
 host = "0.0.0.0"
 db_path = "mkfix.db"
@@ -17,7 +19,7 @@ columns = { session_id = "TEXT PRIMARY KEY", status = "TEXT DEFAULT 'DOWN'", tx_
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", timestamp = "TEXT NOT NULL", direction = "TEXT NOT NULL", seq_num = "INTEGER DEFAULT 0", msg_type = "TEXT DEFAULT ''", msg_type_name = "TEXT DEFAULT ''", category = "TEXT DEFAULT 'APP'", raw_message = "TEXT NOT NULL", sender_comp = "TEXT DEFAULT ''", target_comp = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", exec_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", body_length = "INTEGER DEFAULT 0", checksum = "TEXT DEFAULT ''" }
 
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", ord_type = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
 
 [tables.fix_executions]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''" }
@@ -60,10 +62,8 @@ update_status = [
     { table = "fix_replay_jobs", op_type = "update", key = ["id"], fields = ["status", "sent_messages", "error_text"] },
 ]
 
-# ─── Custom FIX Command Service ─────────────────────────────────────
-
-[services.fix_cmd]
-protocol = "mkfix.services.fix_command.FixCommandService"
+# fix_cmd (custom FIX command service) is registered programmatically
+# via app.add_service() in __main__.py.
 
 # ─── Query Services ─────────────────────────────────────────────────
 

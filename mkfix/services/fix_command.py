@@ -28,23 +28,23 @@ class FixCommandService(Service):
 
     async def on_message(self, ws: WebSocketResponse, msg: dict[str, Any]) -> None:
         ref = msg.get("ref")
-        msgid = msg.get("msgid")
+        txnid = msg.get("txnid")
         data = msg.get("data", {})
         command = msg.get("op", data.get("command", ""))
 
         await self.notify_monitors("in", msg)
 
         if not self._engine:
-            await ws.send_bytes(make_error(ref, "FIX engine not initialized", msgid=msgid))
+            await ws.send_bytes(make_error(ref, "FIX engine not initialized", txnid=txnid))
             return
 
         try:
             result = await self._dispatch(command, data)
-            resp = make_result(ref, self.name, result, msgid=msgid)
+            resp = make_result(ref, self.name, result, txnid=txnid)
             await ws.send_bytes(resp)
             await self.notify_monitors("out", result)
         except Exception as e:
-            await ws.send_bytes(make_error(ref, str(e), msgid=msgid))
+            await ws.send_bytes(make_error(ref, str(e), txnid=txnid))
 
     async def _dispatch(self, command: str, data: dict[str, Any]) -> dict[str, Any]:
         engine = self._engine
