@@ -92,6 +92,46 @@ class FixCommandService(Service):
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
+        elif command == "accept_order":
+            order_id = await engine.accept_order(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+            )
+            return {"ok": True, "order_id": order_id}
+
+        elif command == "reject_order":
+            await engine.reject_order(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+                text=data.get("text", ""),
+            )
+            return {"ok": True}
+
+        elif command == "fill_order":
+            exec_id = await engine.fill_order(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+                qty=float(data["qty"]),
+                price=float(data["price"]),
+            )
+            return {"ok": True, "exec_id": exec_id}
+
+        elif command == "correct_trade":
+            exec_id = await engine.correct_trade(
+                session_id=data["session_id"],
+                exec_id=data["exec_id"],
+                qty=float(data["qty"]),
+                price=float(data["price"]),
+            )
+            return {"ok": True, "exec_id": exec_id}
+
+        elif command == "bust_trade":
+            exec_id = await engine.bust_trade(
+                session_id=data["session_id"],
+                exec_id=data["exec_id"],
+            )
+            return {"ok": True, "exec_id": exec_id}
+
         elif command == "reset_sequence":
             await engine.reset_sequence(
                 session_id=data["session_id"],

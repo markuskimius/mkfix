@@ -35,8 +35,12 @@
       "label": "Trading",
       "items": [
         { "label": "Order Pad", "action": "pane.show", "args": "order-pad" },
-        { "label": "Order Blotter", "action": "pane.show", "args": "order-blotter" },
-        { "label": "Trade Blotter", "action": "pane.show", "args": "trade-blotter" }
+        { "sep": true },
+        { "label": "Client Orders", "action": "pane.show", "args": "order-blotter" },
+        { "label": "Client Trades", "action": "pane.show", "args": "trade-blotter" },
+        { "sep": true },
+        { "label": "Market Orders", "action": "pane.show", "args": "market-order-blotter" },
+        { "label": "Market Trades", "action": "pane.show", "args": "market-trade-blotter" }
       ]
     },
     {
@@ -65,7 +69,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.3" }
+      { "type": "text", "text": "mkfix v0.4" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -94,10 +98,11 @@
       "type": "order-pad"
     },
     "order-blotter": {
-      "title": "Orders",
+      "title": "Client Orders",
       "type": "mkio-table",
       "service": "orders_query",
       "protocol": "query",
+      "filter": "direction == 'TX'",
       "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
       "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
       "buttons": [
@@ -150,12 +155,141 @@
       ]
     },
     "trade-blotter": {
-      "title": "Trades",
+      "title": "Client Trades",
       "type": "mkio-table",
       "service": "executions_query",
       "protocol": "query",
+      "filter": "direction == 'RX'",
       "columns": ["exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
       "labels": { "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" }
+    },
+    "market-order-blotter": {
+      "title": "Market Orders",
+      "type": "mkio-table",
+      "service": "orders_query",
+      "protocol": "query",
+      "filter": "direction == 'RX'",
+      "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
+      "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "buttons": [
+        {
+          "label": "Accept",
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew"] } },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "accept_order",
+            "data": {
+              "session_id": "${row.session_id}",
+              "cl_ord_id": "${row.cl_ord_id}"
+            }
+          }
+        },
+        {
+          "label": "Reject",
+          "unit": "row",
+          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew"] } },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Reject ${row.cl_ord_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "cl_ord_id": "${row.cl_ord_id}"
+              },
+              "fields": [
+                {
+                  "row": [
+                    { "name": "text", "label": "Reason", "type": "text", "value": "", "width": 1 }
+                  ]
+                }
+              ],
+              "submit": { "label": "Reject", "service": "fix_cmd", "op": "reject_order" }
+            }
+          }
+        },
+        {
+          "label": "Fill",
+          "unit": "row",
+          "enable": { "connected": true, "rowMatch": { "status": ["New", "PartiallyFilled"] } },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Fill ${row.cl_ord_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "cl_ord_id": "${row.cl_ord_id}"
+              },
+              "fields": [
+                {
+                  "row": [
+                    { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.leaves_qty}", "width": 0.5, "required": true },
+                    { "name": "price", "label": "Price", "type": "text", "value": "${row.price}", "width": 0.5, "required": true }
+                  ]
+                }
+              ],
+              "submit": { "label": "Fill", "service": "fix_cmd", "op": "fill_order" }
+            }
+          }
+        }
+      ]
+    },
+    "market-trade-blotter": {
+      "title": "Market Trades",
+      "type": "mkio-table",
+      "service": "executions_query",
+      "protocol": "query",
+      "filter": "direction == 'TX'",
+      "columns": ["exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
+      "labels": { "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" },
+      "buttons": [
+        {
+          "label": "Correct",
+          "unit": "row",
+          "enable": { "connected": true, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"] } },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Correct ${row.exec_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "exec_id": "${row.exec_id}"
+              },
+              "fields": [
+                {
+                  "row": [
+                    { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.last_qty}", "width": 0.5, "required": true },
+                    { "name": "price", "label": "Price", "type": "text", "value": "${row.last_price}", "width": 0.5, "required": true }
+                  ]
+                }
+              ],
+              "submit": { "label": "Correct", "service": "fix_cmd", "op": "correct_trade" }
+            }
+          }
+        },
+        {
+          "label": "Bust",
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"] } },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "bust_trade",
+            "data": {
+              "session_id": "${row.session_id}",
+              "exec_id": "${row.exec_id}"
+            }
+          }
+        }
+      ]
     },
     "ioi-viewer": {
       "title": "IOIs",
@@ -202,15 +336,15 @@
         "type": "split", "dir": "v", "ratios": [0.35, 0.35, 0.30],
         "children": [
           { "type": "tabs", "active": 0, "children": ["order-pad"] },
-          { "type": "tabs", "active": 0, "children": ["order-blotter"] },
-          { "type": "tabs", "active": 0, "children": ["trade-blotter"] }
+          { "type": "tabs", "active": 0, "children": ["order-blotter", "market-order-blotter"] },
+          { "type": "tabs", "active": 0, "children": ["trade-blotter", "market-trade-blotter"] }
         ]
       }
     }
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.3", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.4", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

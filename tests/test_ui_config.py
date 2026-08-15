@@ -125,6 +125,29 @@ class TestServiceReferences:
                 assert target in known_services, \
                     f"pane {pane_id!r} button {button['label']!r} calls unknown service {target!r}"
 
+    def test_pane_filters_use_filterable_columns(self, app_config, toml_config):
+        """A filter on a non-filterable column is silently ignored server-side."""
+        for pane_id, spec in app_config["panes"].items():
+            expr = spec.get("filter")
+            if not expr:
+                continue
+            service = toml_config["services"].get(spec["service"], {})
+            filterable = set(service.get("filterable", []))
+            no_strings = re.sub(r"'[^']*'", "", expr)
+            fields = {t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", no_strings)
+                      if not t.isupper()}
+            assert fields <= filterable, \
+                f"pane {pane_id!r} filters on non-filterable fields {sorted(fields - filterable)}"
+
+    def test_blotters_split_by_direction(self, app_config):
+        """Client and market blotters share services; the direction filter is
+        the only thing keeping received orders out of the client view."""
+        panes = app_config["panes"]
+        assert panes["order-blotter"]["filter"] == "direction == 'TX'"
+        assert panes["market-order-blotter"]["filter"] == "direction == 'RX'"
+        assert panes["trade-blotter"]["filter"] == "direction == 'RX'"
+        assert panes["market-trade-blotter"]["filter"] == "direction == 'TX'"
+
 
 class TestStateBindings:
     def test_select_state_paths_are_declared(self, app_config):

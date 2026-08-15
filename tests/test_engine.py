@@ -10,7 +10,9 @@ from mkio.change_bus import ChangeBus
 from mkio.database import Database
 from mkio.writer import WriteBatcher
 
+from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.engine import FixEngine
+from mkfix.fix.message import FixMessageFactory, parse_fix
 
 TABLES = tomllib.loads(
     (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
@@ -49,7 +51,7 @@ ORDER_COLS = [
     "side", "side_code", "ord_type", "ord_type_code", "price", "stop_price",
     "order_qty", "time_in_force", "status", "cum_qty", "avg_price",
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
-    "created_at", "updated_at",
+    "created_at", "updated_at", "direction",
 ]
 
 ORDER_UPDATE_COLS = [
@@ -66,7 +68,7 @@ def _order_params(**overrides):
         "stop_price": 0.0, "order_qty": 100.0, "time_in_force": "Day",
         "status": "PendingNew", "cum_qty": 0.0, "avg_price": 0.0,
         "leaves_qty": 100.0, "last_qty": 0.0, "last_price": 0.0, "text": "",
-        "transact_time": "", "created_at": "", "updated_at": "",
+        "transact_time": "", "created_at": "", "updated_at": "", "direction": "TX",
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
@@ -155,3 +157,244 @@ class TestCompiledOps:
             db, "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_fix_orders_clord_session'"
         )
         assert len(rows) == 1
+
+
+class StubSession:
+    """Stands in for FixSession: captures sent messages instead of writing to a socket."""
+
+    def __init__(self, session_id="S1"):
+        self.session_id = session_id
+        self.dictionary = FixDictionary("FIX.4.2")
+        self.factory = FixMessageFactory(self.dictionary, "MKT", "CLIENT")
+        self.is_active = True
+        self.sent = []
+
+    async def send_message(self, msg):
+        self.sent.append(msg)
+        return msg
+
+
+NEW_ORDER_RX = "8=FIX.4.2|35=D|11=C100|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
+
+
+class TestMarketFlow:
+    async def _seed(self, engine):
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        return stub
+
+    async def _order(self, db):
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert len(rows) == 1
+        return rows[0]
+
+    @pytest.mark.asyncio
+    async def test_received_order_recorded(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        row = await self._order(db)
+        assert row["direction"] == "RX"
+        assert row["status"] == "PendingNew"
+        assert row["side"] == "Buy"
+        assert row["ord_type"] == "Limit"
+        assert row["order_qty"] == 100.0
+        assert row["leaves_qty"] == 100.0
+
+    @pytest.mark.asyncio
+    async def test_accept_order(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        order_id = await engine.accept_order("S1", "C100")
+        msg = stub.sent[-1]
+        assert msg["35"] == "8"
+        assert msg["20"] == "0"
+        assert msg["150"] == "0"
+        assert msg["39"] == "0"
+        assert msg["37"] == order_id
+        row = await self._order(db)
+        assert row["status"] == "New"
+        assert row["order_id"] == order_id
+        assert row["direction"] == "RX"
+
+    @pytest.mark.asyncio
+    async def test_reject_order(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.reject_order("S1", "C100", text="unknown symbol")
+        msg = stub.sent[-1]
+        assert msg["150"] == "8"
+        assert msg["39"] == "8"
+        assert msg["58"] == "unknown symbol"
+        row = await self._order(db)
+        assert row["status"] == "Rejected"
+        assert row["leaves_qty"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_fill_order_partial_then_full(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+
+        exec_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        msg = stub.sent[-1]
+        assert msg["150"] == "1"
+        assert msg["17"] == exec_id
+        row = await self._order(db)
+        assert row["status"] == "PartiallyFilled"
+        assert row["cum_qty"] == 40.0
+        assert row["leaves_qty"] == 60.0
+
+        await engine.fill_order("S1", "C100", qty=60, price=151.0)
+        msg = stub.sent[-1]
+        assert msg["150"] == "2"
+        row = await self._order(db)
+        assert row["status"] == "Filled"
+        assert row["cum_qty"] == 100.0
+        assert row["leaves_qty"] == 0.0
+        assert row["avg_price"] == pytest.approx((40 * 150.0 + 60 * 151.0) / 100)
+
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [e["exec_type"] for e in execs] == ["PartialFill", "Fill"]
+        assert all(e["direction"] == "TX" for e in execs)
+
+    @pytest.mark.asyncio
+    async def test_fill_rejects_nonpositive_qty(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        with pytest.raises(ValueError):
+            await engine.fill_order("S1", "C100", qty=0, price=150.0)
+
+    @pytest.mark.asyncio
+    async def test_correct_trade(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+        exec_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+
+        new_exec_id = await engine.correct_trade("S1", exec_id, qty=50, price=151.0)
+        msg = stub.sent[-1]
+        assert msg["20"] == "2"
+        assert msg["19"] == exec_id
+        assert msg["17"] == new_exec_id
+        assert msg["32"] == "50"
+
+        row = await self._order(db)
+        assert row["cum_qty"] == 50.0
+        assert row["leaves_qty"] == 50.0
+        assert row["avg_price"] == pytest.approx(151.0)
+        assert row["status"] == "PartiallyFilled"
+
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert execs[-1]["exec_type"] == "Correct"
+        assert execs[-1]["direction"] == "TX"
+        assert execs[-1]["last_qty"] == 50.0
+
+    @pytest.mark.asyncio
+    async def test_bust_trade(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+        exec_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+
+        await engine.bust_trade("S1", exec_id)
+        msg = stub.sent[-1]
+        assert msg["20"] == "1"
+        assert msg["19"] == exec_id
+        assert msg["39"] == "0"
+
+        row = await self._order(db)
+        assert row["cum_qty"] == 0.0
+        assert row["leaves_qty"] == 100.0
+        assert row["avg_price"] == 0.0
+        assert row["status"] == "New"
+
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert execs[-1]["exec_type"] == "Cancel"
+        assert execs[-1]["last_qty"] == 40.0
+
+    @pytest.mark.asyncio
+    async def test_correct_rejects_nonpositive_qty(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+        exec_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        with pytest.raises(ValueError):
+            await engine.correct_trade("S1", exec_id, qty=0, price=150.0)
+
+    @pytest.mark.asyncio
+    async def test_correct_and_bust_require_known_execution(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        with pytest.raises(ValueError, match="Unknown execution"):
+            await engine.correct_trade("S1", "NOPE", qty=10, price=1.0)
+        with pytest.raises(ValueError, match="Unknown execution"):
+            await engine.bust_trade("S1", "NOPE")
+
+    @pytest.mark.asyncio
+    async def test_bust_of_partial_leaves_remainder(self, stack):
+        """Busting one of two fills reverses only that fill's quantity."""
+        db, writer, engine = stack
+        await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+        first = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        await engine.fill_order("S1", "C100", qty=60, price=151.0)
+
+        await engine.bust_trade("S1", first)
+        row = await self._order(db)
+        assert row["cum_qty"] == 60.0
+        assert row["leaves_qty"] == 40.0
+        assert row["status"] == "PartiallyFilled"
+        assert row["avg_price"] == pytest.approx(151.0)
+
+    @pytest.mark.asyncio
+    async def test_actions_require_active_session(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        stub.is_active = False
+        with pytest.raises(ValueError, match="not active"):
+            await engine.accept_order("S1", "C100")
+
+    @pytest.mark.asyncio
+    async def test_actions_require_known_order(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        with pytest.raises(ValueError, match="Unknown order"):
+            await engine.accept_order("S1", "NOPE")
+
+
+CLIENT_FILL_RX = (
+    "8=FIX.4.2|35=8|11=C1|37=O1|17=E1|20=0|150=2|39=2|55=AAPL|54=1|"
+    "38=100|32=100|31=150|14=100|6=150|151=0"
+)
+
+CLIENT_BUST_RX = (
+    "8=FIX.4.2|35=8|11=C1|37=O1|17=E2|19=E1|20=1|150=1|39=0|55=AAPL|54=1|"
+    "38=100|32=100|31=150|14=0|6=0|151=100"
+)
+
+
+class TestClientExecutionReports:
+    @pytest.mark.asyncio
+    async def test_fill_records_tx_order_and_rx_execution(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_RX))
+        orders = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert orders[0]["direction"] == "TX"
+        assert orders[0]["status"] == "Filled"
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert execs[0]["direction"] == "RX"
+        assert execs[0]["exec_type"] == "Fill"
+
+    @pytest.mark.asyncio
+    async def test_bust_recorded_via_exec_trans_type(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_RX))
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_BUST_RX))
+        orders = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert orders[0]["cum_qty"] == 0.0
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [e["exec_type"] for e in execs] == ["Fill", "Cancel"]
+        assert execs[-1]["exec_type_code"] == "1"

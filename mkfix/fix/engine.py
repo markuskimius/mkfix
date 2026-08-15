@@ -15,6 +15,36 @@ if TYPE_CHECKING:
     from mkio.database import Database
     from mkio.writer import WriteBatcher, CompiledOp
 
+ORDER_COLS = [
+    "cl_ord_id", "session_id", "order_id", "orig_cl_ord_id", "symbol",
+    "side", "side_code", "ord_type", "ord_type_code", "price", "stop_price",
+    "order_qty", "time_in_force", "status", "cum_qty", "avg_price",
+    "leaves_qty", "last_qty", "last_price", "text", "transact_time",
+    "created_at", "updated_at", "direction",
+]
+
+ORDER_UPDATE_COLS = [
+    "order_id", "status", "cum_qty", "avg_price", "leaves_qty",
+    "last_qty", "last_price", "text", "transact_time", "updated_at",
+]
+
+EXEC_COLS = [
+    "session_id", "exec_id", "order_id", "cl_ord_id", "symbol",
+    "side", "side_code", "last_qty", "last_price", "cum_qty",
+    "avg_price", "exec_type", "exec_type_code", "leaves_qty",
+    "transact_time", "text", "timestamp", "direction",
+]
+
+
+def _order_params(row: dict[str, Any]) -> tuple[Any, ...]:
+    insert = tuple(row[c] for c in ORDER_COLS)
+    update = tuple(row[c] for c in ORDER_UPDATE_COLS)
+    return insert + (None,) + update
+
+
+def _exec_params(row: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(row[c] for c in EXEC_COLS) + (None,)
+
 
 class FixEngine:
     """Manages all FIX sessions and bridges messages to mkio's database."""
@@ -25,6 +55,8 @@ class FixEngine:
         self.sessions: dict[str, FixSession] = {}
         self._compiled_ops: dict[str, tuple[CompiledOp, ...]] = {}
         self._ord_id_counter = 0
+        self._order_id_counter = 0
+        self._exec_id_counter = 0
         self._replay_tasks: dict[int, ReplayTask] = {}
 
     async def start(self) -> None:
@@ -76,42 +108,26 @@ class FixEngine:
             param_names=tuple(state_cols + ["_mkio_ref"] + state_cols[1:]),
         ),)
 
-        order_cols = [
-            "cl_ord_id", "session_id", "order_id", "orig_cl_ord_id", "symbol",
-            "side", "side_code", "ord_type", "ord_type_code", "price", "stop_price", "order_qty",
-            "time_in_force", "status", "cum_qty", "avg_price", "leaves_qty",
-            "last_qty", "last_price", "text", "transact_time", "created_at", "updated_at",
-        ]
-        order_update_cols = [
-            "order_id", "status", "cum_qty", "avg_price", "leaves_qty",
-            "last_qty", "last_price", "text", "transact_time", "updated_at",
-        ]
-        order_set = ", ".join(f"{c} = ?" for c in order_update_cols)
+        order_set = ", ".join(f"{c} = ?" for c in ORDER_UPDATE_COLS)
         self._compiled_ops["upsert_order"] = (CompiledOp(
             table="fix_orders",
             op_type="upsert",
             sql=(
-                f"INSERT INTO fix_orders ({', '.join(order_cols)}, _mkio_ref) "
-                f"VALUES ({', '.join(['?'] * (len(order_cols) + 1))}) "
+                f"INSERT INTO fix_orders ({', '.join(ORDER_COLS)}, _mkio_ref) "
+                f"VALUES ({', '.join(['?'] * (len(ORDER_COLS) + 1))}) "
                 f"ON CONFLICT(cl_ord_id, session_id) DO UPDATE SET {order_set}, _mkio_ref = excluded._mkio_ref "
                 f"RETURNING *"
             ),
-            param_names=tuple(order_cols + ["_mkio_ref"] + order_update_cols),
+            param_names=tuple(ORDER_COLS + ["_mkio_ref"] + ORDER_UPDATE_COLS),
         ),)
 
-        exec_cols = [
-            "session_id", "exec_id", "order_id", "cl_ord_id", "symbol",
-            "side", "side_code", "last_qty", "last_price", "cum_qty",
-            "avg_price", "exec_type", "exec_type_code", "leaves_qty",
-            "transact_time", "text", "timestamp",
-        ]
-        exec_placeholders = ", ".join(["?"] * (len(exec_cols) + 1))
-        exec_col_str = ", ".join(exec_cols + ["_mkio_ref"])
+        exec_placeholders = ", ".join(["?"] * (len(EXEC_COLS) + 1))
+        exec_col_str = ", ".join(EXEC_COLS + ["_mkio_ref"])
         self._compiled_ops["insert_execution"] = (CompiledOp(
             table="fix_executions",
             op_type="insert",
             sql=f"INSERT INTO fix_executions ({exec_col_str}) VALUES ({exec_placeholders}) RETURNING *",
-            param_names=tuple(exec_cols + ["_mkio_ref"]),
+            param_names=tuple(EXEC_COLS + ["_mkio_ref"]),
         ),)
 
         ioi_cols = [
@@ -270,6 +286,8 @@ class FixEngine:
         """Handle an inbound application-level FIX message."""
         if msg_type == "8":
             await self._handle_execution_report(session, msg)
+        elif msg_type == "D":
+            await self._handle_new_order(session, msg)
         elif msg_type == "6":
             await self._handle_ioi(session, msg, "RX")
         elif msg_type == "J":
@@ -287,73 +305,108 @@ class FixEngine:
         ord_type_code = msg.get("40", "")
         tif_code = msg.get("59", "")
         exec_type_code = msg.get("150", "")
+        trans_type_code = msg.get("20", "0")
 
-        order_params = (
-            cl_ord_id,
-            session_id,
-            msg.get("37", ""),
-            msg.get("41", ""),
-            msg.get("55", ""),
-            dictionary.enum_name("54", side_code),
-            side_code,
-            dictionary.enum_name("40", ord_type_code),
-            ord_type_code,
-            msg.get_float("44", 0.0),
-            msg.get_float("99", 0.0),
-            msg.get_float("38", 0.0),
-            dictionary.enum_name("59", tif_code),
-            dictionary.enum_name("39", status_code),
-            msg.get_float("14", 0.0),
-            msg.get_float("6", 0.0),
-            msg.get_float("151", 0.0),
-            msg.get_float("32", 0.0),
-            msg.get_float("31", 0.0),
-            msg.get("58", ""),
-            msg.get("60", ""),
-            now,
-            now,
-            None,  # _mkio_ref
-            # ON CONFLICT SET values:
-            msg.get("37", ""),
-            dictionary.enum_name("39", status_code),
-            msg.get_float("14", 0.0),
-            msg.get_float("6", 0.0),
-            msg.get_float("151", 0.0),
-            msg.get_float("32", 0.0),
-            msg.get_float("31", 0.0),
-            msg.get("58", ""),
-            msg.get("60", ""),
-            now,
-        )
-
+        order_row = {
+            "cl_ord_id": cl_ord_id,
+            "session_id": session_id,
+            "order_id": msg.get("37", ""),
+            "orig_cl_ord_id": msg.get("41", ""),
+            "symbol": msg.get("55", ""),
+            "side": dictionary.enum_name("54", side_code),
+            "side_code": side_code,
+            "ord_type": dictionary.enum_name("40", ord_type_code),
+            "ord_type_code": ord_type_code,
+            "price": msg.get_float("44", 0.0),
+            "stop_price": msg.get_float("99", 0.0),
+            "order_qty": msg.get_float("38", 0.0),
+            "time_in_force": dictionary.enum_name("59", tif_code),
+            "status": dictionary.enum_name("39", status_code),
+            "cum_qty": msg.get_float("14", 0.0),
+            "avg_price": msg.get_float("6", 0.0),
+            "leaves_qty": msg.get_float("151", 0.0),
+            "last_qty": msg.get_float("32", 0.0),
+            "last_price": msg.get_float("31", 0.0),
+            "text": msg.get("58", ""),
+            "transact_time": msg.get("60", ""),
+            "created_at": now,
+            "updated_at": now,
+            "direction": "TX",
+        }
         ops = self._compiled_ops["upsert_order"]
-        await self.writer.submit(ops, (order_params,), {"cl_ord_id": cl_ord_id})
+        await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
 
-        # Record fill/partial fill as execution
-        if exec_type_code in ("1", "2", "F"):
-            exec_params = (
-                session_id,
-                msg.get("17", ""),
-                msg.get("37", ""),
-                cl_ord_id,
-                msg.get("55", ""),
-                dictionary.enum_name("54", side_code),
-                side_code,
-                msg.get_float("32", 0.0),
-                msg.get_float("31", 0.0),
-                msg.get_float("14", 0.0),
-                msg.get_float("6", 0.0),
-                dictionary.enum_name("150", exec_type_code),
-                exec_type_code,
-                msg.get_float("151", 0.0),
-                msg.get("60", ""),
-                msg.get("58", ""),
-                now,
-                None,  # _mkio_ref
-            )
+        # Record fills — and trade corrections/busts, which FIX 4.2 flags via
+        # ExecTransType(20) rather than ExecType(150)
+        if trans_type_code in ("1", "2"):
+            exec_type = dictionary.enum_name("20", trans_type_code)
+            exec_code = trans_type_code
+        elif exec_type_code in ("1", "2", "F"):
+            exec_type = dictionary.enum_name("150", exec_type_code)
+            exec_code = exec_type_code
+        else:
+            return
 
-            ops = self._compiled_ops["insert_execution"]
-            await self.writer.submit(ops, (exec_params,), {"exec_id": msg.get("17", "")})
+        exec_row = {
+            "session_id": session_id,
+            "exec_id": msg.get("17", ""),
+            "order_id": msg.get("37", ""),
+            "cl_ord_id": cl_ord_id,
+            "symbol": msg.get("55", ""),
+            "side": dictionary.enum_name("54", side_code),
+            "side_code": side_code,
+            "last_qty": msg.get_float("32", 0.0),
+            "last_price": msg.get_float("31", 0.0),
+            "cum_qty": msg.get_float("14", 0.0),
+            "avg_price": msg.get_float("6", 0.0),
+            "exec_type": exec_type,
+            "exec_type_code": exec_code,
+            "leaves_qty": msg.get_float("151", 0.0),
+            "transact_time": msg.get("60", ""),
+            "text": msg.get("58", ""),
+            "timestamp": now,
+            "direction": "RX",
+        }
+        ops = self._compiled_ops["insert_execution"]
+        await self.writer.submit(ops, (_exec_params(exec_row),), {"exec_id": msg.get("17", "")})
+
+    async def _handle_new_order(self, session: FixSession, msg: FixMessage) -> None:
+        """Record an inbound NewOrderSingle (35=D) as a received order awaiting action."""
+        dictionary = session.dictionary
+        now = _fix_timestamp()
+        qty = msg.get_float("38", 0.0)
+        side_code = msg.get("54", "")
+        ord_type_code = msg.get("40", "")
+        tif_code = msg.get("59", "")
+
+        order_row = {
+            "cl_ord_id": msg.get("11", ""),
+            "session_id": session.session_id,
+            "order_id": "",
+            "orig_cl_ord_id": "",
+            "symbol": msg.get("55", ""),
+            "side": dictionary.enum_name("54", side_code),
+            "side_code": side_code,
+            "ord_type": dictionary.enum_name("40", ord_type_code),
+            "ord_type_code": ord_type_code,
+            "price": msg.get_float("44", 0.0),
+            "stop_price": msg.get_float("99", 0.0),
+            "order_qty": qty,
+            "time_in_force": dictionary.enum_name("59", tif_code),
+            "status": "PendingNew",
+            "cum_qty": 0.0,
+            "avg_price": 0.0,
+            "leaves_qty": qty,
+            "last_qty": 0.0,
+            "last_price": 0.0,
+            "text": msg.get("58", ""),
+            "transact_time": msg.get("60", ""),
+            "created_at": now,
+            "updated_at": now,
+            "direction": "RX",
+        }
+        ops = self._compiled_ops["upsert_order"]
+        await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
 
     async def send_new_order(
         self,
@@ -389,38 +442,34 @@ class FixEngine:
         # Pre-populate order row as PendingNew
         dictionary = session.dictionary
         now = _fix_timestamp()
-        order_params = (
-            cl_ord_id,
-            session_id,
-            "",  # order_id
-            "",  # orig_cl_ord_id
-            symbol,
-            dictionary.enum_name("54", side),
-            side,
-            dictionary.enum_name("40", ord_type),
-            ord_type,
-            price or 0.0,
-            0.0,  # stop_price
-            qty,
-            dictionary.enum_name("59", tif),
-            "PendingNew",
-            0.0,  # cum_qty
-            0.0,  # avg_price
-            qty,  # leaves_qty
-            0.0,  # last_qty
-            0.0,  # last_price
-            "",   # text
-            now,  # transact_time
-            now,  # created_at
-            now,  # updated_at
-            None,  # _mkio_ref
-            # ON CONFLICT SET values (won't conflict for new order):
-            "",  # order_id
-            "PendingNew",
-            0.0, 0.0, qty, 0.0, 0.0, "", now, now,
-        )
+        order_row = {
+            "cl_ord_id": cl_ord_id,
+            "session_id": session_id,
+            "order_id": "",
+            "orig_cl_ord_id": "",
+            "symbol": symbol,
+            "side": dictionary.enum_name("54", side),
+            "side_code": side,
+            "ord_type": dictionary.enum_name("40", ord_type),
+            "ord_type_code": ord_type,
+            "price": price or 0.0,
+            "stop_price": 0.0,
+            "order_qty": qty,
+            "time_in_force": dictionary.enum_name("59", tif),
+            "status": "PendingNew",
+            "cum_qty": 0.0,
+            "avg_price": 0.0,
+            "leaves_qty": qty,
+            "last_qty": 0.0,
+            "last_price": 0.0,
+            "text": "",
+            "transact_time": now,
+            "created_at": now,
+            "updated_at": now,
+            "direction": "TX",
+        }
         ops = self._compiled_ops["upsert_order"]
-        await self.writer.submit(ops, (order_params,), {"cl_ord_id": cl_ord_id})
+        await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
 
         return cl_ord_id
 
@@ -477,6 +526,269 @@ class FixEngine:
         )
         await session.send_message(msg)
         return cl_ord_id
+
+    # ── Market-side actions (received orders, sent trades) ───────────
+
+    def _active_session(self, session_id: str) -> FixSession:
+        session = self.sessions.get(session_id)
+        if not session or not session.is_active:
+            raise ValueError(f"Session {session_id} is not active")
+        return session
+
+    async def _load_order(self, session_id: str, cl_ord_id: str) -> dict[str, Any]:
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT * FROM fix_orders WHERE session_id = ? AND cl_ord_id = ?",
+            (session_id, cl_ord_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if not row:
+            raise ValueError(f"Unknown order: {cl_ord_id} on {session_id}")
+        return dict(row)
+
+    async def _load_execution(self, session_id: str, exec_id: str) -> dict[str, Any]:
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT * FROM fix_executions WHERE session_id = ? AND exec_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (session_id, exec_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if not row:
+            raise ValueError(f"Unknown execution: {exec_id} on {session_id}")
+        return dict(row)
+
+    async def _write_order(self, order: dict[str, Any], **updates: Any) -> None:
+        row = {**order, **updates, "updated_at": _fix_timestamp()}
+        ops = self._compiled_ops["upsert_order"]
+        await self.writer.submit(ops, (_order_params(row),), {"cl_ord_id": row["cl_ord_id"]})
+
+    async def _write_sent_execution(
+        self, order: dict[str, Any], exec_id: str, exec_type: str,
+        exec_type_code: str, last_qty: float, last_price: float,
+        cum_qty: float, avg_price: float, leaves_qty: float,
+    ) -> None:
+        now = _fix_timestamp()
+        exec_row = {
+            "session_id": order["session_id"],
+            "exec_id": exec_id,
+            "order_id": order["order_id"],
+            "cl_ord_id": order["cl_ord_id"],
+            "symbol": order["symbol"],
+            "side": order["side"],
+            "side_code": order["side_code"],
+            "last_qty": last_qty,
+            "last_price": last_price,
+            "cum_qty": cum_qty,
+            "avg_price": avg_price,
+            "exec_type": exec_type,
+            "exec_type_code": exec_type_code,
+            "leaves_qty": leaves_qty,
+            "transact_time": now,
+            "text": "",
+            "timestamp": now,
+            "direction": "TX",
+        }
+        ops = self._compiled_ops["insert_execution"]
+        await self.writer.submit(ops, (_exec_params(exec_row),), {"exec_id": exec_id})
+
+    async def accept_order(self, session_id: str, cl_ord_id: str) -> str:
+        """Accept a received order: send ExecutionReport(New), return the OrderID."""
+        session = self._active_session(session_id)
+        order = await self._load_order(session_id, cl_ord_id)
+
+        order_id = order["order_id"] or self._next_order_id()
+        msg = session.factory.execution_report(
+            order_id=order_id,
+            cl_ord_id=cl_ord_id,
+            exec_id=self._next_exec_id(),
+            exec_trans_type="0",
+            exec_type="0",
+            ord_status="0",
+            symbol=order["symbol"],
+            side=order["side_code"],
+            qty=order["order_qty"],
+            leaves_qty=order["order_qty"],
+        )
+        await session.send_message(msg)
+
+        await self._write_order(order, order_id=order_id, status="New")
+        return order_id
+
+    async def reject_order(self, session_id: str, cl_ord_id: str, text: str = "") -> None:
+        """Reject a received order: send ExecutionReport(Rejected)."""
+        session = self._active_session(session_id)
+        order = await self._load_order(session_id, cl_ord_id)
+
+        msg = session.factory.execution_report(
+            order_id=order["order_id"],
+            cl_ord_id=cl_ord_id,
+            exec_id=self._next_exec_id(),
+            exec_trans_type="0",
+            exec_type="8",
+            ord_status="8",
+            symbol=order["symbol"],
+            side=order["side_code"],
+            qty=order["order_qty"],
+            cum_qty=order["cum_qty"],
+            avg_price=order["avg_price"],
+            text=text or None,
+        )
+        await session.send_message(msg)
+
+        await self._write_order(order, status="Rejected", leaves_qty=0.0, text=text)
+
+    async def fill_order(
+        self, session_id: str, cl_ord_id: str, qty: float, price: float,
+    ) -> str:
+        """Fill a received order (partially or fully) and return the ExecID."""
+        if qty <= 0:
+            raise ValueError("Fill quantity must be positive")
+        session = self._active_session(session_id)
+        dictionary = session.dictionary
+        order = await self._load_order(session_id, cl_ord_id)
+
+        order_id = order["order_id"] or self._next_order_id()
+        exec_id = self._next_exec_id()
+        cum_qty = order["cum_qty"] + qty
+        leaves_qty = max(order["order_qty"] - cum_qty, 0.0)
+        avg_price = (order["avg_price"] * order["cum_qty"] + qty * price) / cum_qty
+        status_code = "2" if leaves_qty == 0 else "1"
+
+        msg = session.factory.execution_report(
+            order_id=order_id,
+            cl_ord_id=cl_ord_id,
+            exec_id=exec_id,
+            exec_trans_type="0",
+            exec_type=status_code,
+            ord_status=status_code,
+            symbol=order["symbol"],
+            side=order["side_code"],
+            qty=order["order_qty"],
+            last_qty=qty,
+            last_price=price,
+            cum_qty=cum_qty,
+            avg_price=avg_price,
+            leaves_qty=leaves_qty,
+        )
+        await session.send_message(msg)
+
+        await self._write_order(
+            order, order_id=order_id, status=dictionary.enum_name("39", status_code),
+            cum_qty=cum_qty, avg_price=avg_price, leaves_qty=leaves_qty,
+            last_qty=qty, last_price=price,
+        )
+        await self._write_sent_execution(
+            {**order, "order_id": order_id}, exec_id,
+            dictionary.enum_name("150", status_code), status_code,
+            qty, price, cum_qty, avg_price, leaves_qty,
+        )
+        return exec_id
+
+    async def correct_trade(
+        self, session_id: str, exec_id: str, qty: float, price: float,
+    ) -> str:
+        """Correct a sent trade (ExecTransType=Correct) and return the new ExecID."""
+        if qty <= 0:
+            raise ValueError("Corrected quantity must be positive")
+        session = self._active_session(session_id)
+        dictionary = session.dictionary
+        execution = await self._load_execution(session_id, exec_id)
+        order = await self._load_order(session_id, execution["cl_ord_id"])
+
+        new_exec_id = self._next_exec_id()
+        cum_qty = max(order["cum_qty"] - execution["last_qty"] + qty, 0.0)
+        leaves_qty = max(order["order_qty"] - cum_qty, 0.0)
+        notional = (order["avg_price"] * order["cum_qty"]
+                    - execution["last_qty"] * execution["last_price"] + qty * price)
+        avg_price = notional / cum_qty if cum_qty > 0 else 0.0
+        status_code = "0" if cum_qty == 0 else ("2" if leaves_qty == 0 else "1")
+
+        msg = session.factory.execution_report(
+            order_id=execution["order_id"],
+            cl_ord_id=execution["cl_ord_id"],
+            exec_id=new_exec_id,
+            exec_trans_type="2",
+            exec_type=status_code,
+            ord_status=status_code,
+            symbol=execution["symbol"],
+            side=execution["side_code"],
+            qty=order["order_qty"],
+            last_qty=qty,
+            last_price=price,
+            cum_qty=cum_qty,
+            avg_price=avg_price,
+            leaves_qty=leaves_qty,
+            exec_ref_id=exec_id,
+        )
+        await session.send_message(msg)
+
+        await self._write_order(
+            order, status=dictionary.enum_name("39", status_code),
+            cum_qty=cum_qty, avg_price=avg_price, leaves_qty=leaves_qty,
+            last_qty=qty, last_price=price,
+        )
+        await self._write_sent_execution(
+            order, new_exec_id, dictionary.enum_name("20", "2"), "2",
+            qty, price, cum_qty, avg_price, leaves_qty,
+        )
+        return new_exec_id
+
+    async def bust_trade(self, session_id: str, exec_id: str) -> str:
+        """Bust a sent trade (ExecTransType=Cancel) and return the new ExecID."""
+        session = self._active_session(session_id)
+        dictionary = session.dictionary
+        execution = await self._load_execution(session_id, exec_id)
+        order = await self._load_order(session_id, execution["cl_ord_id"])
+
+        new_exec_id = self._next_exec_id()
+        cum_qty = max(order["cum_qty"] - execution["last_qty"], 0.0)
+        leaves_qty = max(order["order_qty"] - cum_qty, 0.0)
+        notional = (order["avg_price"] * order["cum_qty"]
+                    - execution["last_qty"] * execution["last_price"])
+        avg_price = notional / cum_qty if cum_qty > 0 else 0.0
+        status_code = "0" if cum_qty == 0 else "1"
+
+        msg = session.factory.execution_report(
+            order_id=execution["order_id"],
+            cl_ord_id=execution["cl_ord_id"],
+            exec_id=new_exec_id,
+            exec_trans_type="1",
+            exec_type=status_code,
+            ord_status=status_code,
+            symbol=execution["symbol"],
+            side=execution["side_code"],
+            qty=order["order_qty"],
+            last_qty=execution["last_qty"],
+            last_price=execution["last_price"],
+            cum_qty=cum_qty,
+            avg_price=avg_price,
+            leaves_qty=leaves_qty,
+            exec_ref_id=exec_id,
+        )
+        await session.send_message(msg)
+
+        await self._write_order(
+            order, status=dictionary.enum_name("39", status_code),
+            cum_qty=cum_qty, avg_price=avg_price, leaves_qty=leaves_qty,
+            last_qty=execution["last_qty"], last_price=execution["last_price"],
+        )
+        await self._write_sent_execution(
+            order, new_exec_id, dictionary.enum_name("20", "1"), "1",
+            execution["last_qty"], execution["last_price"],
+            cum_qty, avg_price, leaves_qty,
+        )
+        return new_exec_id
+
+    def _next_order_id(self) -> str:
+        self._order_id_counter += 1
+        return f"MKFIX-O-{self._order_id_counter:08d}"
+
+    def _next_exec_id(self) -> str:
+        self._exec_id_counter += 1
+        return f"MKFIX-E-{self._exec_id_counter:08d}"
 
     async def reset_sequence(self, session_id: str, tx: int = 1, rx: int = 1) -> None:
         session = self.sessions.get(session_id)

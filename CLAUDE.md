@@ -64,7 +64,7 @@ The `FixServer` in `transport.py` reads the first message from each TCP connecti
 
 ## UI panes
 
-Blotter/viewer panes are declarative `mkio-table` configs in app.json. `raw-messages` sets `select: { state: "selected_message" }` so mkio-table mirrors the cursor's row into app state; `message-detail` subscribes to that path and renders the field breakdown. `fix_orders` stores raw FIX codes (`side_code`, `ord_type_code`) alongside display names so blotter buttons can send `fix_cmd` transactions with `${row.*}` interpolation. `session-manager` stays a custom pane by necessity: it merges `sessions_query` and `session_state_query`, and an mkio query service with JOIN sql drops change events from non-primary watch tables (`query.py` `_listen_changes`), so a joined view cannot live-update status.
+Blotter/viewer panes are declarative `mkio-table` configs in app.json. `raw-messages` sets `select: { state: "selected_message" }` so mkio-table mirrors the cursor's row into app state; `message-detail` subscribes to that path and renders the field breakdown. `fix_orders` stores raw FIX codes (`side_code`, `ord_type_code`) alongside display names so blotter buttons can send `fix_cmd` transactions with `${row.*}` interpolation. The client (order-blotter/trade-blotter) and market (market-order-blotter/market-trade-blotter) blotters share `orders_query`/`executions_query` and are split only by a `filter` on the `direction` column (`TX` = sent by this engine, `RX` = received): client orders and market trades are TX, market orders and client trades are RX. Market Orders buttons drive `fix_cmd` ops `accept_order`/`reject_order`/`fill_order`; Market Trades drives `correct_trade`/`bust_trade`, which use FIX 4.2 ExecTransType(20) Correct/Cancel with ExecRefID(19) — the exec blotter is append-only, so corrections and busts add rows (`exec_type` "Correct"/"Cancel") rather than mutating fills. `session-manager` stays a custom pane by necessity: it merges `sessions_query` and `session_state_query`, and an mkio query service with JOIN sql drops change events from non-primary watch tables (`query.py` `_listen_changes`), so a joined view cannot live-update status.
 
 ## mkio stream subscriptions
 
@@ -81,6 +81,10 @@ Transaction service ops require explicit `defaults` in TOML config for any field
 ## Versioning
 
 `mkfix/__init__.py` `__version__` is the single source of truth: pyproject.toml reads it via hatch dynamic version, and `_load_config` injects it as the server's reported version (mkfix.toml must not carry a `version` key). The one deliberate copy is in `static/app.json` (`mkio.expect.version` and the statusbar text) — it is the client build's baked stamp, so a stale cached client fails the handshake against an upgraded server. On a release bump, update `__version__` and the two app.json spots; `tests/test_ui_config.py` fails if they drift.
+
+## Security notes
+
+The Message Replay feature loads production FIX logs into test sessions, so files and hosts whose names carry `prod`/`production` may legitimately appear here — treat them with care: replayed production data stays on this machine and must never be committed, pushed, or sent to external services.
 
 ## Running tests
 

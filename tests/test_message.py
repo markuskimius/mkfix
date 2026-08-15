@@ -235,3 +235,38 @@ class TestFixMessageFactory:
         assert msg["41"] == "ORD-001"
         assert msg["38"] == "200"
         assert msg["44"] == "155.0"
+
+    def test_execution_report_fill(self):
+        msg = self.factory.execution_report(
+            order_id="O-001", cl_ord_id="ORD-001", exec_id="E-001",
+            exec_trans_type="0", exec_type="1", ord_status="1",
+            symbol="AAPL", side="1", qty=100,
+            last_qty=40, last_price=150.25, cum_qty=40,
+            avg_price=150.25, leaves_qty=60,
+        )
+        assert msg["35"] == "8"
+        assert msg["37"] == "O-001"
+        assert msg["11"] == "ORD-001"
+        assert msg["17"] == "E-001"
+        assert msg["20"] == "0"
+        assert msg["150"] == "1"
+        assert msg["39"] == "1"
+        assert msg["38"] == "100"
+        assert msg["32"] == "40"
+        assert msg["31"] == "150.25"
+        assert msg["14"] == "40"
+        assert msg["151"] == "60"
+        assert msg["60"] is not None
+        assert msg.get("19") is None
+        assert msg.get("58") is None
+
+    def test_execution_report_bust_references_original(self):
+        msg = self.factory.execution_report(
+            order_id="O-001", cl_ord_id="ORD-001", exec_id="E-002",
+            exec_trans_type="1", exec_type="0", ord_status="0",
+            symbol="AAPL", side="1", qty=100,
+            exec_ref_id="E-001", text="busted",
+        )
+        assert msg["20"] == "1"
+        assert msg["19"] == "E-001"
+        assert msg["58"] == "busted"

@@ -227,6 +227,51 @@ class FixMessageFactory:
             fields["38"] = str(int(qty))
         return self.create(fields)
 
+    def execution_report(
+        self,
+        order_id: str,
+        cl_ord_id: str,
+        exec_id: str,
+        exec_trans_type: str,
+        exec_type: str,
+        ord_status: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        last_qty: float = 0.0,
+        last_price: float = 0.0,
+        cum_qty: float = 0.0,
+        avg_price: float = 0.0,
+        leaves_qty: float = 0.0,
+        exec_ref_id: str | None = None,
+        text: str | None = None,
+        **extra: str,
+    ) -> FixMessage:
+        fields: dict[str, str] = {
+            "35": "8",
+            "37": order_id,
+            "11": cl_ord_id,
+            "17": exec_id,
+            "20": exec_trans_type,
+            "150": exec_type,
+            "39": ord_status,
+            "55": symbol,
+            "54": side,
+            "38": str(int(qty)),
+            "32": str(int(last_qty)),
+            "31": str(last_price),
+            "14": str(int(cum_qty)),
+            "6": str(avg_price),
+            "151": str(int(leaves_qty)),
+            "60": _fix_timestamp(),
+        }
+        if exec_ref_id:
+            fields["19"] = exec_ref_id
+        if text:
+            fields["58"] = text
+        fields.update(extra)
+        return self.create(fields)
+
     def cancel_replace_request(
         self,
         cl_ord_id: str,

@@ -28,6 +28,11 @@ def _make_engine():
     engine.send_new_order = AsyncMock(return_value="MKFIX-00000001")
     engine.send_cancel = AsyncMock(return_value="MKFIX-00000002")
     engine.send_cancel_replace = AsyncMock(return_value="MKFIX-00000003")
+    engine.accept_order = AsyncMock(return_value="MKFIX-O-00000001")
+    engine.reject_order = AsyncMock()
+    engine.fill_order = AsyncMock(return_value="MKFIX-E-00000001")
+    engine.correct_trade = AsyncMock(return_value="MKFIX-E-00000002")
+    engine.bust_trade = AsyncMock(return_value="MKFIX-E-00000003")
     return engine
 
 
@@ -184,6 +189,77 @@ class TestDispatch:
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
             side="1", qty=200.0, ord_type="2", price=151.0,
         )
+
+    @pytest.mark.asyncio
+    async def test_accept_order(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "accept_order",
+            "data": {"session_id": "S1", "cl_ord_id": "C100"},
+        })
+        engine.accept_order.assert_awaited_once_with(session_id="S1", cl_ord_id="C100")
+        resp = _sent(ws)
+        assert resp["ok"] is True
+        assert resp["order_id"] == "MKFIX-O-00000001"
+
+    @pytest.mark.asyncio
+    async def test_reject_order_defaults_text(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "reject_order",
+            "data": {"session_id": "S1", "cl_ord_id": "C100"},
+        })
+        engine.reject_order.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C100", text="",
+        )
+
+    @pytest.mark.asyncio
+    async def test_fill_order_coerces_and_returns_execid(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "fill_order",
+            "data": {"session_id": "S1", "cl_ord_id": "C100",
+                     "qty": "40", "price": "150.25"},
+        })
+        engine.fill_order.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C100", qty=40.0, price=150.25,
+        )
+        resp = _sent(ws)
+        assert resp["ok"] is True
+        assert resp["exec_id"] == "MKFIX-E-00000001"
+
+    @pytest.mark.asyncio
+    async def test_correct_trade(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "correct_trade",
+            "data": {"session_id": "S1", "exec_id": "E1",
+                     "qty": "50", "price": "151.00"},
+        })
+        engine.correct_trade.assert_awaited_once_with(
+            session_id="S1", exec_id="E1", qty=50.0, price=151.0,
+        )
+        assert _sent(ws)["exec_id"] == "MKFIX-E-00000002"
+
+    @pytest.mark.asyncio
+    async def test_bust_trade(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "bust_trade",
+            "data": {"session_id": "S1", "exec_id": "E1"},
+        })
+        engine.bust_trade.assert_awaited_once_with(session_id="S1", exec_id="E1")
+        assert _sent(ws)["exec_id"] == "MKFIX-E-00000003"
 
     @pytest.mark.asyncio
     async def test_reset_sequence_coerces_ints(self):

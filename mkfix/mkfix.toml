@@ -19,10 +19,10 @@ columns = { session_id = "TEXT PRIMARY KEY", status = "TEXT DEFAULT 'DOWN'", tx_
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", timestamp = "TEXT NOT NULL", direction = "TEXT NOT NULL", seq_num = "INTEGER DEFAULT 0", msg_type = "TEXT DEFAULT ''", msg_type_name = "TEXT DEFAULT ''", category = "TEXT DEFAULT 'APP'", raw_message = "TEXT NOT NULL", sender_comp = "TEXT DEFAULT ''", target_comp = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", exec_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", body_length = "INTEGER DEFAULT 0", checksum = "TEXT DEFAULT ''" }
 
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'" }
 
 [tables.fix_executions]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'" }
 
 [tables.fix_iois]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", ioi_id = "TEXT NOT NULL", ioi_trans_type = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ioi_qty = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", valid_until = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
@@ -79,12 +79,12 @@ primary_table = "fix_session_state"
 [services.orders_query]
 protocol = "query"
 primary_table = "fix_orders"
-filterable = ["session_id", "status", "symbol", "side"]
+filterable = ["session_id", "status", "symbol", "side", "direction"]
 
 [services.executions_query]
 protocol = "query"
 primary_table = "fix_executions"
-filterable = ["session_id", "symbol", "side"]
+filterable = ["session_id", "symbol", "side", "direction"]
 
 [services.messages_query]
 protocol = "query"
