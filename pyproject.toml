@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mkfix"
-version = "0.2.0"
+version = "0.3.0"
 description = "FIX protocol testing engine built on mkio and mkui"
 readme = "README.md"
 license = "GPL-2.0-only"
@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "mkio>=0.1.65",
-    "mkui>=0.1.48",
+    "mkui>=0.1.52",
 ]
 
 [project.optional-dependencies]

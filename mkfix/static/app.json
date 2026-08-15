@@ -27,7 +27,6 @@
       "label": "Messages",
       "items": [
         { "label": "Raw Messages", "action": "pane.show", "args": "raw-messages" },
-        { "label": "Translated Messages", "action": "pane.show", "args": "translated-messages" },
         { "sep": true },
         { "label": "Message Detail", "action": "pane.show", "args": "message-detail" }
       ]
@@ -66,7 +65,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.2" }
+      { "type": "text", "text": "mkfix v0.3" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -81,14 +80,10 @@
       "service": "messages_stream",
       "protocol": "stream",
       "start": "today",
+      "live": true,
       "columns": ["timestamp", "direction", "seq_num", "session_id", "msg_type_name", "raw_message"],
-      "labels": { "timestamp": "Time", "direction": "Dir", "seq_num": "Seq", "session_id": "Session", "msg_type_name": "Type", "raw_message": "Message" }
-    },
-    "translated-messages": {
-      "title": "Translated Messages",
-      "type": "translated-messages",
-      "service": "messages_stream",
-      "protocol": "stream"
+      "labels": { "timestamp": "Time", "direction": "Dir", "seq_num": "Seq", "session_id": "Session", "msg_type_name": "Type", "raw_message": "Message" },
+      "select": { "state": "selected_message" }
     },
     "message-detail": {
       "title": "Message Detail",
@@ -195,7 +190,7 @@
       "layout": {
         "type": "split", "dir": "v", "ratios": [0.5, 0.5],
         "children": [
-          { "type": "tabs", "active": 0, "children": ["raw-messages", "translated-messages"] },
+          { "type": "tabs", "active": 0, "children": ["raw-messages"] },
           { "type": "tabs", "active": 0, "children": ["message-detail"] }
         ]
       }
@@ -215,7 +210,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.2", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.3", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

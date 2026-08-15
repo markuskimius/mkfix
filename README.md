@@ -9,10 +9,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Session Management** -- Configure and run FIX sessions as initiator or
   acceptor. Multiple sessions on the same port with different CompIDs.
 - **Raw Message Viewer** -- Live virtualized table of FIX messages in tag=value
-  format with time-based paging, per-column filters, sorting, and clipboard
-  copy.
-- **Translated Message Viewer** -- Human-readable view with field names, enum
-  translations, and expandable detail rows.
+  format, streaming live by default, with time-based paging, per-column filters,
+  sorting, and clipboard copy.
+- **Message Detail** -- Field-by-field breakdown of the message selected in the
+  Raw Message viewer, with field names and enum translations.
 - **Order Pad** -- Send NewOrderSingle, Cancel, and Cancel/Replace requests.
 - **Order & Trade Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Cancel and Cancel/Replace
@@ -56,8 +56,9 @@ Then open http://localhost:8080 in your browser.
    the other as acceptor on the same port.
 2. **Start both sessions** -- Logon and Heartbeat messages will stream in the Raw
    Messages pane.
-3. **Send an order** from the Order Pad -- see it in Raw Messages, Translated
-   Messages, and the Order Blotter.
+3. **Send an order** from the Order Pad -- see it in Raw Messages and the Order
+   Blotter; click any message row to break it out field by field in Message
+   Detail.
 4. **Replay a log** from Tools > Replay Control -- load a production FIX log and
    replay it into a test session.
 

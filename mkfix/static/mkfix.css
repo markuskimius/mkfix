@@ -210,43 +210,6 @@
   text-overflow: ellipsis;
 }
 
-/* ── Translated message viewer ────────────────────────────────────── */
-
-.mkfix-trans-msg {
-  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
-}
-
-.mkfix-trans-header {
-  display: flex;
-  gap: 8px;
-  padding: 3px 8px;
-  cursor: pointer;
-  align-items: center;
-}
-
-.mkfix-trans-header:hover {
-  background: var(--mkui-bg-hover, #2a2d2e);
-}
-
-.mkfix-trans-summary {
-  color: var(--mkui-fg, #d4d4d4);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mkfix-expand-btn {
-  color: var(--mkui-fg-mute, #858585);
-  font-size: 10px;
-  flex-shrink: 0;
-}
-
-.mkfix-trans-detail {
-  padding: 4px 16px 8px;
-  background: var(--mkui-bg-alt, #252526);
-}
-
 /* ── Detail table ─────────────────────────────────────────────────── */
 
 .mkfix-detail-table {
