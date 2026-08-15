@@ -11,6 +11,10 @@ import aiohttp
 import pytest
 import pytest_asyncio
 
+from mkfix import __version__
+
+MAJOR_MINOR = ".".join(__version__.split(".")[:2])
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -80,7 +84,7 @@ class TestWebSocket:
         async with aiohttp.ClientSession() as s:
             async with s.ws_connect(server + "/ws") as ws:
                 await ws.send_json({"service": "_mkio", "type": "request",
-                                    "ref": "r1", "data": {"version": "0.2"}})
+                                    "ref": "r1", "data": {"version": MAJOR_MINOR}})
                 row = (await _recv_json(ws))["row"]
         assert row["name"] == "mkfix"
         assert row["compatible"] is True

@@ -1,5 +1,5 @@
 name = "mkfix"
-version = "0.2.0"
+# version is injected from mkfix.__version__ at load time; do not add one here
 port = 8080
 host = "0.0.0.0"
 db_path = "mkfix.db"

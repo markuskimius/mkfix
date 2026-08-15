@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mkfix"
-version = "0.3.0"
+dynamic = ["version"]
 description = "FIX protocol testing engine built on mkio and mkui"
 readme = "README.md"
 license = "GPL-2.0-only"
@@ -40,3 +40,6 @@ Issues = "https://github.com/markuskimius/mkfix/issues"
 
 [project.scripts]
 mkfix = "mkfix.__main__:main"
+
+[tool.hatch.version]
+path = "mkfix/__init__.py"

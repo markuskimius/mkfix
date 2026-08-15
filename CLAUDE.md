@@ -78,6 +78,10 @@ Blotter/viewer panes are declarative `mkio-table` configs in app.json. `raw-mess
 
 Transaction service ops require explicit `defaults` in TOML config for any field that the client may omit. Fields listed in `fields` without a corresponding `defaults` entry are treated as required.
 
+## Versioning
+
+`mkfix/__init__.py` `__version__` is the single source of truth: pyproject.toml reads it via hatch dynamic version, and `_load_config` injects it as the server's reported version (mkfix.toml must not carry a `version` key). The one deliberate copy is in `static/app.json` (`mkio.expect.version` and the statusbar text) — it is the client build's baked stamp, so a stale cached client fails the handshake against an upgraded server. On a release bump, update `__version__` and the two app.json spots; `tests/test_ui_config.py` fails if they drift.
+
 ## Running tests
 
 ```bash

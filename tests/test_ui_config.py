@@ -149,6 +149,15 @@ class TestVersions:
         major_minor = ".".join(__version__.split(".")[:2])
         assert app_config["mkio"]["expect"]["version"] == major_minor
 
+    def test_server_version_injected_from_package(self, toml_config):
+        """The server must report mkfix.__version__; a version in mkfix.toml
+        would suggest it is the source of truth and invite drift."""
+        assert "version" not in toml_config
+
+        from mkfix.__main__ import _load_config
+        cfg = _load_config(ROOT / "mkfix" / "mkfix.toml")
+        assert cfg["version"] == __version__
+
     def test_statusbar_version_matches_package(self, app_config):
         major_minor = ".".join(__version__.split(".")[:2])
         texts = [item.get("text", "") for item in app_config["statusbar"]["right"]]
@@ -170,3 +179,12 @@ class TestVersions:
         assert floors, "mkui missing from dependencies"
         floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
         assert floor >= (0, 1, 52), f"mkui floor {floor} predates live/select support"
+
+    def test_readme_dependency_floors_match_pyproject(self):
+        """README repeats the mkio/mkui floors in prose; keep them honest."""
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        readme = (ROOT / "README.md").read_text()
+        for dep in pyproject["project"]["dependencies"]:
+            name, floor = dep.split(">=")
+            assert f"{name}) >= {floor}" in readme, \
+                f"README floor for {name} does not match pyproject ({dep})"

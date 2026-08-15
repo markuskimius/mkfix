@@ -54,6 +54,7 @@ def _load_config(config: str | Path | dict[str, Any]) -> dict[str, Any]:
     """Load config, resolving mkui static path and relative directories."""
     config_dir = Path(config).parent.resolve() if isinstance(config, (str, Path)) else Path.cwd()
     cfg = load_config(config)
+    cfg["version"] = __version__
 
     statics = cfg.get("static", {})
     for route, directory in list(statics.items()):

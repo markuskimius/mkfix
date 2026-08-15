@@ -80,7 +80,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.1.65 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.1.48 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.1.52 -- Web Components UI
   framework
 
 ## License
