@@ -322,6 +322,17 @@ class TestServiceReferences:
         assert panes["trade-blotter"]["filter"] == "direction == 'RX'"
         assert panes["market-trade-blotter"]["filter"] == "direction == 'TX'"
 
+    def test_blotter_titles_state_direction(self, app_config):
+        """Blotter titles say the direction outright (Sent = TX, Received = RX);
+        a title contradicting the pane's filter would mislead."""
+        panes = app_config["panes"]
+        for pane_id in ("order-blotter", "trade-blotter",
+                        "market-order-blotter", "market-trade-blotter"):
+            spec = panes[pane_id]
+            word = "Sent" if "'TX'" in spec["filter"] else "Received"
+            assert spec["title"].startswith(word), \
+                f"pane {pane_id!r} titled {spec['title']!r} but filters {spec['filter']!r}"
+
     def test_client_and_market_blotters_in_separate_frames(self, app_config):
         """Since 0.6 both sides of the flow are visible at once; folding them
         back into shared tabs hides one side and breaks the two-window demo."""

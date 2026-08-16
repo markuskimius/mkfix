@@ -67,7 +67,7 @@ update_status = [
 
 # ─── ReqRep Services ────────────────────────────────────────────────
 
-# Feeds the session dropdown in the Client Orders "New" dialog: dialog
+# Feeds the session dropdown in the Sent Orders "New" dialog: dialog
 # optionsFrom needs request-reply, which query services do not answer.
 [services.sessions_list]
 protocol = "reqrep"

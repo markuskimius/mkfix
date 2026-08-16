@@ -32,11 +32,11 @@
     {
       "label": "Trading",
       "items": [
-        { "label": "Client Orders", "action": "pane.show", "args": "order-blotter" },
-        { "label": "Client Trades", "action": "pane.show", "args": "trade-blotter" },
+        { "label": "Sent Orders", "action": "pane.show", "args": "order-blotter" },
+        { "label": "Received Trades", "action": "pane.show", "args": "trade-blotter" },
         { "sep": true },
-        { "label": "Market Orders", "action": "pane.show", "args": "market-order-blotter" },
-        { "label": "Market Trades", "action": "pane.show", "args": "market-trade-blotter" }
+        { "label": "Received Orders", "action": "pane.show", "args": "market-order-blotter" },
+        { "label": "Sent Trades", "action": "pane.show", "args": "market-trade-blotter" }
       ]
     },
     {
@@ -90,7 +90,7 @@
       "type": "message-detail"
     },
     "order-blotter": {
-      "title": "Client Orders",
+      "title": "Sent Orders",
       "type": "mkio-table",
       "service": "orders_query",
       "protocol": "query",
@@ -203,7 +203,7 @@
       ]
     },
     "trade-blotter": {
-      "title": "Client Trades",
+      "title": "Received Trades",
       "type": "mkio-table",
       "service": "executions_query",
       "protocol": "query",
@@ -212,7 +212,7 @@
       "labels": { "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" }
     },
     "market-order-blotter": {
-      "title": "Market Orders",
+      "title": "Received Orders",
       "type": "mkio-table",
       "service": "orders_query",
       "protocol": "query",
@@ -289,7 +289,7 @@
       ]
     },
     "market-trade-blotter": {
-      "title": "Market Trades",
+      "title": "Sent Trades",
       "type": "mkio-table",
       "service": "executions_query",
       "protocol": "query",

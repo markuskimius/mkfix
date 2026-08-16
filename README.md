@@ -14,13 +14,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
   sorting, and clipboard copy.
 - **Message Detail** -- Field-by-field breakdown of the message selected in the
   Messages viewer, with field names and enum translations.
-- **Client Order & Trade Blotters** -- Live order state machine driven by
+- **Sent Orders & Received Trades Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
   the blotter's New dialog; Cancel and Cancel/Replace working orders directly
   from the blotter.
-- **Market Order & Trade Blotters** -- The other side of the same flow:
-  received orders can be accepted, rejected, and filled from the Market Orders
-  blotter; sent trades can be corrected and busted from the Market Trades
+- **Received Orders & Sent Trades Blotters** -- The other side of the same flow:
+  received orders can be accepted, rejected, and filled from the Received Orders
+  blotter; sent trades can be corrected and busted from the Sent Trades
   blotter (FIX 4.2 ExecTransType Correct/Cancel with ExecRefID).
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
@@ -61,11 +61,11 @@ Then open http://localhost:8080 in your browser.
    initiator pointing at the other as acceptor on the same port.
 2. **Start both sessions** -- Logon and Heartbeat messages will stream in the
    Messages pane.
-3. **Send an order** with the New button on the Client Orders blotter -- see
+3. **Send an order** with the New button on the Sent Orders blotter -- see
    it in the Messages pane and the blotter itself; click any message row to
    break it out field by field in the Detail pane. On the acceptor side it
-   appears in Market Orders, where it can be accepted, rejected, or filled;
-   fills land in Market Trades, where they can be corrected or busted.
+   appears in Received Orders, where it can be accepted, rejected, or filled;
+   fills land in Sent Trades, where they can be corrected or busted.
 4. **Replay a log** from Tools > Replay Control -- load a production FIX log and
    replay it into a test session.
 
