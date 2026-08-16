@@ -33,6 +33,11 @@ def _make_engine():
     engine.fill_order = AsyncMock(return_value="MKFIX-E-00000001")
     engine.correct_trade = AsyncMock(return_value="MKFIX-E-00000002")
     engine.bust_trade = AsyncMock(return_value="MKFIX-E-00000003")
+    engine.accept_cancel = AsyncMock(return_value="MKFIX-E-00000004")
+    engine.accept_replace = AsyncMock(return_value="MKFIX-E-00000005")
+    engine.reject_cancel = AsyncMock()
+    engine.accept_request = AsyncMock(return_value="MKFIX-E-00000006")
+    engine.reject_request = AsyncMock()
     return engine
 
 
@@ -260,6 +265,70 @@ class TestDispatch:
         })
         engine.bust_trade.assert_awaited_once_with(session_id="S1", exec_id="E1")
         assert _sent(ws)["exec_id"] == "MKFIX-E-00000003"
+
+    @pytest.mark.asyncio
+    async def test_accept_request(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "accept_request",
+            "data": {"session_id": "S1", "cl_ord_id": "C1"},
+        })
+        engine.accept_request.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
+        assert _sent(ws)["exec_id"] == "MKFIX-E-00000006"
+
+    @pytest.mark.asyncio
+    async def test_reject_request_defaults_text(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "reject_request",
+            "data": {"session_id": "S1", "cl_ord_id": "C1"},
+        })
+        engine.reject_request.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C1", text="",
+        )
+        assert _sent(ws)["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_accept_cancel(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "accept_cancel",
+            "data": {"session_id": "S1", "cl_ord_id": "C1"},
+        })
+        engine.accept_cancel.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
+        assert _sent(ws)["exec_id"] == "MKFIX-E-00000004"
+
+    @pytest.mark.asyncio
+    async def test_accept_replace(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "accept_replace",
+            "data": {"session_id": "S1", "cl_ord_id": "C1"},
+        })
+        engine.accept_replace.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
+        assert _sent(ws)["exec_id"] == "MKFIX-E-00000005"
+
+    @pytest.mark.asyncio
+    async def test_reject_cancel_defaults_text(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "reject_cancel",
+            "data": {"session_id": "S1", "cl_ord_id": "C1"},
+        })
+        engine.reject_cancel.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C1", text="",
+        )
+        assert _sent(ws)["ok"] is True
 
     @pytest.mark.asyncio
     async def test_reset_sequence_coerces_ints(self):

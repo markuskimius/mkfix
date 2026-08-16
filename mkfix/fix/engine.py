@@ -21,11 +21,13 @@ ORDER_COLS = [
     "order_qty", "time_in_force", "status", "cum_qty", "avg_price",
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
     "created_at", "updated_at", "direction",
+    "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
 ]
 
 ORDER_UPDATE_COLS = [
     "order_id", "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
+    "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
 ]
 
 EXEC_COLS = [
@@ -109,6 +111,12 @@ class FixEngine:
         ),)
 
         order_set = ", ".join(f"{c} = ?" for c in ORDER_UPDATE_COLS)
+        # order_qty/price update from the insert values, guarded so an
+        # ExecutionReport without tag 38/44 can't zero them out.
+        order_set += (
+            ", order_qty = iif(excluded.order_qty = 0, fix_orders.order_qty, excluded.order_qty)"
+            ", price = iif(excluded.price = 0, fix_orders.price, excluded.price)"
+        )
         self._compiled_ops["upsert_order"] = (CompiledOp(
             table="fix_orders",
             op_type="upsert",
@@ -288,6 +296,10 @@ class FixEngine:
             await self._handle_execution_report(session, msg)
         elif msg_type == "D":
             await self._handle_new_order(session, msg)
+        elif msg_type == "F":
+            await self._handle_cancel_request(session, msg, "Cancel")
+        elif msg_type == "G":
+            await self._handle_cancel_request(session, msg, "Replace")
         elif msg_type == "6":
             await self._handle_ioi(session, msg, "RX")
         elif msg_type == "J":
@@ -332,6 +344,10 @@ class FixEngine:
             "created_at": now,
             "updated_at": now,
             "direction": "TX",
+            "pending_action": "",
+            "pending_cl_ord_id": "",
+            "pending_qty": 0.0,
+            "pending_price": 0.0,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -404,9 +420,42 @@ class FixEngine:
             "created_at": now,
             "updated_at": now,
             "direction": "RX",
+            "pending_action": "New",
+            "pending_cl_ord_id": "",
+            "pending_qty": 0.0,
+            "pending_price": 0.0,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
+
+    async def _handle_cancel_request(self, session: FixSession, msg: FixMessage, action: str) -> None:
+        """Park an inbound OrderCancelRequest (35=F) or OrderCancelReplaceRequest
+        (35=G) on the received order so the market side can accept or reject it.
+        The order's status stays live — fills remain possible while a request
+        is pending, as on a real market."""
+        session_id = session.session_id
+        orig_cl_ord_id = msg.get("41", "")
+        request_id = msg.get("11", "")
+        try:
+            order = await self._load_order(session_id, orig_cl_ord_id)
+        except ValueError:
+            reject = session.factory.order_cancel_reject(
+                cl_ord_id=request_id,
+                orig_cl_ord_id=orig_cl_ord_id,
+                ord_status="8",
+                response_to="1" if action == "Cancel" else "2",
+                text=f"Unknown order: {orig_cl_ord_id}",
+            )
+            await session.send_message(reject)
+            return
+
+        await self._write_order(
+            order,
+            pending_action=action,
+            pending_cl_ord_id=request_id,
+            pending_qty=msg.get_float("38", 0.0),
+            pending_price=msg.get_float("44", 0.0),
+        )
 
     async def send_new_order(
         self,
@@ -467,6 +516,10 @@ class FixEngine:
             "created_at": now,
             "updated_at": now,
             "direction": "TX",
+            "pending_action": "",
+            "pending_cl_ord_id": "",
+            "pending_qty": 0.0,
+            "pending_price": 0.0,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -614,7 +667,7 @@ class FixEngine:
         )
         await session.send_message(msg)
 
-        await self._write_order(order, order_id=order_id, status="New")
+        await self._write_order(order, order_id=order_id, status="New", pending_action="")
         return order_id
 
     async def reject_order(self, session_id: str, cl_ord_id: str, text: str = "") -> None:
@@ -638,7 +691,8 @@ class FixEngine:
         )
         await session.send_message(msg)
 
-        await self._write_order(order, status="Rejected", leaves_qty=0.0, text=text)
+        await self._write_order(order, status="Rejected", leaves_qty=0.0, text=text,
+                                pending_action="")
 
     async def fill_order(
         self, session_id: str, cl_ord_id: str, qty: float, price: float,
@@ -686,6 +740,127 @@ class FixEngine:
             qty, price, cum_qty, avg_price, leaves_qty,
         )
         return exec_id
+
+    async def accept_request(self, session_id: str, cl_ord_id: str) -> str:
+        """Accept whatever is pending on the order — the new order itself,
+        a cancel request, or a replace request."""
+        order = await self._load_order(session_id, cl_ord_id)
+        action = order["pending_action"]
+        if action == "New":
+            return await self.accept_order(session_id, cl_ord_id)
+        if action == "Cancel":
+            return await self.accept_cancel(session_id, cl_ord_id)
+        if action == "Replace":
+            return await self.accept_replace(session_id, cl_ord_id)
+        raise ValueError(f"Nothing pending on {cl_ord_id}")
+
+    async def reject_request(self, session_id: str, cl_ord_id: str, text: str = "") -> None:
+        """Reject whatever is pending on the order — ExecutionReport(Rejected)
+        for a new order, OrderCancelReject for a cancel/replace request."""
+        order = await self._load_order(session_id, cl_ord_id)
+        action = order["pending_action"]
+        if action == "New":
+            await self.reject_order(session_id, cl_ord_id, text=text)
+        elif action in ("Cancel", "Replace"):
+            await self.reject_cancel(session_id, cl_ord_id, text=text)
+        else:
+            raise ValueError(f"Nothing pending on {cl_ord_id}")
+
+    async def accept_cancel(self, session_id: str, cl_ord_id: str) -> str:
+        """Accept the pending cancel request: send ExecutionReport(Canceled)."""
+        session = self._active_session(session_id)
+        order = await self._load_order(session_id, cl_ord_id)
+        if order["pending_action"] != "Cancel":
+            raise ValueError(f"No pending cancel request on {cl_ord_id}")
+
+        exec_id = self._next_exec_id()
+        msg = session.factory.execution_report(
+            order_id=order["order_id"],
+            cl_ord_id=cl_ord_id,
+            exec_id=exec_id,
+            exec_trans_type="0",
+            exec_type="4",
+            ord_status="4",
+            symbol=order["symbol"],
+            side=order["side_code"],
+            qty=order["order_qty"],
+            cum_qty=order["cum_qty"],
+            avg_price=order["avg_price"],
+            leaves_qty=0.0,
+            **{"41": order["pending_cl_ord_id"]},
+        )
+        await session.send_message(msg)
+
+        await self._write_order(
+            order, status="Canceled", leaves_qty=0.0,
+            pending_action="", pending_cl_ord_id="",
+            pending_qty=0.0, pending_price=0.0,
+        )
+        return exec_id
+
+    async def accept_replace(self, session_id: str, cl_ord_id: str) -> str:
+        """Accept the pending cancel/replace request: send ExecutionReport(Replaced)
+        with the requested quantity and price."""
+        session = self._active_session(session_id)
+        order = await self._load_order(session_id, cl_ord_id)
+        if order["pending_action"] != "Replace":
+            raise ValueError(f"No pending replace request on {cl_ord_id}")
+
+        new_qty = order["pending_qty"] or order["order_qty"]
+        new_price = order["pending_price"] or order["price"]
+        if new_qty < order["cum_qty"]:
+            raise ValueError("Replaced quantity is below executed quantity")
+
+        leaves_qty = new_qty - order["cum_qty"]
+        exec_id = self._next_exec_id()
+        msg = session.factory.execution_report(
+            order_id=order["order_id"],
+            cl_ord_id=cl_ord_id,
+            exec_id=exec_id,
+            exec_trans_type="0",
+            exec_type="5",
+            ord_status="5",
+            symbol=order["symbol"],
+            side=order["side_code"],
+            qty=new_qty,
+            cum_qty=order["cum_qty"],
+            avg_price=order["avg_price"],
+            leaves_qty=leaves_qty,
+            **{"41": order["pending_cl_ord_id"], "44": str(new_price)},
+        )
+        await session.send_message(msg)
+
+        await self._write_order(
+            order, status="Replaced", order_qty=new_qty, price=new_price,
+            leaves_qty=leaves_qty,
+            pending_action="", pending_cl_ord_id="",
+            pending_qty=0.0, pending_price=0.0,
+        )
+        return exec_id
+
+    async def reject_cancel(self, session_id: str, cl_ord_id: str, text: str = "") -> None:
+        """Reject the pending cancel/replace request: send OrderCancelReject (35=9).
+        The order itself is untouched — its status was never changed by the request."""
+        session = self._active_session(session_id)
+        dictionary = session.dictionary
+        order = await self._load_order(session_id, cl_ord_id)
+        if not order["pending_action"]:
+            raise ValueError(f"No pending cancel/replace request on {cl_ord_id}")
+
+        msg = session.factory.order_cancel_reject(
+            cl_ord_id=order["pending_cl_ord_id"],
+            orig_cl_ord_id=cl_ord_id,
+            ord_status=dictionary.enum_code("39", order["status"]),
+            response_to="1" if order["pending_action"] == "Cancel" else "2",
+            order_id=order["order_id"],
+            text=text or None,
+        )
+        await session.send_message(msg)
+
+        await self._write_order(
+            order, pending_action="", pending_cl_ord_id="",
+            pending_qty=0.0, pending_price=0.0,
+        )
 
     async def correct_trade(
         self, session_id: str, exec_id: str, qty: float, price: float,

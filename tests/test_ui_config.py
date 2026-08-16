@@ -337,6 +337,35 @@ class TestServiceReferences:
         assert ops == {"New": "send_new_order", "Replace": "send_cancel_replace",
                        "Cancel": "send_cancel"}
 
+    def test_received_orders_buttons_gate_on_pending_action(self, app_config):
+        """One Accept/Reject pair handles new orders and cancel/replace
+        requests alike: both gate on pending_action (a new order arrives as
+        pending "New") and dispatch via the request ops, while Fill gates on
+        status only — a pending request must not block fills on the
+        still-working order."""
+        buttons = app_config["panes"]["market-order-blotter"]["buttons"]
+        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill"]
+        by = {b["label"]: b for b in buttons}
+        pending = {"pending_action": ["New", "Cancel", "Replace"]}
+        assert by["Accept"]["enable"]["rowMatch"] == pending
+        assert by["Reject"]["enable"]["rowMatch"] == pending
+        assert by["Accept"]["action"]["op"] == "accept_request"
+        assert by["Reject"]["action"]["dialog"]["submit"]["op"] == "reject_request"
+        assert "pending_action" not in by["Fill"]["enable"].get("rowMatch", {})
+
+    def test_pane_columns_exist_in_primary_table(self, app_config, toml_config):
+        """A misspelled column renders as a permanently empty blotter column."""
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            service = toml_config["services"].get(spec.get("service"), {})
+            table = toml_config["tables"].get(service.get("primary_table"), {})
+            if not table or "columns" not in spec:
+                continue
+            checked += 1
+            unknown = set(spec["columns"]) - set(table["columns"])
+            assert not unknown, f"pane {pane_id!r} shows unknown columns {sorted(unknown)}"
+        assert checked, "no pane columns checked against a table schema"
+
     def test_blotter_titles_state_direction(self, app_config):
         """Blotter titles say the direction outright (Sent = TX, Received = RX);
         a title contradicting the pane's filter would mislead."""

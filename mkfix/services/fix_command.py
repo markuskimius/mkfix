@@ -116,6 +116,43 @@ class FixCommandService(Service):
             )
             return {"ok": True, "exec_id": exec_id}
 
+        elif command == "accept_request":
+            exec_id = await engine.accept_request(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+            )
+            return {"ok": True, "exec_id": exec_id}
+
+        elif command == "reject_request":
+            await engine.reject_request(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+                text=data.get("text", ""),
+            )
+            return {"ok": True}
+
+        elif command == "accept_cancel":
+            exec_id = await engine.accept_cancel(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+            )
+            return {"ok": True, "exec_id": exec_id}
+
+        elif command == "accept_replace":
+            exec_id = await engine.accept_replace(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+            )
+            return {"ok": True, "exec_id": exec_id}
+
+        elif command == "reject_cancel":
+            await engine.reject_cancel(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
+                text=data.get("text", ""),
+            )
+            return {"ok": True}
+
         elif command == "correct_trade":
             exec_id = await engine.correct_trade(
                 session_id=data["session_id"],

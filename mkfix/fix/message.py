@@ -300,6 +300,30 @@ class FixMessageFactory:
         fields.update(extra)
         return self.create(fields)
 
+    def order_cancel_reject(
+        self,
+        cl_ord_id: str,
+        orig_cl_ord_id: str,
+        ord_status: str,
+        response_to: str,
+        order_id: str = "",
+        text: str | None = None,
+    ) -> FixMessage:
+        """OrderCancelReject (35=9); response_to is CxlRejResponseTo(434):
+        1 = cancel request, 2 = cancel/replace request."""
+        fields: dict[str, str] = {
+            "35": "9",
+            "37": order_id or "NONE",
+            "11": cl_ord_id,
+            "41": orig_cl_ord_id,
+            "39": ord_status,
+            "434": response_to,
+            "60": _fix_timestamp(),
+        }
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
 
 def parse_fix(data: bytes | str) -> FixMessage:
     """Parse a FIX message from raw bytes or pipe-delimited string."""

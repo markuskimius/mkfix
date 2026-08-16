@@ -65,7 +65,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.6" }
+      { "type": "text", "text": "mkfix v0.7" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -217,16 +217,16 @@
       "service": "orders_query",
       "protocol": "query",
       "filter": "direction == 'RX'",
-      "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
-      "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "pending_action", "pending_qty", "pending_price", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
+      "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "pending_action": "Pending", "pending_qty": "New Qty", "pending_price": "New Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
       "buttons": [
         {
           "label": "Accept",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew"] } },
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"] } },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
-            "op": "accept_order",
+            "op": "accept_request",
             "data": {
               "session_id": "${row.session_id}",
               "cl_ord_id": "${row.cl_ord_id}"
@@ -236,11 +236,11 @@
         {
           "label": "Reject",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew"] } },
+          "enable": { "connected": true, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"] } },
           "action": {
             "type": "dialog",
             "dialog": {
-              "title": "Reject ${row.cl_ord_id}",
+              "title": "Reject ${row.pending_action} ${row.cl_ord_id}",
               "modal": true,
               "width": 380,
               "submitPerRow": true,
@@ -255,7 +255,7 @@
                   ]
                 }
               ],
-              "submit": { "label": "Reject", "service": "fix_cmd", "op": "reject_order" }
+              "submit": { "label": "Reject", "service": "fix_cmd", "op": "reject_request" }
             }
           }
         },
@@ -402,7 +402,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.6", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.7", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

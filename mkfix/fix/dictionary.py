@@ -41,6 +41,14 @@ class FixDictionary:
             return tag_enums.get(str(value), str(value))
         return str(value)
 
+    def enum_code(self, tag: str, name: str) -> str:
+        tag_enums = self.enums.get(str(tag))
+        if tag_enums:
+            for code, enum_name in tag_enums.items():
+                if enum_name == name:
+                    return code
+        return str(name)
+
     def msg_type_name(self, msg_type: str) -> str:
         info = self.messages.get(msg_type)
         return info["name"] if info else msg_type

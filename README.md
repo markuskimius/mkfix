@@ -19,8 +19,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
   directly from the blotter.
 - **Received Orders & Sent Trades Blotters** -- The other side of the same flow:
-  received orders can be accepted, rejected, and filled from the Received Orders
-  blotter; sent trades can be corrected and busted from the Sent Trades
+  new orders and incoming cancel and cancel/replace requests all appear on the
+  Received Orders blotter as a pending action, and a single Accept/Reject pair
+  acts on whatever is pending (ExecutionReport New/Canceled/Replaced on accept;
+  ExecutionReport Rejected or OrderCancelReject on reject); working orders can
+  be filled, and sent trades can be corrected and busted from the Sent Trades
   blotter (FIX 4.2 ExecTransType Correct/Cancel with ExecRefID).
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
