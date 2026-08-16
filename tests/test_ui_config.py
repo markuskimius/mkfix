@@ -52,6 +52,17 @@ def _frame_pane_ids(layout: dict) -> list[str]:
     return ids
 
 
+def _walk_dicts(obj):
+    """Every dict reachable inside a nested JSON structure."""
+    if isinstance(obj, dict):
+        yield obj
+        for value in obj.values():
+            yield from _walk_dicts(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from _walk_dicts(value)
+
+
 def _menubar_pane_ids(menubar: list) -> list[str]:
     return [
         item["args"]
@@ -125,6 +136,45 @@ class TestServiceReferences:
                 assert target in known_services, \
                     f"pane {pane_id!r} button {button['label']!r} calls unknown service {target!r}"
 
+    def test_fix_cmd_ops_have_dispatch_branches(self, app_config):
+        """An op in app.json with no _dispatch branch fails only when the
+        button is clicked, and only in the browser."""
+        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text()
+        handled = set(re.findall(r'command == "([^"]+)"', source))
+        used = {
+            node["op"]
+            for node in _walk_dicts(app_config["panes"])
+            if node.get("service") == "fix_cmd" and "op" in node
+        }
+        assert used, "no fix_cmd ops referenced by app.json"
+        missing = used - handled
+        assert not missing, f"app.json sends unhandled fix_cmd ops: {sorted(missing)}"
+
+    def test_dialog_options_services_are_reqrep(self, app_config, toml_config):
+        """optionsFrom fetches via request-reply; a query/stream service there
+        nacks the request and leaves the dropdown empty in the browser."""
+        def walk_fields(items):
+            for item in items:
+                if "row" in item:
+                    yield from walk_fields(item["row"])
+                else:
+                    yield item
+
+        for pane_id, spec in app_config["panes"].items():
+            for button in spec.get("buttons", []):
+                dialog = button["action"].get("dialog", {})
+                for field in walk_fields(dialog.get("fields", [])):
+                    source = field.get("optionsFrom")
+                    if not source:
+                        continue
+                    service = toml_config["services"].get(source["service"])
+                    assert service is not None, \
+                        f"pane {pane_id!r} dialog field {field.get('name')!r} " \
+                        f"pulls options from unknown service {source['service']!r}"
+                    assert service["protocol"] == "reqrep", \
+                        f"pane {pane_id!r} dialog field {field.get('name')!r} " \
+                        f"pulls options from non-reqrep service {source['service']!r}"
+
     def test_pane_filters_use_filterable_columns(self, app_config, toml_config):
         """A filter on a non-filterable column is silently ignored server-side."""
         for pane_id, spec in app_config["panes"].items():
@@ -138,6 +188,17 @@ class TestServiceReferences:
                       if not t.isupper()}
             assert fields <= filterable, \
                 f"pane {pane_id!r} filters on non-filterable fields {sorted(fields - filterable)}"
+
+    def test_new_order_entry_lives_on_client_blotter(self, app_config):
+        """The Order Pad pane was replaced by the New dialog in 0.5; order
+        entry must stay reachable, and from an empty blotter — a selection
+        requirement on the button would dead-lock first use."""
+        buttons = {b["label"]: b for b in app_config["panes"]["order-blotter"]["buttons"]}
+        new = buttons["New"]
+        assert new["action"]["type"] == "dialog"
+        assert new["action"]["dialog"]["submit"]["op"] == "send_new_order"
+        assert "minSelected" not in new.get("enable", {})
+        assert "rowMatch" not in new.get("enable", {})
 
     def test_blotters_split_by_direction(self, app_config):
         """Client and market blotters share services; the direction filter is

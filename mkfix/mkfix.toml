@@ -65,6 +65,14 @@ update_status = [
 # fix_cmd (custom FIX command service) is registered programmatically
 # via app.add_service() in __main__.py.
 
+# ─── ReqRep Services ────────────────────────────────────────────────
+
+# Feeds the session dropdown in the Client Orders "New" dialog: dialog
+# optionsFrom needs request-reply, which query services do not answer.
+[services.sessions_list]
+protocol = "reqrep"
+sql = "SELECT session_id FROM fix_sessions ORDER BY session_id"
+
 # ─── Query Services ─────────────────────────────────────────────────
 
 [services.sessions_query]

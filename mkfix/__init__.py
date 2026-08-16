@@ -1,6 +1,6 @@
 """mkfix — FIX protocol testing engine built on mkio and mkui."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def serve(config="mkfix.toml", host=None, port=None, db_path=None):

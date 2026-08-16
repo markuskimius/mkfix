@@ -6,8 +6,7 @@
   "state": {
     "status": { "message": "Connecting...", "background": "#858585", "color": "#000" },
     "selected_session": null,
-    "selected_message": null,
-    "selected_order": null
+    "selected_message": null
   },
   "menubar": [
     {
@@ -34,8 +33,6 @@
     {
       "label": "Trading",
       "items": [
-        { "label": "Order Pad", "action": "pane.show", "args": "order-pad" },
-        { "sep": true },
         { "label": "Client Orders", "action": "pane.show", "args": "order-blotter" },
         { "label": "Client Trades", "action": "pane.show", "args": "trade-blotter" },
         { "sep": true },
@@ -69,7 +66,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.4" }
+      { "type": "text", "text": "mkfix v0.5" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -93,10 +90,6 @@
       "title": "Message Detail",
       "type": "message-detail"
     },
-    "order-pad": {
-      "title": "Order Pad",
-      "type": "order-pad"
-    },
     "order-blotter": {
       "title": "Client Orders",
       "type": "mkio-table",
@@ -106,6 +99,62 @@
       "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
       "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
       "buttons": [
+        {
+          "label": "New",
+          "enable": { "connected": true },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New Order",
+              "modal": true,
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": { "service": "sessions_list", "value": "session_id", "label": "session_id" },
+                  "required": true
+                },
+                {
+                  "row": [
+                    { "name": "symbol", "label": "Symbol", "type": "text", "placeholder": "AAPL", "width": 0.5, "required": true },
+                    { "name": "side", "label": "Side", "type": "select", "width": 0.5, "options": [
+                      { "value": "1", "label": "Buy" },
+                      { "value": "2", "label": "Sell" },
+                      { "value": "5", "label": "Sell Short" }
+                    ] }
+                  ]
+                },
+                {
+                  "row": [
+                    { "name": "qty", "label": "Quantity", "type": "number", "placeholder": "100", "min": 1, "width": 0.5, "required": true },
+                    { "name": "ord_type", "label": "Order Type", "type": "select", "width": 0.5, "options": [
+                      { "value": "1", "label": "Market" },
+                      { "value": "2", "label": "Limit" },
+                      { "value": "3", "label": "Stop" },
+                      { "value": "4", "label": "Stop Limit" }
+                    ] }
+                  ]
+                },
+                {
+                  "row": [
+                    { "name": "price", "label": "Price", "type": "number", "placeholder": "0.00", "step": "0.01", "width": 0.5 },
+                    { "name": "tif", "label": "Time in Force", "type": "select", "width": 0.5, "options": [
+                      { "value": "0", "label": "Day" },
+                      { "value": "1", "label": "GTC" },
+                      { "value": "3", "label": "IOC" },
+                      { "value": "4", "label": "FOK" },
+                      { "value": "6", "label": "GTD" }
+                    ] }
+                  ]
+                },
+                { "name": "account", "label": "Account", "type": "text", "placeholder": "Optional" }
+              ],
+              "submit": { "label": "Send Order", "service": "fix_cmd", "op": "send_new_order" }
+            }
+          }
+        },
         {
           "label": "Cancel",
           "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
@@ -333,9 +382,8 @@
       "id": "trading",
       "x": 0.50, "y": 0.32, "w": 0.49, "h": 0.66,
       "layout": {
-        "type": "split", "dir": "v", "ratios": [0.35, 0.35, 0.30],
+        "type": "split", "dir": "v", "ratios": [0.5, 0.5],
         "children": [
-          { "type": "tabs", "active": 0, "children": ["order-pad"] },
           { "type": "tabs", "active": 0, "children": ["order-blotter", "market-order-blotter"] },
           { "type": "tabs", "active": 0, "children": ["trade-blotter", "market-trade-blotter"] }
         ]
@@ -344,7 +392,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.4", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.5", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

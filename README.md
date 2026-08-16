@@ -13,10 +13,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   sorting, and clipboard copy.
 - **Message Detail** -- Field-by-field breakdown of the message selected in the
   Raw Message viewer, with field names and enum translations.
-- **Order Pad** -- Send NewOrderSingle, Cancel, and Cancel/Replace requests.
 - **Client Order & Trade Blotters** -- Live order state machine driven by
-  ExecutionReports; fill and partial fill records. Cancel and Cancel/Replace
-  working orders directly from the blotter.
+  ExecutionReports; fill and partial fill records. Send NewOrderSingle from
+  the blotter's New dialog; Cancel and Cancel/Replace working orders directly
+  from the blotter.
 - **Market Order & Trade Blotters** -- The other side of the same flow:
   received orders can be accepted, rejected, and filled from the Market Orders
   blotter; sent trades can be corrected and busted from the Market Trades
@@ -60,8 +60,9 @@ Then open http://localhost:8080 in your browser.
    the other as acceptor on the same port.
 2. **Start both sessions** -- Logon and Heartbeat messages will stream in the Raw
    Messages pane.
-3. **Send an order** from the Order Pad -- see it in Raw Messages and the
-   Client Orders blotter; click any message row to break it out field by field
+3. **Send an order** with the New button on the Client Orders blotter -- see
+   it in Raw Messages and the blotter itself; click any message row to break
+   it out field by field
    in Message Detail. On the acceptor side it appears in Market Orders, where
    it can be accepted, rejected, or filled; fills land in Market Trades, where
    they can be corrected or busted.

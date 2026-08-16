@@ -254,27 +254,7 @@
   border-bottom: 1px solid var(--mkui-border, #3c3c3c);
 }
 
-/* ── Order pad ────────────────────────────────────────────────────── */
-
-.mkfix-pad-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
-}
-
-.mkfix-pad-tabs .mkui-btn.active {
-  background: var(--mkui-accent, #0e639c);
-  color: var(--mkui-accent-fg, #ffffff);
-}
-
-.mkfix-order-form {
-  padding: 8px;
-}
-
-.mkfix-order-form .mkfix-form-row label {
-  min-width: 100px;
-}
+/* ── Form submit button ──────────────────────────────────────────── */
 
 .mkfix-submit {
   background: var(--mkui-accent, #0e639c) !important;
@@ -282,12 +262,6 @@
   font-weight: bold;
   padding: 4px 16px !important;
   margin-top: 4px;
-}
-
-.mkfix-pad-status {
-  padding: 4px 8px;
-  font-size: 12px;
-  min-height: 20px;
 }
 
 /* ── Replay control ──────────────────────────────────────────────── */
