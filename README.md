@@ -7,8 +7,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
 ## Features
 
 - **Session Management** -- Configure and run FIX sessions as initiator or
-  acceptor, created and edited through modal dialogs. Multiple sessions on the
-  same port with different CompIDs.
+  acceptor from a live Sessions blotter showing status and sequence numbers,
+  created and edited through modal dialogs. Buttons follow the session's state:
+  Start, Edit, Delete, and Reset Seq only while a session is down, Stop only
+  while it runs; the Reset Seq dialog opens prefilled with the current
+  sequence numbers. Multiple sessions on the same port with different CompIDs.
 - **Message Viewer** -- Live virtualized table of FIX messages in tag=value
   format, streaming live by default, with time-based paging, per-column filters,
   sorting, and clipboard copy.
@@ -17,7 +20,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Sent Orders & Received Trades Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
   the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
-  directly from the blotter. An accepted cancel or replace moves the order to
+  directly from the blotter -- a fully filled order can still be replaced up
+  to revive it. An accepted cancel or replace moves the order to
   the request's ClOrdID (per the FIX chain), while an immutable Order ID keeps
   the order recognizable across the chain; corrections and busts likewise
   replace the ExecID while an immutable Trade ID groups a fill with its
@@ -31,9 +35,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   new orders and incoming cancel and cancel/replace requests all appear on the
   Received Orders blotter as a pending action, and a single Accept/Reject pair
   acts on whatever is pending (ExecutionReport New/Canceled/Replaced on accept;
-  ExecutionReport Rejected or OrderCancelReject on reject); working orders can
-  be filled, and sent trades can be corrected and busted from the Sent Trades
-  blotter (FIX 4.2 ExecTransType Correct/Cancel with ExecRefID).
+  ExecutionReport Rejected or OrderCancelReject on reject); orders stay
+  fillable while a request is pending and even after a full fill (overfills
+  are a scenario worth testing), and sent trades can be corrected and busted
+  from the Sent Trades blotter (FIX 4.2 ExecTransType Correct/Cancel with
+  ExecRefID).
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
@@ -69,7 +75,7 @@ Then open http://localhost:8080 in your browser.
 
 ## Quick Start
 
-1. **Create two sessions** with the New button in the Session Manager -- one
+1. **Create two sessions** with the New button on the Sessions blotter -- one
    initiator pointing at the other as acceptor on the same port.
 2. **Start both sessions** -- Logon and Heartbeat messages will stream in the
    Messages pane.

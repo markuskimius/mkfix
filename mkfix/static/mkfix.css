@@ -17,6 +17,11 @@
   font-size: 12px;
 }
 
+.mkfix-toolbar .mkui-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .mkfix-filter-label {
   font-size: 11px;
   color: var(--mkui-fg-mute, #858585);

@@ -130,7 +130,16 @@ class FixSession:
                 await self._socket.close()
                 self._socket = None
             if not self._stopping:
-                await self.set_status("DOWN")
+                # The connection is gone, but what remains differs by role: an
+                # acceptor's listener stays registered and will logon again on
+                # the next inbound connection, so it is back to LISTENING; an
+                # initiator's connect task is exiting, so detach it and report
+                # DOWN — start() can then run again.
+                if isinstance(self._transport, FixListener):
+                    await self.set_status("LISTENING")
+                else:
+                    self._transport = None
+                    await self.set_status("DOWN")
 
     async def _do_initiator_logon(self) -> None:
         """Initiator: send logon, wait for response."""
@@ -305,6 +314,12 @@ class FixSession:
             update["session_start"] = _fix_timestamp()
             update["error_text"] = ""
         await self.engine.update_session_state(self.session_id, update)
+
+    def detach_transport(self, transport: FixInitiator | FixListener) -> None:
+        """Called by a transport whose task is exiting on its own; a detached
+        session can be started again."""
+        if self._transport is transport:
+            self._transport = None
 
     async def reset_sequence_numbers(self, tx: int = 1, rx: int = 1) -> None:
         """Manually reset sequence numbers."""

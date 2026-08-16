@@ -19,7 +19,7 @@
     {
       "label": "Sessions",
       "items": [
-        { "label": "Session Manager", "action": "pane.show", "args": "session-manager" }
+        { "label": "Sessions", "action": "pane.show", "args": "session-blotter" }
       ]
     },
     {
@@ -65,14 +65,147 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.8" }
+      { "type": "text", "text": "mkfix v0.9" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
   "panes": {
-    "session-manager": {
+    "session-blotter": {
       "title": "Sessions",
-      "type": "session-manager"
+      "type": "mkio-table",
+      "service": "sessions_query",
+      "protocol": "query",
+      "columns": ["session_id", "fix_version", "sender_comp_id", "target_comp_id", "host", "port", "status", "tx_seq_num", "rx_seq_num"],
+      "labels": { "session_id": "Session", "fix_version": "Version", "sender_comp_id": "Sender", "target_comp_id": "Target", "host": "Host", "port": "Port", "status": "Status", "tx_seq_num": "TX Seq", "rx_seq_num": "RX Seq" },
+      "select": { "state": "selected_session" },
+      "buttons": [
+        {
+          "label": "New",
+          "enable": { "connected": true },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New Session",
+              "modal": true,
+              "width": 440,
+              "fields": [
+                { "name": "session_id", "label": "Session ID", "type": "text", "placeholder": "e.g. BBERG-UAT", "required": true },
+                { "name": "fix_version", "label": "FIX Version", "type": "select", "value": "FIX.4.2", "options": [
+                  { "value": "FIX.4.2", "label": "FIX.4.2" },
+                  { "value": "FIX.4.4", "label": "FIX.4.4" }
+                ] },
+                { "row": [
+                  { "name": "sender_comp_id", "label": "SenderCompID", "type": "text", "placeholder": "OUR_COMP", "width": 0.5, "required": true },
+                  { "name": "target_comp_id", "label": "TargetCompID", "type": "text", "placeholder": "THEIR_COMP", "width": 0.5, "required": true }
+                ] },
+                { "row": [
+                  { "name": "host", "label": "Host (empty=acceptor)", "type": "text", "placeholder": "127.0.0.1", "width": 0.5 },
+                  { "name": "port", "label": "Port", "type": "number", "value": 9876, "min": 1, "width": 0.5 }
+                ] },
+                { "row": [
+                  { "name": "heartbeat_interval", "label": "Heartbeat (s)", "type": "number", "value": 30, "min": 1, "width": 0.5 },
+                  { "name": "reset_on_logon", "label": "Reset on Logon", "type": "select", "value": "0", "width": 0.5, "options": [
+                    { "value": "0", "label": "No" },
+                    { "value": "1", "label": "Yes" }
+                  ] }
+                ] },
+                { "name": "description", "label": "Description", "type": "text", "value": "", "placeholder": "Optional description" }
+              ],
+              "submit": { "label": "Save", "service": "session_mgmt", "op": "add" }
+            }
+          }
+        },
+        {
+          "label": "Edit",
+          "unit": "row",
+          "enable": { "connected": true, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Edit Session ${row.session_id}",
+              "modal": true,
+              "width": 440,
+              "fields": [
+                { "label": "Session ID", "type": "readonly", "value": "${row.session_id}" },
+                { "name": "session_id", "type": "hidden", "value": "${row.session_id}" },
+                { "name": "enabled", "type": "hidden", "value": "${row.enabled}" },
+                { "name": "fix_version", "label": "FIX Version", "type": "select", "value": "${row.fix_version}", "options": [
+                  { "value": "FIX.4.2", "label": "FIX.4.2" },
+                  { "value": "FIX.4.4", "label": "FIX.4.4" }
+                ] },
+                { "row": [
+                  { "name": "sender_comp_id", "label": "SenderCompID", "type": "text", "value": "${row.sender_comp_id}", "width": 0.5, "required": true },
+                  { "name": "target_comp_id", "label": "TargetCompID", "type": "text", "value": "${row.target_comp_id}", "width": 0.5, "required": true }
+                ] },
+                { "row": [
+                  { "name": "host", "label": "Host (empty=acceptor)", "type": "text", "value": "${row.host}", "width": 0.5 },
+                  { "name": "port", "label": "Port", "type": "number", "value": "${row.port}", "min": 1, "width": 0.5 }
+                ] },
+                { "row": [
+                  { "name": "heartbeat_interval", "label": "Heartbeat (s)", "type": "number", "value": "${row.heartbeat_interval}", "min": 1, "width": 0.5 },
+                  { "name": "reset_on_logon", "label": "Reset on Logon", "type": "select", "value": "${row.reset_on_logon}", "width": 0.5, "options": [
+                    { "value": "0", "label": "No" },
+                    { "value": "1", "label": "Yes" }
+                  ] }
+                ] },
+                { "name": "description", "label": "Description", "type": "text", "value": "${row.description}", "placeholder": "Optional description" }
+              ],
+              "submit": { "label": "Save", "service": "session_mgmt", "op": "update" }
+            }
+          }
+        },
+        {
+          "label": "Start",
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "start_session",
+            "data": { "session_id": "${row.session_id}" }
+          }
+        },
+        {
+          "label": "Stop",
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["INITIATING", "LISTENING", "LOGON_SENT", "ACTIVE", "LOGOUT_SENT"] } },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "stop_session",
+            "data": { "session_id": "${row.session_id}" }
+          }
+        },
+        {
+          "label": "Delete",
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "action": {
+            "type": "transaction",
+            "service": "session_mgmt",
+            "op": "delete",
+            "data": { "session_id": "${row.session_id}" }
+          }
+        },
+        {
+          "label": "Reset Seq",
+          "unit": "row",
+          "enable": { "connected": true, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Reset Seq ${row.session_id}",
+              "modal": true,
+              "width": 320,
+              "fields": [
+                { "name": "session_id", "type": "hidden", "value": "${row.session_id}" },
+                { "row": [
+                  { "name": "tx_seq_num", "label": "Tx Seq", "type": "number", "value": "${row.tx_seq_num}", "min": 1, "width": 0.5, "required": true },
+                  { "name": "rx_seq_num", "label": "Rx Seq", "type": "number", "value": "${row.rx_seq_num}", "min": 1, "width": 0.5, "required": true }
+                ] }
+              ],
+              "submit": { "label": "Reset", "service": "fix_cmd", "op": "reset_sequence" }
+            }
+          }
+        }
+      ]
     },
     "raw-messages": {
       "title": "Messages",
@@ -157,7 +290,7 @@
         {
           "label": "Replace",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
+          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"] } },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -262,7 +395,7 @@
         {
           "label": "Fill",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["New", "PartiallyFilled"] } },
+          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"] } },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -364,7 +497,7 @@
     {
       "id": "sessions",
       "x": 0.01, "y": 0.02, "w": 0.48, "h": 0.28,
-      "layout": { "type": "tabs", "active": 0, "children": ["session-manager"] }
+      "layout": { "type": "tabs", "active": 0, "children": ["session-blotter"] }
     },
     {
       "id": "messages",
@@ -402,7 +535,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.8", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.9", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

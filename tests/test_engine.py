@@ -41,11 +41,6 @@ async def _fetch_all(db, sql):
     return rows
 
 
-def _state_params(session_id, status):
-    vals = (session_id, status, 1, 1, "", "", "", "")
-    return vals + (None,) + vals[1:]
-
-
 ORDER_COLS = [
     "cl_ord_id", "session_id", "order_id", "orig_cl_ord_id", "symbol",
     "side", "side_code", "ord_type", "ord_type_code", "price", "stop_price",
@@ -95,13 +90,32 @@ class TestCompiledOps:
     @pytest.mark.asyncio
     async def test_upsert_state_update_path_keeps_ref(self, stack):
         db, writer, engine = stack
-        ops = engine._compiled_ops["upsert_state"]
-        await writer.submit(ops, (_state_params("S1", "DOWN"),), {})
-        await writer.submit(ops, (_state_params("S1", "ACTIVE"),), {})
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        await engine.update_session_state("S1", {"status": "ACTIVE"})
         rows = await _fetch_all(db, "SELECT * FROM fix_session_state")
         assert len(rows) == 1
         assert rows[0]["status"] == "ACTIVE"
         assert rows[0]["_mkio_ref"], "update path must not null out _mkio_ref"
+
+    @pytest.mark.asyncio
+    async def test_state_write_mirrors_live_columns_onto_session_row(self, stack):
+        """The sessions blotter reads a single table, so status and seq nums
+        must be mirrored onto fix_sessions in the same write."""
+        db, writer, engine = stack
+        await db.write_conn.execute(
+            "INSERT INTO fix_sessions (session_id, sender_comp_id, target_comp_id) "
+            "VALUES ('S1', 'A', 'B')"
+        )
+        await db.write_conn.commit()
+
+        await engine.update_session_state(
+            "S1", {"status": "ACTIVE", "tx_seq_num": 7, "rx_seq_num": 9}
+        )
+        row = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
+        assert row["status"] == "ACTIVE"
+        assert row["tx_seq_num"] == 7
+        assert row["rx_seq_num"] == 9
+        assert row["_mkio_ref"], "the mirror update must publish a change event"
 
     @pytest.mark.asyncio
     async def test_upsert_order_insert_records_fix_codes(self, stack):
@@ -285,6 +299,38 @@ class TestMarketFlow:
         await self._seed(engine)
         with pytest.raises(ValueError):
             await engine.fill_order("S1", "C100", qty=0, price=150.0)
+
+    @pytest.mark.asyncio
+    async def test_fill_of_filled_order_overfills(self, stack):
+        """A fully filled order stays fillable — overfills are a scenario the
+        engine must be able to produce. Leaves stays 0 and status Filled."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+        await engine.fill_order("S1", "C100", qty=100, price=150.0)
+
+        await engine.fill_order("S1", "C100", qty=20, price=151.0)
+        msg = stub.sent[-1]
+        assert msg["150"] == "2"
+        assert msg["39"] == "2"
+        assert msg["14"] == "120"
+        row = await self._order(db)
+        assert row["status"] == "Filled"
+        assert row["cum_qty"] == 120.0
+        assert row["leaves_qty"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_fill_before_accept_consumes_pending_new(self, stack):
+        """A fill ER implicitly acknowledges a not-yet-accepted order."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        msg = stub.sent[-1]
+        assert msg["11"] == "C100"
+        assert msg["150"] == "1"
+        row = await self._order(db)
+        assert row["status"] == "PartiallyFilled"
+        assert row["pending_action"] == "", "the fill consumes the pending New"
 
     @pytest.mark.asyncio
     async def test_correct_trade(self, stack):
@@ -483,6 +529,59 @@ class TestCancelReplaceRequests:
         assert row["leaves_qty"] == 160.0
         assert row["pending_action"] == ""
         assert row["pending_qty"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_accept_replace_after_full_fill_revives_order(self, stack):
+        """Replacing a filled order up past its executed quantity brings it
+        back to working — the Sent Orders Replace-on-Filled flow."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.fill_order("S1", "C100", qty=100, price=150.0)
+        assert (await self._order(db))["status"] == "Filled"
+
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_RX))
+        await engine.accept_replace("S1", "C100")
+        row = await self._order(db)
+        assert row["status"] == "Replaced"
+        assert row["order_qty"] == 200.0
+        assert row["cum_qty"] == 100.0
+        assert row["leaves_qty"] == 100.0
+
+        await engine.fill_order("S1", "C102", qty=100, price=151.0)
+        row = await self._order(db)
+        assert row["status"] == "Filled"
+        assert row["cum_qty"] == 200.0
+
+    @pytest.mark.asyncio
+    async def test_fill_while_request_pending_keeps_it_parked(self, stack):
+        """Fills stay possible while a cancel/replace awaits action, and answer
+        the current (last accepted) ClOrdID, not the request's."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_RX))
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        msg = stub.sent[-1]
+        assert msg["11"] == "C100", "fill uses the last accepted ClOrdID"
+        row = await self._order(db)
+        assert row["pending_action"] == "Replace", "the request stays parked"
+        assert row["pending_cl_ord_id"] == "C102"
+
+    @pytest.mark.asyncio
+    async def test_fill_after_accepted_replace(self, stack):
+        """An accepted replace re-identifies the chain; later fills answer the
+        new ClOrdID and the order stays fillable."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_RX))
+        await engine.accept_replace("S1", "C100")
+        await engine.fill_order("S1", "C102", qty=50, price=151.0)
+        msg = stub.sent[-1]
+        assert msg["11"] == "C102", "fill uses the last accepted ClOrdID"
+        assert msg["150"] == "1"
+        row = await self._order(db)
+        assert row["status"] == "PartiallyFilled"
+        assert row["cum_qty"] == 50.0
+        assert row["leaves_qty"] == 150.0
 
     @pytest.mark.asyncio
     async def test_accept_replace_below_cum_is_rejected(self, stack):

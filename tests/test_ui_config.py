@@ -63,6 +63,16 @@ def _walk_dicts(obj):
             yield from _walk_dicts(value)
 
 
+def _dialog_field_names(dialog: dict) -> set[str]:
+    """Named payload fields of a dialog spec, flattening row groups."""
+    names = set()
+    for item in dialog.get("fields", []):
+        for field in item.get("row", [item]):
+            if "name" in field:
+                names.add(field["name"])
+    return names
+
+
 def _menubar_pane_ids(menubar: list) -> list[str]:
     return [
         item["args"]
@@ -204,34 +214,83 @@ class TestPaneModuleIntegrity:
             assert op in spec["ops"], f"{name} sends unknown {service} op {op!r}"
 
     def test_fix_cmd_commands_have_dispatch_branches(self, pane_sources):
-        """Same guard app.json gets, for commands sent from pane JS."""
+        """Same guard app.json gets, for commands sent from pane JS. The
+        replay pane derives its command from the button action, so its
+        candidates are matched by their _replay suffix."""
         handled = set(re.findall(
             r'command == "([^"]+)"',
             (ROOT / "mkfix" / "services" / "fix_command.py").read_text(),
         ))
-        used = {
-            (name, command)
-            for name, source in pane_sources.items()
-            for command in re.findall(r'command:\s*"(\w+)"', source)
-        }
+        used = set()
+        for name, source in pane_sources.items():
+            if 'client.send("fix_cmd"' not in source:
+                continue
+            for command in re.findall(r'command:\s*"(\w+)"', source):
+                used.add((name, command))
+            for command in re.findall(r'"(\w+_replay)"', source):
+                used.add((name, command))
         assert used, "no fix_cmd commands referenced by pane modules"
         for name, command in used:
             assert command in handled, f"{name} sends unhandled fix_cmd command {command!r}"
 
-    def test_session_dialog_fields_match_transaction_schema(self, pane_sources, toml_config):
-        """The session dialog's field names become the session_mgmt payload
-        verbatim; a name the op does not list is silently dropped (or, if a
-        required field goes missing, nacks on save)."""
-        ops = toml_config["services"]["session_mgmt"]["ops"]
-        allowed = set()
-        for op in ("add", "update"):
-            for entry in ops[op]:
+    def test_dialog_fields_match_transaction_schema(self, app_config, toml_config):
+        """A dialog's field names become the transaction payload verbatim; a
+        name the op does not list is silently dropped (or, if a required
+        field goes missing, nacks on save)."""
+        services = toml_config["services"]
+        checked = 0
+        for node in _walk_dicts(app_config):
+            submit = node.get("submit")
+            if not isinstance(submit, dict) or "fields" not in node:
+                continue
+            svc = services.get(submit.get("service"), {})
+            if svc.get("protocol") != "transaction":
+                continue
+            allowed = set()
+            for entry in svc["ops"][submit["op"]]:
                 allowed.update(entry["fields"])
                 allowed.update(entry.get("key", []))
-        dialog_fields = set(re.findall(r'name: "(\w+)"', pane_sources["session-manager.js"]))
-        assert dialog_fields, "session dialog defines no named fields"
-        unknown = dialog_fields - allowed
-        assert not unknown, f"session dialog sends fields session_mgmt ignores: {sorted(unknown)}"
+            names = _dialog_field_names(node)
+            unknown = names - allowed
+            assert not unknown, \
+                f"dialog {node.get('title')!r} sends fields {submit['service']} ignores: {sorted(unknown)}"
+            checked += 1
+        assert checked, "no transaction dialogs found in app.json"
+
+    def test_button_row_tokens_name_real_columns(self, app_config, toml_config):
+        """`${row.X}` resolves against the pane's service rows; a token naming
+        a column the table does not have silently interpolates empty."""
+        services = toml_config["services"]
+        tables = toml_config["tables"]
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            table = services.get(spec.get("service"), {}).get("primary_table")
+            if not table or "buttons" not in spec:
+                continue
+            columns = set(tables[table]["columns"])
+            tokens = set(re.findall(r"\$\{row\.(\w+)\}", json.dumps(spec["buttons"])))
+            unknown = tokens - columns
+            assert not unknown, \
+                f"pane {pane_id!r} buttons reference non-columns of {table}: {sorted(unknown)}"
+            checked += 1
+        assert checked, "no panes with buttons and a table-backed service"
+
+    def test_reset_seq_dialog_fields_match_dispatch(self, app_config):
+        """The reset-seq dialog's field names become the fix_cmd payload; the
+        dispatch reads them by exact key, so a renamed field is silently
+        dropped and the reset falls back to defaults."""
+        dialog = next(
+            (node for node in _walk_dicts(app_config)
+             if node.get("submit", {}).get("op") == "reset_sequence"),
+            None,
+        )
+        assert dialog, "no reset_sequence dialog in app.json"
+        fields = _dialog_field_names(dialog)
+        assert fields, "reset-seq dialog defines no named fields"
+        dispatch = (ROOT / "mkfix" / "services" / "fix_command.py").read_text()
+        branch = dispatch.split('command == "reset_sequence"')[1].split("elif")[0]
+        for field in fields:
+            assert field in branch, f"reset dialog field {field!r} not read by reset_sequence dispatch"
 
 
 class TestServiceReferences:
@@ -444,9 +503,9 @@ class TestVersions:
         frame; the session form is tall enough to need the auto-grow."""
         uses_dialog = any(
             "mkui-dialog.js" in p.read_text() for p in (STATIC / "panes").glob("*.js")
-        )
+        ) or '"type": "dialog"' in (STATIC / "app.json").read_text()
         if not uses_dialog:
-            pytest.skip("no pane module opens an mkui dialog")
+            pytest.skip("no pane opens an mkui dialog")
 
         pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
         floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]

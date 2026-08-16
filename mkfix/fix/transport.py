@@ -96,6 +96,7 @@ class FixInitiator:
                 attempts += 1
                 if attempts >= CONNECTION_RETRY_LIMIT:
                     await self.session.set_status("ERROR", "Connection retry limit exceeded")
+                    self.session.detach_transport(self)
                     return
                 await asyncio.sleep(1)
 

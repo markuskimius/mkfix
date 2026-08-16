@@ -8,6 +8,7 @@ import pytest
 from mkfix.fix.message import FixMessage, FixMessageFactory, SOH
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.session import FixSession
+from mkfix.fix.transport import FixInitiator, FixListener
 
 
 def _make_engine():
@@ -189,3 +190,103 @@ class TestAcceptorLogonSeqNums:
 
         assert session._rx_seq_num == 10
         assert session._tx_seq_num == 11
+
+
+def _make_logout_msg(seq_num=2):
+    dictionary = FixDictionary("FIX.4.2")
+    msg = FixMessage({"35": "5"})
+    msg.sendprep(dictionary, "PEER", "SELF", seq_num)
+    return msg
+
+
+def _make_socket(reads):
+    socket = MagicMock()
+    socket.closed = False
+    socket.read = AsyncMock(side_effect=reads)
+    socket.write = AsyncMock(side_effect=lambda msg, seq: msg)
+    socket.close = AsyncMock()
+    return socket
+
+
+class TestRemoteLogoutStatus:
+    """After the counterparty logs out, status must reflect what the session
+    is actually doing: an acceptor keeps listening, an initiator is down."""
+
+    async def _cancel_heartbeat(self, session):
+        session._heartbeat_task.cancel()
+        await asyncio.gather(session._heartbeat_task, return_exceptions=True)
+
+    @pytest.mark.asyncio
+    async def test_acceptor_returns_to_listening(self):
+        engine = _make_engine()
+        session = _make_session(engine)
+        session._transport = FixListener(session)
+        socket = _make_socket([_make_logon_msg(), _make_logout_msg()])
+
+        await session.on_connect(socket, is_initiator=False)
+
+        assert session._status == "LISTENING"
+        assert session._transport is not None, "the listener stays registered"
+        assert session._socket is None
+        await self._cancel_heartbeat(session)
+
+    @pytest.mark.asyncio
+    async def test_initiator_goes_down_and_detaches(self):
+        engine = _make_engine()
+        session = _make_session(engine, host="127.0.0.1")
+        session._transport = FixInitiator(session)
+        socket = _make_socket([_make_logon_msg(), _make_logout_msg()])
+
+        await session.on_connect(socket, is_initiator=True)
+
+        assert session._status == "DOWN"
+        assert session._transport is None, "a dead initiator must not block start()"
+        await self._cancel_heartbeat(session)
+
+    @pytest.mark.asyncio
+    async def test_initiator_retry_limit_detaches(self, monkeypatch):
+        engine = _make_engine()
+        session = _make_session(engine, host="127.0.0.1")
+        transport = FixInitiator(session)
+        session._transport = transport
+
+        async def refuse(*args, **kwargs):
+            raise OSError("refused")
+
+        monkeypatch.setattr("mkfix.fix.transport.CONNECTION_RETRY_LIMIT", 1)
+        monkeypatch.setattr(asyncio, "open_connection", refuse)
+
+        await transport._connect_loop()
+
+        assert session._status == "ERROR"
+        assert session._transport is None, "a dead initiator must not block start()"
+
+    @pytest.mark.asyncio
+    async def test_stop_while_active_still_reports_down(self):
+        """A user-initiated stop tears the listener down, so DOWN stays right."""
+        engine = _make_engine()
+        session = _make_session(engine)
+        session._transport = FixListener(session)
+        socket = _make_socket([_make_logon_msg()])
+
+        reads = 0
+        async def read():
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                return _make_logon_msg()
+            await asyncio.Event().wait()
+        socket.read = read
+
+        connect_task = asyncio.create_task(session.on_connect(socket, is_initiator=False))
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if session._status == "ACTIVE":
+                break
+        assert session._status == "ACTIVE"
+
+        await session.stop()
+        await asyncio.gather(connect_task, return_exceptions=True)
+
+        assert session._status == "DOWN"
+        assert session._transport is None

@@ -98,6 +98,9 @@ class FixEngine:
         state_cols = ["session_id", "status", "tx_seq_num", "rx_seq_num",
                       "last_tx_time", "last_rx_time", "session_start", "error_text"]
         set_clause = ", ".join(f"{c} = ?" for c in state_cols[1:])
+        # The second op mirrors the live columns onto fix_sessions so the
+        # sessions blotter can be a plain single-table query pane — a query
+        # service with JOIN sql drops change events from non-primary tables.
         self._compiled_ops["upsert_state"] = (CompiledOp(
             table="fix_session_state",
             op_type="upsert",
@@ -108,7 +111,15 @@ class FixEngine:
                 f"RETURNING *"
             ),
             param_names=tuple(state_cols + ["_mkio_ref"] + state_cols[1:]),
-        ),)
+        ), CompiledOp(
+            table="fix_sessions",
+            op_type="update",
+            sql=(
+                "UPDATE fix_sessions SET status = ?, tx_seq_num = ?, rx_seq_num = ?, _mkio_ref = ? "
+                "WHERE session_id = ? RETURNING *"
+            ),
+            param_names=("status", "tx_seq_num", "rx_seq_num", "_mkio_ref", "session_id"),
+        ))
 
         order_set = ", ".join(f"{c} = ?" for c in ORDER_UPDATE_COLS)
         # order_qty/price update from the insert values, guarded so an
@@ -306,8 +317,15 @@ class FixEngine:
             state["error_text"],
         )
 
+        mirror = (
+            state["status"],
+            state["tx_seq_num"],
+            state["rx_seq_num"],
+            None,  # _mkio_ref
+            state["session_id"],
+        )
         ops = self._compiled_ops["upsert_state"]
-        await self.writer.submit(ops, (params,), {"session_id": session_id})
+        await self.writer.submit(ops, (params, mirror), {"session_id": session_id})
 
     async def on_app_message(self, session: FixSession, msg_type: str, msg: FixMessage) -> None:
         """Handle an inbound application-level FIX message."""
@@ -786,10 +804,13 @@ class FixEngine:
         )
         await session.send_message(msg)
 
+        # A fill on a not-yet-accepted order implicitly acknowledges it, so the
+        # pending New is consumed; a pending Cancel/Replace stays parked.
+        pending_action = "" if order["pending_action"] == "New" else order["pending_action"]
         await self._write_order(
             order, order_id=order_id, status=dictionary.enum_name("39", status_code),
             cum_qty=cum_qty, avg_price=avg_price, leaves_qty=leaves_qty,
-            last_qty=qty, last_price=price,
+            last_qty=qty, last_price=price, pending_action=pending_action,
         )
         await self._write_sent_execution(
             {**order, "order_id": order_id}, exec_id, trade_id,
