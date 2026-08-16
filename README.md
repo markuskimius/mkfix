@@ -16,8 +16,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   Messages viewer, with field names and enum translations.
 - **Sent Orders & Received Trades Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
-  the blotter's New dialog; Cancel and Cancel/Replace working orders directly
-  from the blotter.
+  the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
+  directly from the blotter.
 - **Received Orders & Sent Trades Blotters** -- The other side of the same flow:
   received orders can be accepted, rejected, and filled from the Received Orders
   blotter; sent trades can be corrected and busted from the Sent Trades

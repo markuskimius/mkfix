@@ -322,6 +322,21 @@ class TestServiceReferences:
         assert panes["trade-blotter"]["filter"] == "direction == 'RX'"
         assert panes["market-trade-blotter"]["filter"] == "direction == 'TX'"
 
+    def test_sent_orders_button_order(self, app_config):
+        """Deliberate 0.6.2 ordering: entry first, then the two amend actions
+        with the destructive one last. Each label must keep driving its op —
+        a reorder that swaps actions under the labels would be worse than the
+        old order."""
+        buttons = app_config["panes"]["order-blotter"]["buttons"]
+        assert [b["label"] for b in buttons] == ["New", "Replace", "Cancel"]
+        ops = {
+            b["label"]: b["action"].get("op")
+            or b["action"]["dialog"]["submit"]["op"]
+            for b in buttons
+        }
+        assert ops == {"New": "send_new_order", "Replace": "send_cancel_replace",
+                       "Cancel": "send_cancel"}
+
     def test_blotter_titles_state_direction(self, app_config):
         """Blotter titles say the direction outright (Sent = TX, Received = RX);
         a title contradicting the pane's filter would mislead."""

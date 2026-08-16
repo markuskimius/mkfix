@@ -155,23 +155,7 @@
           }
         },
         {
-          "label": "Cancel",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
-          "action": {
-            "type": "transaction",
-            "service": "fix_cmd",
-            "op": "send_cancel",
-            "data": {
-              "session_id": "${row.session_id}",
-              "orig_cl_ord_id": "${row.cl_ord_id}",
-              "symbol": "${row.symbol}",
-              "side": "${row.side_code}",
-              "qty": "${row.order_qty}"
-            }
-          }
-        },
-        {
-          "label": "Cancel/Replace",
+          "label": "Replace",
           "unit": "row",
           "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
           "action": {
@@ -197,6 +181,22 @@
                 }
               ],
               "submit": { "label": "Replace", "service": "fix_cmd", "op": "send_cancel_replace" }
+            }
+          }
+        },
+        {
+          "label": "Cancel",
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "send_cancel",
+            "data": {
+              "session_id": "${row.session_id}",
+              "orig_cl_ord_id": "${row.cl_ord_id}",
+              "symbol": "${row.symbol}",
+              "side": "${row.side_code}",
+              "qty": "${row.order_qty}"
             }
           }
         }

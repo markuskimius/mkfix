@@ -69,7 +69,7 @@ Blotter/viewer panes are declarative `mkio-table` configs in app.json. `raw-mess
 
 `ref` is optional since mkio 0.1.55 — omitting it starts from the beginning of the buffer. Stream panes may also page backward with `before: true` + `maxcount`.
 
-`raw-messages` sets `live: true` (mkui 0.1.52+) so it opens streaming instead of parked on today's first page. The start page still loads first, so `start: "today"` keeps its meaning; without that handoff the pane would replay the whole message buffer on open.
+`raw-messages` sets `live: true` (mkui 0.1.52+) so it opens streaming instead of parked on today's first page. The start page still loads first, so `start: "today"` keeps its meaning; without that handoff the pane would replay the whole message buffer on open. Live stream panes follow the tail as of mkui 0.1.54 (jump to newest on going live, stay pinned while at the bottom, stop following once the user scrolls up) — before that, new messages rendered below the fold and looked like they were never sent.
 
 `tests/test_ui_config.py` guards app.json against the failure mode this config invites: dangling pane references, `index.html` imports of deleted modules, unknown service names, and a `mkio.expect.version` left behind by a release. It also statically checks the pane-module JS: imports must resolve (mkui paths against the installed `mkui.static_dir`), and services, transaction ops, and `fix_cmd` commands named in JS must exist server-side. These fail silently in the browser, so they are checked statically.
 
