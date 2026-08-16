@@ -10,12 +10,6 @@
   },
   "menubar": [
     {
-      "label": "Sessions",
-      "items": [
-        { "label": "Session Manager", "action": "pane.show", "args": "session-manager" }
-      ]
-    },
-    {
       "label": "Edit",
       "items": [
         { "label": "Copy", "action": "edit.copy", "shortcut": "mod+C" },
@@ -23,11 +17,16 @@
       ]
     },
     {
+      "label": "Sessions",
+      "items": [
+        { "label": "Session Manager", "action": "pane.show", "args": "session-manager" }
+      ]
+    },
+    {
       "label": "Messages",
       "items": [
-        { "label": "Raw Messages", "action": "pane.show", "args": "raw-messages" },
-        { "sep": true },
-        { "label": "Message Detail", "action": "pane.show", "args": "message-detail" }
+        { "label": "Messages", "action": "pane.show", "args": "raw-messages" },
+        { "label": "Detail", "action": "pane.show", "args": "message-detail" }
       ]
     },
     {
@@ -66,7 +65,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.5" }
+      { "type": "text", "text": "mkfix v0.6" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -76,7 +75,7 @@
       "type": "session-manager"
     },
     "raw-messages": {
-      "title": "Raw Messages",
+      "title": "Messages",
       "type": "mkio-table",
       "service": "messages_stream",
       "protocol": "stream",
@@ -87,7 +86,7 @@
       "select": { "state": "selected_message" }
     },
     "message-detail": {
-      "title": "Message Detail",
+      "title": "Detail",
       "type": "message-detail"
     },
     "order-blotter": {
@@ -364,7 +363,7 @@
   "frames": [
     {
       "id": "sessions",
-      "x": 0.01, "y": 0.02, "w": 0.98, "h": 0.28,
+      "x": 0.01, "y": 0.02, "w": 0.48, "h": 0.28,
       "layout": { "type": "tabs", "active": 0, "children": ["session-manager"] }
     },
     {
@@ -379,20 +378,31 @@
       }
     },
     {
-      "id": "trading",
-      "x": 0.50, "y": 0.32, "w": 0.49, "h": 0.66,
+      "id": "client-trading",
+      "x": 0.50, "y": 0.02, "w": 0.49, "h": 0.47,
       "layout": {
         "type": "split", "dir": "v", "ratios": [0.5, 0.5],
         "children": [
-          { "type": "tabs", "active": 0, "children": ["order-blotter", "market-order-blotter"] },
-          { "type": "tabs", "active": 0, "children": ["trade-blotter", "market-trade-blotter"] }
+          { "type": "tabs", "active": 0, "children": ["order-blotter"] },
+          { "type": "tabs", "active": 0, "children": ["trade-blotter"] }
+        ]
+      }
+    },
+    {
+      "id": "market-trading",
+      "x": 0.50, "y": 0.51, "w": 0.49, "h": 0.47,
+      "layout": {
+        "type": "split", "dir": "v", "ratios": [0.5, 0.5],
+        "children": [
+          { "type": "tabs", "active": 0, "children": ["market-order-blotter"] },
+          { "type": "tabs", "active": 0, "children": ["market-trade-blotter"] }
         ]
       }
     }
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.5", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.6", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

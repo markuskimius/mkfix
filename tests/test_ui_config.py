@@ -72,6 +72,15 @@ def _menubar_pane_ids(menubar: list) -> list[str]:
     ]
 
 
+def _pane_frame_ids(app_config: dict) -> dict[str, str]:
+    """Map each pane id to the frame that hosts it."""
+    hosts = {}
+    for frame in app_config["frames"]:
+        for pane_id in _frame_pane_ids(frame["layout"]):
+            hosts[pane_id] = frame["id"]
+    return hosts
+
+
 class TestPaneReferences:
     def test_menubar_references_existing_panes(self, app_config):
         panes = app_config["panes"]
@@ -119,6 +128,110 @@ class TestPaneModules:
         used = {spec["type"] for spec in app_config["panes"].values()}
         for module in (STATIC / "panes").glob("*.js"):
             assert module.stem in used, f"panes/{module.name} matches no pane type"
+
+
+@pytest.fixture(scope="module")
+def pane_sources() -> dict[str, str]:
+    return {p.name: p.read_text() for p in sorted((STATIC / "panes").glob("*.js"))}
+
+
+def _resolve_js_import(spec: str, js_file: Path) -> Path | None:
+    """Map an import specifier to the file the server would serve, or None
+    for specifiers outside the trees we can check."""
+    import mkui
+
+    if spec.startswith("/mkui/"):
+        return Path(mkui.static_dir) / spec[len("/mkui/"):]
+    if spec.startswith("/static/"):
+        return STATIC / spec[len("/static/"):]
+    if spec.startswith("."):
+        return (js_file.parent / spec).resolve()
+    return None
+
+
+class TestPaneModuleIntegrity:
+    """The pane modules are plain ES modules with no build step, so a broken
+    import, a renamed export, or a stale service name only fails when the
+    pane is opened in a browser."""
+
+    IMPORT_RE = re.compile(r'import\s+(?:\{([^}]*)\}\s+from\s+)?"([^"]+)"')
+
+    def _imports(self, pane_sources):
+        for name, source in pane_sources.items():
+            js_file = STATIC / "panes" / name
+            for match in self.IMPORT_RE.finditer(source):
+                names = [n.strip() for n in (match.group(1) or "").split(",") if n.strip()]
+                yield name, names, match.group(2), _resolve_js_import(match.group(2), js_file)
+
+    def test_imports_resolve(self, pane_sources):
+        for name, _, spec, target in self._imports(pane_sources):
+            assert target is not None, f"{name} imports unresolvable path {spec!r}"
+            assert target.is_file(), f"{name} imports missing file {spec!r} ({target})"
+
+    def test_named_imports_are_exported(self, pane_sources):
+        """Catches importing a symbol the installed mkui (or a local module)
+        no longer exports — e.g. openDialog from mkui-dialog.js."""
+        for name, names, spec, target in self._imports(pane_sources):
+            source = target.read_text()
+            for symbol in names:
+                exported = re.search(
+                    rf'export\s+(?:async\s+)?(?:function|const|let|class)\s+{symbol}\b', source
+                ) or re.search(rf'export\s*\{{[^}}]*\b{symbol}\b[^}}]*\}}', source)
+                assert exported, f"{name} imports {symbol!r} which {spec} does not export"
+
+    def test_services_called_from_js_exist(self, pane_sources, known_services):
+        for name, source in pane_sources.items():
+            for service in re.findall(r'client\.(?:send|subscribe)\(\s*"(\w+)"', source):
+                assert service in known_services, \
+                    f"{name} calls unknown service {service!r}"
+
+    def test_transaction_ops_called_from_js_exist(self, pane_sources, toml_config):
+        """A dead op name nacks the transaction only when the button is
+        clicked. Covers both client.send(..., {op}) and dialog submit specs,
+        including ternaries like `op: isEdit ? "update" : "add"`."""
+        pairs = set()
+        for name, source in pane_sources.items():
+            for service, op in re.findall(r'client\.send\("(\w+)".*\{ op: "(\w+)" \}', source):
+                pairs.add((name, service, op))
+            for service, op_expr in re.findall(r'service:\s*"(\w+)",\s*op:\s*([^}]+)', source):
+                for op in re.findall(r'"(\w+)"', op_expr):
+                    pairs.add((name, service, op))
+        assert pairs, "no transaction ops referenced by pane modules"
+        for name, service, op in pairs:
+            spec = toml_config["services"].get(service, {})
+            if spec.get("protocol") != "transaction":
+                continue
+            assert op in spec["ops"], f"{name} sends unknown {service} op {op!r}"
+
+    def test_fix_cmd_commands_have_dispatch_branches(self, pane_sources):
+        """Same guard app.json gets, for commands sent from pane JS."""
+        handled = set(re.findall(
+            r'command == "([^"]+)"',
+            (ROOT / "mkfix" / "services" / "fix_command.py").read_text(),
+        ))
+        used = {
+            (name, command)
+            for name, source in pane_sources.items()
+            for command in re.findall(r'command:\s*"(\w+)"', source)
+        }
+        assert used, "no fix_cmd commands referenced by pane modules"
+        for name, command in used:
+            assert command in handled, f"{name} sends unhandled fix_cmd command {command!r}"
+
+    def test_session_dialog_fields_match_transaction_schema(self, pane_sources, toml_config):
+        """The session dialog's field names become the session_mgmt payload
+        verbatim; a name the op does not list is silently dropped (or, if a
+        required field goes missing, nacks on save)."""
+        ops = toml_config["services"]["session_mgmt"]["ops"]
+        allowed = set()
+        for op in ("add", "update"):
+            for entry in ops[op]:
+                allowed.update(entry["fields"])
+                allowed.update(entry.get("key", []))
+        dialog_fields = set(re.findall(r'name: "(\w+)"', pane_sources["session-manager.js"]))
+        assert dialog_fields, "session dialog defines no named fields"
+        unknown = dialog_fields - allowed
+        assert not unknown, f"session dialog sends fields session_mgmt ignores: {sorted(unknown)}"
 
 
 class TestServiceReferences:
@@ -209,6 +322,13 @@ class TestServiceReferences:
         assert panes["trade-blotter"]["filter"] == "direction == 'RX'"
         assert panes["market-trade-blotter"]["filter"] == "direction == 'TX'"
 
+    def test_client_and_market_blotters_in_separate_frames(self, app_config):
+        """Since 0.6 both sides of the flow are visible at once; folding them
+        back into shared tabs hides one side and breaks the two-window demo."""
+        hosts = _pane_frame_ids(app_config)
+        assert hosts["order-blotter"] != hosts["market-order-blotter"]
+        assert hosts["trade-blotter"] != hosts["market-trade-blotter"]
+
 
 class TestStateBindings:
     def test_select_state_paths_are_declared(self, app_config):
@@ -263,6 +383,21 @@ class TestVersions:
         assert floors, "mkui missing from dependencies"
         floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
         assert floor >= (0, 1, 52), f"mkui floor {floor} predates live/select support"
+
+    def test_mkui_floor_supports_session_dialog(self):
+        """openDialog before 0.1.54 clips a body taller than the default
+        frame; the session form is tall enough to need the auto-grow."""
+        uses_dialog = any(
+            "mkui-dialog.js" in p.read_text() for p in (STATIC / "panes").glob("*.js")
+        )
+        if not uses_dialog:
+            pytest.skip("no pane module opens an mkui dialog")
+
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
+        assert floors, "mkui missing from dependencies"
+        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        assert floor >= (0, 1, 54), f"mkui floor {floor} predates dialog auto-grow"
 
     def test_readme_dependency_floors_match_pyproject(self):
         """README repeats the mkio/mkui floors in prose; keep them honest."""

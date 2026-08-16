@@ -33,8 +33,7 @@ mkfix/
   static/
     index.html, app.json, mkfix.css
     fix-dictionary.js, fix-formatter.js
-    panes/                   # Custom mkui pane types (session-manager, raw-messages, etc.)
-    widgets/form.js          # input/select/checkbox widgets for mkui
+    panes/                   # Custom mkui pane types (session-manager, message-detail, replay-control)
 ```
 
 ## Architecture
@@ -64,7 +63,7 @@ The `FixServer` in `transport.py` reads the first message from each TCP connecti
 
 ## UI panes
 
-Blotter/viewer panes are declarative `mkio-table` configs in app.json. `raw-messages` sets `select: { state: "selected_message" }` so mkio-table mirrors the cursor's row into app state; `message-detail` subscribes to that path and renders the field breakdown. `fix_orders` stores raw FIX codes (`side_code`, `ord_type_code`) alongside display names so blotter buttons can send `fix_cmd` transactions with `${row.*}` interpolation. The client (order-blotter/trade-blotter) and market (market-order-blotter/market-trade-blotter) blotters share `orders_query`/`executions_query` and are split only by a `filter` on the `direction` column (`TX` = sent by this engine, `RX` = received): client orders and market trades are TX, market orders and client trades are RX. Market Orders buttons drive `fix_cmd` ops `accept_order`/`reject_order`/`fill_order`; Market Trades drives `correct_trade`/`bust_trade`, which use FIX 4.2 ExecTransType(20) Correct/Cancel with ExecRefID(19) — the exec blotter is append-only, so corrections and busts add rows (`exec_type` "Correct"/"Cancel") rather than mutating fills. New orders are entered through the Client Orders "New" button, which opens an mkui dialog; its session dropdown is fed by `sessions_list`, a reqrep service, because dialog `optionsFrom` uses request-reply and query services only answer subscriptions. `session-manager` stays a custom pane by necessity: it merges `sessions_query` and `session_state_query`, and an mkio query service with JOIN sql drops change events from non-primary watch tables (`query.py` `_listen_changes`), so a joined view cannot live-update status.
+Blotter/viewer panes are declarative `mkio-table` configs in app.json. `raw-messages` sets `select: { state: "selected_message" }` so mkio-table mirrors the cursor's row into app state; `message-detail` subscribes to that path and renders the field breakdown. `fix_orders` stores raw FIX codes (`side_code`, `ord_type_code`) alongside display names so blotter buttons can send `fix_cmd` transactions with `${row.*}` interpolation. The client (order-blotter/trade-blotter) and market (market-order-blotter/market-trade-blotter) blotters share `orders_query`/`executions_query` and are split only by a `filter` on the `direction` column (`TX` = sent by this engine, `RX` = received): client orders and market trades are TX, market orders and client trades are RX. Market Orders buttons drive `fix_cmd` ops `accept_order`/`reject_order`/`fill_order`; Market Trades drives `correct_trade`/`bust_trade`, which use FIX 4.2 ExecTransType(20) Correct/Cancel with ExecRefID(19) — the exec blotter is append-only, so corrections and busts add rows (`exec_type` "Correct"/"Cancel") rather than mutating fills. New orders are entered through the Client Orders "New" button, which opens an mkui dialog; its session dropdown is fed by `sessions_list`, a reqrep service, because dialog `optionsFrom` uses request-reply and query services only answer subscriptions. `session-manager` stays a custom pane by necessity: it merges `sessions_query` and `session_state_query`, and an mkio query service with JOIN sql drops change events from non-primary watch tables (`query.py` `_listen_changes`), so a joined view cannot live-update status. Its New/Edit buttons open an mkui dialog via `openDialog` (imported from `/mkui/src/widgets/mkui-dialog.js`) rather than an inline form; the dialog's field `name`s become the `session_mgmt` transaction payload, so they must match the op's TOML `fields` — Edit passes `session_id` and `enabled` as hidden fields because the update op requires them but the user must not change them. The tall session form is why the mkui floor is 0.1.54: earlier dialogs clipped a body taller than the default frame instead of growing.
 
 ## mkio stream subscriptions
 
@@ -72,7 +71,7 @@ Blotter/viewer panes are declarative `mkio-table` configs in app.json. `raw-mess
 
 `raw-messages` sets `live: true` (mkui 0.1.52+) so it opens streaming instead of parked on today's first page. The start page still loads first, so `start: "today"` keeps its meaning; without that handoff the pane would replay the whole message buffer on open.
 
-`tests/test_ui_config.py` guards app.json against the failure mode this config invites: dangling pane references, `index.html` imports of deleted modules, unknown service names, and a `mkio.expect.version` left behind by a release. These fail silently in the browser, so they are checked statically.
+`tests/test_ui_config.py` guards app.json against the failure mode this config invites: dangling pane references, `index.html` imports of deleted modules, unknown service names, and a `mkio.expect.version` left behind by a release. It also statically checks the pane-module JS: imports must resolve (mkui paths against the installed `mkui.static_dir`), and services, transaction ops, and `fix_cmd` commands named in JS must exist server-side. These fail silently in the browser, so they are checked statically.
 
 ## mkio transaction defaults
 
@@ -101,4 +100,3 @@ pytest
 - Config is TOML (mkfix.toml), UI layout is JSON (app.json)
 - Static JS uses vanilla ES modules, no build step
 - Custom pane types registered via `window.Mkui.registerPaneType()`
-- Custom widgets registered via `window.Mkui.registerWidget()`

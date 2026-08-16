@@ -7,12 +7,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
 ## Features
 
 - **Session Management** -- Configure and run FIX sessions as initiator or
-  acceptor. Multiple sessions on the same port with different CompIDs.
-- **Raw Message Viewer** -- Live virtualized table of FIX messages in tag=value
+  acceptor, created and edited through modal dialogs. Multiple sessions on the
+  same port with different CompIDs.
+- **Message Viewer** -- Live virtualized table of FIX messages in tag=value
   format, streaming live by default, with time-based paging, per-column filters,
   sorting, and clipboard copy.
 - **Message Detail** -- Field-by-field breakdown of the message selected in the
-  Raw Message viewer, with field names and enum translations.
+  Messages viewer, with field names and enum translations.
 - **Client Order & Trade Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
   the blotter's New dialog; Cancel and Cancel/Replace working orders directly
@@ -56,16 +57,15 @@ Then open http://localhost:8080 in your browser.
 
 ## Quick Start
 
-1. **Create two sessions** in the Session Manager -- one initiator pointing at
-   the other as acceptor on the same port.
-2. **Start both sessions** -- Logon and Heartbeat messages will stream in the Raw
+1. **Create two sessions** with the New button in the Session Manager -- one
+   initiator pointing at the other as acceptor on the same port.
+2. **Start both sessions** -- Logon and Heartbeat messages will stream in the
    Messages pane.
 3. **Send an order** with the New button on the Client Orders blotter -- see
-   it in Raw Messages and the blotter itself; click any message row to break
-   it out field by field
-   in Message Detail. On the acceptor side it appears in Market Orders, where
-   it can be accepted, rejected, or filled; fills land in Market Trades, where
-   they can be corrected or busted.
+   it in the Messages pane and the blotter itself; click any message row to
+   break it out field by field in the Detail pane. On the acceptor side it
+   appears in Market Orders, where it can be accepted, rejected, or filled;
+   fills land in Market Trades, where they can be corrected or busted.
 4. **Replay a log** from Tools > Replay Control -- load a production FIX log and
    replay it into a test session.
 
@@ -87,7 +87,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.1.65 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.1.53 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.1.54 -- Web Components UI
   framework
 
 ## License

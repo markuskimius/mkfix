@@ -88,13 +88,7 @@
   accent-color: var(--mkui-accent, #0e639c);
 }
 
-/* ── Session form ─────────────────────────────────────────────────── */
-
-.mkfix-session-form {
-  padding: 8px;
-  border-bottom: 1px solid var(--mkui-border, #3c3c3c);
-  background: var(--mkui-bg, #1e1e1e);
-}
+/* ── Form rows (replay control) ───────────────────────────────────── */
 
 .mkfix-form-row {
   display: flex;
