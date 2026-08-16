@@ -65,7 +65,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.7" }
+      { "type": "text", "text": "mkfix v0.8" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -95,8 +95,8 @@
       "service": "orders_query",
       "protocol": "query",
       "filter": "direction == 'TX'",
-      "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
-      "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "columns": ["order_id", "cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
+      "labels": { "order_id": "Order ID", "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
       "buttons": [
         {
           "label": "New",
@@ -208,8 +208,8 @@
       "service": "executions_query",
       "protocol": "query",
       "filter": "direction == 'RX'",
-      "columns": ["exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
-      "labels": { "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" }
+      "columns": ["trade_id", "exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
+      "labels": { "trade_id": "Trade ID", "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" }
     },
     "market-order-blotter": {
       "title": "Received Orders",
@@ -217,8 +217,8 @@
       "service": "orders_query",
       "protocol": "query",
       "filter": "direction == 'RX'",
-      "columns": ["cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "pending_action", "pending_qty", "pending_price", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
-      "labels": { "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "pending_action": "Pending", "pending_qty": "New Qty", "pending_price": "New Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "columns": ["order_id", "cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "pending_action", "pending_qty", "pending_price", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
+      "labels": { "order_id": "Order ID", "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "pending_action": "Pending", "pending_qty": "New Qty", "pending_price": "New Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
       "buttons": [
         {
           "label": "Accept",
@@ -294,8 +294,8 @@
       "service": "executions_query",
       "protocol": "query",
       "filter": "direction == 'TX'",
-      "columns": ["exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
-      "labels": { "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" },
+      "columns": ["trade_id", "exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
+      "labels": { "trade_id": "Trade ID", "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" },
       "buttons": [
         {
           "label": "Correct",
@@ -402,7 +402,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.7", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.8", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

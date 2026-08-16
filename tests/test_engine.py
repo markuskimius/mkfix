@@ -56,7 +56,7 @@ ORDER_COLS = [
 ]
 
 ORDER_UPDATE_COLS = [
-    "order_id", "status", "cum_qty", "avg_price", "leaves_qty",
+    "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
 ]
@@ -128,7 +128,17 @@ class TestCompiledOps:
         assert len(rows) == 1, "same (cl_ord_id, session_id) must upsert, not insert"
         assert rows[0]["status"] == "PartiallyFilled"
         assert rows[0]["cum_qty"] == 40.0
+        assert rows[0]["order_id"] == "X9", "empty order_id fills in from the update"
         assert rows[0]["_mkio_ref"], "update path must not null out _mkio_ref"
+
+    @pytest.mark.asyncio
+    async def test_upsert_order_id_is_write_once(self, stack):
+        db, writer, engine = stack
+        ops = engine._compiled_ops["upsert_order"]
+        await writer.submit(ops, (_order_params(order_id="OR1"),), {})
+        await writer.submit(ops, (_order_params(order_id="MKT-37"),), {})
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert rows[0]["order_id"] == "OR1", "an assigned Order ID is immutable"
 
     @pytest.mark.asyncio
     async def test_orders_distinct_by_session(self, stack):
@@ -205,6 +215,7 @@ class TestMarketFlow:
         assert row["order_qty"] == 100.0
         assert row["leaves_qty"] == 100.0
         assert row["pending_action"] == "New", "a new order arrives as a pending request"
+        assert row["order_id"].startswith("OR"), "a received order gets its Order ID on arrival"
 
     @pytest.mark.asyncio
     async def test_accept_order(self, stack):
@@ -220,6 +231,7 @@ class TestMarketFlow:
         row = await self._order(db)
         assert row["status"] == "New"
         assert row["order_id"] == order_id
+        assert order_id.startswith("OR")
         assert row["direction"] == "RX"
         assert row["pending_action"] == "", "accept consumes the pending request"
 
@@ -246,6 +258,7 @@ class TestMarketFlow:
         msg = stub.sent[-1]
         assert msg["150"] == "1"
         assert msg["17"] == exec_id
+        assert exec_id.startswith("EX")
         row = await self._order(db)
         assert row["status"] == "PartiallyFilled"
         assert row["cum_qty"] == 40.0
@@ -263,6 +276,8 @@ class TestMarketFlow:
         execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
         assert [e["exec_type"] for e in execs] == ["PartialFill", "Fill"]
         assert all(e["direction"] == "TX" for e in execs)
+        assert all(e["trade_id"].startswith("TR") for e in execs)
+        assert execs[0]["trade_id"] != execs[1]["trade_id"], "each fill is its own trade"
 
     @pytest.mark.asyncio
     async def test_fill_rejects_nonpositive_qty(self, stack):
@@ -283,6 +298,7 @@ class TestMarketFlow:
         assert msg["20"] == "2"
         assert msg["19"] == exec_id
         assert msg["17"] == new_exec_id
+        assert new_exec_id != exec_id, "a correction replaces the ExecID"
         assert msg["32"] == "50"
 
         row = await self._order(db)
@@ -295,6 +311,7 @@ class TestMarketFlow:
         assert execs[-1]["exec_type"] == "Correct"
         assert execs[-1]["direction"] == "TX"
         assert execs[-1]["last_qty"] == 50.0
+        assert execs[-1]["trade_id"] == execs[0]["trade_id"], "the Trade ID survives a correction"
 
     @pytest.mark.asyncio
     async def test_bust_trade(self, stack):
@@ -318,6 +335,8 @@ class TestMarketFlow:
         execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
         assert execs[-1]["exec_type"] == "Cancel"
         assert execs[-1]["last_qty"] == 40.0
+        assert execs[-1]["trade_id"] == execs[0]["trade_id"], "the Trade ID survives a bust"
+        assert execs[-1]["exec_id"] != execs[0]["exec_id"], "a bust replaces the ExecID"
 
     @pytest.mark.asyncio
     async def test_correct_rejects_nonpositive_qty(self, stack):
@@ -417,16 +436,20 @@ class TestCancelReplaceRequests:
         db, writer, engine = stack
         stub = await self._seed(engine)
         await engine.on_app_message(stub, "F", parse_fix(CANCEL_REQ_RX))
+        order_id_before = (await self._order(db))["order_id"]
         exec_id = await engine.accept_cancel("S1", "C100")
         msg = stub.sent[-1]
         assert msg["35"] == "8"
         assert msg["150"] == "4"
         assert msg["39"] == "4"
         assert msg["17"] == exec_id
-        assert msg["11"] == "C100", "ER keys the original order on both sides"
-        assert msg["41"] == "C101", "ER references the cancel request"
+        assert msg["11"] == "C101", "ER answers the cancel request's ClOrdID"
+        assert msg["41"] == "C100", "ER references the superseded ClOrdID"
         assert msg["151"] == "0"
         row = await self._order(db)
+        assert row["cl_ord_id"] == "C101", "the accepted cancel re-identifies the chain"
+        assert row["orig_cl_ord_id"] == "C100"
+        assert row["order_id"] == order_id_before, "the Order ID never changes"
         assert row["status"] == "Canceled"
         assert row["leaves_qty"] == 0.0
         assert row["pending_action"] == ""
@@ -438,17 +461,21 @@ class TestCancelReplaceRequests:
         stub = await self._seed(engine)
         await engine.fill_order("S1", "C100", qty=40, price=150.0)
         await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_RX))
+        order_id_before = (await self._order(db))["order_id"]
         exec_id = await engine.accept_replace("S1", "C100")
         msg = stub.sent[-1]
         assert msg["150"] == "5"
         assert msg["39"] == "5"
         assert msg["17"] == exec_id
-        assert msg["11"] == "C100"
-        assert msg["41"] == "C102"
+        assert msg["11"] == "C102", "ER answers the replace request's ClOrdID"
+        assert msg["41"] == "C100", "ER references the superseded ClOrdID"
         assert msg["38"] == "200"
         assert msg["44"] == "151.5"
         assert msg["151"] == "160"
         row = await self._order(db)
+        assert row["cl_ord_id"] == "C102", "the accepted replace re-identifies the chain"
+        assert row["orig_cl_ord_id"] == "C100"
+        assert row["order_id"] == order_id_before, "the Order ID never changes"
         assert row["status"] == "Replaced"
         assert row["order_qty"] == 200.0
         assert row["price"] == 151.5
@@ -536,6 +563,8 @@ class TestCancelReplaceRequests:
 
     @pytest.mark.asyncio
     async def test_accept_request_routes_by_pending_action(self, stack):
+        """Each accepted request moves the chain to its ClOrdID, so the next
+        request (and the accept) must address the chain by its current ID."""
         db, writer, engine = stack
         stub = StubSession()
         engine.sessions["S1"] = stub
@@ -548,12 +577,16 @@ class TestCancelReplaceRequests:
         await engine.accept_request("S1", "C100")
         assert stub.sent[-1]["150"] == "5", "pending Replace accepts the replace"
 
-        await engine.on_app_message(stub, "F", parse_fix(CANCEL_REQ_RX))
-        await engine.accept_request("S1", "C100")
+        cancel_after_replace = "8=FIX.4.2|35=F|11=C103|41=C102|55=AAPL|54=1|38=200"
+        await engine.on_app_message(stub, "F", parse_fix(cancel_after_replace))
+        await engine.accept_request("S1", "C102")
         assert stub.sent[-1]["150"] == "4", "pending Cancel accepts the cancel"
 
+        row = await self._order(db)
+        assert row["cl_ord_id"] == "C103", "the chain ends on the cancel request's ClOrdID"
+
         with pytest.raises(ValueError, match="Nothing pending"):
-            await engine.accept_request("S1", "C100")
+            await engine.accept_request("S1", "C103")
 
     @pytest.mark.asyncio
     async def test_reject_request_routes_by_pending_action(self, stack):
@@ -621,6 +654,9 @@ class TestClientExecutionReports:
         execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
         assert [e["exec_type"] for e in execs] == ["Fill", "Cancel"]
         assert execs[-1]["exec_type_code"] == "1"
+        assert execs[0]["trade_id"].startswith("TR")
+        assert execs[-1]["trade_id"] == execs[0]["trade_id"], \
+            "a bust referencing the fill (tag 19) joins its trade"
 
     @pytest.mark.asyncio
     async def test_cancel_er_updates_order_but_keeps_price(self, stack):
@@ -628,12 +664,14 @@ class TestClientExecutionReports:
         stub = StubSession()
         new_er = ("8=FIX.4.2|35=8|11=C1|37=O1|17=E1|20=0|150=0|39=0|55=AAPL|54=1|"
                   "38=100|44=150.25|14=0|6=0|151=100")
-        canceled_er = ("8=FIX.4.2|35=8|11=C1|41=C2|37=O1|17=E2|20=0|150=4|39=4|55=AAPL|54=1|"
+        canceled_er = ("8=FIX.4.2|35=8|11=C2|41=C1|37=O1|17=E2|20=0|150=4|39=4|55=AAPL|54=1|"
                        "38=100|14=0|6=0|151=0")
         await engine.on_app_message(stub, "8", parse_fix(new_er))
         await engine.on_app_message(stub, "8", parse_fix(canceled_er))
         orders = await _fetch_all(db, "SELECT * FROM fix_orders")
         assert len(orders) == 1, "cancel ER folds into the original order row"
+        assert orders[0]["cl_ord_id"] == "C2", "the chain takes the cancel request's ClOrdID"
+        assert orders[0]["orig_cl_ord_id"] == "C1"
         assert orders[0]["status"] == "Canceled"
         assert orders[0]["leaves_qty"] == 0.0
         assert orders[0]["price"] == 150.25, "ER without tag 44 must not zero the price"
@@ -644,13 +682,84 @@ class TestClientExecutionReports:
         stub = StubSession()
         new_er = ("8=FIX.4.2|35=8|11=C1|37=O1|17=E1|20=0|150=0|39=0|55=AAPL|54=1|"
                   "38=100|44=150.25|14=0|6=0|151=100")
-        replaced_er = ("8=FIX.4.2|35=8|11=C1|41=C2|37=O1|17=E2|20=0|150=5|39=5|55=AAPL|54=1|"
+        replaced_er = ("8=FIX.4.2|35=8|11=C2|41=C1|37=O1|17=E2|20=0|150=5|39=5|55=AAPL|54=1|"
                        "38=200|44=151.5|14=0|6=0|151=200")
         await engine.on_app_message(stub, "8", parse_fix(new_er))
         await engine.on_app_message(stub, "8", parse_fix(replaced_er))
         orders = await _fetch_all(db, "SELECT * FROM fix_orders")
         assert len(orders) == 1
+        assert orders[0]["cl_ord_id"] == "C2", "the chain takes the replace request's ClOrdID"
+        assert orders[0]["orig_cl_ord_id"] == "C1"
         assert orders[0]["status"] == "Replaced"
         assert orders[0]["order_qty"] == 200.0
         assert orders[0]["price"] == 151.5
         assert orders[0]["leaves_qty"] == 200.0
+
+    @pytest.mark.asyncio
+    async def test_rename_skipped_when_target_row_exists(self, stack):
+        """If a row already exists under the new ClOrdID, the rename is skipped
+        instead of violating the (cl_ord_id, session_id) uniqueness."""
+        db, writer, engine = stack
+        stub = StubSession()
+        new_er_c1 = ("8=FIX.4.2|35=8|11=C1|37=O1|17=E1|20=0|150=0|39=0|55=AAPL|54=1|"
+                     "38=100|44=150.25|14=0|6=0|151=100")
+        new_er_c2 = ("8=FIX.4.2|35=8|11=C2|37=O2|17=E2|20=0|150=0|39=0|55=MSFT|54=1|"
+                     "38=50|44=300|14=0|6=0|151=50")
+        canceled_er = ("8=FIX.4.2|35=8|11=C2|41=C1|37=O2|17=E3|20=0|150=4|39=4|55=MSFT|54=1|"
+                       "38=50|14=0|6=0|151=0")
+        await engine.on_app_message(stub, "8", parse_fix(new_er_c1))
+        await engine.on_app_message(stub, "8", parse_fix(new_er_c2))
+        await engine.on_app_message(stub, "8", parse_fix(canceled_er))
+        orders = await _fetch_all(db, "SELECT * FROM fix_orders ORDER BY cl_ord_id")
+        assert len(orders) == 2, "both rows survive; the colliding rename is a no-op"
+        assert orders[0]["cl_ord_id"] == "C1"
+        assert orders[1]["cl_ord_id"] == "C2"
+        assert orders[1]["status"] == "Canceled"
+
+
+class TestClientSideIds:
+    @pytest.mark.asyncio
+    async def test_send_new_order_assigns_rt_and_or_ids(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0,
+        )
+        assert cl_ord_id.startswith("RT")
+        assert stub.sent[-1]["11"] == cl_ord_id
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert rows[0]["order_id"].startswith("OR")
+
+    @pytest.mark.asyncio
+    async def test_market_order_id_does_not_overwrite_ours(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0,
+        )
+        our_order_id = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]["order_id"]
+        er = (f"8=FIX.4.2|35=8|11={cl_ord_id}|37=CLMKT100|17=E1|20=0|150=0|39=0|"
+              "55=AAPL|54=1|38=100|14=0|6=0|151=100")
+        await engine.on_app_message(stub, "8", parse_fix(er))
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "New"
+        assert rows[0]["order_id"] == our_order_id, \
+            "the counterparty's OrderID(37) must not replace our immutable Order ID"
+
+    @pytest.mark.asyncio
+    async def test_cancel_and_replace_mint_fresh_rt_ids(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        second = await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0,
+        )
+        third = await engine.send_cancel(
+            "S1", orig_cl_ord_id=second, symbol="AAPL", side="1", qty=200,
+        )
+        assert len({first, second, third}) == 3
+        assert all(i.startswith("RT") for i in (first, second, third))

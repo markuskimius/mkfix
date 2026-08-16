@@ -7,6 +7,7 @@ import uuid
 from typing import Any, TYPE_CHECKING
 
 from mkfix.fix.dictionary import FixDictionary
+from mkfix.fix.idgen import IdGenerator
 from mkfix.fix.message import FixMessage, _fix_timestamp
 from mkfix.fix.replay import ReplayTask, parse_log_file
 from mkfix.fix.session import FixSession
@@ -25,13 +26,13 @@ ORDER_COLS = [
 ]
 
 ORDER_UPDATE_COLS = [
-    "order_id", "status", "cum_qty", "avg_price", "leaves_qty",
+    "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
 ]
 
 EXEC_COLS = [
-    "session_id", "exec_id", "order_id", "cl_ord_id", "symbol",
+    "session_id", "exec_id", "trade_id", "order_id", "cl_ord_id", "symbol",
     "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
     "transact_time", "text", "timestamp", "direction",
@@ -54,17 +55,16 @@ class FixEngine:
     def __init__(self, db: Database, writer: WriteBatcher):
         self.db = db
         self.writer = writer
+        self.ids = IdGenerator(db, writer)
         self.sessions: dict[str, FixSession] = {}
         self._compiled_ops: dict[str, tuple[CompiledOp, ...]] = {}
-        self._ord_id_counter = 0
-        self._order_id_counter = 0
-        self._exec_id_counter = 0
         self._replay_tasks: dict[int, ReplayTask] = {}
 
     async def start(self) -> None:
         """Load session configs from DB and compile write operations."""
         self._compile_ops()
         await self._ensure_indexes()
+        await self.ids.start()
         await self._load_sessions()
 
     async def stop(self) -> None:
@@ -112,10 +112,13 @@ class FixEngine:
 
         order_set = ", ".join(f"{c} = ?" for c in ORDER_UPDATE_COLS)
         # order_qty/price update from the insert values, guarded so an
-        # ExecutionReport without tag 38/44 can't zero them out.
+        # ExecutionReport without tag 38/44 can't zero them out. order_id is
+        # write-once: the immutable Order ID assigned when the order is created
+        # must survive later ERs carrying the counterparty's OrderID(37).
         order_set += (
             ", order_qty = iif(excluded.order_qty = 0, fix_orders.order_qty, excluded.order_qty)"
             ", price = iif(excluded.price = 0, fix_orders.price, excluded.price)"
+            ", order_id = iif(fix_orders.order_id = '', excluded.order_id, fix_orders.order_id)"
         )
         self._compiled_ops["upsert_order"] = (CompiledOp(
             table="fix_orders",
@@ -127,6 +130,22 @@ class FixEngine:
                 f"RETURNING *"
             ),
             param_names=tuple(ORDER_COLS + ["_mkio_ref"] + ORDER_UPDATE_COLS),
+        ),)
+
+        # Moves an order chain to its next ClOrdID when a cancel/replace is
+        # accepted. Guarded so a duplicate ER can't collide with an existing row.
+        self._compiled_ops["rename_order"] = (CompiledOp(
+            table="fix_orders",
+            op_type="update",
+            sql=(
+                "UPDATE fix_orders SET cl_ord_id = ?, orig_cl_ord_id = ?, updated_at = ?, _mkio_ref = ? "
+                "WHERE session_id = ? AND cl_ord_id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM fix_orders x "
+                "WHERE x.session_id = fix_orders.session_id AND x.cl_ord_id = ?) "
+                "RETURNING *"
+            ),
+            param_names=("cl_ord_id", "orig_cl_ord_id", "updated_at", "_mkio_ref",
+                         "session_id", "old_cl_ord_id", "new_cl_ord_id"),
         ),)
 
         exec_placeholders = ", ".join(["?"] * (len(EXEC_COLS) + 1))
@@ -310,7 +329,14 @@ class FixEngine:
         dictionary = session.dictionary
         now = _fix_timestamp()
         cl_ord_id = msg.get("11", "")
+        orig_cl_ord_id = msg.get("41", "")
         session_id = session.session_id
+
+        # An accepted cancel/replace re-identifies the chain: tag 11 carries the
+        # request's ClOrdID and tag 41 the one it supersedes. Move our order row
+        # to the new ClOrdID before upserting under it.
+        if orig_cl_ord_id and orig_cl_ord_id != cl_ord_id:
+            await self._rename_order(session_id, orig_cl_ord_id, cl_ord_id)
 
         side_code = msg.get("54", "")
         status_code = msg.get("39", "")
@@ -323,7 +349,7 @@ class FixEngine:
             "cl_ord_id": cl_ord_id,
             "session_id": session_id,
             "order_id": msg.get("37", ""),
-            "orig_cl_ord_id": msg.get("41", ""),
+            "orig_cl_ord_id": orig_cl_ord_id,
             "symbol": msg.get("55", ""),
             "side": dictionary.enum_name("54", side_code),
             "side_code": side_code,
@@ -363,9 +389,19 @@ class FixEngine:
         else:
             return
 
+        # A correction/bust belongs to the trade of the execution it references
+        # (tag 19); a new fill starts a new trade.
+        trade_id = ""
+        exec_ref_id = msg.get("19", "")
+        if exec_ref_id:
+            trade_id = await self._lookup_trade_id(session_id, exec_ref_id)
+        if not trade_id:
+            trade_id = await self.ids.next_id("TR")
+
         exec_row = {
             "session_id": session_id,
             "exec_id": msg.get("17", ""),
+            "trade_id": trade_id,
             "order_id": msg.get("37", ""),
             "cl_ord_id": cl_ord_id,
             "symbol": msg.get("55", ""),
@@ -398,7 +434,7 @@ class FixEngine:
         order_row = {
             "cl_ord_id": msg.get("11", ""),
             "session_id": session.session_id,
-            "order_id": "",
+            "order_id": await self.ids.next_id("OR"),
             "orig_cl_ord_id": "",
             "symbol": msg.get("55", ""),
             "side": dictionary.enum_name("54", side_code),
@@ -474,7 +510,7 @@ class FixEngine:
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
 
-        cl_ord_id = self._next_cl_ord_id()
+        cl_ord_id = await self.ids.next_id("RT")
         msg = session.factory.new_order_single(
             cl_ord_id=cl_ord_id,
             symbol=symbol,
@@ -494,7 +530,7 @@ class FixEngine:
         order_row = {
             "cl_ord_id": cl_ord_id,
             "session_id": session_id,
-            "order_id": "",
+            "order_id": await self.ids.next_id("OR"),
             "orig_cl_ord_id": "",
             "symbol": symbol,
             "side": dictionary.enum_name("54", side),
@@ -539,7 +575,7 @@ class FixEngine:
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
 
-        cl_ord_id = self._next_cl_ord_id()
+        cl_ord_id = await self.ids.next_id("RT")
         msg = session.factory.cancel_request(
             cl_ord_id=cl_ord_id,
             orig_cl_ord_id=orig_cl_ord_id,
@@ -566,7 +602,7 @@ class FixEngine:
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
 
-        cl_ord_id = self._next_cl_ord_id()
+        cl_ord_id = await self.ids.next_id("RT")
         msg = session.factory.cancel_replace_request(
             cl_ord_id=cl_ord_id,
             orig_cl_ord_id=orig_cl_ord_id,
@@ -618,8 +654,27 @@ class FixEngine:
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(row),), {"cl_ord_id": row["cl_ord_id"]})
 
+    async def _rename_order(self, session_id: str, old_cl_ord_id: str, new_cl_ord_id: str) -> None:
+        """Move an order row to its next ClOrdID after an accepted cancel/replace."""
+        if not old_cl_ord_id or old_cl_ord_id == new_cl_ord_id:
+            return
+        params = (new_cl_ord_id, old_cl_ord_id, _fix_timestamp(), None,
+                  session_id, old_cl_ord_id, new_cl_ord_id)
+        ops = self._compiled_ops["rename_order"]
+        await self.writer.submit(ops, (params,), {"cl_ord_id": new_cl_ord_id})
+
+    async def _lookup_trade_id(self, session_id: str, exec_id: str) -> str:
+        cursor = await self.db.read_conn.execute(
+            "SELECT trade_id FROM fix_executions WHERE session_id = ? AND exec_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (session_id, exec_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return row["trade_id"] if row else ""
+
     async def _write_sent_execution(
-        self, order: dict[str, Any], exec_id: str, exec_type: str,
+        self, order: dict[str, Any], exec_id: str, trade_id: str, exec_type: str,
         exec_type_code: str, last_qty: float, last_price: float,
         cum_qty: float, avg_price: float, leaves_qty: float,
     ) -> None:
@@ -627,6 +682,7 @@ class FixEngine:
         exec_row = {
             "session_id": order["session_id"],
             "exec_id": exec_id,
+            "trade_id": trade_id,
             "order_id": order["order_id"],
             "cl_ord_id": order["cl_ord_id"],
             "symbol": order["symbol"],
@@ -652,11 +708,11 @@ class FixEngine:
         session = self._active_session(session_id)
         order = await self._load_order(session_id, cl_ord_id)
 
-        order_id = order["order_id"] or self._next_order_id()
+        order_id = order["order_id"] or await self.ids.next_id("OR")
         msg = session.factory.execution_report(
             order_id=order_id,
             cl_ord_id=cl_ord_id,
-            exec_id=self._next_exec_id(),
+            exec_id=await self.ids.next_id("EX"),
             exec_trans_type="0",
             exec_type="0",
             ord_status="0",
@@ -678,7 +734,7 @@ class FixEngine:
         msg = session.factory.execution_report(
             order_id=order["order_id"],
             cl_ord_id=cl_ord_id,
-            exec_id=self._next_exec_id(),
+            exec_id=await self.ids.next_id("EX"),
             exec_trans_type="0",
             exec_type="8",
             ord_status="8",
@@ -704,8 +760,9 @@ class FixEngine:
         dictionary = session.dictionary
         order = await self._load_order(session_id, cl_ord_id)
 
-        order_id = order["order_id"] or self._next_order_id()
-        exec_id = self._next_exec_id()
+        order_id = order["order_id"] or await self.ids.next_id("OR")
+        exec_id = await self.ids.next_id("EX")
+        trade_id = await self.ids.next_id("TR")
         cum_qty = order["cum_qty"] + qty
         leaves_qty = max(order["order_qty"] - cum_qty, 0.0)
         avg_price = (order["avg_price"] * order["cum_qty"] + qty * price) / cum_qty
@@ -735,7 +792,7 @@ class FixEngine:
             last_qty=qty, last_price=price,
         )
         await self._write_sent_execution(
-            {**order, "order_id": order_id}, exec_id,
+            {**order, "order_id": order_id}, exec_id, trade_id,
             dictionary.enum_name("150", status_code), status_code,
             qty, price, cum_qty, avg_price, leaves_qty,
         )
@@ -773,10 +830,13 @@ class FixEngine:
         if order["pending_action"] != "Cancel":
             raise ValueError(f"No pending cancel request on {cl_ord_id}")
 
-        exec_id = self._next_exec_id()
+        # The accepted cancel re-identifies the chain: the ER answers the
+        # request's ClOrdID (11), referencing the one it supersedes (41).
+        new_cl_ord_id = order["pending_cl_ord_id"]
+        exec_id = await self.ids.next_id("EX")
         msg = session.factory.execution_report(
             order_id=order["order_id"],
-            cl_ord_id=cl_ord_id,
+            cl_ord_id=new_cl_ord_id,
             exec_id=exec_id,
             exec_trans_type="0",
             exec_type="4",
@@ -787,12 +847,14 @@ class FixEngine:
             cum_qty=order["cum_qty"],
             avg_price=order["avg_price"],
             leaves_qty=0.0,
-            **{"41": order["pending_cl_ord_id"]},
+            **{"41": cl_ord_id},
         )
         await session.send_message(msg)
 
+        await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
-            order, status="Canceled", leaves_qty=0.0,
+            {**order, "cl_ord_id": new_cl_ord_id, "orig_cl_ord_id": cl_ord_id},
+            status="Canceled", leaves_qty=0.0,
             pending_action="", pending_cl_ord_id="",
             pending_qty=0.0, pending_price=0.0,
         )
@@ -811,11 +873,14 @@ class FixEngine:
         if new_qty < order["cum_qty"]:
             raise ValueError("Replaced quantity is below executed quantity")
 
+        # The accepted replace re-identifies the chain: the ER answers the
+        # request's ClOrdID (11), referencing the one it supersedes (41).
+        new_cl_ord_id = order["pending_cl_ord_id"]
         leaves_qty = new_qty - order["cum_qty"]
-        exec_id = self._next_exec_id()
+        exec_id = await self.ids.next_id("EX")
         msg = session.factory.execution_report(
             order_id=order["order_id"],
-            cl_ord_id=cl_ord_id,
+            cl_ord_id=new_cl_ord_id,
             exec_id=exec_id,
             exec_trans_type="0",
             exec_type="5",
@@ -826,12 +891,14 @@ class FixEngine:
             cum_qty=order["cum_qty"],
             avg_price=order["avg_price"],
             leaves_qty=leaves_qty,
-            **{"41": order["pending_cl_ord_id"], "44": str(new_price)},
+            **{"41": cl_ord_id, "44": str(new_price)},
         )
         await session.send_message(msg)
 
+        await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
-            order, status="Replaced", order_qty=new_qty, price=new_price,
+            {**order, "cl_ord_id": new_cl_ord_id, "orig_cl_ord_id": cl_ord_id},
+            status="Replaced", order_qty=new_qty, price=new_price,
             leaves_qty=leaves_qty,
             pending_action="", pending_cl_ord_id="",
             pending_qty=0.0, pending_price=0.0,
@@ -873,7 +940,8 @@ class FixEngine:
         execution = await self._load_execution(session_id, exec_id)
         order = await self._load_order(session_id, execution["cl_ord_id"])
 
-        new_exec_id = self._next_exec_id()
+        new_exec_id = await self.ids.next_id("EX")
+        trade_id = execution["trade_id"] or await self.ids.next_id("TR")
         cum_qty = max(order["cum_qty"] - execution["last_qty"] + qty, 0.0)
         leaves_qty = max(order["order_qty"] - cum_qty, 0.0)
         notional = (order["avg_price"] * order["cum_qty"]
@@ -906,7 +974,7 @@ class FixEngine:
             last_qty=qty, last_price=price,
         )
         await self._write_sent_execution(
-            order, new_exec_id, dictionary.enum_name("20", "2"), "2",
+            order, new_exec_id, trade_id, dictionary.enum_name("20", "2"), "2",
             qty, price, cum_qty, avg_price, leaves_qty,
         )
         return new_exec_id
@@ -918,7 +986,8 @@ class FixEngine:
         execution = await self._load_execution(session_id, exec_id)
         order = await self._load_order(session_id, execution["cl_ord_id"])
 
-        new_exec_id = self._next_exec_id()
+        new_exec_id = await self.ids.next_id("EX")
+        trade_id = execution["trade_id"] or await self.ids.next_id("TR")
         cum_qty = max(order["cum_qty"] - execution["last_qty"], 0.0)
         leaves_qty = max(order["order_qty"] - cum_qty, 0.0)
         notional = (order["avg_price"] * order["cum_qty"]
@@ -951,29 +1020,17 @@ class FixEngine:
             last_qty=execution["last_qty"], last_price=execution["last_price"],
         )
         await self._write_sent_execution(
-            order, new_exec_id, dictionary.enum_name("20", "1"), "1",
+            order, new_exec_id, trade_id, dictionary.enum_name("20", "1"), "1",
             execution["last_qty"], execution["last_price"],
             cum_qty, avg_price, leaves_qty,
         )
         return new_exec_id
-
-    def _next_order_id(self) -> str:
-        self._order_id_counter += 1
-        return f"MKFIX-O-{self._order_id_counter:08d}"
-
-    def _next_exec_id(self) -> str:
-        self._exec_id_counter += 1
-        return f"MKFIX-E-{self._exec_id_counter:08d}"
 
     async def reset_sequence(self, session_id: str, tx: int = 1, rx: int = 1) -> None:
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Unknown session: {session_id}")
         await session.reset_sequence_numbers(tx, rx)
-
-    def _next_cl_ord_id(self) -> str:
-        self._ord_id_counter += 1
-        return f"MKFIX-{self._ord_id_counter:08d}"
 
     async def _handle_ioi(self, session: FixSession, msg: FixMessage, direction: str) -> None:
         """Process an IOI (35=6)."""

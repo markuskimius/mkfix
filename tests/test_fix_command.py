@@ -25,18 +25,18 @@ def _make_engine():
         "start_replay", "pause_replay", "resume_replay", "stop_replay",
     ):
         setattr(engine, method, AsyncMock())
-    engine.send_new_order = AsyncMock(return_value="MKFIX-00000001")
-    engine.send_cancel = AsyncMock(return_value="MKFIX-00000002")
-    engine.send_cancel_replace = AsyncMock(return_value="MKFIX-00000003")
-    engine.accept_order = AsyncMock(return_value="MKFIX-O-00000001")
+    engine.send_new_order = AsyncMock(return_value="RTXX00000001")
+    engine.send_cancel = AsyncMock(return_value="RTXX00000002")
+    engine.send_cancel_replace = AsyncMock(return_value="RTXX00000003")
+    engine.accept_order = AsyncMock(return_value="ORXX00000001")
     engine.reject_order = AsyncMock()
-    engine.fill_order = AsyncMock(return_value="MKFIX-E-00000001")
-    engine.correct_trade = AsyncMock(return_value="MKFIX-E-00000002")
-    engine.bust_trade = AsyncMock(return_value="MKFIX-E-00000003")
-    engine.accept_cancel = AsyncMock(return_value="MKFIX-E-00000004")
-    engine.accept_replace = AsyncMock(return_value="MKFIX-E-00000005")
+    engine.fill_order = AsyncMock(return_value="EXXX00000001")
+    engine.correct_trade = AsyncMock(return_value="EXXX00000002")
+    engine.bust_trade = AsyncMock(return_value="EXXX00000003")
+    engine.accept_cancel = AsyncMock(return_value="EXXX00000004")
+    engine.accept_replace = AsyncMock(return_value="EXXX00000005")
     engine.reject_cancel = AsyncMock()
-    engine.accept_request = AsyncMock(return_value="MKFIX-E-00000006")
+    engine.accept_request = AsyncMock(return_value="EXXX00000006")
     engine.reject_request = AsyncMock()
     return engine
 
@@ -150,7 +150,7 @@ class TestDispatch:
         )
         resp = _sent(ws)
         assert resp["ok"] is True
-        assert resp["cl_ord_id"] == "MKFIX-00000001"
+        assert resp["cl_ord_id"] == "RTXX00000001"
 
     @pytest.mark.asyncio
     async def test_send_new_order_market_has_no_price(self):
@@ -207,7 +207,7 @@ class TestDispatch:
         engine.accept_order.assert_awaited_once_with(session_id="S1", cl_ord_id="C100")
         resp = _sent(ws)
         assert resp["ok"] is True
-        assert resp["order_id"] == "MKFIX-O-00000001"
+        assert resp["order_id"] == "ORXX00000001"
 
     @pytest.mark.asyncio
     async def test_reject_order_defaults_text(self):
@@ -237,7 +237,7 @@ class TestDispatch:
         )
         resp = _sent(ws)
         assert resp["ok"] is True
-        assert resp["exec_id"] == "MKFIX-E-00000001"
+        assert resp["exec_id"] == "EXXX00000001"
 
     @pytest.mark.asyncio
     async def test_correct_trade(self):
@@ -252,7 +252,7 @@ class TestDispatch:
         engine.correct_trade.assert_awaited_once_with(
             session_id="S1", exec_id="E1", qty=50.0, price=151.0,
         )
-        assert _sent(ws)["exec_id"] == "MKFIX-E-00000002"
+        assert _sent(ws)["exec_id"] == "EXXX00000002"
 
     @pytest.mark.asyncio
     async def test_bust_trade(self):
@@ -264,7 +264,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "exec_id": "E1"},
         })
         engine.bust_trade.assert_awaited_once_with(session_id="S1", exec_id="E1")
-        assert _sent(ws)["exec_id"] == "MKFIX-E-00000003"
+        assert _sent(ws)["exec_id"] == "EXXX00000003"
 
     @pytest.mark.asyncio
     async def test_accept_request(self):
@@ -276,7 +276,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.accept_request.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
-        assert _sent(ws)["exec_id"] == "MKFIX-E-00000006"
+        assert _sent(ws)["exec_id"] == "EXXX00000006"
 
     @pytest.mark.asyncio
     async def test_reject_request_defaults_text(self):
@@ -302,7 +302,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.accept_cancel.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
-        assert _sent(ws)["exec_id"] == "MKFIX-E-00000004"
+        assert _sent(ws)["exec_id"] == "EXXX00000004"
 
     @pytest.mark.asyncio
     async def test_accept_replace(self):
@@ -314,7 +314,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.accept_replace.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
-        assert _sent(ws)["exec_id"] == "MKFIX-E-00000005"
+        assert _sent(ws)["exec_id"] == "EXXX00000005"
 
     @pytest.mark.asyncio
     async def test_reject_cancel_defaults_text(self):

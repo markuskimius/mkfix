@@ -17,7 +17,16 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Sent Orders & Received Trades Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
   the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
-  directly from the blotter.
+  directly from the blotter. An accepted cancel or replace moves the order to
+  the request's ClOrdID (per the FIX chain), while an immutable Order ID keeps
+  the order recognizable across the chain; corrections and busts likewise
+  replace the ExecID while an immutable Trade ID groups a fill with its
+  corrections and busts.
+- **Prefixed IDs** -- Every generated ID states its kind: `RT` ClOrdIDs
+  (routed), `OR` Order IDs, `EX` ExecIDs, `TR` Trade IDs -- followed by a
+  2-character instance code (the first two letters of the username, so
+  concurrent mkfix users against the same counterparty mint distinguishable
+  IDs) and an 8-digit counter that persists across restarts.
 - **Received Orders & Sent Trades Blotters** -- The other side of the same flow:
   new orders and incoming cancel and cancel/replace requests all appear on the
   Received Orders blotter as a pending action, and a single Accept/Reject pair
