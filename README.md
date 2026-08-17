@@ -39,7 +39,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
   fillable while a request is pending and even after a full fill (overfills
   are a scenario worth testing), and sent trades can be corrected and busted
   from the Sent Trades blotter (FIX 4.2 ExecTransType Correct/Cancel with
-  ExecRefID).
+  ExecRefID) -- including trades filled before a replace renamed the order's
+  ClOrdID chain.
+- **Color-Coded Blotters** -- Conditional cell and row styling throughout:
+  buy/sell sides, order statuses, exec types, TX/RX direction, and pending
+  requests are colored; heartbeat chatter is dimmed in the Messages viewer.
+  Order and trade action buttons disable while the owning FIX session is
+  down, driven by the session's live status mirrored onto each row.
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
@@ -105,7 +111,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.1.65 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.1.54 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.1.55 -- Web Components UI
   framework
 
 ## License

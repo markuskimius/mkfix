@@ -65,7 +65,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.9" }
+      { "type": "text", "text": "mkfix v0.10" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -77,6 +77,15 @@
       "protocol": "query",
       "columns": ["session_id", "fix_version", "sender_comp_id", "target_comp_id", "host", "port", "status", "tx_seq_num", "rx_seq_num"],
       "labels": { "session_id": "Session", "fix_version": "Version", "sender_comp_id": "Sender", "target_comp_id": "Target", "host": "Host", "port": "Port", "status": "Status", "tx_seq_num": "TX Seq", "rx_seq_num": "RX Seq" },
+      "styles": {
+        "status": [
+          { "eq": "ACTIVE", "color": "#4ec9b0", "bold": true },
+          { "eq": "ERROR", "color": "#f44747", "bold": true },
+          { "eq": "LISTENING", "color": "#dcdcaa" },
+          { "in": ["INITIATING", "LOGON_SENT", "LOGOUT_SENT"], "color": "#dcdcaa", "italic": true },
+          { "eq": "DOWN", "color": "#858585" }
+        ]
+      },
       "select": { "state": "selected_session" },
       "buttons": [
         {
@@ -216,6 +225,15 @@
       "live": true,
       "columns": ["timestamp", "direction", "seq_num", "session_id", "msg_type_name", "raw_message"],
       "labels": { "timestamp": "Time", "direction": "Dir", "seq_num": "Seq", "session_id": "Session", "msg_type_name": "Type", "raw_message": "Message" },
+      "styles": {
+        "direction": [
+          { "eq": "TX", "color": "#569cd6", "bold": true },
+          { "eq": "RX", "color": "#4ec9b0", "bold": true }
+        ]
+      },
+      "rowStyle": [
+        { "when": { "msg_type_name": ["Heartbeat", "TestRequest"] }, "color": "#858585" }
+      ],
       "select": { "state": "selected_message" }
     },
     "message-detail": {
@@ -230,6 +248,20 @@
       "filter": "direction == 'TX'",
       "columns": ["order_id", "cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
       "labels": { "order_id": "Order ID", "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "styles": {
+        "side": [
+          { "eq": "Buy", "color": "#4ec9b0" },
+          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+        ],
+        "status": [
+          { "eq": "Filled", "color": "#6a9955", "bold": true },
+          { "eq": "PartiallyFilled", "color": "#4ec9b0" },
+          { "eq": "Replaced", "color": "#dcdcaa" },
+          { "eq": "PendingNew", "color": "#dcdcaa", "italic": true },
+          { "eq": "Rejected", "color": "#f44747" },
+          { "eq": "Canceled", "color": "#858585", "strike": true }
+        ]
+      },
       "buttons": [
         {
           "label": "New",
@@ -290,7 +322,7 @@
         {
           "label": "Replace",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"] } },
+          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"], "session_status": "ACTIVE" } },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -319,7 +351,7 @@
         },
         {
           "label": "Cancel",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"] } },
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"], "session_status": "ACTIVE" } },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
@@ -342,7 +374,19 @@
       "protocol": "query",
       "filter": "direction == 'RX'",
       "columns": ["trade_id", "exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
-      "labels": { "trade_id": "Trade ID", "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" }
+      "labels": { "trade_id": "Trade ID", "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" },
+      "styles": {
+        "side": [
+          { "eq": "Buy", "color": "#4ec9b0" },
+          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+        ],
+        "exec_type": [
+          { "eq": "Fill", "color": "#6a9955", "bold": true },
+          { "eq": "PartialFill", "color": "#4ec9b0" },
+          { "eq": "Correct", "color": "#dcdcaa" },
+          { "eq": "Cancel", "color": "#f44747", "strike": true }
+        ]
+      }
     },
     "market-order-blotter": {
       "title": "Received Orders",
@@ -352,10 +396,27 @@
       "filter": "direction == 'RX'",
       "columns": ["order_id", "cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "pending_action", "pending_qty", "pending_price", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
       "labels": { "order_id": "Order ID", "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "pending_action": "Pending", "pending_qty": "New Qty", "pending_price": "New Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "styles": {
+        "side": [
+          { "eq": "Buy", "color": "#4ec9b0" },
+          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+        ],
+        "status": [
+          { "eq": "Filled", "color": "#6a9955", "bold": true },
+          { "eq": "PartiallyFilled", "color": "#4ec9b0" },
+          { "eq": "Replaced", "color": "#dcdcaa" },
+          { "eq": "PendingNew", "color": "#dcdcaa", "italic": true },
+          { "eq": "Rejected", "color": "#f44747" },
+          { "eq": "Canceled", "color": "#858585", "strike": true }
+        ],
+        "pending_action": [
+          { "in": ["New", "Cancel", "Replace"], "color": "#dcdcaa", "bold": true, "background": "#3a2f1b" }
+        ]
+      },
       "buttons": [
         {
           "label": "Accept",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"] } },
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE" } },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
@@ -369,7 +430,7 @@
         {
           "label": "Reject",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"] } },
+          "enable": { "connected": true, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE" } },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -395,7 +456,7 @@
         {
           "label": "Fill",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"] } },
+          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"], "session_status": "ACTIVE" } },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -429,11 +490,23 @@
       "filter": "direction == 'TX'",
       "columns": ["trade_id", "exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
       "labels": { "trade_id": "Trade ID", "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" },
+      "styles": {
+        "side": [
+          { "eq": "Buy", "color": "#4ec9b0" },
+          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+        ],
+        "exec_type": [
+          { "eq": "Fill", "color": "#6a9955", "bold": true },
+          { "eq": "PartialFill", "color": "#4ec9b0" },
+          { "eq": "Correct", "color": "#dcdcaa" },
+          { "eq": "Cancel", "color": "#f44747", "strike": true }
+        ]
+      },
       "buttons": [
         {
           "label": "Correct",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"] } },
+          "enable": { "connected": true, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"], "session_status": "ACTIVE" } },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -459,7 +532,7 @@
         },
         {
           "label": "Bust",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"] } },
+          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"], "session_status": "ACTIVE" } },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
@@ -478,7 +551,17 @@
       "service": "iois_query",
       "protocol": "query",
       "columns": ["ioi_id", "session_id", "ioi_trans_type", "symbol", "side", "ioi_qty", "price", "valid_until", "direction", "timestamp"],
-      "labels": { "ioi_id": "IOI ID", "session_id": "Session", "ioi_trans_type": "Trans Type", "symbol": "Symbol", "side": "Side", "ioi_qty": "Qty", "price": "Price", "valid_until": "Valid Until", "direction": "Dir", "timestamp": "Time" }
+      "labels": { "ioi_id": "IOI ID", "session_id": "Session", "ioi_trans_type": "Trans Type", "symbol": "Symbol", "side": "Side", "ioi_qty": "Qty", "price": "Price", "valid_until": "Valid Until", "direction": "Dir", "timestamp": "Time" },
+      "styles": {
+        "side": [
+          { "eq": "Buy", "color": "#4ec9b0" },
+          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+        ],
+        "direction": [
+          { "eq": "TX", "color": "#569cd6", "bold": true },
+          { "eq": "RX", "color": "#4ec9b0", "bold": true }
+        ]
+      }
     },
     "allocation-viewer": {
       "title": "Allocations",
@@ -486,7 +569,17 @@
       "service": "allocations_query",
       "protocol": "query",
       "columns": ["alloc_id", "session_id", "alloc_trans_type", "alloc_type", "symbol", "side", "quantity", "avg_price", "trade_date", "alloc_status", "num_allocs", "direction", "timestamp"],
-      "labels": { "alloc_id": "AllocID", "session_id": "Session", "alloc_trans_type": "Trans Type", "alloc_type": "Alloc Type", "symbol": "Symbol", "side": "Side", "quantity": "Qty", "avg_price": "Avg Px", "trade_date": "Trade Date", "alloc_status": "Status", "num_allocs": "Allocs", "direction": "Dir", "timestamp": "Time" }
+      "labels": { "alloc_id": "AllocID", "session_id": "Session", "alloc_trans_type": "Trans Type", "alloc_type": "Alloc Type", "symbol": "Symbol", "side": "Side", "quantity": "Qty", "avg_price": "Avg Px", "trade_date": "Trade Date", "alloc_status": "Status", "num_allocs": "Allocs", "direction": "Dir", "timestamp": "Time" },
+      "styles": {
+        "side": [
+          { "eq": "Buy", "color": "#4ec9b0" },
+          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+        ],
+        "direction": [
+          { "eq": "TX", "color": "#569cd6", "bold": true },
+          { "eq": "RX", "color": "#4ec9b0", "bold": true }
+        ]
+      }
     },
     "replay-control": {
       "title": "Replay",
@@ -535,7 +628,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.9", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.10", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

@@ -48,12 +48,14 @@ ORDER_COLS = [
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
     "created_at", "updated_at", "direction",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
+    "session_status",
 ]
 
 ORDER_UPDATE_COLS = [
     "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
+    "session_status",
 ]
 
 
@@ -68,6 +70,7 @@ def _order_params(**overrides):
         "transact_time": "", "created_at": "", "updated_at": "", "direction": "TX",
         "pending_action": "", "pending_cl_ord_id": "",
         "pending_qty": 0.0, "pending_price": 0.0,
+        "session_status": "ACTIVE",
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
@@ -195,6 +198,7 @@ class StubSession:
         self.dictionary = FixDictionary("FIX.4.2")
         self.factory = FixMessageFactory(self.dictionary, "MKT", "CLIENT")
         self.is_active = True
+        self.status = "ACTIVE"
         self.sent = []
 
     async def send_message(self, msg):
@@ -434,6 +438,61 @@ class TestMarketFlow:
             await engine.accept_order("S1", "NOPE")
 
 
+class TestSessionStatusMirror:
+    """session_status on order/execution rows mirrors the owning session's
+    live status so blotter buttons can gate on it (rowMatch only reads the
+    row's own columns, and a JOIN query would not live-update)."""
+
+    @pytest.mark.asyncio
+    async def test_status_change_mirrors_onto_orders_and_executions(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+
+        rows = await _fetch_all(db, "SELECT session_status FROM fix_orders") \
+            + await _fetch_all(db, "SELECT session_status FROM fix_executions")
+        assert all(r["session_status"] == "ACTIVE" for r in rows), \
+            "rows written over a live session carry ACTIVE"
+
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        rows = await _fetch_all(db, "SELECT session_status FROM fix_orders") \
+            + await _fetch_all(db, "SELECT session_status FROM fix_executions")
+        assert all(r["session_status"] == "DOWN" for r in rows)
+
+        await engine.update_session_state("S1", {"status": "ACTIVE"})
+        rows = await _fetch_all(db, "SELECT session_status FROM fix_orders") \
+            + await _fetch_all(db, "SELECT session_status FROM fix_executions")
+        assert all(r["session_status"] == "ACTIVE" for r in rows)
+
+    @pytest.mark.asyncio
+    async def test_seq_num_persist_does_not_touch_rows(self, stack):
+        """Only status transitions mirror — the per-message seq-num persist
+        must not rewrite every order row."""
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        await engine.update_session_state("S1", {"tx_seq_num": 5, "rx_seq_num": 7})
+        row = (await _fetch_all(db, "SELECT session_status FROM fix_orders"))[0]
+        assert row["session_status"] == "DOWN"
+
+    @pytest.mark.asyncio
+    async def test_mirror_touches_only_the_sessions_rows(self, stack):
+        db, writer, engine = stack
+        s1, s2 = StubSession("S1"), StubSession("S2")
+        engine.sessions["S1"] = s1
+        engine.sessions["S2"] = s2
+        await engine.on_app_message(s1, "D", parse_fix(NEW_ORDER_RX))
+        await engine.on_app_message(s2, "D", parse_fix(NEW_ORDER_RX))
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        rows = await _fetch_all(db, "SELECT session_id, session_status FROM fix_orders")
+        by = {r["session_id"]: r["session_status"] for r in rows}
+        assert by == {"S1": "DOWN", "S2": "ACTIVE"}
+
+
 CANCEL_REQ_RX = "8=FIX.4.2|35=F|11=C101|41=C100|55=AAPL|54=1|38=100"
 REPLACE_REQ_RX = "8=FIX.4.2|35=G|11=C102|41=C100|55=AAPL|54=1|38=200|40=2|44=151.5"
 REPLACE_LOW_RX = "8=FIX.4.2|35=G|11=C103|41=C100|55=AAPL|54=1|38=30|40=2|44=151.5"
@@ -529,6 +588,40 @@ class TestCancelReplaceRequests:
         assert row["leaves_qty"] == 160.0
         assert row["pending_action"] == ""
         assert row["pending_qty"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_correct_and_bust_after_replace_use_latest_cl_ord_id(self, stack):
+        """An accepted replace renames the chain; a later correction or bust of
+        a pre-replace fill must still resolve the order (by its immutable
+        Order ID) and report under the chain's latest ClOrdID."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        exec_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_RX))
+        await engine.accept_replace("S1", "C100")
+        row = await self._order(db)
+        assert row["cl_ord_id"] == "C102"
+
+        new_exec_id = await engine.correct_trade("S1", exec_id, qty=50, price=151.0)
+        msg = stub.sent[-1]
+        assert msg["20"] == "2"
+        assert msg["19"] == exec_id
+        assert msg["11"] == "C102", "the correction reports the chain's latest ClOrdID"
+        assert msg["37"] == row["order_id"]
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert execs[-1]["cl_ord_id"] == "C102"
+        row = await self._order(db)
+        assert row["cum_qty"] == 50.0
+        assert row["leaves_qty"] == 150.0
+
+        await engine.bust_trade("S1", new_exec_id)
+        msg = stub.sent[-1]
+        assert msg["20"] == "1"
+        assert msg["11"] == "C102", "the bust reports the chain's latest ClOrdID"
+        row = await self._order(db)
+        assert row["cum_qty"] == 0.0
+        assert row["leaves_qty"] == 200.0
+        assert row["status"] == "New"
 
     @pytest.mark.asyncio
     async def test_accept_replace_after_full_fill_revives_order(self, stack):

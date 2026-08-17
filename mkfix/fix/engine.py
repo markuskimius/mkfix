@@ -23,19 +23,21 @@ ORDER_COLS = [
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
     "created_at", "updated_at", "direction",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
+    "session_status",
 ]
 
 ORDER_UPDATE_COLS = [
     "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
+    "session_status",
 ]
 
 EXEC_COLS = [
     "session_id", "exec_id", "trade_id", "order_id", "cl_ord_id", "symbol",
     "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
-    "transact_time", "text", "timestamp", "direction",
+    "transact_time", "text", "timestamp", "direction", "session_status",
 ]
 
 
@@ -158,6 +160,22 @@ class FixEngine:
             param_names=("cl_ord_id", "orig_cl_ord_id", "updated_at", "_mkio_ref",
                          "session_id", "old_cl_ord_id", "new_cl_ord_id"),
         ),)
+
+        # Mirrors a session status change onto its order/execution rows so the
+        # blotters can gate action buttons on session_status. Keyed by rowid:
+        # the writer returns (and publishes) one row per op, so a whole-session
+        # UPDATE would live-update only one blotter row.
+        self._compiled_ops["mirror_session_status"] = (CompiledOp(
+            table="fix_orders",
+            op_type="update",
+            sql="UPDATE fix_orders SET session_status = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
+            param_names=("session_status", "_mkio_ref", "id"),
+        ), CompiledOp(
+            table="fix_executions",
+            op_type="update",
+            sql="UPDATE fix_executions SET session_status = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
+            param_names=("session_status", "_mkio_ref", "id"),
+        ))
 
         exec_placeholders = ", ".join(["?"] * (len(EXEC_COLS) + 1))
         exec_col_str = ", ".join(EXEC_COLS + ["_mkio_ref"])
@@ -326,6 +344,26 @@ class FixEngine:
         )
         ops = self._compiled_ops["upsert_state"]
         await self.writer.submit(ops, (params, mirror), {"session_id": session_id})
+        if "status" in updates:
+            await self._mirror_session_status(session_id, state["status"])
+
+    async def _mirror_session_status(self, session_id: str, status: str) -> None:
+        """Mirror a session status change onto its order/execution rows."""
+        conn = self.db.read_conn
+        row_ids: list[tuple[int, int]] = []  # (op index, rowid)
+        for idx, table in enumerate(("fix_orders", "fix_executions")):
+            cursor = await conn.execute(
+                f"SELECT id FROM {table} WHERE session_id = ? AND session_status != ?",
+                (session_id, status),
+            )
+            row_ids += [(idx, row["id"]) for row in await cursor.fetchall()]
+            await cursor.close()
+        if not row_ids:
+            return
+        mirror_ops = self._compiled_ops["mirror_session_status"]
+        ops = tuple(mirror_ops[idx] for idx, _ in row_ids)
+        params_list = tuple((status, None, row_id) for _, row_id in row_ids)
+        await self.writer.submit(ops, params_list, {"session_id": session_id})
 
     async def on_app_message(self, session: FixSession, msg_type: str, msg: FixMessage) -> None:
         """Handle an inbound application-level FIX message."""
@@ -392,6 +430,7 @@ class FixEngine:
             "pending_cl_ord_id": "",
             "pending_qty": 0.0,
             "pending_price": 0.0,
+            "session_status": session.status,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -436,6 +475,7 @@ class FixEngine:
             "text": msg.get("58", ""),
             "timestamp": now,
             "direction": "RX",
+            "session_status": session.status,
         }
         ops = self._compiled_ops["insert_execution"]
         await self.writer.submit(ops, (_exec_params(exec_row),), {"exec_id": msg.get("17", "")})
@@ -478,6 +518,7 @@ class FixEngine:
             "pending_cl_ord_id": "",
             "pending_qty": 0.0,
             "pending_price": 0.0,
+            "session_status": session.status,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
@@ -574,6 +615,7 @@ class FixEngine:
             "pending_cl_ord_id": "",
             "pending_qty": 0.0,
             "pending_price": 0.0,
+            "session_status": session.status,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -654,6 +696,23 @@ class FixEngine:
             raise ValueError(f"Unknown order: {cl_ord_id} on {session_id}")
         return dict(row)
 
+    async def _load_order_for_execution(self, execution: dict[str, Any]) -> dict[str, Any]:
+        """Resolve an execution's order by its immutable order_id: the row's
+        cl_ord_id may be stale after an accepted replace renamed the chain."""
+        session_id = execution["session_id"]
+        if not execution["order_id"]:
+            return await self._load_order(session_id, execution["cl_ord_id"])
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT * FROM fix_orders WHERE session_id = ? AND order_id = ?",
+            (session_id, execution["order_id"]),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if not row:
+            raise ValueError(f"Unknown order: {execution['order_id']} on {session_id}")
+        return dict(row)
+
     async def _load_execution(self, session_id: str, exec_id: str) -> dict[str, Any]:
         conn = self.db.read_conn
         cursor = await conn.execute(
@@ -717,6 +776,7 @@ class FixEngine:
             "text": "",
             "timestamp": now,
             "direction": "TX",
+            "session_status": order["session_status"],
         }
         ops = self._compiled_ops["insert_execution"]
         await self.writer.submit(ops, (_exec_params(exec_row),), {"exec_id": exec_id})
@@ -959,7 +1019,7 @@ class FixEngine:
         session = self._active_session(session_id)
         dictionary = session.dictionary
         execution = await self._load_execution(session_id, exec_id)
-        order = await self._load_order(session_id, execution["cl_ord_id"])
+        order = await self._load_order_for_execution(execution)
 
         new_exec_id = await self.ids.next_id("EX")
         trade_id = execution["trade_id"] or await self.ids.next_id("TR")
@@ -971,8 +1031,8 @@ class FixEngine:
         status_code = "0" if cum_qty == 0 else ("2" if leaves_qty == 0 else "1")
 
         msg = session.factory.execution_report(
-            order_id=execution["order_id"],
-            cl_ord_id=execution["cl_ord_id"],
+            order_id=order["order_id"],
+            cl_ord_id=order["cl_ord_id"],
             exec_id=new_exec_id,
             exec_trans_type="2",
             exec_type=status_code,
@@ -1005,7 +1065,7 @@ class FixEngine:
         session = self._active_session(session_id)
         dictionary = session.dictionary
         execution = await self._load_execution(session_id, exec_id)
-        order = await self._load_order(session_id, execution["cl_ord_id"])
+        order = await self._load_order_for_execution(execution)
 
         new_exec_id = await self.ids.next_id("EX")
         trade_id = execution["trade_id"] or await self.ids.next_id("TR")
@@ -1017,8 +1077,8 @@ class FixEngine:
         status_code = "0" if cum_qty == 0 else "1"
 
         msg = session.factory.execution_report(
-            order_id=execution["order_id"],
-            cl_ord_id=execution["cl_ord_id"],
+            order_id=order["order_id"],
+            cl_ord_id=order["cl_ord_id"],
             exec_id=new_exec_id,
             exec_trans_type="1",
             exec_type=status_code,

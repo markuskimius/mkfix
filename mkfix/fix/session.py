@@ -49,6 +49,10 @@ class FixSession:
     def is_active(self) -> bool:
         return self._status == "ACTIVE"
 
+    @property
+    def status(self) -> str:
+        return self._status
+
     async def start(self) -> None:
         """Start the session (initiator or listener based on config)."""
         if self._socket or self._transport:

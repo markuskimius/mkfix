@@ -405,12 +405,29 @@ class TestServiceReferences:
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
         assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill"]
         by = {b["label"]: b for b in buttons}
-        pending = {"pending_action": ["New", "Cancel", "Replace"]}
+        pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE"}
         assert by["Accept"]["enable"]["rowMatch"] == pending
         assert by["Reject"]["enable"]["rowMatch"] == pending
         assert by["Accept"]["action"]["op"] == "accept_request"
         assert by["Reject"]["action"]["dialog"]["submit"]["op"] == "reject_request"
         assert "pending_action" not in by["Fill"]["enable"].get("rowMatch", {})
+
+    def test_order_and_trade_actions_gate_on_live_session(self, app_config):
+        """Every button that acts on an existing order or trade requires the
+        row's session to be up (session_status is the engine-written mirror of
+        the owning session's live status). New order entry is exempt — its
+        dialog picks the session itself, and the server rejects a dead one."""
+        gated = {
+            "order-blotter": ["Replace", "Cancel"],
+            "market-order-blotter": ["Accept", "Reject", "Fill"],
+            "market-trade-blotter": ["Correct", "Bust"],
+        }
+        for pane_id, labels in gated.items():
+            by = {b["label"]: b for b in app_config["panes"][pane_id]["buttons"]}
+            for label in labels:
+                match = by[label]["enable"]["rowMatch"].get("session_status")
+                assert match == "ACTIVE", \
+                    f"{pane_id} {label} must gate on session_status ACTIVE"
 
     def test_pane_columns_exist_in_primary_table(self, app_config, toml_config):
         """A misspelled column renders as a permanently empty blotter column."""
@@ -442,6 +459,116 @@ class TestServiceReferences:
         hosts = _pane_frame_ids(app_config)
         assert hosts["order-blotter"] != hosts["market-order-blotter"]
         assert hosts["trade-blotter"] != hosts["market-trade-blotter"]
+
+
+class TestStyleAndGateValues:
+    """Style rules and rowMatch gates compare against displayed values; a
+    renamed column or display value leaves them silently dead in the browser,
+    so both are checked statically like everything else in app.json."""
+
+    ENGINE_STATUSES = {"DOWN", "ERROR", "INITIATING", "LISTENING",
+                       "LOGON_SENT", "ACTIVE", "LOGOUT_SENT"}
+
+    @pytest.fixture(scope="class")
+    def value_domains(self):
+        """Known display-value domains keyed by (table, column)."""
+        from mkfix.fix.dictionary import FixDictionary
+        d = FixDictionary("FIX.4.2")
+        sides = set(d.enums["54"].values())
+        return {
+            ("fix_sessions", "status"): self.ENGINE_STATUSES,
+            ("fix_orders", "status"): set(d.enums["39"].values()),
+            ("fix_orders", "side"): sides,
+            ("fix_orders", "direction"): {"TX", "RX"},
+            ("fix_orders", "pending_action"): {"New", "Cancel", "Replace"},
+            ("fix_orders", "session_status"): self.ENGINE_STATUSES,
+            ("fix_executions", "side"): sides,
+            ("fix_executions", "exec_type"):
+                set(d.enums["150"].values()) | set(d.enums["20"].values()),
+            ("fix_executions", "direction"): {"TX", "RX"},
+            ("fix_executions", "session_status"): self.ENGINE_STATUSES,
+            ("fix_messages", "direction"): {"TX", "RX"},
+            ("fix_messages", "msg_type_name"):
+                {m["name"] for m in d.messages.values()},
+            ("fix_iois", "side"): sides,
+            ("fix_iois", "direction"): {"TX", "RX"},
+            ("fix_allocations", "side"): sides,
+            ("fix_allocations", "direction"): {"TX", "RX"},
+        }
+
+    def _pane_table(self, spec, toml_config):
+        service = toml_config["services"].get(spec.get("service"), {})
+        return service.get("primary_table")
+
+    def test_style_rules_reference_real_columns(self, app_config, toml_config):
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            table = toml_config["tables"].get(self._pane_table(spec, toml_config), {})
+            if not table:
+                continue
+            cols = set(table["columns"])
+            for col in spec.get("styles", {}):
+                checked += 1
+                assert col in cols, f"pane {pane_id!r} styles unknown column {col!r}"
+            for rule in spec.get("rowStyle", []):
+                for col in rule.get("when", {}):
+                    checked += 1
+                    assert col in cols, \
+                        f"pane {pane_id!r} rowStyle conditions on unknown column {col!r}"
+        assert checked, "no style rules checked"
+
+    @staticmethod
+    def _rule_values(rule):
+        for key in ("eq", "ne"):
+            if key in rule:
+                yield rule[key]
+        yield from rule.get("in", [])
+
+    def test_styled_values_exist(self, app_config, toml_config, value_domains):
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            table = self._pane_table(spec, toml_config)
+            for col, rules in spec.get("styles", {}).items():
+                domain = value_domains.get((table, col))
+                if domain is None:
+                    continue
+                for rule in rules:
+                    for value in self._rule_values(rule):
+                        checked += 1
+                        assert value in domain, \
+                            f"pane {pane_id!r} styles {col!r} on unknown value {value!r}"
+            for row_rule in spec.get("rowStyle", []):
+                for col, cond in row_rule.get("when", {}).items():
+                    domain = value_domains.get((table, col))
+                    if domain is None:
+                        continue
+                    values = cond if isinstance(cond, list) \
+                        else list(self._rule_values(cond)) if isinstance(cond, dict) \
+                        else [cond]
+                    for value in values:
+                        checked += 1
+                        assert value in domain, \
+                            f"pane {pane_id!r} rowStyle matches {col!r} on unknown value {value!r}"
+        assert checked, "no styled values checked"
+
+    def test_gate_values_exist(self, app_config, toml_config, value_domains):
+        """rowMatch values are compared as strings against live rows; a value
+        the engine never writes disables the button forever."""
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            table = self._pane_table(spec, toml_config)
+            for button in spec.get("buttons", []):
+                for col, expected in button.get("enable", {}).get("rowMatch", {}).items():
+                    domain = value_domains.get((table, col))
+                    if domain is None:
+                        continue
+                    values = expected if isinstance(expected, list) else [expected]
+                    for value in values:
+                        checked += 1
+                        assert value in domain, \
+                            f"pane {pane_id!r} button {button['label']!r} gates " \
+                            f"{col!r} on unknown value {value!r}"
+        assert checked, "no gate values checked"
 
 
 class TestStateBindings:
