@@ -67,6 +67,7 @@ class FixCommandService(Service):
                 price=float(data["price"]) if data.get("price") else None,
                 tif=data.get("tif", "0"),
                 account=data.get("account"),
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -77,6 +78,7 @@ class FixCommandService(Service):
                 symbol=data["symbol"],
                 side=data["side"],
                 qty=float(data.get("qty", 0)),
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -89,6 +91,7 @@ class FixCommandService(Service):
                 qty=float(data["qty"]),
                 ord_type=data.get("ord_type", "2"),
                 price=float(data["price"]) if data.get("price") else None,
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -96,6 +99,7 @@ class FixCommandService(Service):
             order_id = await engine.accept_order(
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "order_id": order_id}
 
@@ -104,6 +108,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
                 text=data.get("text", ""),
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True}
 
@@ -113,6 +118,7 @@ class FixCommandService(Service):
                 cl_ord_id=data["cl_ord_id"],
                 qty=float(data["qty"]),
                 price=float(data["price"]),
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -120,6 +126,7 @@ class FixCommandService(Service):
             exec_id = await engine.accept_request(
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -128,6 +135,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
                 text=data.get("text", ""),
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True}
 
@@ -135,6 +143,7 @@ class FixCommandService(Service):
             exec_id = await engine.accept_cancel(
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -142,6 +151,7 @@ class FixCommandService(Service):
             exec_id = await engine.accept_replace(
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -150,6 +160,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
                 text=data.get("text", ""),
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True}
 
@@ -159,6 +170,7 @@ class FixCommandService(Service):
                 exec_id=data["exec_id"],
                 qty=float(data["qty"]),
                 price=float(data["price"]),
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -166,6 +178,7 @@ class FixCommandService(Service):
             exec_id = await engine.bust_trade(
                 session_id=data["session_id"],
                 exec_id=data["exec_id"],
+                extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 

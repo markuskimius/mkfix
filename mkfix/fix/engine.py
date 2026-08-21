@@ -8,7 +8,7 @@ from typing import Any, TYPE_CHECKING
 
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.idgen import IdGenerator
-from mkfix.fix.message import FixMessage, _fix_timestamp
+from mkfix.fix.message import FixMessage, _fix_timestamp, parse_extra_tags
 from mkfix.fix.replay import ReplayTask, parse_log_file
 from mkfix.fix.session import FixSession
 
@@ -562,6 +562,7 @@ class FixEngine:
         price: float | None = None,
         tif: str = "0",
         account: str | None = None,
+        extra_tags: str = "",
         **extra: str,
     ) -> str:
         """Send a NewOrderSingle and return the ClOrdID."""
@@ -569,6 +570,7 @@ class FixEngine:
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
 
+        extra_pairs = parse_extra_tags(extra_tags)
         cl_ord_id = await self.ids.next_id("RT")
         msg = session.factory.new_order_single(
             cl_ord_id=cl_ord_id,
@@ -581,6 +583,7 @@ class FixEngine:
             account=account,
             **extra,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         # Pre-populate order row as PendingNew
@@ -629,12 +632,14 @@ class FixEngine:
         symbol: str,
         side: str,
         qty: float = 0,
+        extra_tags: str = "",
     ) -> str:
         """Send an OrderCancelRequest and return the new ClOrdID."""
         session = self.sessions.get(session_id)
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
 
+        extra_pairs = parse_extra_tags(extra_tags)
         cl_ord_id = await self.ids.next_id("RT")
         msg = session.factory.cancel_request(
             cl_ord_id=cl_ord_id,
@@ -643,6 +648,7 @@ class FixEngine:
             side=side,
             qty=qty,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
         return cl_ord_id
 
@@ -655,6 +661,7 @@ class FixEngine:
         qty: float,
         ord_type: str = "2",
         price: float | None = None,
+        extra_tags: str = "",
         **extra: str,
     ) -> str:
         """Send an OrderCancelReplaceRequest and return the new ClOrdID."""
@@ -662,6 +669,7 @@ class FixEngine:
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
 
+        extra_pairs = parse_extra_tags(extra_tags)
         cl_ord_id = await self.ids.next_id("RT")
         msg = session.factory.cancel_replace_request(
             cl_ord_id=cl_ord_id,
@@ -673,6 +681,7 @@ class FixEngine:
             price=price,
             **extra,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
         return cl_ord_id
 
@@ -781,9 +790,10 @@ class FixEngine:
         ops = self._compiled_ops["insert_execution"]
         await self.writer.submit(ops, (_exec_params(exec_row),), {"exec_id": exec_id})
 
-    async def accept_order(self, session_id: str, cl_ord_id: str) -> str:
+    async def accept_order(self, session_id: str, cl_ord_id: str, extra_tags: str = "") -> str:
         """Accept a received order: send ExecutionReport(New), return the OrderID."""
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         order = await self._load_order(session_id, cl_ord_id)
 
         order_id = order["order_id"] or await self.ids.next_id("OR")
@@ -799,14 +809,17 @@ class FixEngine:
             qty=order["order_qty"],
             leaves_qty=order["order_qty"],
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         await self._write_order(order, order_id=order_id, status="New", pending_action="")
         return order_id
 
-    async def reject_order(self, session_id: str, cl_ord_id: str, text: str = "") -> None:
+    async def reject_order(self, session_id: str, cl_ord_id: str, text: str = "",
+                           extra_tags: str = "") -> None:
         """Reject a received order: send ExecutionReport(Rejected)."""
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         order = await self._load_order(session_id, cl_ord_id)
 
         msg = session.factory.execution_report(
@@ -823,6 +836,7 @@ class FixEngine:
             avg_price=order["avg_price"],
             text=text or None,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         await self._write_order(order, status="Rejected", leaves_qty=0.0, text=text,
@@ -830,11 +844,13 @@ class FixEngine:
 
     async def fill_order(
         self, session_id: str, cl_ord_id: str, qty: float, price: float,
+        extra_tags: str = "",
     ) -> str:
         """Fill a received order (partially or fully) and return the ExecID."""
         if qty <= 0:
             raise ValueError("Fill quantity must be positive")
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         dictionary = session.dictionary
         order = await self._load_order(session_id, cl_ord_id)
 
@@ -862,6 +878,7 @@ class FixEngine:
             avg_price=avg_price,
             leaves_qty=leaves_qty,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         # A fill on a not-yet-accepted order implicitly acknowledges it, so the
@@ -879,34 +896,36 @@ class FixEngine:
         )
         return exec_id
 
-    async def accept_request(self, session_id: str, cl_ord_id: str) -> str:
+    async def accept_request(self, session_id: str, cl_ord_id: str, extra_tags: str = "") -> str:
         """Accept whatever is pending on the order — the new order itself,
         a cancel request, or a replace request."""
         order = await self._load_order(session_id, cl_ord_id)
         action = order["pending_action"]
         if action == "New":
-            return await self.accept_order(session_id, cl_ord_id)
+            return await self.accept_order(session_id, cl_ord_id, extra_tags=extra_tags)
         if action == "Cancel":
-            return await self.accept_cancel(session_id, cl_ord_id)
+            return await self.accept_cancel(session_id, cl_ord_id, extra_tags=extra_tags)
         if action == "Replace":
-            return await self.accept_replace(session_id, cl_ord_id)
+            return await self.accept_replace(session_id, cl_ord_id, extra_tags=extra_tags)
         raise ValueError(f"Nothing pending on {cl_ord_id}")
 
-    async def reject_request(self, session_id: str, cl_ord_id: str, text: str = "") -> None:
+    async def reject_request(self, session_id: str, cl_ord_id: str, text: str = "",
+                             extra_tags: str = "") -> None:
         """Reject whatever is pending on the order — ExecutionReport(Rejected)
         for a new order, OrderCancelReject for a cancel/replace request."""
         order = await self._load_order(session_id, cl_ord_id)
         action = order["pending_action"]
         if action == "New":
-            await self.reject_order(session_id, cl_ord_id, text=text)
+            await self.reject_order(session_id, cl_ord_id, text=text, extra_tags=extra_tags)
         elif action in ("Cancel", "Replace"):
-            await self.reject_cancel(session_id, cl_ord_id, text=text)
+            await self.reject_cancel(session_id, cl_ord_id, text=text, extra_tags=extra_tags)
         else:
             raise ValueError(f"Nothing pending on {cl_ord_id}")
 
-    async def accept_cancel(self, session_id: str, cl_ord_id: str) -> str:
+    async def accept_cancel(self, session_id: str, cl_ord_id: str, extra_tags: str = "") -> str:
         """Accept the pending cancel request: send ExecutionReport(Canceled)."""
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         order = await self._load_order(session_id, cl_ord_id)
         if order["pending_action"] != "Cancel":
             raise ValueError(f"No pending cancel request on {cl_ord_id}")
@@ -930,6 +949,7 @@ class FixEngine:
             leaves_qty=0.0,
             **{"41": cl_ord_id},
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
@@ -941,10 +961,11 @@ class FixEngine:
         )
         return exec_id
 
-    async def accept_replace(self, session_id: str, cl_ord_id: str) -> str:
+    async def accept_replace(self, session_id: str, cl_ord_id: str, extra_tags: str = "") -> str:
         """Accept the pending cancel/replace request: send ExecutionReport(Replaced)
         with the requested quantity and price."""
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         order = await self._load_order(session_id, cl_ord_id)
         if order["pending_action"] != "Replace":
             raise ValueError(f"No pending replace request on {cl_ord_id}")
@@ -974,6 +995,7 @@ class FixEngine:
             leaves_qty=leaves_qty,
             **{"41": cl_ord_id, "44": str(new_price)},
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
@@ -986,10 +1008,12 @@ class FixEngine:
         )
         return exec_id
 
-    async def reject_cancel(self, session_id: str, cl_ord_id: str, text: str = "") -> None:
+    async def reject_cancel(self, session_id: str, cl_ord_id: str, text: str = "",
+                            extra_tags: str = "") -> None:
         """Reject the pending cancel/replace request: send OrderCancelReject (35=9).
         The order itself is untouched — its status was never changed by the request."""
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         dictionary = session.dictionary
         order = await self._load_order(session_id, cl_ord_id)
         if not order["pending_action"]:
@@ -1003,6 +1027,7 @@ class FixEngine:
             order_id=order["order_id"],
             text=text or None,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         await self._write_order(
@@ -1012,11 +1037,13 @@ class FixEngine:
 
     async def correct_trade(
         self, session_id: str, exec_id: str, qty: float, price: float,
+        extra_tags: str = "",
     ) -> str:
         """Correct a sent trade (ExecTransType=Correct) and return the new ExecID."""
         if qty <= 0:
             raise ValueError("Corrected quantity must be positive")
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         dictionary = session.dictionary
         execution = await self._load_execution(session_id, exec_id)
         order = await self._load_order_for_execution(execution)
@@ -1047,6 +1074,7 @@ class FixEngine:
             leaves_qty=leaves_qty,
             exec_ref_id=exec_id,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         await self._write_order(
@@ -1060,9 +1088,10 @@ class FixEngine:
         )
         return new_exec_id
 
-    async def bust_trade(self, session_id: str, exec_id: str) -> str:
+    async def bust_trade(self, session_id: str, exec_id: str, extra_tags: str = "") -> str:
         """Bust a sent trade (ExecTransType=Cancel) and return the new ExecID."""
         session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
         dictionary = session.dictionary
         execution = await self._load_execution(session_id, exec_id)
         order = await self._load_order_for_execution(execution)
@@ -1093,6 +1122,7 @@ class FixEngine:
             leaves_qty=leaves_qty,
             exec_ref_id=exec_id,
         )
+        msg.extra = extra_pairs
         await session.send_message(msg)
 
         await self._write_order(

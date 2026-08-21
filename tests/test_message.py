@@ -1,6 +1,10 @@
 """Tests for FIX message parsing, serialization, and factory."""
 
-from mkfix.fix.message import FixMessage, FixMessageFactory, parse_fix, _checksum, SOH
+import pytest
+
+from mkfix.fix.message import (
+    FixMessage, FixMessageFactory, parse_fix, parse_extra_tags, _checksum, SOH,
+)
 from mkfix.fix.dictionary import FixDictionary
 
 
@@ -133,6 +137,132 @@ class TestSendprep:
         without_cs = msg.serialize_without_checksum()
         expected = _checksum(without_cs)
         assert int(msg["10"]) == expected
+
+
+class TestParseExtraTags:
+    def test_pipe_delimited_preserves_order_and_duplicates(self):
+        pairs = parse_extra_tags("382=2|375=A|375=B")
+        assert pairs == [("382", "2"), ("375", "A"), ("375", "B")]
+
+    def test_soh_delimited(self):
+        assert parse_extra_tags(f"58=hi{SOH}44=1.5") == [("58", "hi"), ("44", "1.5")]
+
+    def test_empty_value_is_deletion_marker(self):
+        assert parse_extra_tags("21=") == [("21", "")]
+
+    def test_whitespace_and_empty_input(self):
+        assert parse_extra_tags("") == []
+        assert parse_extra_tags("   ") == []
+        assert parse_extra_tags(" 58=hi | 44=1.5 ") == [("58", "hi"), ("44", "1.5")]
+
+    def test_value_may_contain_equals(self):
+        assert parse_extra_tags("58=a=b") == [("58", "a=b")]
+
+    def test_malformed_pairs_raise(self):
+        with pytest.raises(ValueError):
+            parse_extra_tags("58")
+        with pytest.raises(ValueError):
+            parse_extra_tags("abc=1")
+
+
+def _wire_pairs(msg: FixMessage) -> list[tuple[str, str]]:
+    parts = msg.serialize().decode("latin-1").split(SOH)
+    return [tuple(p.split("=", 1)) for p in parts if p]
+
+
+class TestSendprepExtraTags:
+    def setup_method(self):
+        self.dictionary = FixDictionary("FIX.4.2")
+
+    def _prep(self, fields, extra):
+        msg = FixMessage(fields)
+        msg.extra = parse_extra_tags(extra)
+        msg.sendprep(self.dictionary, "SENDER", "TARGET", 42)
+        return msg
+
+    def test_body_tag_appended_after_body(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "5001=X")
+        tags = [t for t, _ in _wire_pairs(msg)]
+        assert tags.index("5001") > tags.index("55")
+        assert tags.index("5001") < tags.index("10")
+        assert msg["5001"] == "X"
+
+    def test_repeating_group_preserves_order_and_duplicates(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "382=2|375=A|375=B")
+        pairs = _wire_pairs(msg)
+        i = pairs.index(("382", "2"))
+        assert pairs[i + 1] == ("375", "A")
+        assert pairs[i + 2] == ("375", "B")
+        assert msg.to_pipe_string().count("375=") == 2
+
+    def test_override_existing_body_tag_in_place(self):
+        msg = self._prep({"35": "D", "55": "AAPL", "54": "1"}, "54=2")
+        pairs = _wire_pairs(msg)
+        assert pairs.count(("54", "2")) == 1
+        assert ("54", "1") not in pairs
+        tags = [t for t, _ in pairs]
+        assert tags.count("54") == 1
+        assert tags.index("54") == tags.index("55") + 1, "override keeps the tag's position"
+
+    def test_override_computed_header_tags(self):
+        msg = self._prep({"35": "D"}, "34=999|52=20990101-00:00:00.000|49=EVIL")
+        assert msg["34"] == "999"
+        assert msg["52"] == "20990101-00:00:00.000"
+        assert msg["49"] == "EVIL"
+        tags = [t for t, _ in _wire_pairs(msg)]
+        assert tags.count("34") == 1
+        assert tags.count("49") == 1
+
+    def test_header_append_lands_in_header_block(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "43=Y")
+        tags = [t for t, _ in _wire_pairs(msg)]
+        assert tags.index("43") < tags.index("55")
+        assert tags.index("43") > tags.index("34")
+
+    def test_trailer_tags_land_before_checksum(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "93=4|89=SIGN")
+        tags = [t for t, _ in _wire_pairs(msg)]
+        assert tags.index("93") > tags.index("55")
+        assert tags.index("89") == tags.index("93") + 1
+        assert tags.index("10") == len(tags) - 1
+
+    def test_delete_body_tag(self):
+        msg = self._prep({"35": "D", "55": "AAPL", "21": "1"}, "21=")
+        assert "21" not in msg
+        assert "21=" not in msg.to_pipe_string()
+
+    def test_delete_computed_header_tag(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "52=")
+        assert "52" not in msg
+
+    def test_body_length_includes_extras(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "382=2|375=A|375=B")
+        text = msg.serialize().decode("latin-1")
+        body_start = text.index(SOH, text.index("9=")) + 1
+        body = text[body_start:text.index("10=")]
+        assert int(msg["9"]) == len(body.encode("latin-1"))
+
+    def test_checksum_valid_with_extras(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "5001=X|375=A|375=B")
+        assert int(msg["10"]) == _checksum(msg.serialize_without_checksum())
+
+    def test_explicit_bodylength_and_checksum_override(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "9=9999|10=123")
+        assert msg["9"] == "9999"
+        assert msg["10"] == "123"
+
+    def test_delete_wins_over_override_of_same_tag(self):
+        msg = self._prep({"35": "D", "55": "AAPL"}, "55=|55=MSFT")
+        assert "55" not in msg
+
+    def test_no_extras_is_unchanged_behavior(self):
+        plain = FixMessage({"35": "D", "55": "AAPL", "54": "1"})
+        plain.sendprep(self.dictionary, "SENDER", "TARGET", 42)
+        tags = [t for t, _ in _wire_pairs(plain)]
+        assert tags[0] == "8"
+        assert tags[1] == "9"
+        assert tags[-1] == "10"
+        assert int(plain["10"]) == _checksum(plain.serialize_without_checksum())
 
 
 class TestFixMessageFactory:

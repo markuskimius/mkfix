@@ -46,6 +46,15 @@ A FIX protocol testing engine for capital markets connectivity, built on
   requests are colored; heartbeat chatter is dimmed in the Messages viewer.
   Order and trade action buttons disable while the owning FIX session is
   down, driven by the session's live status mirrored onto each row.
+- **Extra Tags on Anything** -- Every send action (New, Replace, Cancel,
+  Accept, Reject, Fill, Correct, Bust) takes an optional Extra Tags field in
+  pipe-delimited FIX format (`528=A|382=2|375=BRK1|375=BRK2`). Pairs are
+  placed by wire position -- header tags in the header, trailer tags before
+  the checksum -- duplicates go out in the order given (that's a repeating
+  group, nested ones included), a tag the message already carries is
+  overridden in place (even 34, 52, or 9/10 for deliberately corrupt
+  messages), and an empty value (`21=`) deletes the tag for
+  missing-required-field tests.
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message

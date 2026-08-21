@@ -11,10 +11,17 @@ SOH = chr(1)
 
 
 class FixMessage:
-    """A single FIX message as an ordered dict of tag->value pairs."""
+    """A single FIX message as an ordered dict of tag->value pairs.
+
+    `extra` holds user-supplied (tag, value) pairs applied at sendprep time.
+    Unlike `fields`, it is an ordered list that allows duplicate tags, which
+    is all a repeating group is on the wire.
+    """
 
     def __init__(self, fields: dict[str, str] | None = None):
         self.fields: dict[str, str] = {}
+        self.extra: list[tuple[str, str]] = []
+        self._pairs: list[tuple[str, str]] | None = None
         if fields:
             for k, v in fields.items():
                 self.fields[str(k)] = str(v)
@@ -51,69 +58,99 @@ class FixMessage:
             return default
 
     def sendprep(self, dictionary: FixDictionary, sender: str, target: str, seq_num: int) -> None:
-        """Prepare message for sending: add header/trailer, body length, checksum."""
-        prepped: dict[str, str] = {}
+        """Prepare message for sending: add header/trailer, body length, checksum.
 
+        `extra` pairs are applied by wire position with these rules:
+        - empty value deletes the tag (even a computed one like 52)
+        - a tag appearing once in extras that the message would emit anyway
+          replaces the value in place (works on 34, 52, even 9/10)
+        - everything else appends in given order: header tags at the end of
+          the header block, trailer tags before 10, the rest after the body —
+          duplicates allowed, which is how repeating groups go on the wire
+        """
+        deleted = {t for t, v in self.extra if v == ""}
+        live = [(t, v) for t, v in self.extra if v != ""]
+        counts: dict[str, int] = {}
+        for t, _ in live:
+            counts[t] = counts.get(t, 0) + 1
+
+        computed = {"8", "9", "10", "49", "56", "34", "52"}
+        overrides: dict[str, str] = {}
+        appends: list[tuple[str, str]] = []
+        for t, v in live:
+            if counts[t] == 1 and (t in self.fields or t in computed):
+                overrides[t] = v
+            else:
+                appends.append((t, v))
+
+        header: list[tuple[str, str]] = []
         for tag in dictionary.header_tags:
-            if dictionary.is_special(tag):
+            if dictionary.is_special(tag) or tag in deleted:
                 continue
-            if tag in self.fields:
-                prepped[tag] = self.fields[tag]
+            if tag in overrides:
+                header.append((tag, overrides.pop(tag)))
+            elif tag in self.fields:
+                header.append((tag, self.fields[tag]))
             elif tag == "49":
-                prepped[tag] = sender
+                header.append((tag, sender))
             elif tag == "56":
-                prepped[tag] = target
+                header.append((tag, target))
             elif tag == "34":
-                prepped[tag] = str(seq_num)
+                header.append((tag, str(seq_num)))
             elif tag == "52":
-                prepped[tag] = _fix_timestamp()
+                header.append((tag, _fix_timestamp()))
+        header += [(t, v) for t, v in appends
+                   if dictionary.is_header(t) and not dictionary.is_special(t)]
 
+        body: list[tuple[str, str]] = []
         for tag, value in self.fields.items():
-            if not dictionary.is_header(tag) and not dictionary.is_trailer(tag):
-                prepped[tag] = value
+            if dictionary.is_header(tag) or dictionary.is_trailer(tag) or tag in deleted:
+                continue
+            body.append((tag, overrides.pop(tag, value)))
+        body += [(t, v) for t, v in appends
+                 if not dictionary.is_header(t) and not dictionary.is_trailer(t)]
 
+        trailer: list[tuple[str, str]] = []
         for tag in dictionary.trailer_tags:
-            if not dictionary.is_special(tag) and tag in self.fields:
-                prepped[tag] = self.fields[tag]
+            if dictionary.is_special(tag) or tag in deleted:
+                continue
+            if tag in overrides:
+                trailer.append((tag, overrides.pop(tag)))
+            elif tag in self.fields:
+                trailer.append((tag, self.fields[tag]))
+        trailer += [(t, v) for t, v in appends
+                    if dictionary.is_trailer(t) and not dictionary.is_special(t)]
 
-        self.fields = prepped
-        body = self._serialize_body()
-        body_length = len(body)
+        pairs = header + body + trailer
+        body_length = len(_serialize_pairs(pairs))
 
-        final: dict[str, str] = {
-            "8": self.fields.get("8", dictionary.begin_string()),
-            "9": str(body_length),
-        }
-        final.update(self.fields)
-        self.fields = final
+        final: list[tuple[str, str]] = []
+        if "8" not in deleted:
+            final.append(("8", overrides.get("8") or self.fields.get("8") or dictionary.begin_string()))
+        if "9" not in deleted:
+            final.append(("9", overrides.get("9", str(body_length))))
+        final += pairs
+        if "10" not in deleted:
+            if "10" in overrides:
+                final.append(("10", overrides["10"]))
+            else:
+                checksum = _checksum(_serialize_pairs(final))
+                final.append(("10", f"{checksum:03d}"))
 
-        checksum = _checksum(self.serialize_without_checksum())
-        self.fields["10"] = f"{checksum:03d}"
+        self._pairs = final
+        self.fields = dict(final)
 
-    def _serialize_body(self) -> bytes:
-        parts = []
-        for tag, value in self.fields.items():
-            parts.append(f"{tag}={value}{SOH}")
-        return "".join(parts).encode()
+    def _items(self) -> list[tuple[str, str]]:
+        return self._pairs if self._pairs is not None else list(self.fields.items())
 
     def serialize_without_checksum(self) -> bytes:
-        parts = []
-        for tag, value in self.fields.items():
-            if tag != "10":
-                parts.append(f"{tag}={value}{SOH}")
-        return "".join(parts).encode()
+        return _serialize_pairs([(t, v) for t, v in self._items() if t != "10"])
 
     def serialize(self) -> bytes:
-        parts = []
-        for tag, value in self.fields.items():
-            parts.append(f"{tag}={value}{SOH}")
-        return "".join(parts).encode()
+        return _serialize_pairs(self._items())
 
     def to_pipe_string(self) -> str:
-        parts = []
-        for tag, value in self.fields.items():
-            parts.append(f"{tag}={value}")
-        return "|".join(parts)
+        return "|".join(f"{tag}={value}" for tag, value in self._items())
 
     def __str__(self) -> str:
         return self.to_pipe_string()
@@ -323,6 +360,29 @@ class FixMessageFactory:
         if text:
             fields["58"] = text
         return self.create(fields)
+
+
+def parse_extra_tags(text: str) -> list[tuple[str, str]]:
+    """Parse user-supplied extra tags: pipe- or SOH-delimited tag=value pairs,
+    order and duplicates preserved. An empty value ("21=") marks a deletion."""
+    if not text or not text.strip():
+        return []
+    sep = SOH if SOH in text else "|"
+    pairs: list[tuple[str, str]] = []
+    for part in text.split(sep):
+        part = part.strip()
+        if not part:
+            continue
+        tag, eq, value = part.partition("=")
+        tag = tag.strip()
+        if not eq or not tag.isdigit():
+            raise ValueError(f"Invalid extra tag pair: {part!r} (expected tag=value)")
+        pairs.append((tag, value))
+    return pairs
+
+
+def _serialize_pairs(pairs: list[tuple[str, str]]) -> bytes:
+    return "".join(f"{tag}={value}{SOH}" for tag, value in pairs).encode()
 
 
 def parse_fix(data: bytes | str) -> FixMessage:

@@ -408,7 +408,7 @@ class TestServiceReferences:
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE"}
         assert by["Accept"]["enable"]["rowMatch"] == pending
         assert by["Reject"]["enable"]["rowMatch"] == pending
-        assert by["Accept"]["action"]["op"] == "accept_request"
+        assert by["Accept"]["action"]["dialog"]["submit"]["op"] == "accept_request"
         assert by["Reject"]["action"]["dialog"]["submit"]["op"] == "reject_request"
         assert "pending_action" not in by["Fill"]["enable"].get("rowMatch", {})
 
@@ -428,6 +428,30 @@ class TestServiceReferences:
                 match = by[label]["enable"]["rowMatch"].get("session_status")
                 assert match == "ACTIVE", \
                     f"{pane_id} {label} must gate on session_status ACTIVE"
+
+    def test_every_send_action_dialog_offers_extra_tags(self, app_config):
+        """Every button that sends a FIX message must expose the optional
+        extra_tags field — the whole point of the feature is that no send
+        path is exempt. Flatten row groups: fields may nest one level."""
+        send_panes = ["order-blotter", "market-order-blotter", "market-trade-blotter"]
+        checked = 0
+        for pane_id in send_panes:
+            for button in app_config["panes"][pane_id]["buttons"]:
+                dialog = button["action"]["dialog"]
+                names = []
+                for field in dialog["fields"]:
+                    if "row" in field:
+                        names.extend(f["name"] for f in field["row"])
+                    else:
+                        names.append(field["name"])
+                assert "extra_tags" in names, \
+                    f"{pane_id} {button['label']} dialog must offer extra_tags"
+                assert not any(
+                    f.get("required") for f in dialog["fields"]
+                    if f.get("name") == "extra_tags"
+                ), "extra_tags must stay optional"
+                checked += 1
+        assert checked >= 8
 
     def test_pane_columns_exist_in_primary_table(self, app_config, toml_config):
         """A misspelled column renders as a permanently empty blotter column."""

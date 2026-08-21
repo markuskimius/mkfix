@@ -955,3 +955,41 @@ class TestClientSideIds:
         )
         assert len({first, second, third}) == 3
         assert all(i.startswith("RT") for i in (first, second, third))
+
+
+class TestExtraTags:
+    @pytest.mark.asyncio
+    async def test_send_new_order_attaches_extra_pairs(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0,
+            extra_tags="5001=X|382=2|375=A|375=B",
+        )
+        assert stub.sent[-1].extra == [
+            ("5001", "X"), ("382", "2"), ("375", "A"), ("375", "B"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_accept_request_routes_extra_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.accept_request("S1", "C100", extra_tags="58=custom ack")
+        msg = stub.sent[-1]
+        assert msg["35"] == "8"
+        assert msg.extra == [("58", "custom ack")]
+
+    @pytest.mark.asyncio
+    async def test_invalid_extra_tags_rejected_before_send(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        with pytest.raises(ValueError):
+            await engine.send_new_order(
+                "S1", symbol="AAPL", side="1", qty=100, price=150.0,
+                extra_tags="not-a-tag",
+            )
+        assert stub.sent == []

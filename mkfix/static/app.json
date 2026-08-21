@@ -65,7 +65,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.10" }
+      { "type": "text", "text": "mkfix v0.11" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -313,7 +313,8 @@
                     ] }
                   ]
                 },
-                { "name": "account", "label": "Account", "type": "text", "placeholder": "Optional" }
+                { "name": "account", "label": "Account", "type": "text", "placeholder": "Optional" },
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Send Order", "service": "fix_cmd", "op": "send_new_order" }
             }
@@ -343,7 +344,8 @@
                     { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.order_qty}", "width": 0.5, "required": true },
                     { "name": "price", "label": "Price", "type": "text", "value": "${row.price}", "width": 0.5 }
                   ]
-                }
+                },
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Replace", "service": "fix_cmd", "op": "send_cancel_replace" }
             }
@@ -353,15 +355,23 @@
           "label": "Cancel",
           "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"], "session_status": "ACTIVE" } },
           "action": {
-            "type": "transaction",
-            "service": "fix_cmd",
-            "op": "send_cancel",
-            "data": {
-              "session_id": "${row.session_id}",
-              "orig_cl_ord_id": "${row.cl_ord_id}",
-              "symbol": "${row.symbol}",
-              "side": "${row.side_code}",
-              "qty": "${row.order_qty}"
+            "type": "dialog",
+            "dialog": {
+              "title": "Cancel ${row.cl_ord_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "orig_cl_ord_id": "${row.cl_ord_id}",
+                "symbol": "${row.symbol}",
+                "side": "${row.side_code}",
+                "qty": "${row.order_qty}"
+              },
+              "fields": [
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+              ],
+              "submit": { "label": "Cancel Order", "service": "fix_cmd", "op": "send_cancel" }
             }
           }
         }
@@ -418,12 +428,20 @@
           "label": "Accept",
           "enable": { "connected": true, "minSelected": 1, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE" } },
           "action": {
-            "type": "transaction",
-            "service": "fix_cmd",
-            "op": "accept_request",
-            "data": {
-              "session_id": "${row.session_id}",
-              "cl_ord_id": "${row.cl_ord_id}"
+            "type": "dialog",
+            "dialog": {
+              "title": "Accept ${row.pending_action} ${row.cl_ord_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "cl_ord_id": "${row.cl_ord_id}"
+              },
+              "fields": [
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+              ],
+              "submit": { "label": "Accept", "service": "fix_cmd", "op": "accept_request" }
             }
           }
         },
@@ -447,7 +465,8 @@
                   "row": [
                     { "name": "text", "label": "Reason", "type": "text", "value": "", "width": 1 }
                   ]
-                }
+                },
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Reject", "service": "fix_cmd", "op": "reject_request" }
             }
@@ -474,7 +493,8 @@
                     { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.leaves_qty}", "width": 0.5, "required": true },
                     { "name": "price", "label": "Price", "type": "text", "value": "${row.price}", "width": 0.5, "required": true }
                   ]
-                }
+                },
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Fill", "service": "fix_cmd", "op": "fill_order" }
             }
@@ -524,7 +544,8 @@
                     { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.last_qty}", "width": 0.5, "required": true },
                     { "name": "price", "label": "Price", "type": "text", "value": "${row.last_price}", "width": 0.5, "required": true }
                   ]
-                }
+                },
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Correct", "service": "fix_cmd", "op": "correct_trade" }
             }
@@ -534,12 +555,20 @@
           "label": "Bust",
           "enable": { "connected": true, "minSelected": 1, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"], "session_status": "ACTIVE" } },
           "action": {
-            "type": "transaction",
-            "service": "fix_cmd",
-            "op": "bust_trade",
-            "data": {
-              "session_id": "${row.session_id}",
-              "exec_id": "${row.exec_id}"
+            "type": "dialog",
+            "dialog": {
+              "title": "Bust ${row.exec_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "exec_id": "${row.exec_id}"
+              },
+              "fields": [
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+              ],
+              "submit": { "label": "Bust", "service": "fix_cmd", "op": "bust_trade" }
             }
           }
         }
@@ -628,7 +657,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.10", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.11", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

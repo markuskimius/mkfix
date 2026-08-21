@@ -146,11 +146,24 @@ class TestDispatch:
         })
         engine.send_new_order.assert_awaited_once_with(
             session_id="S1", symbol="AAPL", side="1", qty=100.0,
-            ord_type="2", price=150.25, tif="0", account=None,
+            ord_type="2", price=150.25, tif="0", account=None, extra_tags="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
         assert resp["cl_ord_id"] == "RTXX00000001"
+
+    @pytest.mark.asyncio
+    async def test_extra_tags_passed_through(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "send_new_order",
+            "data": {"session_id": "S1", "symbol": "AAPL", "side": "1",
+                     "qty": "100", "extra_tags": "5001=X|382=2|375=A|375=B"},
+        })
+        kwargs = engine.send_new_order.await_args.kwargs
+        assert kwargs["extra_tags"] == "5001=X|382=2|375=A|375=B"
 
     @pytest.mark.asyncio
     async def test_send_new_order_market_has_no_price(self):
@@ -178,6 +191,7 @@ class TestDispatch:
         })
         engine.send_cancel.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL", side="1", qty=100.0,
+            extra_tags="",
         )
 
     @pytest.mark.asyncio
@@ -192,7 +206,7 @@ class TestDispatch:
         })
         engine.send_cancel_replace.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
-            side="1", qty=200.0, ord_type="2", price=151.0,
+            side="1", qty=200.0, ord_type="2", price=151.0, extra_tags="",
         )
 
     @pytest.mark.asyncio
@@ -204,7 +218,9 @@ class TestDispatch:
             "ref": "r", "op": "accept_order",
             "data": {"session_id": "S1", "cl_ord_id": "C100"},
         })
-        engine.accept_order.assert_awaited_once_with(session_id="S1", cl_ord_id="C100")
+        engine.accept_order.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C100", extra_tags="",
+        )
         resp = _sent(ws)
         assert resp["ok"] is True
         assert resp["order_id"] == "ORXX00000001"
@@ -219,7 +235,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C100"},
         })
         engine.reject_order.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C100", text="",
+            session_id="S1", cl_ord_id="C100", text="", extra_tags="",
         )
 
     @pytest.mark.asyncio
@@ -233,7 +249,7 @@ class TestDispatch:
                      "qty": "40", "price": "150.25"},
         })
         engine.fill_order.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C100", qty=40.0, price=150.25,
+            session_id="S1", cl_ord_id="C100", qty=40.0, price=150.25, extra_tags="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -250,7 +266,7 @@ class TestDispatch:
                      "qty": "50", "price": "151.00"},
         })
         engine.correct_trade.assert_awaited_once_with(
-            session_id="S1", exec_id="E1", qty=50.0, price=151.0,
+            session_id="S1", exec_id="E1", qty=50.0, price=151.0, extra_tags="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000002"
 
@@ -263,7 +279,9 @@ class TestDispatch:
             "ref": "r", "op": "bust_trade",
             "data": {"session_id": "S1", "exec_id": "E1"},
         })
-        engine.bust_trade.assert_awaited_once_with(session_id="S1", exec_id="E1")
+        engine.bust_trade.assert_awaited_once_with(
+            session_id="S1", exec_id="E1", extra_tags="",
+        )
         assert _sent(ws)["exec_id"] == "EXXX00000003"
 
     @pytest.mark.asyncio
@@ -275,7 +293,9 @@ class TestDispatch:
             "ref": "r", "op": "accept_request",
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
-        engine.accept_request.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
+        engine.accept_request.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C1", extra_tags="",
+        )
         assert _sent(ws)["exec_id"] == "EXXX00000006"
 
     @pytest.mark.asyncio
@@ -288,7 +308,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.reject_request.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C1", text="",
+            session_id="S1", cl_ord_id="C1", text="", extra_tags="",
         )
         assert _sent(ws)["ok"] is True
 
@@ -301,7 +321,9 @@ class TestDispatch:
             "ref": "r", "op": "accept_cancel",
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
-        engine.accept_cancel.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
+        engine.accept_cancel.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C1", extra_tags="",
+        )
         assert _sent(ws)["exec_id"] == "EXXX00000004"
 
     @pytest.mark.asyncio
@@ -313,7 +335,9 @@ class TestDispatch:
             "ref": "r", "op": "accept_replace",
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
-        engine.accept_replace.assert_awaited_once_with(session_id="S1", cl_ord_id="C1")
+        engine.accept_replace.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C1", extra_tags="",
+        )
         assert _sent(ws)["exec_id"] == "EXXX00000005"
 
     @pytest.mark.asyncio
@@ -326,7 +350,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.reject_cancel.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C1", text="",
+            session_id="S1", cl_ord_id="C1", text="", extra_tags="",
         )
         assert _sent(ws)["ok"] is True
 
