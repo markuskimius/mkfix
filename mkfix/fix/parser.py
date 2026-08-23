@@ -65,13 +65,15 @@ class FixStreamParser:
         text = raw.decode("latin-1")
         soh = SOH
         fields: dict[str, str] = {}
+        pairs: list[tuple[str, str]] = []
         for pair in text.split(soh):
             if not pair:
                 continue
             eq = pair.find("=")
             if eq > 0:
                 fields[pair[:eq]] = pair[eq + 1:]
-        return FixMessage(fields)
+                pairs.append((pair[:eq], pair[eq + 1:]))
+        return FixMessage(fields, pairs=pairs)
 
     async def __aiter__(self) -> AsyncIterator[FixMessage]:
         try:

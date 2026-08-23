@@ -20,8 +20,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Sent Orders & Received Trades Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
   the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
-  directly from the blotter -- a fully filled order can still be replaced up
-  to revive it. An accepted cancel or replace moves the order to
+  directly from the blotter -- the Replace dialog opens on the order's full
+  form, prefilled with the terms last entered (the New dialog's or the previous
+  replace's) -- and a fully filled order can still be replaced up to revive it. An accepted cancel or replace moves the order to
   the request's ClOrdID (per the FIX chain), while an immutable Order ID keeps
   the order recognizable across the chain; corrections and busts likewise
   replace the ExecID while an immutable Trade ID groups a fill with its
@@ -48,7 +49,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   down, driven by the session's live status mirrored onto each row.
 - **Extra Tags on Anything** -- Every send action (New, Replace, Cancel,
   Accept, Reject, Fill, Correct, Bust) takes an optional Extra Tags field in
-  pipe-delimited FIX format (`528=A|382=2|375=BRK1|375=BRK2`). Pairs are
+  pipe-delimited FIX format (`528=A|382=2|375=BRK1|375=BRK2`). Custom tags on
+  received orders and cancel/replace requests are captured and prefill the
+  Accept/Reject/Fill dialogs' Extra Tags field, so they can be confirmed or
+  edited and echoed back on the answering ExecutionReport. Pairs are
   placed by wire position -- header tags in the header, trailer tags before
   the checksum -- duplicates go out in the order given (that's a repeating
   group, nested ones included), a tag the message already carries is
@@ -120,7 +124,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.1.65 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.1.55 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.1.56 -- Web Components UI
   framework
 
 ## License

@@ -48,14 +48,15 @@ ORDER_COLS = [
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
     "created_at", "updated_at", "direction",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "session_status",
+    "pending_extra_tags", "session_status",
+    "tif_code", "extra_tags", "entered_qty", "entered_price",
 ]
 
 ORDER_UPDATE_COLS = [
     "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "session_status",
+    "pending_extra_tags", "session_status",
 ]
 
 
@@ -69,8 +70,9 @@ def _order_params(**overrides):
         "leaves_qty": 100.0, "last_qty": 0.0, "last_price": 0.0, "text": "",
         "transact_time": "", "created_at": "", "updated_at": "", "direction": "TX",
         "pending_action": "", "pending_cl_ord_id": "",
-        "pending_qty": 0.0, "pending_price": 0.0,
+        "pending_qty": 0.0, "pending_price": 0.0, "pending_extra_tags": "",
         "session_status": "ACTIVE",
+        "tif_code": "0", "extra_tags": "", "entered_qty": 100.0, "entered_price": 150.25,
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
@@ -993,3 +995,322 @@ class TestExtraTags:
                 extra_tags="not-a-tag",
             )
         assert stub.sent == []
+
+
+class TestEnteredTerms:
+    """The Replace dialog prefills from the as-submitted terms: what the New
+    dialog carried, or the latest Replace dialog — never the counterparty's
+    ExecutionReport."""
+
+    @pytest.mark.asyncio
+    async def test_send_new_order_records_entered_terms(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, ord_type="2", price=150.0,
+            tif="1", extra_tags="5001=X",
+        )
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["tif_code"] == "1"
+        assert row["time_in_force"] == "GoodTillCancel"
+        assert row["extra_tags"] == "5001=X"
+        assert row["entered_qty"] == 100.0
+        assert row["entered_price"] == 150.0
+
+    @pytest.mark.asyncio
+    async def test_market_order_enters_null_price(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, ord_type="1")
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["entered_price"] is None, \
+            "a market order's Replace dialog must open with an empty price, not 0"
+        assert "44" not in stub.sent[-1].fields
+
+    @pytest.mark.asyncio
+    async def test_cancel_replace_sends_tif_only_when_given(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0,
+        )
+        assert "59" not in stub.sent[-1].fields
+        await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0, tif="3",
+        )
+        assert stub.sent[-1]["35"] == "G"
+        assert stub.sent[-1]["59"] == "3"
+
+    @pytest.mark.asyncio
+    async def test_cancel_replace_records_submitted_terms_on_row(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, ord_type="2", price=150.0,
+            tif="0", extra_tags="5001=X",
+        )
+        await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="MSFT", side="2", qty=200, ord_type="4",
+            price=151.5, tif="1", extra_tags="5002=Y",
+        )
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["cl_ord_id"] == first, "the row keeps its ClOrdID until the replace is accepted"
+        assert row["symbol"] == "MSFT"
+        assert row["side_code"] == "2" and row["side"] == "Sell"
+        assert row["ord_type_code"] == "4" and row["ord_type"] == "StopLimit"
+        assert row["tif_code"] == "1" and row["time_in_force"] == "GoodTillCancel"
+        assert row["extra_tags"] == "5002=Y"
+        assert row["entered_qty"] == 200.0
+        assert row["entered_price"] == 151.5
+        assert row["order_qty"] == 100.0 and row["price"] == 150.0, \
+            "working terms change only when the counterparty accepts the replace"
+
+    @pytest.mark.asyncio
+    async def test_cancel_replace_without_tif_keeps_entered_tif(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0, tif="4")
+        await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0,
+        )
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["tif_code"] == "4" and row["time_in_force"] == "FillOrKill"
+        assert row["extra_tags"] == "", "a submitted empty extra_tags is what the next dialog shows"
+
+    @pytest.mark.asyncio
+    async def test_cancel_replace_for_unknown_order_still_sends(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id="NOPE", symbol="AAPL", side="1", qty=200, price=151.0,
+        )
+        assert stub.sent[-1]["11"] == cl_ord_id
+        assert stub.sent[-1]["41"] == "NOPE"
+        assert await _fetch_all(db, "SELECT * FROM fix_orders") == []
+
+    @pytest.mark.asyncio
+    async def test_execution_reports_never_rewrite_entered_terms(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0, tif="1", extra_tags="5001=X",
+        )
+        second = await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0, tif="1",
+            extra_tags="5001=X",
+        )
+        replaced_er = (f"8=FIX.4.2|35=8|11={second}|41={first}|37=O1|17=E2|20=0|150=5|39=5|"
+                       "55=AAPL|54=1|38=150|44=152|59=3|14=0|6=0|151=150")
+        await engine.on_app_message(stub, "8", parse_fix(replaced_er))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["cl_ord_id"] == second
+        assert row["order_qty"] == 150.0 and row["price"] == 152.0, \
+            "working terms follow the accepting ER"
+        assert row["entered_qty"] == 200.0 and row["entered_price"] == 151.0, \
+            "entered terms stay what was submitted"
+        assert row["tif_code"] == "1" and row["extra_tags"] == "5001=X"
+
+    @pytest.mark.asyncio
+    async def test_received_order_records_tif_code(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["tif_code"] == "0"
+        assert row["entered_qty"] == 100.0
+        assert row["entered_price"] == 150.25
+
+    @pytest.mark.asyncio
+    async def test_startup_backfills_legacy_rows_from_working_terms(self, stack):
+        db, writer, engine = stack
+        legacy = _order_params(cl_ord_id="OLD", order_qty=300.0, price=99.5,
+                               entered_qty=0.0, entered_price=None)
+        market = _order_params(cl_ord_id="OLDMKT", order_qty=50.0, price=0.0,
+                               entered_qty=0.0, entered_price=None)
+        fresh = _order_params(cl_ord_id="NEW", order_qty=100.0, price=150.25,
+                              entered_qty=200.0, entered_price=151.0)
+        for params in (legacy, market, fresh):
+            await writer.submit(engine._compiled_ops["upsert_order"], (params,), {})
+        await engine._backfill_entered_terms()
+        rows = {r["cl_ord_id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_orders")}
+        assert rows["OLD"]["entered_qty"] == 300.0 and rows["OLD"]["entered_price"] == 99.5
+        assert rows["OLDMKT"]["entered_qty"] == 50.0 and rows["OLDMKT"]["entered_price"] is None
+        assert rows["NEW"]["entered_qty"] == 200.0 and rows["NEW"]["entered_price"] == 151.0, \
+            "rows that already carry entered terms are left alone"
+
+
+NEW_ORDER_RX_EXTRAS = ("8=FIX.4.2|35=D|11=C200|55=AAPL|54=1|38=100|40=2|44=150.25|59=0|"
+                       "1=ACCT|100=XNAS|382=2|375=A|375=B")
+
+
+class TestExtraTagEcho:
+    """Inbound custom tags land on the order row so the Accept/Reject/Fill
+    dialogs can prefill their Extra Tags field and echo them back."""
+
+    @pytest.mark.asyncio
+    async def test_received_order_captures_custom_tags_in_order(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_EXTRAS))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["extra_tags"] == "1=ACCT|100=XNAS|382=2|375=A|375=B", \
+            "duplicates (repeating groups) and order preserved; consumed tags excluded"
+        assert row["pending_extra_tags"] == row["extra_tags"], \
+            "the pending New echoes the order's own tags"
+
+    @pytest.mark.asyncio
+    async def test_received_order_without_custom_tags_captures_none(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["extra_tags"] == ""
+        assert row["pending_extra_tags"] == ""
+
+    @pytest.mark.asyncio
+    async def test_accept_clears_pending_but_keeps_order_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_EXTRAS))
+        await engine.accept_request("S1", "C200")
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["pending_extra_tags"] == ""
+        assert row["extra_tags"] == "1=ACCT|100=XNAS|382=2|375=A|375=B", \
+            "the Fill dialog still echoes the order's tags"
+
+    @pytest.mark.asyncio
+    async def test_cancel_request_parks_its_own_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_EXTRAS))
+        await engine.accept_request("S1", "C200")
+        cancel = "8=FIX.4.2|35=F|11=C201|41=C200|55=AAPL|54=1|38=100|5002=Y"
+        await engine.on_app_message(stub, "F", parse_fix(cancel))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["pending_action"] == "Cancel"
+        assert row["pending_extra_tags"] == "5002=Y", "the request's tags, not the order's"
+        assert row["extra_tags"] == "1=ACCT|100=XNAS|382=2|375=A|375=B"
+
+    @pytest.mark.asyncio
+    async def test_accepted_replace_promotes_request_tags_to_order(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_EXTRAS))
+        await engine.accept_request("S1", "C200")
+        replace = ("8=FIX.4.2|35=G|11=C201|41=C200|55=AAPL|54=1|38=200|40=2|44=151|"
+                   "5002=Y|375=C")
+        await engine.on_app_message(stub, "G", parse_fix(replace))
+        await engine.accept_request("S1", "C200")
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["cl_ord_id"] == "C201"
+        assert row["status"] == "Replaced"
+        assert row["pending_extra_tags"] == ""
+        assert row["extra_tags"] == "5002=Y|375=C", \
+            "the accepted replace's tags are now the order's — Fill echoes them"
+
+    @pytest.mark.asyncio
+    async def test_rejected_request_drops_its_tags_and_keeps_orders(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_EXTRAS))
+        await engine.accept_request("S1", "C200")
+        cancel = "8=FIX.4.2|35=F|11=C201|41=C200|55=AAPL|54=1|38=100|5002=Y"
+        await engine.on_app_message(stub, "F", parse_fix(cancel))
+        await engine.reject_request("S1", "C200", text="no")
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["pending_extra_tags"] == ""
+        assert row["extra_tags"] == "1=ACCT|100=XNAS|382=2|375=A|375=B"
+
+    @pytest.mark.asyncio
+    async def test_fill_consuming_pending_new_clears_pending_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_EXTRAS))
+        await engine.fill_order("S1", "C200", qty=100, price=150.25)
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["pending_action"] == "" and row["pending_extra_tags"] == ""
+        assert row["extra_tags"] == "1=ACCT|100=XNAS|382=2|375=A|375=B"
+
+    @pytest.mark.asyncio
+    async def test_dialog_roundtrip_echoes_tags_on_the_wire(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_EXTRAS))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        await engine.accept_request("S1", "C200", extra_tags=row["pending_extra_tags"])
+        er = stub.sent[-1]
+        assert er["35"] == "8"
+        assert er.extra == [("1", "ACCT"), ("100", "XNAS"), ("382", "2"),
+                            ("375", "A"), ("375", "B")]
+
+
+class TestRxExtraTagBackfill:
+    @staticmethod
+    async def _record_raw(engine, writer, session_id, msg_type, cl_ord_id, raw):
+        params = (session_id, "20260823-00:00:00.000", "RX", 1, msg_type, "", "APP",
+                  raw, "CLIENT", "MKT", cl_ord_id, "", "", "AAPL", "1", len(raw), "000", None)
+        await writer.submit(engine._compiled_ops["insert_message"], (params,), {})
+
+    @pytest.mark.asyncio
+    async def test_backfills_from_recorded_new_order(self, stack):
+        db, writer, engine = stack
+        legacy = _order_params(cl_ord_id="OLD1", direction="RX", extra_tags="",
+                               pending_action="New", pending_extra_tags="")
+        await writer.submit(engine._compiled_ops["upsert_order"], (legacy,), {})
+        await self._record_raw(
+            engine, writer, "S1", "D", "OLD1",
+            "8=FIX.4.2|9=1|35=D|49=CLIENT|56=MKT|34=2|52=20260823-00:00:00|"
+            "11=OLD1|55=AAPL|54=1|38=100|40=2|44=150|1=ACCT|375=A|375=B|10=000")
+        await engine._backfill_rx_extra_tags()
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["extra_tags"] == "1=ACCT|375=A|375=B"
+        assert row["pending_extra_tags"] == "1=ACCT|375=A|375=B", \
+            "a pending New echoes the order's own tags"
+
+    @pytest.mark.asyncio
+    async def test_backfills_pending_request_tags_via_orig_clordid(self, stack):
+        db, writer, engine = stack
+        legacy = _order_params(cl_ord_id="C2", orig_cl_ord_id="C1", direction="RX",
+                               extra_tags="", pending_action="Replace",
+                               pending_cl_ord_id="C3", pending_extra_tags="")
+        await writer.submit(engine._compiled_ops["upsert_order"], (legacy,), {})
+        await self._record_raw(
+            engine, writer, "S1", "D", "C1",
+            "8=FIX.4.2|9=1|35=D|11=C1|55=AAPL|54=1|38=100|40=2|5001=X|10=000")
+        await self._record_raw(
+            engine, writer, "S1", "G", "C3",
+            "8=FIX.4.2|9=1|35=G|11=C3|41=C2|55=AAPL|54=1|38=200|40=2|5002=Y|10=000")
+        await engine._backfill_rx_extra_tags()
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["extra_tags"] == "5001=X", "found through the chain's original ClOrdID"
+        assert row["pending_extra_tags"] == "5002=Y", "the parked request's own tags"
+
+    @pytest.mark.asyncio
+    async def test_leaves_rows_without_recorded_message_or_tags_alone(self, stack):
+        db, writer, engine = stack
+        plain = _order_params(cl_ord_id="P1", direction="RX", extra_tags="")
+        tx = _order_params(cl_ord_id="T1", direction="TX", extra_tags="")
+        await writer.submit(engine._compiled_ops["upsert_order"], (plain,), {})
+        await writer.submit(engine._compiled_ops["upsert_order"], (tx,), {})
+        await self._record_raw(
+            engine, writer, "S1", "D", "P1",
+            "8=FIX.4.2|9=1|35=D|11=P1|55=AAPL|54=1|38=100|40=2|10=000")
+        await engine._backfill_rx_extra_tags()
+        rows = {r["cl_ord_id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_orders")}
+        assert rows["P1"]["extra_tags"] == "", "no custom tags on the D — nothing to seed"
+        assert rows["T1"]["extra_tags"] == "", "sent orders are not touched"

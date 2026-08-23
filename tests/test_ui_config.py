@@ -63,6 +63,16 @@ def _walk_dicts(obj):
             yield from _walk_dicts(value)
 
 
+def _find_dialog(app_config: dict, op: str) -> dict:
+    dialog = next(
+        (node for node in _walk_dicts(app_config)
+         if node.get("submit", {}).get("op") == op),
+        None,
+    )
+    assert dialog, f"no {op} dialog in app.json"
+    return dialog
+
+
 def _dialog_field_names(dialog: dict) -> set[str]:
     """Named payload fields of a dialog spec, flattening row groups."""
     names = set()
@@ -438,12 +448,7 @@ class TestServiceReferences:
         for pane_id in send_panes:
             for button in app_config["panes"][pane_id]["buttons"]:
                 dialog = button["action"]["dialog"]
-                names = []
-                for field in dialog["fields"]:
-                    if "row" in field:
-                        names.extend(f["name"] for f in field["row"])
-                    else:
-                        names.append(field["name"])
+                names = _dialog_field_names(dialog)
                 assert "extra_tags" in names, \
                     f"{pane_id} {button['label']} dialog must offer extra_tags"
                 assert not any(
@@ -452,6 +457,59 @@ class TestServiceReferences:
                 ), "extra_tags must stay optional"
                 checked += 1
         assert checked >= 8
+
+    def test_new_order_dialog_has_no_account_field(self, app_config):
+        """Account rides as an extra tag (1=...); a dedicated field would be
+        silently dropped by the dispatch, which no longer reads it."""
+        dialog = _find_dialog(app_config, "send_new_order")
+        assert "account" not in _dialog_field_names(dialog)
+
+    def test_replace_dialog_offers_every_new_order_field_prefilled(self, app_config, toml_config):
+        """The Replace dialog shows every New-dialog field (session aside —
+        a replace stays on its order's session) prefilled from the row's
+        as-submitted terms, so the last entered values can be edited."""
+        new_fields = _dialog_field_names(_find_dialog(app_config, "send_new_order")) - {"session_id"}
+        replace = _find_dialog(app_config, "send_cancel_replace")
+        replace_fields = _dialog_field_names(replace)
+        assert new_fields <= replace_fields, \
+            f"Replace dialog lacks New-dialog fields: {sorted(new_fields - replace_fields)}"
+        columns = set(toml_config["tables"]["fix_orders"]["columns"])
+        prefills = {}
+        for item in replace["fields"]:
+            for f in (item["row"] if "row" in item else [item]):
+                if f.get("name") in new_fields:
+                    prefills[f["name"]] = f.get("value", "")
+        expected = {
+            "symbol": "symbol", "side": "side_code", "qty": "entered_qty",
+            "ord_type": "ord_type_code", "price": "entered_price", "tif": "tif_code",
+            "extra_tags": "extra_tags",
+        }
+        for name, column in expected.items():
+            assert prefills.get(name) == "${row.%s}" % column, \
+                f"Replace field {name!r} must prefill from row.{column}"
+            assert column in columns
+        assert set(replace["rowData"]) == {"session_id", "orig_cl_ord_id"}, \
+            "only the identity rides as rowData — everything else is an editable field"
+
+    def test_market_dialogs_echo_extra_tags(self, app_config, toml_config):
+        """Accept/Reject prefill the pending request's custom tags and Fill the
+        order's, so inbound tags can be viewed, edited, and echoed back."""
+        expected = {
+            "accept_request": "${row.pending_extra_tags}",
+            "reject_request": "${row.pending_extra_tags}",
+            "fill_order": "${row.extra_tags}",
+        }
+        columns = set(toml_config["tables"]["fix_orders"]["columns"])
+        assert {"pending_extra_tags", "extra_tags"} <= columns
+        for op, value in expected.items():
+            dialog = _find_dialog(app_config, op)
+            field = next(
+                f for item in dialog["fields"]
+                for f in (item["row"] if "row" in item else [item])
+                if f.get("name") == "extra_tags"
+            )
+            assert field.get("value") == value, \
+                f"{op} dialog must prefill extra_tags from {value}"
 
     def test_pane_columns_exist_in_primary_table(self, app_config, toml_config):
         """A misspelled column renders as a permanently empty blotter column."""

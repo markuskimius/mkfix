@@ -66,7 +66,6 @@ class FixCommandService(Service):
                 ord_type=data.get("ord_type", "2"),
                 price=float(data["price"]) if data.get("price") else None,
                 tif=data.get("tif", "0"),
-                account=data.get("account"),
                 extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
@@ -91,6 +90,7 @@ class FixCommandService(Service):
                 qty=float(data["qty"]),
                 ord_type=data.get("ord_type", "2"),
                 price=float(data["price"]) if data.get("price") else None,
+                tif=data.get("tif"),
                 extra_tags=data.get("extra_tags", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}

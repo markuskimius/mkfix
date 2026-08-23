@@ -3,6 +3,8 @@
 import pytest
 
 from mkfix.fix.message import (
+    extra_pairs_of,
+    format_extra_tags,
     FixMessage, FixMessageFactory, parse_fix, parse_extra_tags, _checksum, SOH,
 )
 from mkfix.fix.dictionary import FixDictionary
@@ -365,6 +367,14 @@ class TestFixMessageFactory:
         assert msg["41"] == "ORD-001"
         assert msg["38"] == "200"
         assert msg["44"] == "155.0"
+        assert "59" not in msg.fields, "TIF is sent on a replace only when given"
+
+    def test_cancel_replace_request_with_tif(self):
+        msg = self.factory.cancel_replace_request(
+            cl_ord_id="CRX-001", orig_cl_ord_id="ORD-001",
+            symbol="AAPL", side="1", qty=200, price=155.0, tif="1",
+        )
+        assert msg["59"] == "1"
 
     def test_execution_report_fill(self):
         msg = self.factory.execution_report(
@@ -400,3 +410,39 @@ class TestFixMessageFactory:
         assert msg["20"] == "1"
         assert msg["19"] == "E-001"
         assert msg["58"] == "busted"
+
+
+class TestParsedPairs:
+    def test_parse_fix_preserves_duplicate_tags_in_order(self):
+        raw = "8=FIX.4.2|35=D|11=C1|382=2|375=A|375=B|10=000"
+        msg = parse_fix(raw)
+        assert msg.to_pipe_string() == raw, "serialization keeps duplicates and order"
+        assert msg["375"] == "B", "the dict view stays last-wins for lookups"
+
+    def test_stream_parser_preserves_duplicate_tags(self):
+        from mkfix.fix.parser import FixStreamParser
+        soh = chr(1)
+        raw = "8=FIX.4.2|35=D|11=C1|375=A|375=B|10=000".replace("|", soh).encode()
+        msg = FixStreamParser._parse(raw)
+        assert msg.to_pipe_string() == "8=FIX.4.2|35=D|11=C1|375=A|375=B|10=000"
+
+
+class TestExtraPairsOf:
+    def setup_method(self):
+        from mkfix.fix.dictionary import FixDictionary
+        self.dictionary = FixDictionary("FIX.4.2")
+
+    def test_excludes_header_trailer_and_consumed_tags(self):
+        raw = ("8=FIX.4.2|9=100|35=D|49=A|56=B|34=2|52=20260823-00:00:00|"
+               "11=C1|21=1|55=AAPL|54=1|38=100|40=2|44=150|59=0|60=20260823-00:00:00|"
+               "1=ACCT|100=XNAS|382=2|375=A|375=B|10=123")
+        pairs = extra_pairs_of(parse_fix(raw), self.dictionary)
+        assert pairs == [("1", "ACCT"), ("100", "XNAS"), ("382", "2"),
+                         ("375", "A"), ("375", "B")]
+
+    def test_format_round_trips_through_parse_extra_tags(self):
+        pairs = [("382", "2"), ("375", "A"), ("375", "B")]
+        assert parse_extra_tags(format_extra_tags(pairs)) == pairs
+
+    def test_format_empty(self):
+        assert format_extra_tags([]) == ""

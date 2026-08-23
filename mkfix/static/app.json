@@ -65,7 +65,7 @@
       { "type": "text", "bind": "status.message" }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.11" }
+      { "type": "text", "text": "mkfix v0.12" }
     ],
     "bindStyle": { "color": "status.color", "background": "status.background" }
   },
@@ -313,7 +313,6 @@
                     ] }
                   ]
                 },
-                { "name": "account", "label": "Account", "type": "text", "placeholder": "Optional" },
                 { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Send Order", "service": "fix_cmd", "op": "send_new_order" }
@@ -329,23 +328,48 @@
             "dialog": {
               "title": "Cancel/Replace ${row.cl_ord_id}",
               "modal": true,
-              "width": 380,
+              "width": 420,
               "submitPerRow": true,
               "rowData": {
                 "session_id": "${row.session_id}",
-                "orig_cl_ord_id": "${row.cl_ord_id}",
-                "symbol": "${row.symbol}",
-                "side": "${row.side_code}",
-                "ord_type": "${row.ord_type_code}"
+                "orig_cl_ord_id": "${row.cl_ord_id}"
               },
               "fields": [
+                { "label": "Session", "type": "readonly", "value": "${row.session_id}" },
                 {
                   "row": [
-                    { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.order_qty}", "width": 0.5, "required": true },
-                    { "name": "price", "label": "Price", "type": "text", "value": "${row.price}", "width": 0.5 }
+                    { "name": "symbol", "label": "Symbol", "type": "text", "value": "${row.symbol}", "width": 0.5, "required": true },
+                    { "name": "side", "label": "Side", "type": "select", "value": "${row.side_code}", "width": 0.5, "options": [
+                      { "value": "1", "label": "Buy" },
+                      { "value": "2", "label": "Sell" },
+                      { "value": "5", "label": "Sell Short" }
+                    ] }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "row": [
+                    { "name": "qty", "label": "Quantity", "type": "number", "value": "${row.entered_qty}", "min": 1, "width": 0.5, "required": true },
+                    { "name": "ord_type", "label": "Order Type", "type": "select", "value": "${row.ord_type_code}", "width": 0.5, "options": [
+                      { "value": "1", "label": "Market" },
+                      { "value": "2", "label": "Limit" },
+                      { "value": "3", "label": "Stop" },
+                      { "value": "4", "label": "Stop Limit" }
+                    ] }
+                  ]
+                },
+                {
+                  "row": [
+                    { "name": "price", "label": "Price", "type": "number", "value": "${row.entered_price}", "placeholder": "0.00", "step": "0.01", "width": 0.5 },
+                    { "name": "tif", "label": "Time in Force", "type": "select", "value": "${row.tif_code}", "width": 0.5, "options": [
+                      { "value": "0", "label": "Day" },
+                      { "value": "1", "label": "GTC" },
+                      { "value": "3", "label": "IOC" },
+                      { "value": "4", "label": "FOK" },
+                      { "value": "6", "label": "GTD" }
+                    ] }
+                  ]
+                },
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Replace", "service": "fix_cmd", "op": "send_cancel_replace" }
             }
@@ -439,7 +463,7 @@
                 "cl_ord_id": "${row.cl_ord_id}"
               },
               "fields": [
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.pending_extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Accept", "service": "fix_cmd", "op": "accept_request" }
             }
@@ -466,7 +490,7 @@
                     { "name": "text", "label": "Reason", "type": "text", "value": "", "width": 1 }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.pending_extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Reject", "service": "fix_cmd", "op": "reject_request" }
             }
@@ -494,7 +518,7 @@
                     { "name": "price", "label": "Price", "type": "text", "value": "${row.price}", "width": 0.5, "required": true }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
               ],
               "submit": { "label": "Fill", "service": "fix_cmd", "op": "fill_order" }
             }
@@ -657,7 +681,7 @@
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.11", "mkio": "0.1" },
+    "expect": { "name": "mkfix", "version": "0.12", "mkio": "0.1" },
     "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
     "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
     "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }

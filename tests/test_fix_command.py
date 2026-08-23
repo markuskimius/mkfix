@@ -146,7 +146,7 @@ class TestDispatch:
         })
         engine.send_new_order.assert_awaited_once_with(
             session_id="S1", symbol="AAPL", side="1", qty=100.0,
-            ord_type="2", price=150.25, tif="0", account=None, extra_tags="",
+            ord_type="2", price=150.25, tif="0", extra_tags="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -206,8 +206,41 @@ class TestDispatch:
         })
         engine.send_cancel_replace.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
-            side="1", qty=200.0, ord_type="2", price=151.0, extra_tags="",
+            side="1", qty=200.0, ord_type="2", price=151.0, tif=None, extra_tags="",
         )
+
+    @pytest.mark.asyncio
+    async def test_send_cancel_replace_passes_dialog_terms(self):
+        """The Replace dialog submits every New-dialog field; tif and
+        extra_tags must reach the engine verbatim."""
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "send_cancel_replace",
+            "data": {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL",
+                     "side": "1", "qty": "200", "ord_type": "1", "price": "",
+                     "tif": "3", "extra_tags": "5001=X"},
+        })
+        engine.send_cancel_replace.assert_awaited_once_with(
+            session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
+            side="1", qty=200.0, ord_type="1", price=None, tif="3", extra_tags="5001=X",
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_new_order_ignores_account(self):
+        """Account left the New dialog — it rides as an extra tag (1=...)."""
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "send_new_order",
+            "data": {"session_id": "S1", "symbol": "AAPL", "side": "1",
+                     "qty": "100", "account": "ACCT", "extra_tags": "1=ACCT"},
+        })
+        kwargs = engine.send_new_order.await_args.kwargs
+        assert "account" not in kwargs
+        assert kwargs["extra_tags"] == "1=ACCT"
 
     @pytest.mark.asyncio
     async def test_accept_order(self):

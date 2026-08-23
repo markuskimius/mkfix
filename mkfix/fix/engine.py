@@ -8,7 +8,8 @@ from typing import Any, TYPE_CHECKING
 
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.idgen import IdGenerator
-from mkfix.fix.message import FixMessage, _fix_timestamp, parse_extra_tags
+from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
+                               extra_pairs_of, format_extra_tags, parse_fix)
 from mkfix.fix.replay import ReplayTask, parse_log_file
 from mkfix.fix.session import FixSession
 
@@ -23,14 +24,23 @@ ORDER_COLS = [
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
     "created_at", "updated_at", "direction",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "session_status",
+    "pending_extra_tags", "session_status",
+    "tif_code", "extra_tags", "entered_qty", "entered_price",
+]
+
+# The as-submitted terms of a sent order — what the New dialog or the latest
+# Replace dialog carried. Kept outside the ER upsert so the counterparty's
+# ExecutionReports never rewrite them; the Replace dialog prefills from them.
+ENTERED_COLS = [
+    "symbol", "side", "side_code", "ord_type", "ord_type_code",
+    "time_in_force", "tif_code", "extra_tags", "entered_qty", "entered_price",
 ]
 
 ORDER_UPDATE_COLS = [
     "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "session_status",
+    "pending_extra_tags", "session_status",
 ]
 
 EXEC_COLS = [
@@ -66,6 +76,8 @@ class FixEngine:
         """Load session configs from DB and compile write operations."""
         self._compile_ops()
         await self._ensure_indexes()
+        await self._backfill_entered_terms()
+        await self._backfill_rx_extra_tags()
         await self.ids.start()
         await self._load_sessions()
 
@@ -143,6 +155,19 @@ class FixEngine:
                 f"RETURNING *"
             ),
             param_names=tuple(ORDER_COLS + ["_mkio_ref"] + ORDER_UPDATE_COLS),
+        ),)
+
+        # Records the terms a Replace dialog (or scripted cancel/replace)
+        # submitted, so the next Replace dialog opens on them. Zero rows when
+        # the referenced order is unknown — the request still went out.
+        self._compiled_ops["record_entered"] = (CompiledOp(
+            table="fix_orders",
+            op_type="update",
+            sql=(
+                f"UPDATE fix_orders SET {', '.join(c + ' = ?' for c in ENTERED_COLS)}, "
+                "updated_at = ?, _mkio_ref = ? WHERE session_id = ? AND cl_ord_id = ? RETURNING *"
+            ),
+            param_names=tuple(ENTERED_COLS + ["updated_at", "_mkio_ref", "session_id", "cl_ord_id"]),
         ),)
 
         # Moves an order chain to its next ClOrdID when a cancel/replace is
@@ -233,6 +258,71 @@ class FixEngine:
             "ON fix_orders(cl_ord_id, session_id)"
         )).close()
         await conn.commit()
+
+    async def _backfill_entered_terms(self) -> None:
+        """Seed the as-submitted terms of orders recorded before those columns
+        existed from their working terms, so their Replace dialog doesn't open
+        on qty 0. Idempotent: every row written since carries entered_qty."""
+        conn = self.db.write_conn
+        await (await conn.execute(
+            "UPDATE fix_orders SET entered_qty = order_qty, entered_price = nullif(price, 0) "
+            "WHERE entered_qty = 0 AND order_qty <> 0"
+        )).close()
+        await conn.commit()
+
+    async def _backfill_rx_extra_tags(self) -> None:
+        """Seed custom tags of orders received before extra_tags existed from
+        their recorded messages, so the Accept/Reject/Fill dialogs echo them.
+        Best-effort: the recorded NewOrderSingle must still match the row's
+        current or original ClOrdID (an accepted replace renames the chain)."""
+        conn = self.db.read_conn
+        cur = await conn.execute(
+            "SELECT id, session_id, cl_ord_id, orig_cl_ord_id, pending_action, "
+            "pending_cl_ord_id, pending_extra_tags "
+            "FROM fix_orders WHERE direction = 'RX' AND extra_tags = ''"
+        )
+        orders = [dict(r) for r in await cur.fetchall()]
+        await cur.close()
+
+        async def recorded_extras(session_id: str, msg_types: tuple[str, ...],
+                                  cl_ord_ids: tuple[str, ...]) -> str:
+            marks = ", ".join("?" * len(msg_types))
+            cur = await conn.execute(
+                f"SELECT raw_message FROM fix_messages WHERE session_id = ? "
+                f"AND direction = 'RX' AND msg_type IN ({marks}) "
+                f"AND cl_ord_id IN (?, ?) ORDER BY id LIMIT 1",
+                (session_id, *msg_types, *cl_ord_ids),
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            if not row:
+                return ""
+            msg = parse_fix(row["raw_message"])
+            dictionary = FixDictionary(msg.get("8", "FIX.4.2"))
+            return format_extra_tags(extra_pairs_of(msg, dictionary))
+
+        changed = False
+        for o in orders:
+            extras = await recorded_extras(
+                o["session_id"], ("D",), (o["cl_ord_id"], o["orig_cl_ord_id"]))
+            pending = o["pending_extra_tags"]
+            if not pending:
+                if o["pending_action"] == "New":
+                    pending = extras
+                elif o["pending_action"] in ("Cancel", "Replace"):
+                    pending = await recorded_extras(
+                        o["session_id"], ("F", "G"),
+                        (o["pending_cl_ord_id"], o["pending_cl_ord_id"]))
+            if not extras and pending == o["pending_extra_tags"]:
+                continue
+            wconn = self.db.write_conn
+            await (await wconn.execute(
+                "UPDATE fix_orders SET extra_tags = ?, pending_extra_tags = ? WHERE id = ?",
+                (extras, pending, o["id"]),
+            )).close()
+            changed = True
+        if changed:
+            await self.db.write_conn.commit()
 
     async def _load_sessions(self) -> None:
         """Load session configurations from the database."""
@@ -430,7 +520,12 @@ class FixEngine:
             "pending_cl_ord_id": "",
             "pending_qty": 0.0,
             "pending_price": 0.0,
+            "pending_extra_tags": "",
             "session_status": session.status,
+            "tif_code": tif_code,
+            "extra_tags": "",
+            "entered_qty": msg.get_float("38", 0.0),
+            "entered_price": msg.get_float("44", 0.0) or None,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -488,6 +583,7 @@ class FixEngine:
         side_code = msg.get("54", "")
         ord_type_code = msg.get("40", "")
         tif_code = msg.get("59", "")
+        extras = format_extra_tags(extra_pairs_of(msg, dictionary))
 
         order_row = {
             "cl_ord_id": msg.get("11", ""),
@@ -518,7 +614,12 @@ class FixEngine:
             "pending_cl_ord_id": "",
             "pending_qty": 0.0,
             "pending_price": 0.0,
+            "pending_extra_tags": extras,
             "session_status": session.status,
+            "tif_code": tif_code,
+            "extra_tags": extras,
+            "entered_qty": qty,
+            "entered_price": msg.get_float("44", 0.0) or None,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
@@ -550,6 +651,7 @@ class FixEngine:
             pending_cl_ord_id=request_id,
             pending_qty=msg.get_float("38", 0.0),
             pending_price=msg.get_float("44", 0.0),
+            pending_extra_tags=format_extra_tags(extra_pairs_of(msg, session.dictionary)),
         )
 
     async def send_new_order(
@@ -561,7 +663,6 @@ class FixEngine:
         ord_type: str = "2",
         price: float | None = None,
         tif: str = "0",
-        account: str | None = None,
         extra_tags: str = "",
         **extra: str,
     ) -> str:
@@ -580,7 +681,6 @@ class FixEngine:
             ord_type=ord_type,
             price=price,
             tif=tif,
-            account=account,
             **extra,
         )
         msg.extra = extra_pairs
@@ -618,7 +718,12 @@ class FixEngine:
             "pending_cl_ord_id": "",
             "pending_qty": 0.0,
             "pending_price": 0.0,
+            "pending_extra_tags": "",
             "session_status": session.status,
+            "tif_code": tif,
+            "extra_tags": extra_tags,
+            "entered_qty": qty,
+            "entered_price": price,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -661,10 +766,15 @@ class FixEngine:
         qty: float,
         ord_type: str = "2",
         price: float | None = None,
+        tif: str | None = None,
         extra_tags: str = "",
         **extra: str,
     ) -> str:
-        """Send an OrderCancelReplaceRequest and return the new ClOrdID."""
+        """Send an OrderCancelReplaceRequest and return the new ClOrdID.
+
+        The submitted terms are recorded on the order row (ENTERED_COLS) so
+        the next Replace dialog opens on them; tag 59 goes out only when
+        ``tif`` is given."""
         session = self.sessions.get(session_id)
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
@@ -679,11 +789,39 @@ class FixEngine:
             qty=qty,
             ord_type=ord_type,
             price=price,
+            tif=tif,
             **extra,
         )
         msg.extra = extra_pairs
         await session.send_message(msg)
+
+        dictionary = session.dictionary
+        entered = {
+            "symbol": symbol,
+            "side": dictionary.enum_name("54", side),
+            "side_code": side,
+            "ord_type": dictionary.enum_name("40", ord_type),
+            "ord_type_code": ord_type,
+            "extra_tags": extra_tags,
+            "entered_qty": qty,
+            "entered_price": price,
+        }
+        if tif is not None:
+            entered["time_in_force"] = dictionary.enum_name("59", tif)
+            entered["tif_code"] = tif
+        await self._record_entered(session_id, orig_cl_ord_id, entered)
         return cl_ord_id
+
+    async def _record_entered(self, session_id: str, cl_ord_id: str, entered: dict[str, Any]) -> None:
+        """Write submitted terms onto the order row; a no-op for unknown orders."""
+        try:
+            order = await self._load_order(session_id, cl_ord_id)
+        except ValueError:
+            return
+        row = {**order, **entered}
+        params = tuple(row[c] for c in ENTERED_COLS) + (_fix_timestamp(), None, session_id, cl_ord_id)
+        ops = self._compiled_ops["record_entered"]
+        await self.writer.submit(ops, (params,), {"cl_ord_id": cl_ord_id})
 
     # ── Market-side actions (received orders, sent trades) ───────────
 
@@ -812,7 +950,8 @@ class FixEngine:
         msg.extra = extra_pairs
         await session.send_message(msg)
 
-        await self._write_order(order, order_id=order_id, status="New", pending_action="")
+        await self._write_order(order, order_id=order_id, status="New",
+                                pending_action="", pending_extra_tags="")
         return order_id
 
     async def reject_order(self, session_id: str, cl_ord_id: str, text: str = "",
@@ -840,7 +979,7 @@ class FixEngine:
         await session.send_message(msg)
 
         await self._write_order(order, status="Rejected", leaves_qty=0.0, text=text,
-                                pending_action="")
+                                pending_action="", pending_extra_tags="")
 
     async def fill_order(
         self, session_id: str, cl_ord_id: str, qty: float, price: float,
@@ -883,11 +1022,13 @@ class FixEngine:
 
         # A fill on a not-yet-accepted order implicitly acknowledges it, so the
         # pending New is consumed; a pending Cancel/Replace stays parked.
-        pending_action = "" if order["pending_action"] == "New" else order["pending_action"]
+        consumed = order["pending_action"] == "New"
         await self._write_order(
             order, order_id=order_id, status=dictionary.enum_name("39", status_code),
             cum_qty=cum_qty, avg_price=avg_price, leaves_qty=leaves_qty,
-            last_qty=qty, last_price=price, pending_action=pending_action,
+            last_qty=qty, last_price=price,
+            pending_action="" if consumed else order["pending_action"],
+            pending_extra_tags="" if consumed else order["pending_extra_tags"],
         )
         await self._write_sent_execution(
             {**order, "order_id": order_id}, exec_id, trade_id,
@@ -957,7 +1098,7 @@ class FixEngine:
             {**order, "cl_ord_id": new_cl_ord_id, "orig_cl_ord_id": cl_ord_id},
             status="Canceled", leaves_qty=0.0,
             pending_action="", pending_cl_ord_id="",
-            pending_qty=0.0, pending_price=0.0,
+            pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
         )
         return exec_id
 
@@ -1004,8 +1145,16 @@ class FixEngine:
             status="Replaced", order_qty=new_qty, price=new_price,
             leaves_qty=leaves_qty,
             pending_action="", pending_cl_ord_id="",
-            pending_qty=0.0, pending_price=0.0,
+            pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
         )
+        # The accepted replace's terms are now the order's — its custom tags
+        # included, so the next Fill echoes them (extra_tags is insert-only in
+        # the upsert; the record_entered op is the update path for it).
+        entered_row = {**order, "extra_tags": order["pending_extra_tags"]}
+        params = tuple(entered_row[c] for c in ENTERED_COLS) + (
+            _fix_timestamp(), None, session_id, new_cl_ord_id)
+        await self.writer.submit(self._compiled_ops["record_entered"], (params,),
+                                 {"cl_ord_id": new_cl_ord_id})
         return exec_id
 
     async def reject_cancel(self, session_id: str, cl_ord_id: str, text: str = "",
@@ -1032,7 +1181,7 @@ class FixEngine:
 
         await self._write_order(
             order, pending_action="", pending_cl_ord_id="",
-            pending_qty=0.0, pending_price=0.0,
+            pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
         )
 
     async def correct_trade(

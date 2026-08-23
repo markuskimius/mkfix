@@ -18,10 +18,15 @@ class FixMessage:
     is all a repeating group is on the wire.
     """
 
-    def __init__(self, fields: dict[str, str] | None = None):
+    def __init__(self, fields: dict[str, str] | None = None,
+                 pairs: list[tuple[str, str]] | None = None):
         self.fields: dict[str, str] = {}
         self.extra: list[tuple[str, str]] = []
-        self._pairs: list[tuple[str, str]] | None = None
+        # Parsed messages carry their ordered wire pairs (duplicates included —
+        # repeating groups); sendprep replaces them with the composed output.
+        self._pairs: list[tuple[str, str]] | None = (
+            [(str(t), str(v)) for t, v in pairs] if pairs is not None else None
+        )
         if fields:
             for k, v in fields.items():
                 self.fields[str(k)] = str(v)
@@ -318,6 +323,7 @@ class FixMessageFactory:
         qty: float,
         ord_type: str = "2",
         price: float | None = None,
+        tif: str | None = None,
         handl_inst: str = "1",
         **extra: str,
     ) -> FixMessage:
@@ -334,6 +340,8 @@ class FixMessageFactory:
         }
         if price is not None:
             fields["44"] = str(price)
+        if tif is not None:
+            fields["59"] = tif
         fields.update(extra)
         return self.create(fields)
 
@@ -386,7 +394,10 @@ def _serialize_pairs(pairs: list[tuple[str, str]]) -> bytes:
 
 
 def parse_fix(data: bytes | str) -> FixMessage:
-    """Parse a FIX message from raw bytes or pipe-delimited string."""
+    """Parse a FIX message from raw bytes or pipe-delimited string.
+
+    The ordered wire pairs ride along (duplicates preserved — that's a
+    repeating group); `fields` stays the last-wins dict view for lookups."""
     if isinstance(data, bytes):
         text = data.decode("latin-1")
     else:
@@ -394,6 +405,7 @@ def parse_fix(data: bytes | str) -> FixMessage:
 
     sep = SOH if SOH in text else "|"
     fields: dict[str, str] = {}
+    pairs: list[tuple[str, str]] = []
     for pair in text.split(sep):
         pair = pair.strip()
         if not pair:
@@ -401,7 +413,30 @@ def parse_fix(data: bytes | str) -> FixMessage:
         eq = pair.find("=")
         if eq > 0:
             fields[pair[:eq]] = pair[eq + 1:]
-    return FixMessage(fields)
+            pairs.append((pair[:eq], pair[eq + 1:]))
+    return FixMessage(fields, pairs=pairs)
+
+
+# Tags of an inbound order or cancel/replace request the engine consumes into
+# order columns (and regenerates itself on the answering message) — everything
+# else on the message is a custom tag worth echoing back.
+CONSUMED_ORDER_TAGS = frozenset({
+    "11", "21", "37", "38", "40", "41", "44", "54", "55", "58", "59", "60", "99",
+})
+
+
+def extra_pairs_of(msg: FixMessage, dictionary: FixDictionary,
+                   exclude: frozenset[str] = CONSUMED_ORDER_TAGS) -> list[tuple[str, str]]:
+    """Ordered custom tags of a parsed message: everything that is neither
+    header/trailer nor a tag the engine maps into order columns."""
+    return [(t, v) for t, v in msg._items()
+            if not dictionary.is_header(t) and not dictionary.is_trailer(t)
+            and t not in exclude]
+
+
+def format_extra_tags(pairs: list[tuple[str, str]]) -> str:
+    """Inverse of parse_extra_tags: pipe-delimited tag=value pairs."""
+    return "|".join(f"{t}={v}" for t, v in pairs)
 
 
 def _fix_timestamp() -> str:
