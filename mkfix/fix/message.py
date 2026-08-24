@@ -178,6 +178,34 @@ class FixMessageFactory:
     def _now(self) -> str:
         return _fix_timestamp(self.timestamp_precision)
 
+    def _strip_legacy_body_time(self, fields: dict[str, str]) -> None:
+        # TransactTime(60) joined D/F/G/9 in FIX 4.2; earlier versions
+        # don't define it on those messages.
+        if self.dictionary.begin_string() in ("FIX.4.0", "FIX.4.1"):
+            fields.pop("60", None)
+
+    def wire_exec_codes(self, exec_trans_type: str, exec_type: str) -> tuple[str | None, str | None]:
+        """Translate FIX 4.2-style execution codes to this dictionary's wire.
+
+        Callers pass 4.2 semantics: ExecTransType(20) 0/1/2 (New/Cancel/
+        Correct) plus a 4.2 ExecType(150). Versions defining tag 20 (<= 4.2)
+        pass through unchanged; versions without it (4.3+) express fills as
+        150=F and corrects/busts as 150=G/H; FIX 4.0 has no ExecType at all.
+        """
+        d = self.dictionary
+        trans_type = exec_trans_type if d.defines("20") else None
+        if not d.defines("150"):
+            return trans_type, None
+        wire = exec_type
+        if trans_type is None:
+            if exec_trans_type == "1" and d.has_enum("150", "H"):
+                wire = "H"
+            elif exec_trans_type == "2" and d.has_enum("150", "G"):
+                wire = "G"
+            elif exec_type in ("1", "2") and d.has_enum("150", "F"):
+                wire = "F"
+        return trans_type, wire
+
     def create(self, fields: dict[str, str] | None = None) -> FixMessage:
         msg = FixMessage(fields)
         if "8" not in msg.fields:
@@ -199,8 +227,10 @@ class FixMessageFactory:
             "98": "0",
             "108": str(heartbeat_interval),
         }
-        if reset_seq_num:
+        if reset_seq_num and self.dictionary.defines("141"):
             fields["141"] = "Y"
+        if self.dictionary.defines("1137"):
+            fields["1137"] = _APPL_VER_IDS.get(self.dictionary.version, "9")
         return self.create(fields)
 
     def logout(self, text: str | None = None) -> FixMessage:
@@ -256,6 +286,7 @@ class FixMessageFactory:
         if account:
             fields["1"] = account
         fields.update(extra)
+        self._strip_legacy_body_time(fields)
         return self.create(fields)
 
     def cancel_request(
@@ -276,6 +307,9 @@ class FixMessageFactory:
         }
         if qty:
             fields["38"] = str(int(qty))
+        if self.dictionary.begin_string() == "FIX.4.0":
+            fields["125"] = "F"  # CxlType, required on a 4.0 OrderCancelRequest
+        self._strip_legacy_body_time(fields)
         return self.create(fields)
 
     def execution_report(
@@ -298,13 +332,18 @@ class FixMessageFactory:
         text: str | None = None,
         **extra: str,
     ) -> FixMessage:
+        trans_type, wire_exec_type = self.wire_exec_codes(exec_trans_type, exec_type)
         fields: dict[str, str] = {
             "35": "8",
             "37": order_id,
             "11": cl_ord_id,
             "17": exec_id,
-            "20": exec_trans_type,
-            "150": exec_type,
+        }
+        if trans_type is not None:
+            fields["20"] = trans_type
+        if wire_exec_type is not None:
+            fields["150"] = wire_exec_type
+        fields.update({
             "39": ord_status,
             "55": symbol,
             "54": side,
@@ -313,9 +352,10 @@ class FixMessageFactory:
             "31": str(last_price),
             "14": str(int(cum_qty)),
             "6": str(avg_price),
-            "151": str(int(leaves_qty)),
-            "60": self._now(),
-        }
+        })
+        if self.dictionary.defines("151"):
+            fields["151"] = str(int(leaves_qty))
+        fields["60"] = self._now()
         if exec_ref_id:
             fields["19"] = exec_ref_id
         if text:
@@ -352,6 +392,7 @@ class FixMessageFactory:
         if tif is not None:
             fields["59"] = tif
         fields.update(extra)
+        self._strip_legacy_body_time(fields)
         return self.create(fields)
 
     def order_cancel_reject(
@@ -376,6 +417,9 @@ class FixMessageFactory:
         }
         if text:
             fields["58"] = text
+        if not self.dictionary.defines("434"):
+            fields.pop("434")
+        self._strip_legacy_body_time(fields)
         return self.create(fields)
 
 
@@ -447,6 +491,13 @@ def format_extra_tags(pairs: list[tuple[str, str]]) -> str:
     """Inverse of parse_extra_tags: pipe-delimited tag=value pairs."""
     return "|".join(f"{t}={v}" for t, v in pairs)
 
+
+# DefaultApplVerID(1137) codes for the FIXT.1.1 Logon, keyed by app version.
+_APPL_VER_IDS = {
+    "FIX.5.0": "7",
+    "FIX.5.0SP1": "8",
+    "FIX.5.0SP2": "9",
+}
 
 _PRECISION_DIGITS = {
     "second": 0,

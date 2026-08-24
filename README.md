@@ -52,9 +52,12 @@ A FIX protocol testing engine for capital markets connectivity, built on
   ExecutionReport Rejected or OrderCancelReject on reject); orders stay
   fillable while a request is pending and even after a full fill (overfills
   are a scenario worth testing), and sent trades can be corrected and busted
-  from the Sent Trades blotter (FIX 4.2 ExecTransType Correct/Cancel with
-  ExecRefID) -- including trades filled before a replace renamed the order's
-  ClOrdID chain.
+  from the Sent Trades blotter (ExecTransType Correct/Cancel through FIX 4.2,
+  ExecType TradeCorrect/TradeCancel from 4.3 on, always with ExecRefID) --
+  including trades filled before a replace renamed the order's ClOrdID chain.
+  Every message goes out version-correct: fills report ExecType F from FIX
+  4.3, tags a version does not define are withheld, FIX 4.0 cancels carry
+  CxlType, and FIXT.1.1 Logons carry DefaultApplVerID.
 - **Color-Coded Blotters** -- Conditional cell and row styling throughout:
   buy/sell sides, order statuses, exec types, TX/RX direction, and pending
   requests are colored; heartbeat chatter is dimmed in the Messages viewer.

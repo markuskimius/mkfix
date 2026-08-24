@@ -147,7 +147,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.13"
+        "text": "mkfix v0.14"
       }
     ],
     "bindStyle": {
@@ -1291,6 +1291,20 @@
             "eq": "Cancel",
             "color": "#f44747",
             "strike": true
+          },
+          {
+            "eq": "Trade",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "eq": "TradeCorrect",
+            "color": "#dcdcaa"
+          },
+          {
+            "eq": "TradeCancel",
+            "color": "#f44747",
+            "strike": true
           }
         ]
       }
@@ -1623,6 +1637,20 @@
             "eq": "Cancel",
             "color": "#f44747",
             "strike": true
+          },
+          {
+            "eq": "Trade",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "eq": "TradeCorrect",
+            "color": "#dcdcaa"
+          },
+          {
+            "eq": "TradeCancel",
+            "color": "#f44747",
+            "strike": true
           }
         ]
       },
@@ -1636,7 +1664,9 @@
               "exec_type": [
                 "PartialFill",
                 "Fill",
-                "Correct"
+                "Correct",
+                "Trade",
+                "TradeCorrect"
               ],
               "session_status": "ACTIVE"
             }
@@ -1697,7 +1727,9 @@
               "exec_type": [
                 "PartialFill",
                 "Fill",
-                "Correct"
+                "Correct",
+                "Trade",
+                "TradeCorrect"
               ],
               "session_status": "ACTIVE"
             }
@@ -1977,7 +2009,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.13",
+      "version": "0.14",
       "mkio": "0.1"
     },
     "connected": {

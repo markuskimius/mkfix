@@ -1314,3 +1314,146 @@ class TestRxExtraTagBackfill:
         rows = {r["cl_ord_id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_orders")}
         assert rows["P1"]["extra_tags"] == "", "no custom tags on the D — nothing to seed"
         assert rows["T1"]["extra_tags"] == "", "sent orders are not touched"
+
+
+NEW_ORDER_44_RX = "8=FIX.4.4|35=D|11=C100|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
+
+CLIENT_FILL_44_RX = (
+    "8=FIX.4.4|35=8|11=C1|37=O1|17=E1|150=F|39=2|55=AAPL|54=1|"
+    "38=100|32=100|31=150|14=100|6=150|151=0"
+)
+
+CLIENT_BUST_44_RX = (
+    "8=FIX.4.4|35=8|11=C1|37=O1|17=E2|19=E1|150=H|39=0|55=AAPL|54=1|"
+    "38=100|32=100|31=150|14=0|6=0|151=100"
+)
+
+CLIENT_CORRECT_44_RX = (
+    "8=FIX.4.4|35=8|11=C1|37=O1|17=E3|19=E1|150=G|39=2|55=AAPL|54=1|"
+    "38=100|32=100|31=149|14=100|6=149|151=0"
+)
+
+
+def _stub44(session_id="S1"):
+    stub = StubSession(session_id)
+    stub.dictionary = FixDictionary("FIX.4.4")
+    stub.factory = FixMessageFactory(stub.dictionary, "MKT", "CLIENT")
+    return stub
+
+
+class TestFix44Executions:
+    @pytest.mark.asyncio
+    async def test_fill_sends_trade_without_tag_20_and_records_it(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_44_RX))
+        exec_id = await engine.fill_order("S1", "C100", qty=100, price=150.0)
+        er = stub.sent[-1]
+        assert er["150"] == "F"
+        assert er["20"] is None
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions")
+        row = next(e for e in rows if e["exec_id"] == exec_id)
+        assert row["exec_type"] == "Trade"
+        assert row["exec_type_code"] == "F"
+
+    @pytest.mark.asyncio
+    async def test_bust_sends_trade_cancel(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_44_RX))
+        fill_id = await engine.fill_order("S1", "C100", qty=100, price=150.0)
+        bust_id = await engine.bust_trade("S1", fill_id)
+        er = stub.sent[-1]
+        assert er["150"] == "H"
+        assert er["20"] is None
+        assert er["19"] == fill_id
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [r["exec_type"] for r in rows] == ["Trade", "TradeCancel"]
+        assert rows[0]["trade_id"] == rows[1]["trade_id"]
+        assert rows[-1]["exec_type_code"] == "H"
+
+    @pytest.mark.asyncio
+    async def test_correct_sends_trade_correct(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_44_RX))
+        fill_id = await engine.fill_order("S1", "C100", qty=100, price=150.0)
+        await engine.correct_trade("S1", fill_id, qty=80, price=149.0)
+        er = stub.sent[-1]
+        assert er["150"] == "G"
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert rows[-1]["exec_type"] == "TradeCorrect"
+
+    @pytest.mark.asyncio
+    async def test_inbound_trade_and_trade_cancel_recorded(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_44_RX))
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_BUST_44_RX))
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [r["exec_type"] for r in rows] == ["Trade", "TradeCancel"]
+        assert rows[0]["trade_id"] == rows[1]["trade_id"]
+        orders = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert orders[0]["cum_qty"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_inbound_trade_correct_recorded(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_44_RX))
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_CORRECT_44_RX))
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [r["exec_type"] for r in rows] == ["Trade", "TradeCorrect"]
+        assert rows[0]["trade_id"] == rows[1]["trade_id"]
+
+
+REPLACE_REQ_44_RX = "8=FIX.4.4|35=G|11=C102|41=C100|55=AAPL|54=1|38=200|40=2|44=151.5"
+
+
+class TestFix44ReplaceStatus:
+    @pytest.mark.asyncio
+    async def test_accept_replace_on_44_reports_working_status(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_44_RX))
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_44_RX))
+        await engine.accept_replace("S1", "C100")
+        er = stub.sent[-1]
+        assert er["150"] == "5"       # ExecType Replaced marks the event
+        assert er["39"] == "0"        # 39=5 does not exist in FIX 4.4
+        orders = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert orders[0]["cl_ord_id"] == "C102"
+        assert orders[0]["status"] == "New"
+
+    @pytest.mark.asyncio
+    async def test_accept_replace_on_44_partial_fill_keeps_fill_status(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_44_RX))
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_44_RX))
+        await engine.accept_replace("S1", "C100")
+        er = stub.sent[-1]
+        assert er["150"] == "5"
+        assert er["39"] == "1"        # partially filled, per 4.4 semantics
+        orders = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert orders[0]["status"] == "PartiallyFilled"
+
+    @pytest.mark.asyncio
+    async def test_accept_replace_on_42_still_reports_replaced(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_RX))
+        await engine.accept_replace("S1", "C100")
+        er = stub.sent[-1]
+        assert er["39"] == "5"
+        assert er["150"] == "5"
+        orders = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert orders[0]["status"] == "Replaced"

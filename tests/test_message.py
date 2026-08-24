@@ -478,22 +478,28 @@ class TestTimestampPrecision:
         assert standard_precision("FIX.4.4") == "millisecond"
         assert standard_precision("FIXT.1.1") == "millisecond"
 
+    @staticmethod
+    def _er(factory):
+        # ExecutionReport keeps TransactTime(60) in every FIX version;
+        # D/F/G only define it from 4.2, so 4.0/4.1 builders omit it there.
+        return factory.execution_report(
+            order_id="O1", cl_ord_id="C1", exec_id="E1",
+            exec_trans_type="0", exec_type="0", ord_status="0",
+            symbol="AAPL", side="1", qty=100)
+
     def test_factory_defaults_to_protocol_standard(self):
         import re
         f40 = FixMessageFactory(FixDictionary("FIX.4.0"), "S", "T")
         f42 = FixMessageFactory(FixDictionary("FIX.4.2"), "S", "T")
         assert f40.timestamp_precision == "second"
         assert f42.timestamp_precision == "millisecond"
-        msg40 = f40.new_order_single("C1", "AAPL", "1", 100)
-        msg42 = f42.new_order_single("C1", "AAPL", "1", 100)
-        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}$", msg40["60"])
-        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{3}$", msg42["60"])
+        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}$", self._er(f40)["60"])
+        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{3}$", f42.new_order_single("C1", "AAPL", "1", 100)["60"])
 
     def test_factory_override_wins(self):
         f = FixMessageFactory(FixDictionary("FIX.4.0"), "S", "T",
                               timestamp_precision="nanosecond")
-        msg = f.new_order_single("C1", "AAPL", "1", 100)
-        assert len(msg["60"].split(".")[1]) == 9
+        assert len(self._er(f)["60"].split(".")[1]) == 9
 
     def test_sendprep_sending_time_follows_precision(self):
         import re
@@ -510,3 +516,77 @@ class TestTimestampPrecision:
         msg["8"] = d40.begin_string()
         msg.sendprep(d40, "S", "T", 1)
         assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}$", msg["52"])
+
+
+class TestVersionAwareWireCodes:
+    def _factory(self, version):
+        return FixMessageFactory(FixDictionary(version), "S", "T")
+
+    def _er(self, factory, exec_trans_type="0", exec_type="1"):
+        return factory.execution_report(
+            order_id="O1", cl_ord_id="C1", exec_id="E1",
+            exec_trans_type=exec_trans_type, exec_type=exec_type,
+            ord_status="1", symbol="AAPL", side="1", qty=100,
+            last_qty=50, last_price=10.0, cum_qty=50, avg_price=10.0,
+            leaves_qty=50)
+
+    def test_fix42_fill_unchanged(self):
+        msg = self._er(self._factory("FIX.4.2"))
+        assert msg["20"] == "0"
+        assert msg["150"] == "1"
+        assert msg["151"] == "50"
+
+    def test_fix43_and_44_fill_is_trade_without_tag_20(self):
+        for version in ("FIX.4.3", "FIX.4.4", "FIX.5.0SP2"):
+            msg = self._er(self._factory(version))
+            assert msg["150"] == "F", version
+            assert msg["20"] is None, version
+
+    def test_fix44_correct_and_bust_use_g_and_h(self):
+        f = self._factory("FIX.4.4")
+        assert self._er(f, exec_trans_type="2")["150"] == "G"
+        assert self._er(f, exec_trans_type="1")["150"] == "H"
+
+    def test_fix42_correct_and_bust_keep_exec_trans_type(self):
+        f = self._factory("FIX.4.2")
+        correct = self._er(f, exec_trans_type="2")
+        assert correct["20"] == "2"
+        assert correct["150"] == "1"
+
+    def test_fix44_nonfill_exec_types_pass_through(self):
+        f = self._factory("FIX.4.4")
+        assert self._er(f, exec_type="0")["150"] == "0"   # New
+        assert self._er(f, exec_type="4")["150"] == "4"   # Canceled
+        assert self._er(f, exec_type="8")["150"] == "8"   # Rejected
+
+    def test_fix40_er_has_no_exec_type_or_leaves_qty(self):
+        msg = self._er(self._factory("FIX.4.0"))
+        assert msg["150"] is None
+        assert msg["151"] is None
+        assert msg["20"] == "0"
+        assert msg["60"] is not None  # ER defines TransactTime in every version
+
+    def test_logon_reset_flag_gated_by_dictionary(self):
+        assert self._factory("FIX.4.0").logon(reset_seq_num=True)["141"] is None
+        assert self._factory("FIX.4.2").logon(reset_seq_num=True)["141"] == "Y"
+
+    def test_fixt_logon_carries_default_appl_ver_id(self):
+        assert self._factory("FIX.4.2").logon()["1137"] is None
+        assert self._factory("FIX.5.0").logon()["1137"] == "7"
+        assert self._factory("FIX.5.0SP1").logon()["1137"] == "8"
+        assert self._factory("FIX.5.0SP2").logon()["1137"] == "9"
+
+    def test_fix40_cancel_request_carries_cxl_type(self):
+        assert self._factory("FIX.4.0").cancel_request("C2", "C1", "AAPL", "1", 100)["125"] == "F"
+        assert self._factory("FIX.4.2").cancel_request("C2", "C1", "AAPL", "1")["125"] is None
+
+    def test_legacy_versions_omit_body_transact_time(self):
+        for version, expect in (("FIX.4.0", False), ("FIX.4.1", False), ("FIX.4.2", True)):
+            f = self._factory(version)
+            assert (f.new_order_single("C1", "AAPL", "1", 100)["60"] is not None) is expect, version
+            assert (f.cancel_request("C2", "C1", "AAPL", "1")["60"] is not None) is expect, version
+            assert (f.cancel_replace_request("C2", "C1", "AAPL", "1", 100)["60"] is not None) is expect, version
+
+    def test_cancel_reject_434_gated(self):
+        assert self._factory("FIX.4.1").order_cancel_reject("C2", "C1", "8", "1")["434"] is None
+        assert self._factory("FIX.4.2").order_cancel_reject("C2", "C1", "8", "1")["434"] == "1"

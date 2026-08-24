@@ -64,6 +64,19 @@ def _exec_params(row: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(row[c] for c in EXEC_COLS) + (None,)
 
 
+def _sent_exec_kind(dictionary: FixDictionary, msg: FixMessage,
+                    fallback_code: str) -> tuple[str, str]:
+    """Display name and code for a sent execution row, from what actually went
+    on the wire: corrects/busts ride ExecTransType(20) through FIX 4.2 and
+    ExecType(150) G/H from 4.3 on; fills ride 150 where it exists (F from
+    4.3), with the 4.2-style code as the FIX 4.0 fallback."""
+    trans_type = msg.get("20", "")
+    if trans_type in ("1", "2"):
+        return dictionary.enum_name("20", trans_type), trans_type
+    code = msg.get("150") or fallback_code
+    return dictionary.enum_name("150", code), code
+
+
 class FixEngine:
     """Manages all FIX sessions and bridges messages to mkio's database."""
 
@@ -555,12 +568,12 @@ class FixEngine:
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
 
-        # Record fills — and trade corrections/busts, which FIX 4.2 flags via
-        # ExecTransType(20) rather than ExecType(150)
+        # Record fills — and trade corrections/busts, which arrive via
+        # ExecTransType(20) on FIX 4.2 and as ExecType(150) G/H from 4.3 on
         if trans_type_code in ("1", "2"):
             exec_type = dictionary.enum_name("20", trans_type_code)
             exec_code = trans_type_code
-        elif exec_type_code in ("1", "2", "F"):
+        elif exec_type_code in ("1", "2", "F", "G", "H"):
             exec_type = dictionary.enum_name("150", exec_type_code)
             exec_code = exec_type_code
         else:
@@ -1057,7 +1070,7 @@ class FixEngine:
         )
         await self._write_sent_execution(
             {**order, "order_id": order_id}, exec_id, trade_id,
-            dictionary.enum_name("150", status_code), status_code,
+            *_sent_exec_kind(dictionary, msg, status_code),
             qty, price, cum_qty, avg_price, leaves_qty,
         )
         return exec_id
@@ -1146,13 +1159,20 @@ class FixEngine:
         new_cl_ord_id = order["pending_cl_ord_id"]
         leaves_qty = new_qty - order["cum_qty"]
         exec_id = await self.ids.next_id("EX")
+        # OrdStatus Replaced(5) was removed in FIX 4.4 (ExecType 5 alone marks
+        # the event there; 39 carries the working status) and restored in 5.0.
+        dictionary = session.dictionary
+        if dictionary.has_enum("39", "5"):
+            status_code = "5"
+        else:
+            status_code = "0" if order["cum_qty"] <= 0 else ("2" if leaves_qty <= 0 else "1")
         msg = session.factory.execution_report(
             order_id=order["order_id"],
             cl_ord_id=new_cl_ord_id,
             exec_id=exec_id,
             exec_trans_type="0",
             exec_type="5",
-            ord_status="5",
+            ord_status=status_code,
             symbol=order["symbol"],
             side=order["side_code"],
             qty=new_qty,
@@ -1167,7 +1187,8 @@ class FixEngine:
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
             {**order, "cl_ord_id": new_cl_ord_id, "orig_cl_ord_id": cl_ord_id},
-            status="Replaced", order_qty=new_qty, price=new_price,
+            status=dictionary.enum_name("39", status_code),
+            order_qty=new_qty, price=new_price,
             leaves_qty=leaves_qty,
             pending_action="", pending_cl_ord_id="",
             pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
@@ -1257,7 +1278,7 @@ class FixEngine:
             last_qty=qty, last_price=price,
         )
         await self._write_sent_execution(
-            order, new_exec_id, trade_id, dictionary.enum_name("20", "2"), "2",
+            order, new_exec_id, trade_id, *_sent_exec_kind(dictionary, msg, "2"),
             qty, price, cum_qty, avg_price, leaves_qty,
         )
         return new_exec_id
@@ -1305,7 +1326,7 @@ class FixEngine:
             last_qty=execution["last_qty"], last_price=execution["last_price"],
         )
         await self._write_sent_execution(
-            order, new_exec_id, trade_id, dictionary.enum_name("20", "1"), "1",
+            order, new_exec_id, trade_id, *_sent_exec_kind(dictionary, msg, "1"),
             execution["last_qty"], execution["last_price"],
             cum_qty, avg_price, leaves_qty,
         )

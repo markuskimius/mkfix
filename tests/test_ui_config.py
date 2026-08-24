@@ -566,7 +566,8 @@ class TestStyleAndGateValues:
             ("fix_orders", "session_status"): self.ENGINE_STATUSES,
             ("fix_executions", "side"): sides,
             ("fix_executions", "exec_type"):
-                set(d.enums["150"].values()) | set(d.enums["20"].values()),
+                set(d.enums["150"].values()) | set(d.enums["20"].values())
+                | set(FixDictionary("FIX.4.4").enums["150"].values()),
             ("fix_executions", "direction"): {"TX", "RX"},
             ("fix_executions", "session_status"): self.ENGINE_STATUSES,
             ("fix_messages", "direction"): {"TX", "RX"},

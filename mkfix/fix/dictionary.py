@@ -127,6 +127,12 @@ class FixDictionary:
         info = self.fields.get(str(tag))
         return info.get("type", "STRING") if info else "STRING"
 
+    def defines(self, tag: str) -> bool:
+        return str(tag) in self.fields
+
+    def has_enum(self, tag: str, code: str) -> bool:
+        return str(code) in self.enums.get(str(tag), {})
+
     def enum_name(self, tag: str, value: str) -> str:
         tag_enums = self.enums.get(str(tag))
         if tag_enums:
