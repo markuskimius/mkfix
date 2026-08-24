@@ -38,6 +38,15 @@ def _make_engine():
     engine.reject_cancel = AsyncMock()
     engine.accept_request = AsyncMock(return_value="EXXX00000006")
     engine.reject_request = AsyncMock()
+    engine.save_dictionary = AsyncMock(return_value="MYDICT")
+    engine.delete_dictionary = AsyncMock()
+    engine.get_dictionary = MagicMock(return_value={
+        "name": "MYDICT", "kind": "custom", "base_version": "FIX.4.2",
+        "doc": {}, "dictionary": {"version": "MYDICT"},
+    })
+    engine.list_dictionaries = MagicMock(return_value=[
+        {"name": "FIX.4.2", "kind": "standard", "base_version": ""},
+    ])
     return engine
 
 
@@ -408,3 +417,71 @@ class TestDispatch:
         ws = _make_ws()
         await svc.on_message(ws, {"ref": "r", "op": command, "data": {"job_id": "3"}})
         getattr(engine, command).assert_awaited_once_with(3)
+
+
+class TestDictionaryCommands:
+    @pytest.mark.asyncio
+    async def test_save_dictionary(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r1", "op": "save_dictionary",
+            "data": {"name": "MYDICT", "base_version": "FIX.4.2", "doc": "{}"},
+        })
+        resp = _sent(ws)
+        assert resp["type"] == "result"
+        assert resp["ok"] is True
+        assert resp["name"] == "MYDICT"
+        engine.save_dictionary.assert_awaited_once_with(
+            name="MYDICT", base_version="FIX.4.2", doc="{}")
+
+    @pytest.mark.asyncio
+    async def test_delete_dictionary(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r2", "op": "delete_dictionary", "data": {"name": "MYDICT"},
+        })
+        resp = _sent(ws)
+        assert resp["type"] == "result"
+        engine.delete_dictionary.assert_awaited_once_with("MYDICT")
+
+    @pytest.mark.asyncio
+    async def test_delete_bound_dictionary_errors(self):
+        engine = _make_engine()
+        engine.delete_dictionary = AsyncMock(
+            side_effect=ValueError("Dictionary 'MYDICT' is bound to session(s): S1"))
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r3", "op": "delete_dictionary", "data": {"name": "MYDICT"},
+        })
+        resp = _sent(ws)
+        assert resp["type"] == "error"
+        assert "bound to session" in resp["message"]
+
+    @pytest.mark.asyncio
+    async def test_get_dictionary(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r4", "op": "get_dictionary", "data": {"name": "MYDICT"},
+        })
+        resp = _sent(ws)
+        assert resp["type"] == "result"
+        assert resp["kind"] == "custom"
+        assert resp["dictionary"] == {"version": "MYDICT"}
+        engine.get_dictionary.assert_called_once_with("MYDICT")
+
+    @pytest.mark.asyncio
+    async def test_list_dictionaries(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r5", "op": "list_dictionaries", "data": {}})
+        resp = _sent(ws)
+        assert resp["type"] == "result"
+        assert resp["dictionaries"][0]["name"] == "FIX.4.2"

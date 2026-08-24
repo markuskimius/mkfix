@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -62,7 +63,8 @@ class FixMessage:
         except ValueError:
             return default
 
-    def sendprep(self, dictionary: FixDictionary, sender: str, target: str, seq_num: int) -> None:
+    def sendprep(self, dictionary: FixDictionary, sender: str, target: str, seq_num: int,
+                 timestamp_precision: str | None = None) -> None:
         """Prepare message for sending: add header/trailer, body length, checksum.
 
         `extra` pairs are applied by wire position with these rules:
@@ -103,7 +105,8 @@ class FixMessage:
             elif tag == "34":
                 header.append((tag, str(seq_num)))
             elif tag == "52":
-                header.append((tag, _fix_timestamp()))
+                precision = timestamp_precision or standard_precision(dictionary.begin_string())
+                header.append((tag, _fix_timestamp(precision)))
         header += [(t, v) for t, v in appends
                    if dictionary.is_header(t) and not dictionary.is_special(t)]
 
@@ -164,10 +167,16 @@ class FixMessage:
 class FixMessageFactory:
     """Creates FixMessage instances with session-level defaults."""
 
-    def __init__(self, dictionary: FixDictionary, sender: str, target: str):
+    def __init__(self, dictionary: FixDictionary, sender: str, target: str,
+                 timestamp_precision: str | None = None):
         self.dictionary = dictionary
         self.sender = sender
         self.target = target
+        self.timestamp_precision = (
+            timestamp_precision or standard_precision(dictionary.begin_string()))
+
+    def _now(self) -> str:
+        return _fix_timestamp(self.timestamp_precision)
 
     def create(self, fields: dict[str, str] | None = None) -> FixMessage:
         msg = FixMessage(fields)
@@ -240,7 +249,7 @@ class FixMessageFactory:
             "40": ord_type,
             "59": tif,
             "21": handl_inst,
-            "60": _fix_timestamp(),
+            "60": self._now(),
         }
         if price is not None:
             fields["44"] = str(price)
@@ -263,7 +272,7 @@ class FixMessageFactory:
             "41": orig_cl_ord_id,
             "55": symbol,
             "54": side,
-            "60": _fix_timestamp(),
+            "60": self._now(),
         }
         if qty:
             fields["38"] = str(int(qty))
@@ -305,7 +314,7 @@ class FixMessageFactory:
             "14": str(int(cum_qty)),
             "6": str(avg_price),
             "151": str(int(leaves_qty)),
-            "60": _fix_timestamp(),
+            "60": self._now(),
         }
         if exec_ref_id:
             fields["19"] = exec_ref_id
@@ -336,7 +345,7 @@ class FixMessageFactory:
             "38": str(int(qty)),
             "40": ord_type,
             "21": handl_inst,
-            "60": _fix_timestamp(),
+            "60": self._now(),
         }
         if price is not None:
             fields["44"] = str(price)
@@ -363,7 +372,7 @@ class FixMessageFactory:
             "41": orig_cl_ord_id,
             "39": ord_status,
             "434": response_to,
-            "60": _fix_timestamp(),
+            "60": self._now(),
         }
         if text:
             fields["58"] = text
@@ -439,9 +448,31 @@ def format_extra_tags(pairs: list[tuple[str, str]]) -> str:
     return "|".join(f"{t}={v}" for t, v in pairs)
 
 
-def _fix_timestamp() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y%m%d-%H:%M:%S.") + f"{now.microsecond // 1000:03d}"
+_PRECISION_DIGITS = {
+    "second": 0,
+    "millisecond": 3,
+    "microsecond": 6,
+    "nanosecond": 9,
+    "picosecond": 12,
+}
+
+
+def standard_precision(begin_string: str) -> str:
+    """The protocol-standard timestamp granularity for a FIX version:
+    whole seconds through FIX 4.1, milliseconds from FIX 4.2 on."""
+    return "second" if begin_string in ("FIX.4.0", "FIX.4.1") else "millisecond"
+
+
+def _fix_timestamp(precision: str = "millisecond") -> str:
+    """UTC timestamp in FIX format at the given granularity. The clock ends at
+    nanoseconds; picosecond output zero-pads beyond that — the wire format is
+    the point, not the resolution."""
+    digits = _PRECISION_DIGITS.get(precision, 3)
+    secs, frac_ns = divmod(time.time_ns(), 1_000_000_000)
+    base = time.strftime("%Y%m%d-%H:%M:%S", time.gmtime(secs))
+    if digits == 0:
+        return base
+    return f"{base}." + f"{frac_ns:09d}".ljust(digits, "0")[:digits]
 
 
 def _checksum(data: bytes) -> int:

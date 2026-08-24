@@ -6,6 +6,7 @@ from mkfix.fix.message import (
     extra_pairs_of,
     format_extra_tags,
     FixMessage, FixMessageFactory, parse_fix, parse_extra_tags, _checksum, SOH,
+    _fix_timestamp, standard_precision,
 )
 from mkfix.fix.dictionary import FixDictionary
 
@@ -446,3 +447,66 @@ class TestExtraPairsOf:
 
     def test_format_empty(self):
         assert format_extra_tags([]) == ""
+
+
+class TestTimestampPrecision:
+    def test_granularity_formats(self):
+        import re
+        cases = {
+            "second": r"^\d{8}-\d{2}:\d{2}:\d{2}$",
+            "millisecond": r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{3}$",
+            "microsecond": r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{6}$",
+            "nanosecond": r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{9}$",
+            "picosecond": r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{12}$",
+        }
+        for precision, pattern in cases.items():
+            assert re.match(pattern, _fix_timestamp(precision)), precision
+
+    def test_picosecond_pads_beyond_clock(self):
+        assert _fix_timestamp("picosecond").split(".")[1].endswith("000")
+
+    def test_default_is_millisecond(self):
+        assert len(_fix_timestamp().split(".")[1]) == 3
+
+    def test_unknown_precision_falls_back_to_millisecond(self):
+        assert len(_fix_timestamp("bogus").split(".")[1]) == 3
+
+    def test_standard_precision_by_version(self):
+        assert standard_precision("FIX.4.0") == "second"
+        assert standard_precision("FIX.4.1") == "second"
+        assert standard_precision("FIX.4.2") == "millisecond"
+        assert standard_precision("FIX.4.4") == "millisecond"
+        assert standard_precision("FIXT.1.1") == "millisecond"
+
+    def test_factory_defaults_to_protocol_standard(self):
+        import re
+        f40 = FixMessageFactory(FixDictionary("FIX.4.0"), "S", "T")
+        f42 = FixMessageFactory(FixDictionary("FIX.4.2"), "S", "T")
+        assert f40.timestamp_precision == "second"
+        assert f42.timestamp_precision == "millisecond"
+        msg40 = f40.new_order_single("C1", "AAPL", "1", 100)
+        msg42 = f42.new_order_single("C1", "AAPL", "1", 100)
+        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}$", msg40["60"])
+        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{3}$", msg42["60"])
+
+    def test_factory_override_wins(self):
+        f = FixMessageFactory(FixDictionary("FIX.4.0"), "S", "T",
+                              timestamp_precision="nanosecond")
+        msg = f.new_order_single("C1", "AAPL", "1", 100)
+        assert len(msg["60"].split(".")[1]) == 9
+
+    def test_sendprep_sending_time_follows_precision(self):
+        import re
+        dictionary = FixDictionary("FIX.4.2")
+        msg = FixMessage({"35": "0"})
+        msg["8"] = dictionary.begin_string()
+        msg.sendprep(dictionary, "S", "T", 1, timestamp_precision="microsecond")
+        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}\.\d{6}$", msg["52"])
+
+    def test_sendprep_defaults_to_protocol_standard(self):
+        import re
+        d40 = FixDictionary("FIX.4.0")
+        msg = FixMessage({"35": "0"})
+        msg["8"] = d40.begin_string()
+        msg.sendprep(d40, "S", "T", 1)
+        assert re.match(r"^\d{8}-\d{2}:\d{2}:\d{2}$", msg["52"])

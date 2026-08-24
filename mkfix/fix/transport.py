@@ -33,7 +33,8 @@ class FixSocket:
         return await self._parser.read_message()
 
     async def write(self, msg: FixMessage, seq_num: int) -> FixMessage:
-        msg.sendprep(self.factory.dictionary, self.factory.sender, self.factory.target, seq_num)
+        msg.sendprep(self.factory.dictionary, self.factory.sender, self.factory.target, seq_num,
+                     timestamp_precision=self.factory.timestamp_precision)
         self.writer.write(msg.serialize())
         await self.writer.drain()
         return msg

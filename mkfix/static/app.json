@@ -1,10 +1,14 @@
 {
   "app": {
-    "title": "mkfix — FIX Protocol Testing Engine",
+    "title": "mkfix \u2014 FIX Protocol Testing Engine",
     "theme": "dark"
   },
   "state": {
-    "status": { "message": "Connecting...", "background": "#858585", "color": "#000" },
+    "status": {
+      "message": "Connecting...",
+      "background": "#858585",
+      "color": "#000"
+    },
     "selected_session": null,
     "selected_message": null
   },
@@ -12,62 +16,144 @@
     {
       "label": "Edit",
       "items": [
-        { "label": "Copy", "action": "edit.copy", "shortcut": "mod+C" },
-        { "label": "Select All", "action": "edit.selectAll", "shortcut": "mod+A" }
+        {
+          "label": "Copy",
+          "action": "edit.copy",
+          "shortcut": "mod+C"
+        },
+        {
+          "label": "Select All",
+          "action": "edit.selectAll",
+          "shortcut": "mod+A"
+        }
       ]
     },
     {
       "label": "Sessions",
       "items": [
-        { "label": "Sessions", "action": "pane.show", "args": "session-blotter" }
+        {
+          "label": "Sessions",
+          "action": "pane.show",
+          "args": "session-blotter"
+        }
       ]
     },
     {
       "label": "Messages",
       "items": [
-        { "label": "Messages", "action": "pane.show", "args": "raw-messages" },
-        { "label": "Detail", "action": "pane.show", "args": "message-detail" }
+        {
+          "label": "Messages",
+          "action": "pane.show",
+          "args": "raw-messages"
+        },
+        {
+          "label": "Detail",
+          "action": "pane.show",
+          "args": "message-detail"
+        }
       ]
     },
     {
       "label": "Trading",
       "items": [
-        { "label": "Sent Orders", "action": "pane.show", "args": "order-blotter" },
-        { "label": "Received Trades", "action": "pane.show", "args": "trade-blotter" },
-        { "sep": true },
-        { "label": "Received Orders", "action": "pane.show", "args": "market-order-blotter" },
-        { "label": "Sent Trades", "action": "pane.show", "args": "market-trade-blotter" }
+        {
+          "label": "Sent Orders",
+          "action": "pane.show",
+          "args": "order-blotter"
+        },
+        {
+          "label": "Received Trades",
+          "action": "pane.show",
+          "args": "trade-blotter"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Received Orders",
+          "action": "pane.show",
+          "args": "market-order-blotter"
+        },
+        {
+          "label": "Sent Trades",
+          "action": "pane.show",
+          "args": "market-trade-blotter"
+        }
       ]
     },
     {
       "label": "Tools",
       "items": [
-        { "label": "IOIs", "action": "pane.show", "args": "ioi-viewer" },
-        { "label": "Allocations", "action": "pane.show", "args": "allocation-viewer" },
-        { "sep": true },
-        { "label": "Replay Control", "action": "pane.show", "args": "replay-control" }
+        {
+          "label": "IOIs",
+          "action": "pane.show",
+          "args": "ioi-viewer"
+        },
+        {
+          "label": "Allocations",
+          "action": "pane.show",
+          "args": "allocation-viewer"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Dictionaries",
+          "action": "pane.show",
+          "args": "dictionaries"
+        },
+        {
+          "label": "Replay Control",
+          "action": "pane.show",
+          "args": "replay-control"
+        }
       ]
     },
     {
       "label": "Window",
       "items": [
-        { "label": "Tile Horizontal", "action": "window.tileH" },
-        { "label": "Tile Vertical", "action": "window.tileV" },
-        { "label": "Grid", "action": "window.grid" },
-        { "label": "Cascade", "action": "window.cascade" },
-        { "sep": true },
-        { "windows": true }
+        {
+          "label": "Tile Horizontal",
+          "action": "window.tileH"
+        },
+        {
+          "label": "Tile Vertical",
+          "action": "window.tileV"
+        },
+        {
+          "label": "Grid",
+          "action": "window.grid"
+        },
+        {
+          "label": "Cascade",
+          "action": "window.cascade"
+        },
+        {
+          "sep": true
+        },
+        {
+          "windows": true
+        }
       ]
     }
   ],
   "statusbar": {
     "left": [
-      { "type": "text", "bind": "status.message" }
+      {
+        "type": "text",
+        "bind": "status.message"
+      }
     ],
     "right": [
-      { "type": "text", "text": "mkfix v0.12" }
+      {
+        "type": "text",
+        "text": "mkfix v0.13"
+      }
     ],
-    "bindStyle": { "color": "status.color", "background": "status.background" }
+    "bindStyle": {
+      "color": "status.color",
+      "background": "status.background"
+    }
   },
   "panes": {
     "session-blotter": {
@@ -75,22 +161,70 @@
       "type": "mkio-table",
       "service": "sessions_query",
       "protocol": "query",
-      "columns": ["session_id", "fix_version", "sender_comp_id", "target_comp_id", "host", "port", "status", "tx_seq_num", "rx_seq_num"],
-      "labels": { "session_id": "Session", "fix_version": "Version", "sender_comp_id": "Sender", "target_comp_id": "Target", "host": "Host", "port": "Port", "status": "Status", "tx_seq_num": "TX Seq", "rx_seq_num": "RX Seq" },
+      "columns": [
+        "session_id",
+        "fix_version",
+        "dictionary",
+        "sender_comp_id",
+        "target_comp_id",
+        "host",
+        "port",
+        "status",
+        "tx_seq_num",
+        "rx_seq_num"
+      ],
+      "labels": {
+        "session_id": "Session",
+        "fix_version": "Version",
+        "sender_comp_id": "Sender",
+        "target_comp_id": "Target",
+        "host": "Host",
+        "port": "Port",
+        "status": "Status",
+        "tx_seq_num": "TX Seq",
+        "rx_seq_num": "RX Seq",
+        "dictionary": "Dictionary"
+      },
       "styles": {
         "status": [
-          { "eq": "ACTIVE", "color": "#4ec9b0", "bold": true },
-          { "eq": "ERROR", "color": "#f44747", "bold": true },
-          { "eq": "LISTENING", "color": "#dcdcaa" },
-          { "in": ["INITIATING", "LOGON_SENT", "LOGOUT_SENT"], "color": "#dcdcaa", "italic": true },
-          { "eq": "DOWN", "color": "#858585" }
+          {
+            "eq": "ACTIVE",
+            "color": "#4ec9b0",
+            "bold": true
+          },
+          {
+            "eq": "ERROR",
+            "color": "#f44747",
+            "bold": true
+          },
+          {
+            "eq": "LISTENING",
+            "color": "#dcdcaa"
+          },
+          {
+            "in": [
+              "INITIATING",
+              "LOGON_SENT",
+              "LOGOUT_SENT"
+            ],
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "eq": "DOWN",
+            "color": "#858585"
+          }
         ]
       },
-      "select": { "state": "selected_session" },
+      "select": {
+        "state": "selected_session"
+      },
       "buttons": [
         {
           "label": "New",
-          "enable": { "connected": true },
+          "enable": {
+            "connected": true
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -98,36 +232,192 @@
               "modal": true,
               "width": 440,
               "fields": [
-                { "name": "session_id", "label": "Session ID", "type": "text", "placeholder": "e.g. BBERG-UAT", "required": true },
-                { "name": "fix_version", "label": "FIX Version", "type": "select", "value": "FIX.4.2", "options": [
-                  { "value": "FIX.4.2", "label": "FIX.4.2" },
-                  { "value": "FIX.4.4", "label": "FIX.4.4" }
-                ] },
-                { "row": [
-                  { "name": "sender_comp_id", "label": "SenderCompID", "type": "text", "placeholder": "OUR_COMP", "width": 0.5, "required": true },
-                  { "name": "target_comp_id", "label": "TargetCompID", "type": "text", "placeholder": "THEIR_COMP", "width": 0.5, "required": true }
-                ] },
-                { "row": [
-                  { "name": "host", "label": "Host (empty=acceptor)", "type": "text", "placeholder": "127.0.0.1", "width": 0.5 },
-                  { "name": "port", "label": "Port", "type": "number", "value": 9876, "min": 1, "width": 0.5 }
-                ] },
-                { "row": [
-                  { "name": "heartbeat_interval", "label": "Heartbeat (s)", "type": "number", "value": 30, "min": 1, "width": 0.5 },
-                  { "name": "reset_on_logon", "label": "Reset on Logon", "type": "select", "value": "0", "width": 0.5, "options": [
-                    { "value": "0", "label": "No" },
-                    { "value": "1", "label": "Yes" }
-                  ] }
-                ] },
-                { "name": "description", "label": "Description", "type": "text", "value": "", "placeholder": "Optional description" }
+                {
+                  "name": "session_id",
+                  "label": "Session ID",
+                  "type": "text",
+                  "placeholder": "e.g. BBERG-UAT",
+                  "required": true
+                },
+                {
+                  "name": "fix_version",
+                  "label": "FIX Version",
+                  "type": "select",
+                  "value": "FIX.4.2",
+                  "options": [
+                    {
+                      "value": "FIX.4.0",
+                      "label": "FIX.4.0"
+                    },
+                    {
+                      "value": "FIX.4.1",
+                      "label": "FIX.4.1"
+                    },
+                    {
+                      "value": "FIX.4.2",
+                      "label": "FIX.4.2"
+                    },
+                    {
+                      "value": "FIX.4.3",
+                      "label": "FIX.4.3"
+                    },
+                    {
+                      "value": "FIX.4.4",
+                      "label": "FIX.4.4"
+                    },
+                    {
+                      "value": "FIX.5.0",
+                      "label": "FIX.5.0"
+                    },
+                    {
+                      "value": "FIX.5.0SP1",
+                      "label": "FIX.5.0SP1"
+                    },
+                    {
+                      "value": "FIX.5.0SP2",
+                      "label": "FIX.5.0SP2"
+                    }
+                  ]
+                },
+                {
+                  "name": "dictionary",
+                  "label": "Dictionary",
+                  "type": "select",
+                  "value": "",
+                  "optionsFrom": {
+                    "service": "dictionaries_list",
+                    "value": "name",
+                    "label": "label"
+                  }
+                },
+                {
+                  "name": "timestamp_precision",
+                  "label": "Timestamps",
+                  "type": "select",
+                  "value": "",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": "Protocol standard"
+                    },
+                    {
+                      "value": "second",
+                      "label": "Second"
+                    },
+                    {
+                      "value": "millisecond",
+                      "label": "Millisecond"
+                    },
+                    {
+                      "value": "microsecond",
+                      "label": "Microsecond"
+                    },
+                    {
+                      "value": "nanosecond",
+                      "label": "Nanosecond"
+                    },
+                    {
+                      "value": "picosecond",
+                      "label": "Picosecond"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "sender_comp_id",
+                      "label": "SenderCompID",
+                      "type": "text",
+                      "placeholder": "OUR_COMP",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "target_comp_id",
+                      "label": "TargetCompID",
+                      "type": "text",
+                      "placeholder": "THEIR_COMP",
+                      "width": 0.5,
+                      "required": true
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "host",
+                      "label": "Host (empty=acceptor)",
+                      "type": "text",
+                      "placeholder": "127.0.0.1",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "port",
+                      "label": "Port",
+                      "type": "number",
+                      "value": 9876,
+                      "min": 1,
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "heartbeat_interval",
+                      "label": "Heartbeat (s)",
+                      "type": "number",
+                      "value": 30,
+                      "min": 1,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "reset_on_logon",
+                      "label": "Reset on Logon",
+                      "type": "select",
+                      "value": "0",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "No"
+                        },
+                        {
+                          "value": "1",
+                          "label": "Yes"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "description",
+                  "label": "Description",
+                  "type": "text",
+                  "value": "",
+                  "placeholder": "Optional description"
+                }
               ],
-              "submit": { "label": "Save", "service": "session_mgmt", "op": "add" }
+              "submit": {
+                "label": "Save",
+                "service": "session_mgmt",
+                "op": "add"
+              }
             }
           }
         },
         {
           "label": "Edit",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "enable": {
+            "connected": true,
+            "rowMatch": {
+              "status": [
+                "DOWN",
+                "ERROR"
+              ]
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -135,68 +425,266 @@
               "modal": true,
               "width": 440,
               "fields": [
-                { "label": "Session ID", "type": "readonly", "value": "${row.session_id}" },
-                { "name": "session_id", "type": "hidden", "value": "${row.session_id}" },
-                { "name": "enabled", "type": "hidden", "value": "${row.enabled}" },
-                { "name": "fix_version", "label": "FIX Version", "type": "select", "value": "${row.fix_version}", "options": [
-                  { "value": "FIX.4.2", "label": "FIX.4.2" },
-                  { "value": "FIX.4.4", "label": "FIX.4.4" }
-                ] },
-                { "row": [
-                  { "name": "sender_comp_id", "label": "SenderCompID", "type": "text", "value": "${row.sender_comp_id}", "width": 0.5, "required": true },
-                  { "name": "target_comp_id", "label": "TargetCompID", "type": "text", "value": "${row.target_comp_id}", "width": 0.5, "required": true }
-                ] },
-                { "row": [
-                  { "name": "host", "label": "Host (empty=acceptor)", "type": "text", "value": "${row.host}", "width": 0.5 },
-                  { "name": "port", "label": "Port", "type": "number", "value": "${row.port}", "min": 1, "width": 0.5 }
-                ] },
-                { "row": [
-                  { "name": "heartbeat_interval", "label": "Heartbeat (s)", "type": "number", "value": "${row.heartbeat_interval}", "min": 1, "width": 0.5 },
-                  { "name": "reset_on_logon", "label": "Reset on Logon", "type": "select", "value": "${row.reset_on_logon}", "width": 0.5, "options": [
-                    { "value": "0", "label": "No" },
-                    { "value": "1", "label": "Yes" }
-                  ] }
-                ] },
-                { "name": "description", "label": "Description", "type": "text", "value": "${row.description}", "placeholder": "Optional description" }
+                {
+                  "label": "Session ID",
+                  "type": "readonly",
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "session_id",
+                  "type": "hidden",
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "enabled",
+                  "type": "hidden",
+                  "value": "${row.enabled}"
+                },
+                {
+                  "name": "fix_version",
+                  "label": "FIX Version",
+                  "type": "select",
+                  "value": "${row.fix_version}",
+                  "options": [
+                    {
+                      "value": "FIX.4.0",
+                      "label": "FIX.4.0"
+                    },
+                    {
+                      "value": "FIX.4.1",
+                      "label": "FIX.4.1"
+                    },
+                    {
+                      "value": "FIX.4.2",
+                      "label": "FIX.4.2"
+                    },
+                    {
+                      "value": "FIX.4.3",
+                      "label": "FIX.4.3"
+                    },
+                    {
+                      "value": "FIX.4.4",
+                      "label": "FIX.4.4"
+                    },
+                    {
+                      "value": "FIX.5.0",
+                      "label": "FIX.5.0"
+                    },
+                    {
+                      "value": "FIX.5.0SP1",
+                      "label": "FIX.5.0SP1"
+                    },
+                    {
+                      "value": "FIX.5.0SP2",
+                      "label": "FIX.5.0SP2"
+                    }
+                  ]
+                },
+                {
+                  "name": "dictionary",
+                  "label": "Dictionary",
+                  "type": "select",
+                  "value": "${row.dictionary}",
+                  "optionsFrom": {
+                    "service": "dictionaries_list",
+                    "value": "name",
+                    "label": "label"
+                  }
+                },
+                {
+                  "name": "timestamp_precision",
+                  "label": "Timestamps",
+                  "type": "select",
+                  "value": "${row.timestamp_precision}",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": "Protocol standard"
+                    },
+                    {
+                      "value": "second",
+                      "label": "Second"
+                    },
+                    {
+                      "value": "millisecond",
+                      "label": "Millisecond"
+                    },
+                    {
+                      "value": "microsecond",
+                      "label": "Microsecond"
+                    },
+                    {
+                      "value": "nanosecond",
+                      "label": "Nanosecond"
+                    },
+                    {
+                      "value": "picosecond",
+                      "label": "Picosecond"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "sender_comp_id",
+                      "label": "SenderCompID",
+                      "type": "text",
+                      "value": "${row.sender_comp_id}",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "target_comp_id",
+                      "label": "TargetCompID",
+                      "type": "text",
+                      "value": "${row.target_comp_id}",
+                      "width": 0.5,
+                      "required": true
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "host",
+                      "label": "Host (empty=acceptor)",
+                      "type": "text",
+                      "value": "${row.host}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "port",
+                      "label": "Port",
+                      "type": "number",
+                      "value": "${row.port}",
+                      "min": 1,
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "heartbeat_interval",
+                      "label": "Heartbeat (s)",
+                      "type": "number",
+                      "value": "${row.heartbeat_interval}",
+                      "min": 1,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "reset_on_logon",
+                      "label": "Reset on Logon",
+                      "type": "select",
+                      "value": "${row.reset_on_logon}",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "No"
+                        },
+                        {
+                          "value": "1",
+                          "label": "Yes"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "description",
+                  "label": "Description",
+                  "type": "text",
+                  "value": "${row.description}",
+                  "placeholder": "Optional description"
+                }
               ],
-              "submit": { "label": "Save", "service": "session_mgmt", "op": "update" }
+              "submit": {
+                "label": "Save",
+                "service": "session_mgmt",
+                "op": "update"
+              }
             }
           }
         },
         {
           "label": "Start",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "rowMatch": {
+              "status": [
+                "DOWN",
+                "ERROR"
+              ]
+            }
+          },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "start_session",
-            "data": { "session_id": "${row.session_id}" }
+            "data": {
+              "session_id": "${row.session_id}"
+            }
           }
         },
         {
           "label": "Stop",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["INITIATING", "LISTENING", "LOGON_SENT", "ACTIVE", "LOGOUT_SENT"] } },
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "rowMatch": {
+              "status": [
+                "INITIATING",
+                "LISTENING",
+                "LOGON_SENT",
+                "ACTIVE",
+                "LOGOUT_SENT"
+              ]
+            }
+          },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "stop_session",
-            "data": { "session_id": "${row.session_id}" }
+            "data": {
+              "session_id": "${row.session_id}"
+            }
           }
         },
         {
           "label": "Delete",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "rowMatch": {
+              "status": [
+                "DOWN",
+                "ERROR"
+              ]
+            }
+          },
           "action": {
             "type": "transaction",
             "service": "session_mgmt",
             "op": "delete",
-            "data": { "session_id": "${row.session_id}" }
+            "data": {
+              "session_id": "${row.session_id}"
+            }
           }
         },
         {
           "label": "Reset Seq",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["DOWN", "ERROR"] } },
+          "enable": {
+            "connected": true,
+            "rowMatch": {
+              "status": [
+                "DOWN",
+                "ERROR"
+              ]
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -204,13 +692,39 @@
               "modal": true,
               "width": 320,
               "fields": [
-                { "name": "session_id", "type": "hidden", "value": "${row.session_id}" },
-                { "row": [
-                  { "name": "tx_seq_num", "label": "Tx Seq", "type": "number", "value": "${row.tx_seq_num}", "min": 1, "width": 0.5, "required": true },
-                  { "name": "rx_seq_num", "label": "Rx Seq", "type": "number", "value": "${row.rx_seq_num}", "min": 1, "width": 0.5, "required": true }
-                ] }
+                {
+                  "name": "session_id",
+                  "type": "hidden",
+                  "value": "${row.session_id}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "tx_seq_num",
+                      "label": "Tx Seq",
+                      "type": "number",
+                      "value": "${row.tx_seq_num}",
+                      "min": 1,
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "rx_seq_num",
+                      "label": "Rx Seq",
+                      "type": "number",
+                      "value": "${row.rx_seq_num}",
+                      "min": 1,
+                      "width": 0.5,
+                      "required": true
+                    }
+                  ]
+                }
               ],
-              "submit": { "label": "Reset", "service": "fix_cmd", "op": "reset_sequence" }
+              "submit": {
+                "label": "Reset",
+                "service": "fix_cmd",
+                "op": "reset_sequence"
+              }
             }
           }
         }
@@ -223,18 +737,50 @@
       "protocol": "stream",
       "start": "today",
       "live": true,
-      "columns": ["timestamp", "direction", "seq_num", "session_id", "msg_type_name", "raw_message"],
-      "labels": { "timestamp": "Time", "direction": "Dir", "seq_num": "Seq", "session_id": "Session", "msg_type_name": "Type", "raw_message": "Message" },
+      "columns": [
+        "timestamp",
+        "direction",
+        "seq_num",
+        "session_id",
+        "msg_type_name",
+        "raw_message"
+      ],
+      "labels": {
+        "timestamp": "Time",
+        "direction": "Dir",
+        "seq_num": "Seq",
+        "session_id": "Session",
+        "msg_type_name": "Type",
+        "raw_message": "Message"
+      },
       "styles": {
         "direction": [
-          { "eq": "TX", "color": "#569cd6", "bold": true },
-          { "eq": "RX", "color": "#4ec9b0", "bold": true }
+          {
+            "eq": "TX",
+            "color": "#569cd6",
+            "bold": true
+          },
+          {
+            "eq": "RX",
+            "color": "#4ec9b0",
+            "bold": true
+          }
         ]
       },
       "rowStyle": [
-        { "when": { "msg_type_name": ["Heartbeat", "TestRequest"] }, "color": "#858585" }
+        {
+          "when": {
+            "msg_type_name": [
+              "Heartbeat",
+              "TestRequest"
+            ]
+          },
+          "color": "#858585"
+        }
       ],
-      "select": { "state": "selected_message" }
+      "select": {
+        "state": "selected_message"
+      }
     },
     "message-detail": {
       "title": "Detail",
@@ -246,26 +792,88 @@
       "service": "orders_query",
       "protocol": "query",
       "filter": "direction == 'TX'",
-      "columns": ["order_id", "cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
-      "labels": { "order_id": "Order ID", "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "columns": [
+        "order_id",
+        "cl_ord_id",
+        "session_id",
+        "symbol",
+        "side",
+        "ord_type",
+        "price",
+        "order_qty",
+        "status",
+        "cum_qty",
+        "avg_price",
+        "leaves_qty",
+        "updated_at"
+      ],
+      "labels": {
+        "order_id": "Order ID",
+        "cl_ord_id": "ClOrdID",
+        "session_id": "Session",
+        "symbol": "Symbol",
+        "side": "Side",
+        "ord_type": "Type",
+        "price": "Price",
+        "order_qty": "Qty",
+        "status": "Status",
+        "cum_qty": "Cum Qty",
+        "avg_price": "Avg Px",
+        "leaves_qty": "Leaves",
+        "updated_at": "Updated"
+      },
       "styles": {
         "side": [
-          { "eq": "Buy", "color": "#4ec9b0" },
-          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+          {
+            "eq": "Buy",
+            "color": "#4ec9b0"
+          },
+          {
+            "in": [
+              "Sell",
+              "SellShort",
+              "SellShortExempt",
+              "SellPlus"
+            ],
+            "color": "#f44747"
+          }
         ],
         "status": [
-          { "eq": "Filled", "color": "#6a9955", "bold": true },
-          { "eq": "PartiallyFilled", "color": "#4ec9b0" },
-          { "eq": "Replaced", "color": "#dcdcaa" },
-          { "eq": "PendingNew", "color": "#dcdcaa", "italic": true },
-          { "eq": "Rejected", "color": "#f44747" },
-          { "eq": "Canceled", "color": "#858585", "strike": true }
+          {
+            "eq": "Filled",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "eq": "PartiallyFilled",
+            "color": "#4ec9b0"
+          },
+          {
+            "eq": "Replaced",
+            "color": "#dcdcaa"
+          },
+          {
+            "eq": "PendingNew",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "eq": "Rejected",
+            "color": "#f44747"
+          },
+          {
+            "eq": "Canceled",
+            "color": "#858585",
+            "strike": true
+          }
         ]
       },
       "buttons": [
         {
           "label": "New",
-          "enable": { "connected": true },
+          "enable": {
+            "connected": true
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -277,52 +885,153 @@
                   "name": "session_id",
                   "label": "Session",
                   "type": "select",
-                  "optionsFrom": { "service": "sessions_list", "value": "session_id", "label": "session_id" },
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
                   "required": true
                 },
                 {
                   "row": [
-                    { "name": "symbol", "label": "Symbol", "type": "text", "placeholder": "AAPL", "width": 0.5, "required": true },
-                    { "name": "side", "label": "Side", "type": "select", "width": 0.5, "options": [
-                      { "value": "1", "label": "Buy" },
-                      { "value": "2", "label": "Sell" },
-                      { "value": "5", "label": "Sell Short" }
-                    ] }
+                    {
+                      "name": "symbol",
+                      "label": "Symbol",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "Sell Short"
+                        }
+                      ]
+                    }
                   ]
                 },
                 {
                   "row": [
-                    { "name": "qty", "label": "Quantity", "type": "number", "placeholder": "100", "min": 1, "width": 0.5, "required": true },
-                    { "name": "ord_type", "label": "Order Type", "type": "select", "width": 0.5, "options": [
-                      { "value": "1", "label": "Market" },
-                      { "value": "2", "label": "Limit" },
-                      { "value": "3", "label": "Stop" },
-                      { "value": "4", "label": "Stop Limit" }
-                    ] }
+                    {
+                      "name": "qty",
+                      "label": "Quantity",
+                      "type": "number",
+                      "placeholder": "100",
+                      "min": 1,
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "Limit"
+                        },
+                        {
+                          "value": "3",
+                          "label": "Stop"
+                        },
+                        {
+                          "value": "4",
+                          "label": "Stop Limit"
+                        }
+                      ]
+                    }
                   ]
                 },
                 {
                   "row": [
-                    { "name": "price", "label": "Price", "type": "number", "placeholder": "0.00", "step": "0.01", "width": 0.5 },
-                    { "name": "tif", "label": "Time in Force", "type": "select", "width": 0.5, "options": [
-                      { "value": "0", "label": "Day" },
-                      { "value": "1", "label": "GTC" },
-                      { "value": "3", "label": "IOC" },
-                      { "value": "4", "label": "FOK" },
-                      { "value": "6", "label": "GTD" }
-                    ] }
+                    {
+                      "name": "price",
+                      "label": "Price",
+                      "type": "number",
+                      "placeholder": "0.00",
+                      "step": "0.01",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "GTC"
+                        },
+                        {
+                          "value": "3",
+                          "label": "IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "FOK"
+                        },
+                        {
+                          "value": "6",
+                          "label": "GTD"
+                        }
+                      ]
+                    }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Send Order", "service": "fix_cmd", "op": "send_new_order" }
+              "submit": {
+                "label": "Send Order",
+                "service": "fix_cmd",
+                "op": "send_new_order"
+              }
             }
           }
         },
         {
           "label": "Replace",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"], "session_status": "ACTIVE" } },
+          "enable": {
+            "connected": true,
+            "rowMatch": {
+              "status": [
+                "PendingNew",
+                "New",
+                "PartiallyFilled",
+                "Replaced",
+                "Filled"
+              ],
+              "session_status": "ACTIVE"
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -335,49 +1044,155 @@
                 "orig_cl_ord_id": "${row.cl_ord_id}"
               },
               "fields": [
-                { "label": "Session", "type": "readonly", "value": "${row.session_id}" },
+                {
+                  "label": "Session",
+                  "type": "readonly",
+                  "value": "${row.session_id}"
+                },
                 {
                   "row": [
-                    { "name": "symbol", "label": "Symbol", "type": "text", "value": "${row.symbol}", "width": 0.5, "required": true },
-                    { "name": "side", "label": "Side", "type": "select", "value": "${row.side_code}", "width": 0.5, "options": [
-                      { "value": "1", "label": "Buy" },
-                      { "value": "2", "label": "Sell" },
-                      { "value": "5", "label": "Sell Short" }
-                    ] }
+                    {
+                      "name": "symbol",
+                      "label": "Symbol",
+                      "type": "text",
+                      "value": "${row.symbol}",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side",
+                      "type": "select",
+                      "value": "${row.side_code}",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "Sell Short"
+                        }
+                      ]
+                    }
                   ]
                 },
                 {
                   "row": [
-                    { "name": "qty", "label": "Quantity", "type": "number", "value": "${row.entered_qty}", "min": 1, "width": 0.5, "required": true },
-                    { "name": "ord_type", "label": "Order Type", "type": "select", "value": "${row.ord_type_code}", "width": 0.5, "options": [
-                      { "value": "1", "label": "Market" },
-                      { "value": "2", "label": "Limit" },
-                      { "value": "3", "label": "Stop" },
-                      { "value": "4", "label": "Stop Limit" }
-                    ] }
+                    {
+                      "name": "qty",
+                      "label": "Quantity",
+                      "type": "number",
+                      "value": "${row.entered_qty}",
+                      "min": 1,
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type",
+                      "type": "select",
+                      "value": "${row.ord_type_code}",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "Limit"
+                        },
+                        {
+                          "value": "3",
+                          "label": "Stop"
+                        },
+                        {
+                          "value": "4",
+                          "label": "Stop Limit"
+                        }
+                      ]
+                    }
                   ]
                 },
                 {
                   "row": [
-                    { "name": "price", "label": "Price", "type": "number", "value": "${row.entered_price}", "placeholder": "0.00", "step": "0.01", "width": 0.5 },
-                    { "name": "tif", "label": "Time in Force", "type": "select", "value": "${row.tif_code}", "width": 0.5, "options": [
-                      { "value": "0", "label": "Day" },
-                      { "value": "1", "label": "GTC" },
-                      { "value": "3", "label": "IOC" },
-                      { "value": "4", "label": "FOK" },
-                      { "value": "6", "label": "GTD" }
-                    ] }
+                    {
+                      "name": "price",
+                      "label": "Price",
+                      "type": "number",
+                      "value": "${row.entered_price}",
+                      "placeholder": "0.00",
+                      "step": "0.01",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force",
+                      "type": "select",
+                      "value": "${row.tif_code}",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "GTC"
+                        },
+                        {
+                          "value": "3",
+                          "label": "IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "FOK"
+                        },
+                        {
+                          "value": "6",
+                          "label": "GTD"
+                        }
+                      ]
+                    }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Replace", "service": "fix_cmd", "op": "send_cancel_replace" }
+              "submit": {
+                "label": "Replace",
+                "service": "fix_cmd",
+                "op": "send_cancel_replace"
+              }
             }
           }
         },
         {
           "label": "Cancel",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced"], "session_status": "ACTIVE" } },
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "rowMatch": {
+              "status": [
+                "PendingNew",
+                "New",
+                "PartiallyFilled",
+                "Replaced"
+              ],
+              "session_status": "ACTIVE"
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -393,9 +1208,18 @@
                 "qty": "${row.order_qty}"
               },
               "fields": [
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Cancel Order", "service": "fix_cmd", "op": "send_cancel" }
+              "submit": {
+                "label": "Cancel Order",
+                "service": "fix_cmd",
+                "op": "send_cancel"
+              }
             }
           }
         }
@@ -407,18 +1231,67 @@
       "service": "executions_query",
       "protocol": "query",
       "filter": "direction == 'RX'",
-      "columns": ["trade_id", "exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
-      "labels": { "trade_id": "Trade ID", "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" },
+      "columns": [
+        "trade_id",
+        "exec_id",
+        "session_id",
+        "symbol",
+        "side",
+        "last_qty",
+        "last_price",
+        "cum_qty",
+        "avg_price",
+        "exec_type",
+        "transact_time"
+      ],
+      "labels": {
+        "trade_id": "Trade ID",
+        "exec_id": "ExecID",
+        "session_id": "Session",
+        "symbol": "Symbol",
+        "side": "Side",
+        "last_qty": "Last Qty",
+        "last_price": "Last Px",
+        "cum_qty": "Cum Qty",
+        "avg_price": "Avg Px",
+        "exec_type": "Exec Type",
+        "transact_time": "Time"
+      },
       "styles": {
         "side": [
-          { "eq": "Buy", "color": "#4ec9b0" },
-          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+          {
+            "eq": "Buy",
+            "color": "#4ec9b0"
+          },
+          {
+            "in": [
+              "Sell",
+              "SellShort",
+              "SellShortExempt",
+              "SellPlus"
+            ],
+            "color": "#f44747"
+          }
         ],
         "exec_type": [
-          { "eq": "Fill", "color": "#6a9955", "bold": true },
-          { "eq": "PartialFill", "color": "#4ec9b0" },
-          { "eq": "Correct", "color": "#dcdcaa" },
-          { "eq": "Cancel", "color": "#f44747", "strike": true }
+          {
+            "eq": "Fill",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "eq": "PartialFill",
+            "color": "#4ec9b0"
+          },
+          {
+            "eq": "Correct",
+            "color": "#dcdcaa"
+          },
+          {
+            "eq": "Cancel",
+            "color": "#f44747",
+            "strike": true
+          }
         ]
       }
     },
@@ -428,29 +1301,115 @@
       "service": "orders_query",
       "protocol": "query",
       "filter": "direction == 'RX'",
-      "columns": ["order_id", "cl_ord_id", "session_id", "symbol", "side", "ord_type", "price", "order_qty", "status", "pending_action", "pending_qty", "pending_price", "cum_qty", "avg_price", "leaves_qty", "updated_at"],
-      "labels": { "order_id": "Order ID", "cl_ord_id": "ClOrdID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "ord_type": "Type", "price": "Price", "order_qty": "Qty", "status": "Status", "pending_action": "Pending", "pending_qty": "New Qty", "pending_price": "New Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "leaves_qty": "Leaves", "updated_at": "Updated" },
+      "columns": [
+        "order_id",
+        "cl_ord_id",
+        "session_id",
+        "symbol",
+        "side",
+        "ord_type",
+        "price",
+        "order_qty",
+        "status",
+        "pending_action",
+        "pending_qty",
+        "pending_price",
+        "cum_qty",
+        "avg_price",
+        "leaves_qty",
+        "updated_at"
+      ],
+      "labels": {
+        "order_id": "Order ID",
+        "cl_ord_id": "ClOrdID",
+        "session_id": "Session",
+        "symbol": "Symbol",
+        "side": "Side",
+        "ord_type": "Type",
+        "price": "Price",
+        "order_qty": "Qty",
+        "status": "Status",
+        "pending_action": "Pending",
+        "pending_qty": "New Qty",
+        "pending_price": "New Px",
+        "cum_qty": "Cum Qty",
+        "avg_price": "Avg Px",
+        "leaves_qty": "Leaves",
+        "updated_at": "Updated"
+      },
       "styles": {
         "side": [
-          { "eq": "Buy", "color": "#4ec9b0" },
-          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+          {
+            "eq": "Buy",
+            "color": "#4ec9b0"
+          },
+          {
+            "in": [
+              "Sell",
+              "SellShort",
+              "SellShortExempt",
+              "SellPlus"
+            ],
+            "color": "#f44747"
+          }
         ],
         "status": [
-          { "eq": "Filled", "color": "#6a9955", "bold": true },
-          { "eq": "PartiallyFilled", "color": "#4ec9b0" },
-          { "eq": "Replaced", "color": "#dcdcaa" },
-          { "eq": "PendingNew", "color": "#dcdcaa", "italic": true },
-          { "eq": "Rejected", "color": "#f44747" },
-          { "eq": "Canceled", "color": "#858585", "strike": true }
+          {
+            "eq": "Filled",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "eq": "PartiallyFilled",
+            "color": "#4ec9b0"
+          },
+          {
+            "eq": "Replaced",
+            "color": "#dcdcaa"
+          },
+          {
+            "eq": "PendingNew",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "eq": "Rejected",
+            "color": "#f44747"
+          },
+          {
+            "eq": "Canceled",
+            "color": "#858585",
+            "strike": true
+          }
         ],
         "pending_action": [
-          { "in": ["New", "Cancel", "Replace"], "color": "#dcdcaa", "bold": true, "background": "#3a2f1b" }
+          {
+            "in": [
+              "New",
+              "Cancel",
+              "Replace"
+            ],
+            "color": "#dcdcaa",
+            "bold": true,
+            "background": "#3a2f1b"
+          }
         ]
       },
       "buttons": [
         {
           "label": "Accept",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE" } },
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "rowMatch": {
+              "pending_action": [
+                "New",
+                "Cancel",
+                "Replace"
+              ],
+              "session_status": "ACTIVE"
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -463,16 +1422,36 @@
                 "cl_ord_id": "${row.cl_ord_id}"
               },
               "fields": [
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.pending_extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.pending_extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Accept", "service": "fix_cmd", "op": "accept_request" }
+              "submit": {
+                "label": "Accept",
+                "service": "fix_cmd",
+                "op": "accept_request"
+              }
             }
           }
         },
         {
           "label": "Reject",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE" } },
+          "enable": {
+            "connected": true,
+            "rowMatch": {
+              "pending_action": [
+                "New",
+                "Cancel",
+                "Replace"
+              ],
+              "session_status": "ACTIVE"
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -487,19 +1466,47 @@
               "fields": [
                 {
                   "row": [
-                    { "name": "text", "label": "Reason", "type": "text", "value": "", "width": 1 }
+                    {
+                      "name": "text",
+                      "label": "Reason",
+                      "type": "text",
+                      "value": "",
+                      "width": 1
+                    }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.pending_extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.pending_extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Reject", "service": "fix_cmd", "op": "reject_request" }
+              "submit": {
+                "label": "Reject",
+                "service": "fix_cmd",
+                "op": "reject_request"
+              }
             }
           }
         },
         {
           "label": "Fill",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "status": ["PendingNew", "New", "PartiallyFilled", "Replaced", "Filled"], "session_status": "ACTIVE" } },
+          "enable": {
+            "connected": true,
+            "rowMatch": {
+              "status": [
+                "PendingNew",
+                "New",
+                "PartiallyFilled",
+                "Replaced",
+                "Filled"
+              ],
+              "session_status": "ACTIVE"
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -514,13 +1521,37 @@
               "fields": [
                 {
                   "row": [
-                    { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.leaves_qty}", "width": 0.5, "required": true },
-                    { "name": "price", "label": "Price", "type": "text", "value": "${row.price}", "width": 0.5, "required": true }
+                    {
+                      "name": "qty",
+                      "label": "Quantity",
+                      "type": "text",
+                      "value": "${row.leaves_qty}",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price",
+                      "type": "text",
+                      "value": "${row.price}",
+                      "width": 0.5,
+                      "required": true
+                    }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "value": "${row.extra_tags}", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Fill", "service": "fix_cmd", "op": "fill_order" }
+              "submit": {
+                "label": "Fill",
+                "service": "fix_cmd",
+                "op": "fill_order"
+              }
             }
           }
         }
@@ -532,25 +1563,84 @@
       "service": "executions_query",
       "protocol": "query",
       "filter": "direction == 'TX'",
-      "columns": ["trade_id", "exec_id", "session_id", "symbol", "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "transact_time"],
-      "labels": { "trade_id": "Trade ID", "exec_id": "ExecID", "session_id": "Session", "symbol": "Symbol", "side": "Side", "last_qty": "Last Qty", "last_price": "Last Px", "cum_qty": "Cum Qty", "avg_price": "Avg Px", "exec_type": "Exec Type", "transact_time": "Time" },
+      "columns": [
+        "trade_id",
+        "exec_id",
+        "session_id",
+        "symbol",
+        "side",
+        "last_qty",
+        "last_price",
+        "cum_qty",
+        "avg_price",
+        "exec_type",
+        "transact_time"
+      ],
+      "labels": {
+        "trade_id": "Trade ID",
+        "exec_id": "ExecID",
+        "session_id": "Session",
+        "symbol": "Symbol",
+        "side": "Side",
+        "last_qty": "Last Qty",
+        "last_price": "Last Px",
+        "cum_qty": "Cum Qty",
+        "avg_price": "Avg Px",
+        "exec_type": "Exec Type",
+        "transact_time": "Time"
+      },
       "styles": {
         "side": [
-          { "eq": "Buy", "color": "#4ec9b0" },
-          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+          {
+            "eq": "Buy",
+            "color": "#4ec9b0"
+          },
+          {
+            "in": [
+              "Sell",
+              "SellShort",
+              "SellShortExempt",
+              "SellPlus"
+            ],
+            "color": "#f44747"
+          }
         ],
         "exec_type": [
-          { "eq": "Fill", "color": "#6a9955", "bold": true },
-          { "eq": "PartialFill", "color": "#4ec9b0" },
-          { "eq": "Correct", "color": "#dcdcaa" },
-          { "eq": "Cancel", "color": "#f44747", "strike": true }
+          {
+            "eq": "Fill",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "eq": "PartialFill",
+            "color": "#4ec9b0"
+          },
+          {
+            "eq": "Correct",
+            "color": "#dcdcaa"
+          },
+          {
+            "eq": "Cancel",
+            "color": "#f44747",
+            "strike": true
+          }
         ]
       },
       "buttons": [
         {
           "label": "Correct",
           "unit": "row",
-          "enable": { "connected": true, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"], "session_status": "ACTIVE" } },
+          "enable": {
+            "connected": true,
+            "rowMatch": {
+              "exec_type": [
+                "PartialFill",
+                "Fill",
+                "Correct"
+              ],
+              "session_status": "ACTIVE"
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -565,19 +1655,53 @@
               "fields": [
                 {
                   "row": [
-                    { "name": "qty", "label": "Quantity", "type": "text", "value": "${row.last_qty}", "width": 0.5, "required": true },
-                    { "name": "price", "label": "Price", "type": "text", "value": "${row.last_price}", "width": 0.5, "required": true }
+                    {
+                      "name": "qty",
+                      "label": "Quantity",
+                      "type": "text",
+                      "value": "${row.last_qty}",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price",
+                      "type": "text",
+                      "value": "${row.last_price}",
+                      "width": 0.5,
+                      "required": true
+                    }
                   ]
                 },
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Correct", "service": "fix_cmd", "op": "correct_trade" }
+              "submit": {
+                "label": "Correct",
+                "service": "fix_cmd",
+                "op": "correct_trade"
+              }
             }
           }
         },
         {
           "label": "Bust",
-          "enable": { "connected": true, "minSelected": 1, "rowMatch": { "exec_type": ["PartialFill", "Fill", "Correct"], "session_status": "ACTIVE" } },
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "rowMatch": {
+              "exec_type": [
+                "PartialFill",
+                "Fill",
+                "Correct"
+              ],
+              "session_status": "ACTIVE"
+            }
+          },
           "action": {
             "type": "dialog",
             "dialog": {
@@ -590,9 +1714,18 @@
                 "exec_id": "${row.exec_id}"
               },
               "fields": [
-                { "name": "extra_tags", "label": "Extra Tags", "type": "text", "placeholder": "e.g. 5001=X|382=2|375=A|375=B" }
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
               ],
-              "submit": { "label": "Bust", "service": "fix_cmd", "op": "bust_trade" }
+              "submit": {
+                "label": "Bust",
+                "service": "fix_cmd",
+                "op": "bust_trade"
+              }
             }
           }
         }
@@ -603,16 +1736,57 @@
       "type": "mkio-table",
       "service": "iois_query",
       "protocol": "query",
-      "columns": ["ioi_id", "session_id", "ioi_trans_type", "symbol", "side", "ioi_qty", "price", "valid_until", "direction", "timestamp"],
-      "labels": { "ioi_id": "IOI ID", "session_id": "Session", "ioi_trans_type": "Trans Type", "symbol": "Symbol", "side": "Side", "ioi_qty": "Qty", "price": "Price", "valid_until": "Valid Until", "direction": "Dir", "timestamp": "Time" },
+      "columns": [
+        "ioi_id",
+        "session_id",
+        "ioi_trans_type",
+        "symbol",
+        "side",
+        "ioi_qty",
+        "price",
+        "valid_until",
+        "direction",
+        "timestamp"
+      ],
+      "labels": {
+        "ioi_id": "IOI ID",
+        "session_id": "Session",
+        "ioi_trans_type": "Trans Type",
+        "symbol": "Symbol",
+        "side": "Side",
+        "ioi_qty": "Qty",
+        "price": "Price",
+        "valid_until": "Valid Until",
+        "direction": "Dir",
+        "timestamp": "Time"
+      },
       "styles": {
         "side": [
-          { "eq": "Buy", "color": "#4ec9b0" },
-          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+          {
+            "eq": "Buy",
+            "color": "#4ec9b0"
+          },
+          {
+            "in": [
+              "Sell",
+              "SellShort",
+              "SellShortExempt",
+              "SellPlus"
+            ],
+            "color": "#f44747"
+          }
         ],
         "direction": [
-          { "eq": "TX", "color": "#569cd6", "bold": true },
-          { "eq": "RX", "color": "#4ec9b0", "bold": true }
+          {
+            "eq": "TX",
+            "color": "#569cd6",
+            "bold": true
+          },
+          {
+            "eq": "RX",
+            "color": "#4ec9b0",
+            "bold": true
+          }
         ]
       }
     },
@@ -621,69 +1795,205 @@
       "type": "mkio-table",
       "service": "allocations_query",
       "protocol": "query",
-      "columns": ["alloc_id", "session_id", "alloc_trans_type", "alloc_type", "symbol", "side", "quantity", "avg_price", "trade_date", "alloc_status", "num_allocs", "direction", "timestamp"],
-      "labels": { "alloc_id": "AllocID", "session_id": "Session", "alloc_trans_type": "Trans Type", "alloc_type": "Alloc Type", "symbol": "Symbol", "side": "Side", "quantity": "Qty", "avg_price": "Avg Px", "trade_date": "Trade Date", "alloc_status": "Status", "num_allocs": "Allocs", "direction": "Dir", "timestamp": "Time" },
+      "columns": [
+        "alloc_id",
+        "session_id",
+        "alloc_trans_type",
+        "alloc_type",
+        "symbol",
+        "side",
+        "quantity",
+        "avg_price",
+        "trade_date",
+        "alloc_status",
+        "num_allocs",
+        "direction",
+        "timestamp"
+      ],
+      "labels": {
+        "alloc_id": "AllocID",
+        "session_id": "Session",
+        "alloc_trans_type": "Trans Type",
+        "alloc_type": "Alloc Type",
+        "symbol": "Symbol",
+        "side": "Side",
+        "quantity": "Qty",
+        "avg_price": "Avg Px",
+        "trade_date": "Trade Date",
+        "alloc_status": "Status",
+        "num_allocs": "Allocs",
+        "direction": "Dir",
+        "timestamp": "Time"
+      },
       "styles": {
         "side": [
-          { "eq": "Buy", "color": "#4ec9b0" },
-          { "in": ["Sell", "SellShort", "SellShortExempt", "SellPlus"], "color": "#f44747" }
+          {
+            "eq": "Buy",
+            "color": "#4ec9b0"
+          },
+          {
+            "in": [
+              "Sell",
+              "SellShort",
+              "SellShortExempt",
+              "SellPlus"
+            ],
+            "color": "#f44747"
+          }
         ],
         "direction": [
-          { "eq": "TX", "color": "#569cd6", "bold": true },
-          { "eq": "RX", "color": "#4ec9b0", "bold": true }
+          {
+            "eq": "TX",
+            "color": "#569cd6",
+            "bold": true
+          },
+          {
+            "eq": "RX",
+            "color": "#4ec9b0",
+            "bold": true
+          }
         ]
       }
     },
     "replay-control": {
       "title": "Replay",
       "type": "replay-control"
+    },
+    "dictionaries": {
+      "title": "Dictionaries",
+      "type": "dictionaries"
     }
   },
   "frames": [
     {
       "id": "sessions",
-      "x": 0.01, "y": 0.02, "w": 0.48, "h": 0.28,
-      "layout": { "type": "tabs", "active": 0, "children": ["session-blotter"] }
+      "x": 0.01,
+      "y": 0.02,
+      "w": 0.48,
+      "h": 0.28,
+      "layout": {
+        "type": "tabs",
+        "active": 0,
+        "children": [
+          "session-blotter"
+        ]
+      }
     },
     {
       "id": "messages",
-      "x": 0.01, "y": 0.32, "w": 0.48, "h": 0.66,
+      "x": 0.01,
+      "y": 0.32,
+      "w": 0.48,
+      "h": 0.66,
       "layout": {
-        "type": "split", "dir": "v", "ratios": [0.5, 0.5],
+        "type": "split",
+        "dir": "v",
+        "ratios": [
+          0.5,
+          0.5
+        ],
         "children": [
-          { "type": "tabs", "active": 0, "children": ["raw-messages"] },
-          { "type": "tabs", "active": 0, "children": ["message-detail"] }
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "raw-messages"
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "message-detail"
+            ]
+          }
         ]
       }
     },
     {
       "id": "client-trading",
-      "x": 0.50, "y": 0.02, "w": 0.49, "h": 0.47,
+      "x": 0.5,
+      "y": 0.02,
+      "w": 0.49,
+      "h": 0.47,
       "layout": {
-        "type": "split", "dir": "v", "ratios": [0.5, 0.5],
+        "type": "split",
+        "dir": "v",
+        "ratios": [
+          0.5,
+          0.5
+        ],
         "children": [
-          { "type": "tabs", "active": 0, "children": ["order-blotter"] },
-          { "type": "tabs", "active": 0, "children": ["trade-blotter"] }
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "order-blotter"
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "trade-blotter"
+            ]
+          }
         ]
       }
     },
     {
       "id": "market-trading",
-      "x": 0.50, "y": 0.51, "w": 0.49, "h": 0.47,
+      "x": 0.5,
+      "y": 0.51,
+      "w": 0.49,
+      "h": 0.47,
       "layout": {
-        "type": "split", "dir": "v", "ratios": [0.5, 0.5],
+        "type": "split",
+        "dir": "v",
+        "ratios": [
+          0.5,
+          0.5
+        ],
         "children": [
-          { "type": "tabs", "active": 0, "children": ["market-order-blotter"] },
-          { "type": "tabs", "active": 0, "children": ["market-trade-blotter"] }
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "market-order-blotter"
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "market-trade-blotter"
+            ]
+          }
         ]
       }
     }
   ],
   "mkio": {
     "url": "auto",
-    "expect": { "name": "mkfix", "version": "0.12", "mkio": "0.1" },
-    "connected": { "status.message": "Connected", "status.color": null, "status.background": null },
-    "disconnected": { "status.message": "Disconnected", "status.color": "#000", "status.background": "#858585" },
-    "incompatible": { "status.message": "Server version mismatch", "status.color": "#fff", "status.background": "#cc0000" }
+    "expect": {
+      "name": "mkfix",
+      "version": "0.13",
+      "mkio": "0.1"
+    },
+    "connected": {
+      "status.message": "Connected",
+      "status.color": null,
+      "status.background": null
+    },
+    "disconnected": {
+      "status.message": "Disconnected",
+      "status.color": "#000",
+      "status.background": "#858585"
+    },
+    "incompatible": {
+      "status.message": "Server version mismatch",
+      "status.color": "#fff",
+      "status.background": "#cc0000"
+    }
   }
 }

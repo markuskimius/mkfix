@@ -1,0 +1,486 @@
+{
+ "_comment": "Curated FIX 4.2 display names layered over the QuickFIX conversion; official FIX 4.2 spec names win where QuickFIX descriptions drift, plus extra tags counterparties commonly send.",
+ "fields": {
+  "23": {
+   "name": "IOIID",
+   "type": "STRING"
+  },
+  "27": {
+   "name": "IOIQty",
+   "type": "STRING"
+  },
+  "53": {
+   "name": "Quantity",
+   "type": "QTY"
+  },
+  "73": {
+   "name": "NoOrders",
+   "type": "NUMINGROUP"
+  },
+  "74": {
+   "name": "AvgPxPrecision",
+   "type": "INT"
+  },
+  "78": {
+   "name": "NoAllocs",
+   "type": "NUMINGROUP"
+  },
+  "85": {
+   "name": "NoDlvyInst",
+   "type": "NUMINGROUP"
+  },
+  "124": {
+   "name": "NoExecs",
+   "type": "NUMINGROUP"
+  },
+  "136": {
+   "name": "NoMiscFees",
+   "type": "NUMINGROUP"
+  },
+  "146": {
+   "name": "NoRelatedSym",
+   "type": "NUMINGROUP"
+  },
+  "199": {
+   "name": "NoIOIQualifiers",
+   "type": "NUMINGROUP"
+  },
+  "215": {
+   "name": "NoRoutingIDs",
+   "type": "NUMINGROUP"
+  },
+  "229": {
+   "name": "TradeOriginationDate",
+   "type": "LOCALMKTDATE"
+  },
+  "230": {
+   "name": "ExDate",
+   "type": "LOCALMKTDATE"
+  },
+  "232": {
+   "name": "NoStipulations",
+   "type": "NUMINGROUP"
+  },
+  "233": {
+   "name": "StipulationType",
+   "type": "STRING"
+  },
+  "234": {
+   "name": "StipulationValue",
+   "type": "STRING"
+  },
+  "235": {
+   "name": "YieldType",
+   "type": "STRING"
+  },
+  "236": {
+   "name": "Yield",
+   "type": "FLOAT"
+  },
+  "237": {
+   "name": "TotalTakedown",
+   "type": "AMT"
+  },
+  "238": {
+   "name": "Concession",
+   "type": "AMT"
+  },
+  "239": {
+   "name": "RepoCollateralSecurityType",
+   "type": "STRING"
+  },
+  "240": {
+   "name": "RedemptionDate",
+   "type": "LOCALMKTDATE"
+  },
+  "241": {
+   "name": "UnderlyingCouponPaymentDate",
+   "type": "LOCALMKTDATE"
+  },
+  "242": {
+   "name": "UnderlyingIssueDate",
+   "type": "LOCALMKTDATE"
+  },
+  "243": {
+   "name": "UnderlyingRepoCollateralSecurityType",
+   "type": "INT"
+  },
+  "244": {
+   "name": "UnderlyingRepurchaseTerm",
+   "type": "INT"
+  },
+  "245": {
+   "name": "UnderlyingRepurchaseRate",
+   "type": "FLOAT"
+  },
+  "246": {
+   "name": "UnderlyingFactor",
+   "type": "FLOAT"
+  },
+  "247": {
+   "name": "UnderlyingRedemptionDate",
+   "type": "LOCALMKTDATE"
+  },
+  "248": {
+   "name": "LegCouponPaymentDate",
+   "type": "LOCALMKTDATE"
+  },
+  "249": {
+   "name": "LegIssueDate",
+   "type": "LOCALMKTDATE"
+  },
+  "250": {
+   "name": "LegRepoCollateralSecurityType",
+   "type": "INT"
+  },
+  "251": {
+   "name": "LegRepurchaseTerm",
+   "type": "INT"
+  },
+  "252": {
+   "name": "LegRepurchaseRate",
+   "type": "FLOAT"
+  },
+  "253": {
+   "name": "LegFactor",
+   "type": "FLOAT"
+  },
+  "254": {
+   "name": "LegRedemptionDate",
+   "type": "LOCALMKTDATE"
+  },
+  "255": {
+   "name": "CreditRating",
+   "type": "STRING"
+  },
+  "256": {
+   "name": "UnderlyingCreditRating",
+   "type": "STRING"
+  },
+  "257": {
+   "name": "LegCreditRating",
+   "type": "STRING"
+  },
+  "258": {
+   "name": "TradedFlatSwitch",
+   "type": "BOOLEAN"
+  },
+  "259": {
+   "name": "BasisFeatureDate",
+   "type": "LOCALMKTDATE"
+  },
+  "260": {
+   "name": "BasisFeaturePrice",
+   "type": "PRICE"
+  },
+  "267": {
+   "name": "NoMDEntryTypes",
+   "type": "NUMINGROUP"
+  },
+  "268": {
+   "name": "NoMDEntries",
+   "type": "NUMINGROUP"
+  },
+  "295": {
+   "name": "NoQuoteEntries",
+   "type": "NUMINGROUP"
+  },
+  "296": {
+   "name": "NoQuoteSets",
+   "type": "NUMINGROUP"
+  },
+  "297": {
+   "name": "QuoteAckStatus",
+   "type": "INT"
+  },
+  "382": {
+   "name": "NoContraBrokers",
+   "type": "NUMINGROUP"
+  },
+  "384": {
+   "name": "NoMsgTypes",
+   "type": "NUMINGROUP"
+  },
+  "386": {
+   "name": "NoTradingSessions",
+   "type": "NUMINGROUP"
+  },
+  "398": {
+   "name": "NoBidDescriptors",
+   "type": "NUMINGROUP"
+  },
+  "410": {
+   "name": "WtAvgLiquidity",
+   "type": "FLOAT"
+  },
+  "420": {
+   "name": "NoBidComponents",
+   "type": "NUMINGROUP"
+  },
+  "428": {
+   "name": "NoStrikes",
+   "type": "NUMINGROUP"
+  }
+ },
+ "enums": {
+  "13": {
+   "1": "PerShare",
+   "2": "Percentage"
+  },
+  "18": {
+   "6": "ParticipateDontInitiate",
+   "B": "OKToCross",
+   "T": "FixedPegToLocalBBO",
+   "W": "PegToVWAP"
+  },
+  "21": {
+   "1": "AutoExecPrivate",
+   "2": "AutoExecPublic",
+   "3": "Manual"
+  },
+  "22": {
+   "1": "CUSIP",
+   "2": "SEDOL",
+   "3": "QUIK",
+   "4": "ISIN",
+   "5": "RIC",
+   "7": "ISOCountryCode",
+   "A": "BloombergSymbol",
+   "B": "Wertpapier",
+   "C": "Dutch",
+   "D": "Valoren",
+   "E": "Sicovam",
+   "F": "Belgian",
+   "G": "Common"
+  },
+  "35": {
+   "6": "IOI",
+   "J": "Allocation",
+   "P": "AllocationACK"
+  },
+  "47": {
+   "B": "ShortExemptTransactionB",
+   "C": "ProgramOrderNonIndexArbForMemberFirmOrg",
+   "D": "ProgramOrderIndexArbForMemberFirmOrg",
+   "F": "ShortExemptTransactionF",
+   "H": "ShortExemptTransactionH",
+   "I": "IndividualInvestorSingleOrder",
+   "J": "ProgramOrderIndexArbForIndividualCustomer",
+   "K": "ProgramOrderNonIndexArbForIndividualCustomer",
+   "L": "ShortExemptTransactionForMemberCompetingMktMkr",
+   "M": "ProgramOrderIndexArbForOtherMember",
+   "N": "ProgramOrderNonIndexArbForOtherMember",
+   "O": "ProprietaryTransactionForCompetingMarketMaker",
+   "R": "TransactionsForNonMemberCompetingMktMkr",
+   "T": "TransactionsUnaffiliatedMember",
+   "U": "ProgramOrderIndexArbForOtherAgency",
+   "X": "ShortExemptTransactionForMemberAffiliated",
+   "Y": "ProgramOrderNonIndexArbForOtherAgency",
+   "Z": "ShortExemptTransactionForNonMemberCompetingMktMkr"
+  },
+  "59": {
+   "7": "AtTheClose"
+  },
+  "63": {
+   "7": "WhenIssued"
+  },
+  "88": {
+   "2": "IncorrectAveragePx",
+   "5": "UnknownOrderID",
+   "6": "UnknownListID",
+   "7": "Other"
+  },
+  "98": {
+   "1": "PKCS",
+   "2": "DES",
+   "3": "PKCS_DES",
+   "4": "PGP_DES",
+   "5": "PGP_DES_MD5",
+   "6": "PEM_DES_MD5"
+  },
+  "102": {
+   "2": "BrokerOption",
+   "3": "AlreadyPendingCancel"
+  },
+  "103": {
+   "0": "BrokerOption",
+   "7": "DuplicateOfVerballyCommunicatedOrder"
+  },
+  "104": {
+   "S": "PortfolioShowN"
+  },
+  "156": {
+   "M": "Multiply",
+   "D": "Divide"
+  },
+  "165": {
+   "1": "BrokerInstructions",
+   "2": "InstitutionInstructions"
+  },
+  "166": {
+   "CED": "CEDEL",
+   "EUR": "Euroclear",
+   "PNY": "PhysicalNYSE"
+  },
+  "167": {
+   "GOVT": "TreasuriesAndAgencyDebenture",
+   "IET": "IOETTEMortgage",
+   "MPT": "MiscellaneousPassThru",
+   "USTB": "USTreasuryBill",
+   "ZOO": "CatsTigersAndEtc"
+  },
+  "169": {
+   "1": "DTCSID",
+   "2": "ThomsonALERT",
+   "3": "GlobalCustodian"
+  },
+  "172": {
+   "0": "VersusPayment",
+   "1": "Free"
+  },
+  "197": {
+   "0": "FXNetting",
+   "1": "FXSwap"
+  },
+  "219": {
+   "1": "CURVE",
+   "2": "5YR",
+   "3": "OLD5",
+   "4": "10YR",
+   "5": "OLD10",
+   "6": "30YR",
+   "7": "OLD30",
+   "8": "3MOLIBOR",
+   "9": "6MOLIBOR"
+  },
+  "258": {
+   "Y": "Yes",
+   "N": "No"
+  },
+  "263": {
+   "1": "SnapshotPlusUpdates"
+  },
+  "269": {
+   "9": "TradingSessionVWAPPrice"
+  },
+  "281": {
+   "1": "DuplicateMDReqID",
+   "6": "UnsupportedMDUpdateType",
+   "8": "UnsupportedMDEntryType"
+  },
+  "286": {
+   "2": "DeliverySettlementPrice",
+   "3": "ExpectedPrice",
+   "4": "PriceFromPreviousBusinessDay"
+  },
+  "291": {
+   "2": "PendingDelisting"
+  },
+  "298": {
+   "1": "CancelForSymbol",
+   "3": "CancelForUnderlyingSymbol",
+   "4": "CancelAll"
+  },
+  "300": {
+   "2": "ExchangeClosed",
+   "7": "InvalidBidAskSpread"
+  },
+  "301": {
+   "1": "AcknowledgeOnlyNegativeOrErrorResponse"
+  },
+  "326": {
+   "14": "ITSPreOpening"
+  },
+  "327": {
+   "P": "NewPending"
+  },
+  "340": {
+   "0": "Unknown"
+  },
+  "373": {
+   "2": "TagNotDefinedForMsgType",
+   "4": "TagSpecifiedWithoutValue",
+   "6": "IncorrectDataFormat",
+   "9": "CompIDProblem"
+  },
+  "378": {
+   "0": "GTCorporateAction",
+   "1": "GTRenewal"
+  },
+  "380": {
+   "1": "UnknownID"
+  },
+  "388": {
+   "3": "RelatedToLocalPrimaryStipAmount"
+  },
+  "394": {
+   "1": "NonDisclosed",
+   "2": "Disclosed",
+   "3": "NoBiddingProcess"
+  },
+  "399": {
+   "1": "Sector",
+   "2": "Country",
+   "3": "Index"
+  },
+  "401": {
+   "1": "SideValue1",
+   "2": "SideValue2"
+  },
+  "414": {
+   "1": "BuySideExplicitlyRequests",
+   "2": "SellSidePeriodically"
+  },
+  "418": {
+   "G": "VWAPGuarantee"
+  },
+  "419": {
+   "5": "SQ",
+   "6": "VWAPThroughADay",
+   "7": "VWAPThroughAMorningSession",
+   "8": "VWAPThroughAnAfternoonSession",
+   "9": "VWAPThroughADayExceptYORI",
+   "A": "VWAPThroughAMorningSessionExceptYORI",
+   "B": "VWAPThroughAnAfternoonSessionExceptYORI"
+  },
+  "423": {
+   "2": "PerShare"
+  },
+  "427": {
+   "2": "AccumulateUntilVerballyCanceled"
+  },
+  "429": {
+   "1": "Ack",
+   "2": "Response",
+   "3": "Timed",
+   "4": "ExecStarted",
+   "5": "AllDone",
+   "6": "Alert"
+  },
+  "431": {
+   "1": "InBiddingProcess",
+   "2": "ReceivedForExecution",
+   "3": "Executing",
+   "4": "Canceling",
+   "5": "Alert",
+   "6": "AllDone",
+   "7": "Reject"
+  },
+  "434": {
+   "2": "OrderCancelReplaceRequest"
+  },
+  "442": {
+   "2": "IndividualLegOfMultiLegSecurity"
+  }
+ },
+ "messages": {
+  "P": {
+   "name": "AllocationACK",
+   "category": "app"
+  },
+  "b": {
+   "name": "MassQuoteAcknowledgement",
+   "category": "app"
+  }
+ }
+}

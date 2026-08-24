@@ -730,3 +730,64 @@ class TestVersions:
             name, floor = dep.split(">=")
             assert f"{name}) >= {floor}" in readme, \
                 f"README floor for {name} does not match pyproject ({dep})"
+
+
+class TestDictionaryConfig:
+    def test_standard_versions_consistent_everywhere(self, app_config, toml_config):
+        """The standard-version list lives in dictionary.py, fix-dictionary.js,
+        the dictionaries_list sql, and the session dialogs' fix_version
+        options, and each version must ship a generated JSON; drift in any
+        copy surfaces only in the browser."""
+        from mkfix.fix.dictionary import STANDARD_VERSIONS
+
+        js = (STATIC / "fix-dictionary.js").read_text()
+        js_block = js.split("export const STANDARD_VERSIONS")[1].split("]")[0]
+        js_versions = re.findall(r'"(FIX\.[0-9.]+(?:SP\d)?)"', js_block)
+        assert js_versions == list(STANDARD_VERSIONS)
+
+        sql = toml_config["services"]["dictionaries_list"]["sql"]
+        for version in STANDARD_VERSIONS:
+            assert f"'{version}'" in sql, f"dictionaries_list sql misses {version}"
+
+        selects = [node for node in _walk_dicts(app_config)
+                   if node.get("name") == "fix_version" and node.get("type") == "select"]
+        assert selects, "no fix_version selects in app.json"
+        for select in selects:
+            values = [o["value"] for o in select["options"]]
+            assert values == list(STANDARD_VERSIONS)
+
+        data_dir = ROOT / "mkfix" / "fix" / "dictionary_data"
+        for version in STANDARD_VERSIONS:
+            path = data_dir / (version.replace(".", "") + ".json")
+            assert path.exists(), f"missing generated dictionary {path.name}"
+
+    def test_session_dialogs_offer_dictionary_dropdown(self, app_config):
+        selects = [node for node in _walk_dicts(app_config)
+                   if node.get("name") == "dictionary" and node.get("type") == "select"]
+        assert len(selects) >= 2, "session New/Edit dialogs must offer a Dictionary select"
+        for select in selects:
+            assert select["optionsFrom"]["service"] == "dictionaries_list"
+
+    def test_dictionaries_pane_commands_have_branches(self):
+        """The dictionaries pane calls fix_cmd through its cmd() helper; a
+        command with no dispatch branch fails only on click, in the browser."""
+        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text()
+        js = (STATIC / "panes" / "dictionaries.js").read_text()
+        used = set(re.findall(r'cmd\("([a-z_]+)"', js))
+        handled = set(re.findall(r'command == "([^"]+)"', source))
+        assert used, "dictionaries pane calls no fix_cmd commands"
+        missing = used - handled
+        assert not missing, f"dictionaries pane sends unhandled fix_cmd commands: {sorted(missing)}"
+
+    def test_curated_fix42_names_survive_regeneration(self):
+        """The FIX42 overlay pins display names the engine writes into rows and
+        the style rules test; the generated FIX42.json must keep them."""
+        overlay = json.loads((ROOT / "tools" / "overlays" / "FIX42.json").read_text())
+        generated = json.loads(
+            (ROOT / "mkfix" / "fix" / "dictionary_data" / "FIX42.json").read_text())
+        for tag, entry in overlay.get("fields", {}).items():
+            assert generated["fields"].get(tag) == entry, f"field {tag} lost its curated name"
+        for tag, values in overlay.get("enums", {}).items():
+            for code, name in values.items():
+                assert generated["enums"].get(tag, {}).get(code) == name, \
+                    f"enum {tag}={code} lost its curated name"

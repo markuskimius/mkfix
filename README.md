@@ -12,11 +12,24 @@ A FIX protocol testing engine for capital markets connectivity, built on
   Start, Edit, Delete, and Reset Seq only while a session is down, Stop only
   while it runs; the Reset Seq dialog opens prefilled with the current
   sequence numbers. Multiple sessions on the same port with different CompIDs.
+  Outgoing timestamp granularity is configurable per session: protocol
+  standard by default (seconds through FIX 4.1, milliseconds from 4.2), or
+  forced to second, millisecond, microsecond, nanosecond, or picosecond.
 - **Message Viewer** -- Live virtualized table of FIX messages in tag=value
   format, streaming live by default, with time-based paging, per-column filters,
   sorting, and clipboard copy.
-- **Message Detail** -- Field-by-field breakdown of the message selected in the
-  Messages viewer, with field names and enum translations.
+- **Message Detail** -- Field-by-field breakdown of the message selected in
+  the Messages viewer, translated through the owning session's dictionary:
+  collapsible header/body/trailer sections and repeating-group trees,
+  drag-resizable columns, and UTC timestamps rendered in a selectable
+  timezone (defaulting to the browser's).
+- **FIX Dictionaries** -- Standard FIX 4.0 through 5.0SP2 dictionaries ship
+  built in; create tweaked copies per test scenario -- either a delta that
+  stays linked to its base version or a standalone document -- edit tag
+  names, enum values, message types, repeating groups, and header/trailer
+  layout in a dedicated editor pane, import/export them as JSON, and bind
+  one per session: both what the session sends and how its messages are
+  displayed follow the bound dictionary.
 - **Sent Orders & Received Trades Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
   the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders

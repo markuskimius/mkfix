@@ -210,5 +210,23 @@ class FixCommandService(Service):
             await engine.stop_replay(int(data["job_id"]))
             return {"ok": True}
 
+        elif command == "save_dictionary":
+            name = await engine.save_dictionary(
+                name=data["name"],
+                base_version=data.get("base_version", ""),
+                doc=data.get("doc", "{}"),
+            )
+            return {"ok": True, "name": name}
+
+        elif command == "delete_dictionary":
+            await engine.delete_dictionary(data["name"])
+            return {"ok": True}
+
+        elif command == "get_dictionary":
+            return {"ok": True, **engine.get_dictionary(data["name"])}
+
+        elif command == "list_dictionaries":
+            return {"ok": True, "dictionaries": engine.list_dictionaries()}
+
         else:
             raise ValueError(f"Unknown command: {command}")

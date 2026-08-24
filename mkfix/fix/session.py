@@ -26,11 +26,13 @@ class FixSession:
     ):
         self.engine = engine
         self.config = config
-        self.dictionary = FixDictionary(config.get("fix_version", "FIX.4.2"))
+        dict_name = config.get("dictionary") or config.get("fix_version", "FIX.4.2")
+        self.dictionary = FixDictionary(dict_name)
         self.factory = FixMessageFactory(
             self.dictionary,
             sender=config["sender_comp_id"],
             target=config["target_comp_id"],
+            timestamp_precision=config.get("timestamp_precision") or None,
         )
         self.session_id: str = config["session_id"]
 

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from typing import Any, TYPE_CHECKING
 
-from mkfix.fix.dictionary import FixDictionary
+from mkfix.fix.dictionary import (FixDictionary, STANDARD_VERSIONS,
+                                  custom_meta, custom_names, register_custom,
+                                  unregister_custom)
 from mkfix.fix.idgen import IdGenerator
 from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
                                extra_pairs_of, format_extra_tags, parse_fix)
@@ -79,6 +82,7 @@ class FixEngine:
         await self._backfill_entered_terms()
         await self._backfill_rx_extra_tags()
         await self.ids.start()
+        await self._load_custom_dictionaries()
         await self._load_sessions()
 
     async def stop(self) -> None:
@@ -93,6 +97,26 @@ class FixEngine:
     def _compile_ops(self) -> None:
         """Pre-compile SQL operations for writing FIX data."""
         from mkio.writer import CompiledOp
+
+        self._compiled_ops["upsert_dictionary"] = (CompiledOp(
+            table="fix_dictionaries",
+            op_type="upsert",
+            sql=(
+                "INSERT INTO fix_dictionaries (name, base_version, doc, created_at, updated_at, _mkio_ref) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET base_version = excluded.base_version, "
+                "doc = excluded.doc, updated_at = excluded.updated_at, _mkio_ref = excluded._mkio_ref "
+                "RETURNING *"
+            ),
+            param_names=("name", "base_version", "doc", "created_at", "updated_at", "_mkio_ref"),
+        ),)
+
+        self._compiled_ops["delete_dictionary"] = (CompiledOp(
+            table="fix_dictionaries",
+            op_type="delete",
+            sql="DELETE FROM fix_dictionaries WHERE name = ? RETURNING *",
+            param_names=("name",),
+        ),)
 
         msg_cols = [
             "session_id", "timestamp", "direction", "seq_num", "msg_type",
@@ -347,10 +371,10 @@ class FixEngine:
         return dict(row) if row else None
 
     async def start_session(self, session_id: str) -> None:
+        # Reload first: a stopped session rebuilds with fresh config (and
+        # dictionary); a running one keeps its live transport.
+        await self.reload_session(session_id)
         session = self.sessions.get(session_id)
-        if not session:
-            await self.reload_session(session_id)
-            session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Unknown session: {session_id}")
         await session.start()
@@ -363,7 +387,8 @@ class FixEngine:
 
     async def record_message(self, session_id: str, direction: str, msg: FixMessage) -> None:
         """Record a FIX message to the fix_messages table."""
-        dictionary = FixDictionary(msg.get("8", "FIX.4.2"))
+        session = self.sessions.get(session_id)
+        dictionary = session.dictionary if session else FixDictionary(msg.get("8", "FIX.4.2"))
         msg_type = msg.get("35", "")
         now = _fix_timestamp()
 
@@ -1410,6 +1435,89 @@ class FixEngine:
         )).close()
         await conn.commit()
 
+    async def _load_custom_dictionaries(self) -> None:
+        """Register user-defined dictionaries before sessions bind them."""
+        conn = self.db.read_conn
+        cursor = await conn.execute("SELECT * FROM fix_dictionaries")
+        rows = await cursor.fetchall()
+        await cursor.close()
+        for row in rows:
+            try:
+                doc = json.loads(row["doc"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            register_custom(row["name"], row["base_version"] or None, doc)
+
+    async def save_dictionary(self, name: str, base_version: str = "",
+                              doc: Any = None) -> str:
+        """Create or update a custom dictionary and register it immediately.
+
+        With base_version the doc is a delta over that standard; without it
+        the doc stands alone. Running sessions keep their built dictionary
+        until restarted; the UI resolves the new content right away.
+        """
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("Dictionary name is required")
+        if name in STANDARD_VERSIONS:
+            raise ValueError(f"{name} is a standard dictionary and cannot be modified")
+        if base_version and base_version not in STANDARD_VERSIONS:
+            raise ValueError(f"Unknown base version: {base_version}")
+        if isinstance(doc, str):
+            doc = json.loads(doc or "{}")
+        doc = doc or {}
+        register_custom(name, base_version or None, doc)
+        now = _fix_timestamp()
+        params = (name, base_version, json.dumps(doc), now, now, None)
+        await self.writer.submit(
+            self._compiled_ops["upsert_dictionary"], (params,), {"name": name})
+        return name
+
+    async def delete_dictionary(self, name: str) -> None:
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT session_id FROM fix_sessions WHERE dictionary = ?", (name,))
+        rows = await cursor.fetchall()
+        await cursor.close()
+        if rows:
+            used = ", ".join(sorted(r["session_id"] for r in rows))
+            raise ValueError(f"Dictionary {name!r} is bound to session(s): {used}")
+        unregister_custom(name)
+        await self.writer.submit(
+            self._compiled_ops["delete_dictionary"], ((name,),), {"name": name})
+
+    def get_dictionary(self, name: str) -> dict[str, Any]:
+        """Resolved dictionary document plus its metadata, for the UI."""
+        meta = custom_meta(name)
+        if meta is None and name not in STANDARD_VERSIONS:
+            raise ValueError(f"Unknown dictionary: {name}")
+        d = FixDictionary(name)
+        return {
+            "name": name,
+            "kind": "standard" if meta is None else "custom",
+            "base_version": (meta or {}).get("base_version", ""),
+            "doc": (meta or {}).get("doc"),
+            "dictionary": {
+                "version": name,
+                "begin_string": d.begin_string(),
+                "header": d.header_tags,
+                "trailer": d.trailer_tags,
+                "fields": d.fields,
+                "enums": d.enums,
+                "messages": d.messages,
+                "groups": d.groups,
+            },
+        }
+
+    def list_dictionaries(self) -> list[dict[str, str]]:
+        out = [{"name": v, "kind": "standard", "base_version": ""}
+               for v in STANDARD_VERSIONS]
+        for name in custom_names():
+            meta = custom_meta(name) or {}
+            out.append({"name": name, "kind": "custom",
+                        "base_version": meta.get("base_version", "")})
+        return out
+
     async def reload_session(self, session_id: str) -> None:
         """Reload a session's config from the database."""
         conn = self.db.read_conn
@@ -1421,9 +1529,14 @@ class FixEngine:
 
         if row:
             config = dict(row)
-            if session_id in self.sessions:
-                self.sessions[session_id].config = config
+            session = self.sessions.get(session_id)
+            if session and (session._transport or session._socket):
+                # Running: swap config only; the live transport reads it
+                # where needed.
+                session.config = config
             else:
+                # Stopped or new: rebuild so __init__-time wiring (dictionary,
+                # message factory) picks up the current config.
                 self.sessions[session_id] = FixSession(self, config)
         elif session_id in self.sessions:
             await self.sessions[session_id].stop()

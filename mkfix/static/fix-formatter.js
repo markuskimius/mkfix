@@ -2,17 +2,17 @@
  * FIX message formatting utilities for the translated message viewer.
  */
 
-import { FIX_ENUMS, translateTag, translateEnum, msgTypeName } from "./fix-dictionary.js";
+import { defaultDictionary } from "./fix-dictionary.js";
 
 /**
  * Build a one-line summary for any FIX message based on its type.
  * E.g., "NewOrderSingle: Buy 100 AAPL @ 150.00 Limit Day"
  */
-export function summarizeMessage(fields) {
+export function summarizeMessage(fields, dict = defaultDictionary) {
   const f = (tag) => fields[tag] || "";
-  const e = (tag) => translateEnum(tag, fields[tag] || "");
+  const e = (tag) => dict.enumName(tag, fields[tag] || "");
   const msgType = f("35");
-  const name = msgTypeName(msgType);
+  const name = dict.msgTypeName(msgType);
 
   switch (msgType) {
     case "D": // NewOrderSingle
