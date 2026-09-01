@@ -147,7 +147,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.14"
+        "text": "mkfix v0.15"
       }
     ],
     "bindStyle": {
@@ -188,30 +188,26 @@
       "styles": {
         "status": [
           {
-            "eq": "ACTIVE",
+            "when": "value == 'ACTIVE'",
             "color": "#4ec9b0",
             "bold": true
           },
           {
-            "eq": "ERROR",
+            "when": "value == 'ERROR'",
             "color": "#f44747",
             "bold": true
           },
           {
-            "eq": "LISTENING",
+            "when": "value == 'LISTENING'",
             "color": "#dcdcaa"
           },
           {
-            "in": [
-              "INITIATING",
-              "LOGON_SENT",
-              "LOGOUT_SENT"
-            ],
+            "when": "CONTAINS(['INITIATING', 'LOGON_SENT', 'LOGOUT_SENT'], value)",
             "color": "#dcdcaa",
             "italic": true
           },
           {
-            "eq": "DOWN",
+            "when": "value == 'DOWN'",
             "color": "#858585"
           }
         ]
@@ -411,12 +407,7 @@
           "unit": "row",
           "enable": {
             "connected": true,
-            "rowMatch": {
-              "status": [
-                "DOWN",
-                "ERROR"
-              ]
-            }
+            "when": "ALL(rows, r -> CONTAINS(['DOWN', 'ERROR'], r.status))"
           },
           "action": {
             "type": "dialog",
@@ -612,12 +603,7 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "rowMatch": {
-              "status": [
-                "DOWN",
-                "ERROR"
-              ]
-            }
+            "when": "ALL(rows, r -> CONTAINS(['DOWN', 'ERROR'], r.status))"
           },
           "action": {
             "type": "transaction",
@@ -633,15 +619,7 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "rowMatch": {
-              "status": [
-                "INITIATING",
-                "LISTENING",
-                "LOGON_SENT",
-                "ACTIVE",
-                "LOGOUT_SENT"
-              ]
-            }
+            "when": "ALL(rows, r -> CONTAINS(['INITIATING', 'LISTENING', 'LOGON_SENT', 'ACTIVE', 'LOGOUT_SENT'], r.status))"
           },
           "action": {
             "type": "transaction",
@@ -657,12 +635,7 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "rowMatch": {
-              "status": [
-                "DOWN",
-                "ERROR"
-              ]
-            }
+            "when": "ALL(rows, r -> CONTAINS(['DOWN', 'ERROR'], r.status))"
           },
           "action": {
             "type": "transaction",
@@ -678,12 +651,7 @@
           "unit": "row",
           "enable": {
             "connected": true,
-            "rowMatch": {
-              "status": [
-                "DOWN",
-                "ERROR"
-              ]
-            }
+            "when": "ALL(rows, r -> CONTAINS(['DOWN', 'ERROR'], r.status))"
           },
           "action": {
             "type": "dialog",
@@ -753,15 +721,21 @@
         "msg_type_name": "Type",
         "raw_message": "Message"
       },
+      "types": {
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
       "styles": {
         "direction": [
           {
-            "eq": "TX",
+            "when": "value == 'TX'",
             "color": "#569cd6",
             "bold": true
           },
           {
-            "eq": "RX",
+            "when": "value == 'RX'",
             "color": "#4ec9b0",
             "bold": true
           }
@@ -769,12 +743,7 @@
       },
       "rowStyle": [
         {
-          "when": {
-            "msg_type_name": [
-              "Heartbeat",
-              "TestRequest"
-            ]
-          },
+          "when": "CONTAINS(['Heartbeat', 'TestRequest'], msg_type_name)",
           "color": "#858585"
         }
       ],
@@ -822,47 +791,48 @@
         "leaves_qty": "Leaves",
         "updated_at": "Updated"
       },
+      "types": {
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
       "styles": {
         "side": [
           {
-            "eq": "Buy",
+            "when": "value == 'Buy'",
             "color": "#4ec9b0"
           },
           {
-            "in": [
-              "Sell",
-              "SellShort",
-              "SellShortExempt",
-              "SellPlus"
-            ],
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
             "color": "#f44747"
           }
         ],
         "status": [
           {
-            "eq": "Filled",
+            "when": "value == 'Filled'",
             "color": "#6a9955",
             "bold": true
           },
           {
-            "eq": "PartiallyFilled",
+            "when": "value == 'PartiallyFilled'",
             "color": "#4ec9b0"
           },
           {
-            "eq": "Replaced",
+            "when": "value == 'Replaced'",
             "color": "#dcdcaa"
           },
           {
-            "eq": "PendingNew",
+            "when": "value == 'PendingNew'",
             "color": "#dcdcaa",
             "italic": true
           },
           {
-            "eq": "Rejected",
+            "when": "value == 'Rejected'",
             "color": "#f44747"
           },
           {
-            "eq": "Canceled",
+            "when": "value == 'Canceled'",
             "color": "#858585",
             "strike": true
           }
@@ -1021,16 +991,7 @@
           "unit": "row",
           "enable": {
             "connected": true,
-            "rowMatch": {
-              "status": [
-                "PendingNew",
-                "New",
-                "PartiallyFilled",
-                "Replaced",
-                "Filled"
-              ],
-              "session_status": "ACTIVE"
-            }
+            "when": "ALL(rows, r -> CONTAINS(['PendingNew', 'New', 'PartiallyFilled', 'Replaced', 'Filled'], r.status) && r.session_status == 'ACTIVE')"
           },
           "action": {
             "type": "dialog",
@@ -1183,15 +1144,7 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "rowMatch": {
-              "status": [
-                "PendingNew",
-                "New",
-                "PartiallyFilled",
-                "Replaced"
-              ],
-              "session_status": "ACTIVE"
-            }
+            "when": "ALL(rows, r -> CONTAINS(['PendingNew', 'New', 'PartiallyFilled', 'Replaced'], r.status) && r.session_status == 'ACTIVE')"
           },
           "action": {
             "type": "dialog",
@@ -1257,52 +1210,53 @@
         "exec_type": "Exec Type",
         "transact_time": "Time"
       },
+      "types": {
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
       "styles": {
         "side": [
           {
-            "eq": "Buy",
+            "when": "value == 'Buy'",
             "color": "#4ec9b0"
           },
           {
-            "in": [
-              "Sell",
-              "SellShort",
-              "SellShortExempt",
-              "SellPlus"
-            ],
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
             "color": "#f44747"
           }
         ],
         "exec_type": [
           {
-            "eq": "Fill",
+            "when": "value == 'Fill'",
             "color": "#6a9955",
             "bold": true
           },
           {
-            "eq": "PartialFill",
+            "when": "value == 'PartialFill'",
             "color": "#4ec9b0"
           },
           {
-            "eq": "Correct",
+            "when": "value == 'Correct'",
             "color": "#dcdcaa"
           },
           {
-            "eq": "Cancel",
+            "when": "value == 'Cancel'",
             "color": "#f44747",
             "strike": true
           },
           {
-            "eq": "Trade",
+            "when": "value == 'Trade'",
             "color": "#6a9955",
             "bold": true
           },
           {
-            "eq": "TradeCorrect",
+            "when": "value == 'TradeCorrect'",
             "color": "#dcdcaa"
           },
           {
-            "eq": "TradeCancel",
+            "when": "value == 'TradeCancel'",
             "color": "#f44747",
             "strike": true
           }
@@ -1351,58 +1305,55 @@
         "leaves_qty": "Leaves",
         "updated_at": "Updated"
       },
+      "types": {
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
       "styles": {
         "side": [
           {
-            "eq": "Buy",
+            "when": "value == 'Buy'",
             "color": "#4ec9b0"
           },
           {
-            "in": [
-              "Sell",
-              "SellShort",
-              "SellShortExempt",
-              "SellPlus"
-            ],
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
             "color": "#f44747"
           }
         ],
         "status": [
           {
-            "eq": "Filled",
+            "when": "value == 'Filled'",
             "color": "#6a9955",
             "bold": true
           },
           {
-            "eq": "PartiallyFilled",
+            "when": "value == 'PartiallyFilled'",
             "color": "#4ec9b0"
           },
           {
-            "eq": "Replaced",
+            "when": "value == 'Replaced'",
             "color": "#dcdcaa"
           },
           {
-            "eq": "PendingNew",
+            "when": "value == 'PendingNew'",
             "color": "#dcdcaa",
             "italic": true
           },
           {
-            "eq": "Rejected",
+            "when": "value == 'Rejected'",
             "color": "#f44747"
           },
           {
-            "eq": "Canceled",
+            "when": "value == 'Canceled'",
             "color": "#858585",
             "strike": true
           }
         ],
         "pending_action": [
           {
-            "in": [
-              "New",
-              "Cancel",
-              "Replace"
-            ],
+            "when": "CONTAINS(['New', 'Cancel', 'Replace'], value)",
             "color": "#dcdcaa",
             "bold": true,
             "background": "#3a2f1b"
@@ -1415,14 +1366,7 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "rowMatch": {
-              "pending_action": [
-                "New",
-                "Cancel",
-                "Replace"
-              ],
-              "session_status": "ACTIVE"
-            }
+            "when": "ALL(rows, r -> CONTAINS(['New', 'Cancel', 'Replace'], r.pending_action) && r.session_status == 'ACTIVE')"
           },
           "action": {
             "type": "dialog",
@@ -1457,14 +1401,7 @@
           "unit": "row",
           "enable": {
             "connected": true,
-            "rowMatch": {
-              "pending_action": [
-                "New",
-                "Cancel",
-                "Replace"
-              ],
-              "session_status": "ACTIVE"
-            }
+            "when": "ALL(rows, r -> CONTAINS(['New', 'Cancel', 'Replace'], r.pending_action) && r.session_status == 'ACTIVE')"
           },
           "action": {
             "type": "dialog",
@@ -1510,16 +1447,7 @@
           "unit": "row",
           "enable": {
             "connected": true,
-            "rowMatch": {
-              "status": [
-                "PendingNew",
-                "New",
-                "PartiallyFilled",
-                "Replaced",
-                "Filled"
-              ],
-              "session_status": "ACTIVE"
-            }
+            "when": "ALL(rows, r -> CONTAINS(['PendingNew', 'New', 'PartiallyFilled', 'Replaced', 'Filled'], r.status) && r.session_status == 'ACTIVE')"
           },
           "action": {
             "type": "dialog",
@@ -1603,52 +1531,53 @@
         "exec_type": "Exec Type",
         "transact_time": "Time"
       },
+      "types": {
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
       "styles": {
         "side": [
           {
-            "eq": "Buy",
+            "when": "value == 'Buy'",
             "color": "#4ec9b0"
           },
           {
-            "in": [
-              "Sell",
-              "SellShort",
-              "SellShortExempt",
-              "SellPlus"
-            ],
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
             "color": "#f44747"
           }
         ],
         "exec_type": [
           {
-            "eq": "Fill",
+            "when": "value == 'Fill'",
             "color": "#6a9955",
             "bold": true
           },
           {
-            "eq": "PartialFill",
+            "when": "value == 'PartialFill'",
             "color": "#4ec9b0"
           },
           {
-            "eq": "Correct",
+            "when": "value == 'Correct'",
             "color": "#dcdcaa"
           },
           {
-            "eq": "Cancel",
+            "when": "value == 'Cancel'",
             "color": "#f44747",
             "strike": true
           },
           {
-            "eq": "Trade",
+            "when": "value == 'Trade'",
             "color": "#6a9955",
             "bold": true
           },
           {
-            "eq": "TradeCorrect",
+            "when": "value == 'TradeCorrect'",
             "color": "#dcdcaa"
           },
           {
-            "eq": "TradeCancel",
+            "when": "value == 'TradeCancel'",
             "color": "#f44747",
             "strike": true
           }
@@ -1660,16 +1589,7 @@
           "unit": "row",
           "enable": {
             "connected": true,
-            "rowMatch": {
-              "exec_type": [
-                "PartialFill",
-                "Fill",
-                "Correct",
-                "Trade",
-                "TradeCorrect"
-              ],
-              "session_status": "ACTIVE"
-            }
+            "when": "ALL(rows, r -> CONTAINS(['PartialFill', 'Fill', 'Correct', 'Trade', 'TradeCorrect'], r.exec_type) && r.session_status == 'ACTIVE')"
           },
           "action": {
             "type": "dialog",
@@ -1723,16 +1643,7 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "rowMatch": {
-              "exec_type": [
-                "PartialFill",
-                "Fill",
-                "Correct",
-                "Trade",
-                "TradeCorrect"
-              ],
-              "session_status": "ACTIVE"
-            }
+            "when": "ALL(rows, r -> CONTAINS(['PartialFill', 'Fill', 'Correct', 'Trade', 'TradeCorrect'], r.exec_type) && r.session_status == 'ACTIVE')"
           },
           "action": {
             "type": "dialog",
@@ -1792,30 +1703,35 @@
         "direction": "Dir",
         "timestamp": "Time"
       },
+      "types": {
+        "valid_until": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        },
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
       "styles": {
         "side": [
           {
-            "eq": "Buy",
+            "when": "value == 'Buy'",
             "color": "#4ec9b0"
           },
           {
-            "in": [
-              "Sell",
-              "SellShort",
-              "SellShortExempt",
-              "SellPlus"
-            ],
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
             "color": "#f44747"
           }
         ],
         "direction": [
           {
-            "eq": "TX",
+            "when": "value == 'TX'",
             "color": "#569cd6",
             "bold": true
           },
           {
-            "eq": "RX",
+            "when": "value == 'RX'",
             "color": "#4ec9b0",
             "bold": true
           }
@@ -1857,30 +1773,35 @@
         "direction": "Dir",
         "timestamp": "Time"
       },
+      "types": {
+        "trade_date": {
+          "type": "time",
+          "parse": "%Y%m%d"
+        },
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
       "styles": {
         "side": [
           {
-            "eq": "Buy",
+            "when": "value == 'Buy'",
             "color": "#4ec9b0"
           },
           {
-            "in": [
-              "Sell",
-              "SellShort",
-              "SellShortExempt",
-              "SellPlus"
-            ],
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
             "color": "#f44747"
           }
         ],
         "direction": [
           {
-            "eq": "TX",
+            "when": "value == 'TX'",
             "color": "#569cd6",
             "bold": true
           },
           {
-            "eq": "RX",
+            "when": "value == 'RX'",
             "color": "#4ec9b0",
             "bold": true
           }
@@ -2009,8 +1930,9 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.14",
-      "mkio": "0.1"
+      "version": "0.15",
+      "mkio": "0.2",
+      "expr": "1"
     },
     "connected": {
       "status.message": "Connected",

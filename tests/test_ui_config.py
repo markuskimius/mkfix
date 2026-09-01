@@ -52,6 +52,21 @@ def _frame_pane_ids(layout: dict) -> list[str]:
     return ids
 
 
+_COND_EQ = re.compile(r"(?:\br\.)?([A-Za-z_]\w*) (?:==|!=) '([^']*)'")
+_COND_IN = re.compile(r"CONTAINS\(\[([^\]]*)\], (?:r\.)?([A-Za-z_]\w*)\)")
+
+
+def _conditions(when):
+    """Column -> values an app.json `when` expression compares it against.
+    Cell rules name the cell `value`; enable gates name the row `r`."""
+    out = {}
+    for name, value in _COND_EQ.findall(when or ""):
+        out.setdefault(name, []).append(value)
+    for values, name in _COND_IN.findall(when or ""):
+        out.setdefault(name, []).extend(re.findall(r"'([^']*)'", values))
+    return out
+
+
 def _walk_dicts(obj):
     """Every dict reachable inside a nested JSON structure."""
     if isinstance(obj, dict):
@@ -380,7 +395,7 @@ class TestServiceReferences:
         assert new["action"]["type"] == "dialog"
         assert new["action"]["dialog"]["submit"]["op"] == "send_new_order"
         assert "minSelected" not in new.get("enable", {})
-        assert "rowMatch" not in new.get("enable", {})
+        assert "when" not in new.get("enable", {})
 
     def test_blotters_split_by_direction(self, app_config):
         """Client and market blotters share services; the direction filter is
@@ -415,13 +430,12 @@ class TestServiceReferences:
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
         assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill"]
         by = {b["label"]: b for b in buttons}
-        pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": "ACTIVE"}
-        assert by["Accept"]["enable"]["rowMatch"] == pending
-        assert by["Reject"]["enable"]["rowMatch"] == pending
+        pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
+        assert _conditions(by["Accept"]["enable"]["when"]) == pending
+        assert _conditions(by["Reject"]["enable"]["when"]) == pending
         assert by["Accept"]["action"]["dialog"]["submit"]["op"] == "accept_request"
         assert by["Reject"]["action"]["dialog"]["submit"]["op"] == "reject_request"
-        assert "pending_action" not in by["Fill"]["enable"].get("rowMatch", {})
-
+        assert "pending_action" not in _conditions(by["Fill"]["enable"].get("when"))
     def test_order_and_trade_actions_gate_on_live_session(self, app_config):
         """Every button that acts on an existing order or trade requires the
         row's session to be up (session_status is the engine-written mirror of
@@ -435,10 +449,24 @@ class TestServiceReferences:
         for pane_id, labels in gated.items():
             by = {b["label"]: b for b in app_config["panes"][pane_id]["buttons"]}
             for label in labels:
-                match = by[label]["enable"]["rowMatch"].get("session_status")
-                assert match == "ACTIVE", \
+                match = _conditions(by[label]["enable"]["when"]).get("session_status")
+                assert match == ["ACTIVE"], \
                     f"{pane_id} {label} must gate on session_status ACTIVE"
 
+    def test_multi_row_gates_check_every_selected_row(self, app_config):
+        """Buttons that submit per selected row must gate on all of them —
+        `row` alone would test the first selected row and let a mixed
+        selection act on rows in the wrong state."""
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            for button in spec.get("buttons", []):
+                when = button.get("enable", {}).get("when")
+                if not when or button.get("unit") == "row":
+                    continue
+                checked += 1
+                assert when.startswith("ALL(rows, r -> "), \
+                    f"pane {pane_id!r} button {button['label']!r} gate must quantify over rows"
+        assert checked
     def test_every_send_action_dialog_offers_extra_tags(self, app_config):
         """Every button that sends a FIX message must expose the optional
         extra_tags field — the whole point of the feature is that no send
@@ -544,9 +572,41 @@ class TestServiceReferences:
 
 
 class TestStyleAndGateValues:
-    """Style rules and rowMatch gates compare against displayed values; a
+    """Style rules and enable gates compare against displayed values; a
     renamed column or display value leaves them silently dead in the browser,
     so both are checked statically like everything else in app.json."""
+
+    LEGACY_KEYS = {"rowMatch", "formatters", "eq", "ne", "in", "lt", "lte",
+                   "gt", "gte", "match"}
+
+    def test_no_pre_expression_config_remains(self, app_config):
+        """mkui 0.2 replaced the eq/in/match rule keys and rowMatch with
+        `when` expressions and dropped formatters; the old keys are ignored
+        without a warning, which would leave a rule matching every row or a
+        button always enabled."""
+        for node in _walk_dicts(app_config):
+            for key in self.LEGACY_KEYS:
+                assert key not in node, f"legacy mkui key {key!r} in {node!r}"
+            if isinstance(node.get("showWhen"), dict):
+                pytest.fail(f"showWhen must be an expression: {node['showWhen']!r}")
+            if isinstance(node.get("when"), dict):
+                pytest.fail(f"when must be an expression: {node['when']!r}")
+
+    def test_expressions_compile_against_mkio(self, app_config):
+        """A `when` or `filter` that mkio's parser rejects is only reported as
+        a browser console warning; the same grammar runs server-side, and
+        `compile` also rejects unknown function names."""
+        from mkio import expr
+
+        env = expr.Env(strict=False)
+        checked = 0
+        for node in _walk_dicts(app_config):
+            for key in ("when", "filter"):
+                source = node.get(key)
+                if isinstance(source, str):
+                    expr.compile(source, env)
+                    checked += 1
+        assert checked > 50
 
     ENGINE_STATUSES = {"DOWN", "ERROR", "INITIATING", "LISTENING",
                        "LOGON_SENT", "ACTIVE", "LOGOUT_SENT"}
@@ -594,19 +654,11 @@ class TestStyleAndGateValues:
                 checked += 1
                 assert col in cols, f"pane {pane_id!r} styles unknown column {col!r}"
             for rule in spec.get("rowStyle", []):
-                for col in rule.get("when", {}):
+                for col in _conditions(rule.get("when")):
                     checked += 1
                     assert col in cols, \
                         f"pane {pane_id!r} rowStyle conditions on unknown column {col!r}"
         assert checked, "no style rules checked"
-
-    @staticmethod
-    def _rule_values(rule):
-        for key in ("eq", "ne"):
-            if key in rule:
-                yield rule[key]
-        yield from rule.get("in", [])
-
     def test_styled_values_exist(self, app_config, toml_config, value_domains):
         checked = 0
         for pane_id, spec in app_config["panes"].items():
@@ -616,43 +668,38 @@ class TestStyleAndGateValues:
                 if domain is None:
                     continue
                 for rule in rules:
-                    for value in self._rule_values(rule):
+                    for value in _conditions(rule.get("when")).get("value", []):
                         checked += 1
                         assert value in domain, \
                             f"pane {pane_id!r} styles {col!r} on unknown value {value!r}"
             for row_rule in spec.get("rowStyle", []):
-                for col, cond in row_rule.get("when", {}).items():
+                for col, values in _conditions(row_rule.get("when")).items():
                     domain = value_domains.get((table, col))
                     if domain is None:
                         continue
-                    values = cond if isinstance(cond, list) \
-                        else list(self._rule_values(cond)) if isinstance(cond, dict) \
-                        else [cond]
                     for value in values:
                         checked += 1
                         assert value in domain, \
                             f"pane {pane_id!r} rowStyle matches {col!r} on unknown value {value!r}"
         assert checked, "no styled values checked"
-
     def test_gate_values_exist(self, app_config, toml_config, value_domains):
-        """rowMatch values are compared as strings against live rows; a value
-        the engine never writes disables the button forever."""
+        """Gate expressions compare against live row values; a value the
+        engine never writes disables the button forever."""
         checked = 0
         for pane_id, spec in app_config["panes"].items():
             table = self._pane_table(spec, toml_config)
             for button in spec.get("buttons", []):
-                for col, expected in button.get("enable", {}).get("rowMatch", {}).items():
+                when = button.get("enable", {}).get("when")
+                for col, values in _conditions(when).items():
                     domain = value_domains.get((table, col))
                     if domain is None:
                         continue
-                    values = expected if isinstance(expected, list) else [expected]
                     for value in values:
                         checked += 1
                         assert value in domain, \
                             f"pane {pane_id!r} button {button['label']!r} gates " \
                             f"{col!r} on unknown value {value!r}"
         assert checked, "no gate values checked"
-
 
 class TestStateBindings:
     def test_select_state_paths_are_declared(self, app_config):
@@ -671,6 +718,68 @@ class TestStateBindings:
         assert panes["message-detail"]["type"] == "message-detail"
 
 
+class TestTimeTypedColumns:
+    """mkui's range-filter time detection recognises only ISO-8601 and mkio
+    refs; FIX-format stamps (`YYYYMMDD-HH:MM:SS.mmm`) must be declared via the
+    `types` pane key or the filter dropdown silently stays a values list."""
+
+    # mkui timeparse.js strptime tokens (lib/timeparse.js TOKEN_RE)
+    TOKEN_RE = {"Y": r"\d{4}", "m": r"\d{1,2}", "d": r"\d{1,2}",
+                "H": r"\d{1,2}", "M": r"\d{1,2}", "S": r"\d{1,2}",
+                "f": r"\d{1,9}", "z": r"(?:Z|[+-]\d{2}:?\d{2})"}
+
+    ENGINE_STAMPED = {"timestamp", "created_at", "updated_at", "transact_time"}
+
+    def _parse_regex(self, fmt: str) -> re.Pattern:
+        out, i = [], 0
+        while i < len(fmt):
+            if fmt[i] == "%":
+                token = fmt[i + 1]
+                assert token in self.TOKEN_RE or token == "%", \
+                    f"unknown strptime token %{token} in {fmt!r}"
+                out.append("%" if token == "%" else self.TOKEN_RE[token])
+                i += 2
+            else:
+                out.append(re.escape(fmt[i]))
+                i += 1
+        return re.compile("".join(out))
+
+    def test_types_name_real_columns(self, app_config):
+        """A `types` entry for a column the pane doesn't show does nothing."""
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            for col, type_spec in spec.get("types", {}).items():
+                checked += 1
+                assert col in spec.get("columns", []), \
+                    f"pane {pane_id!r} types unknown column {col!r}"
+                assert type_spec.get("type") in ("number", "time", "text"), \
+                    f"pane {pane_id!r} column {col!r} has bad type {type_spec!r}"
+        assert checked, "no types entries checked"
+
+    def test_engine_timestamps_declared_and_parseable(self, app_config):
+        """Every displayed engine-stamped timestamp column must declare a
+        time type whose parse matches `_fix_timestamp()` output — a precision
+        change in message.py would otherwise silently kill the range filter."""
+        from mkfix.fix.message import _fix_timestamp
+
+        sample = _fix_timestamp()
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            if spec.get("type") != "mkio-table":
+                continue
+            for col in spec.get("columns", []):
+                if col not in self.ENGINE_STAMPED:
+                    continue
+                checked += 1
+                type_spec = spec.get("types", {}).get(col)
+                assert type_spec, \
+                    f"pane {pane_id!r} shows {col!r} without a time type"
+                assert self._parse_regex(type_spec["parse"]).fullmatch(sample), \
+                    f"pane {pane_id!r} column {col!r} parse " \
+                    f"{type_spec['parse']!r} does not match {sample!r}"
+        assert checked, "no engine-stamped columns checked"
+
+
 class TestVersions:
     def test_expected_version_matches_package(self, app_config):
         """A stale `expect` makes every client report a version mismatch."""
@@ -685,6 +794,17 @@ class TestVersions:
         from mkfix.__main__ import _load_config
         cfg = _load_config(ROOT / "mkfix" / "mkfix.toml")
         assert cfg["version"] == __version__
+
+    def test_expected_framework_versions_match_installed(self, app_config):
+        """`expect.mkio` is checked by 0.x minor and `expect.expr` by exact
+        match against the server, so a stale value makes every client report
+        an incompatible server after a framework upgrade."""
+        from importlib.metadata import version as pkg_version
+        from mkio.expr import LANGUAGE_VERSION
+
+        expect = app_config["mkio"]["expect"]
+        assert expect["mkio"] == ".".join(pkg_version("mkio").split(".")[:2])
+        assert expect["expr"] == str(LANGUAGE_VERSION)
 
     def test_statusbar_version_matches_package(self, app_config):
         major_minor = ".".join(__version__.split(".")[:2])
@@ -707,6 +827,30 @@ class TestVersions:
         assert floors, "mkui missing from dependencies"
         floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
         assert floor >= (0, 1, 52), f"mkui floor {floor} predates live/select support"
+
+    def test_mkui_floor_supports_expression_config(self, app_config):
+        """`when` rules and gates are mkui 0.2.0 expressions; earlier builds
+        ignore them (styles never match, buttons never gate)."""
+        uses_when = any("when" in node for node in _walk_dicts(app_config))
+        if not uses_when:
+            pytest.skip("no expression config")
+
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
+        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        assert floor >= (0, 2, 0), f"mkui floor {floor} predates expression config"
+
+    def test_mkui_floor_supports_time_typed_columns(self, app_config):
+        """The `types` pane key is mkui 0.2.1; earlier builds ignore it and
+        the timestamp columns silently lose their range filters."""
+        uses_types = any("types" in spec for spec in app_config["panes"].values())
+        if not uses_types:
+            pytest.skip("no pane declares column types")
+
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
+        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        assert floor >= (0, 2, 1), f"mkui floor {floor} predates the types pane key"
 
     def test_mkui_floor_supports_session_dialog(self):
         """openDialog before 0.1.54 clips a body taller than the default
