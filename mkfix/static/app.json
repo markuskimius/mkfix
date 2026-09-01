@@ -50,6 +50,66 @@
           "label": "Detail",
           "action": "pane.show",
           "args": "message-detail"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Hide Heartbeats",
+          "action": "table.filter",
+          "args": {
+            "pane": "raw-messages",
+            "filters": {
+              "msg_type_name": {
+                "exclude": [
+                  "Heartbeat",
+                  "TestRequest"
+                ]
+              }
+            },
+            "merge": true
+          }
+        },
+        {
+          "label": "Hide Session Admin",
+          "action": "table.filter",
+          "args": {
+            "pane": "raw-messages",
+            "filters": {
+              "msg_type_name": {
+                "exclude": [
+                  "Heartbeat",
+                  "TestRequest",
+                  "Logon",
+                  "Logout",
+                  "ResendRequest",
+                  "SequenceReset"
+                ]
+              }
+            },
+            "merge": true
+          }
+        },
+        {
+          "label": "Last 15 Minutes",
+          "action": "table.filter",
+          "args": {
+            "pane": "raw-messages",
+            "filters": {
+              "timestamp": {
+                "preset": "15m"
+              }
+            },
+            "merge": true
+          }
+        },
+        {
+          "label": "Show All",
+          "action": "table.filter",
+          "args": {
+            "pane": "raw-messages",
+            "filters": {}
+          }
         }
       ]
     },
@@ -147,7 +207,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.15"
+        "text": "mkfix v0.16"
       }
     ],
     "bindStyle": {
@@ -727,6 +787,13 @@
           "parse": "%Y%m%d-%H:%M:%S.%f"
         }
       },
+      "filters": {
+        "msg_type_name": {
+          "exclude": [
+            "Heartbeat"
+          ]
+        }
+      },
       "styles": {
         "direction": [
           {
@@ -795,6 +862,11 @@
         "updated_at": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
         }
       },
       "styles": {
@@ -1216,6 +1288,11 @@
           "parse": "%Y%m%d-%H:%M:%S.%f"
         }
       },
+      "filters": {
+        "transact_time": {
+          "preset": "today"
+        }
+      },
       "styles": {
         "side": [
           {
@@ -1309,6 +1386,11 @@
         "updated_at": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
         }
       },
       "styles": {
@@ -1535,6 +1617,11 @@
         "transact_time": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "filters": {
+        "transact_time": {
+          "preset": "today"
         }
       },
       "styles": {
@@ -1930,7 +2017,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.15",
+      "version": "0.16",
       "mkio": "0.2",
       "expr": "1"
     },

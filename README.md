@@ -19,7 +19,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   format, streaming live by default, with time-based paging, per-column filters
   (value checklists with exclude/include intent, plus numeric and time-range
   bounds with Today / Last hour / Last 15 min presets on timestamp columns),
-  sorting, and clipboard copy. The same filtering applies across every blotter.
+  sorting, and clipboard copy. Heartbeats are hidden by default (every other
+  message type shows); the Messages menu carries one-click views -- Hide
+  Heartbeats, Hide Session Admin, Last 15 Minutes, and Show All, which also
+  restores hidden heartbeats. The same filtering applies across every blotter,
+  and the order and trade blotters open showing today's activity by default.
 - **Message Detail** -- Field-by-field breakdown of the message selected in
   the Messages viewer, translated through the owning session's dictionary:
   collapsible header/body/trailer sections and repeating-group trees,
@@ -142,7 +146,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.2.0 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.2.2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.2.3 -- Web Components UI
   framework
 
 ## License

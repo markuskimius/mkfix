@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "mkio>=0.2.0",
-    "mkui>=0.2.2",
+    "mkui>=0.2.3",
 ]
 
 [project.optional-dependencies]

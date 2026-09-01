@@ -780,6 +780,107 @@ class TestTimeTypedColumns:
         assert checked, "no engine-stamped columns checked"
 
 
+class TestConfiguredFilters:
+    """`table.filter` menu items and pane `filters` defaults name panes,
+    columns, and values by string; a typo leaves an entry that silently
+    filters nothing (an unknown column) or everything (a value the engine
+    never writes)."""
+
+    PRESETS = {"today", "1h", "15m"}
+    RANGE_KEYS = {"from", "to", "empty", "preset", "type"}
+    VALUES_KEYS = {"include", "exclude"}
+
+    @pytest.fixture(scope="class")
+    def filter_items(self, app_config):
+        items = [item for menu in app_config["menubar"]
+                 for item in menu.get("items", [])
+                 if item.get("action") == "table.filter"]
+        assert items, "no table.filter menu items"
+        return items
+
+    @pytest.fixture(scope="class")
+    def filter_maps(self, app_config, filter_items):
+        """Every configured filter map: (owner, pane spec, filters)."""
+        maps = [(f"menu {item['label']!r}",
+                 app_config["panes"].get(item["args"].get("pane")),
+                 item["args"]["filters"])
+                for item in filter_items]
+        maps += [(f"pane {pane_id!r}", spec, spec["filters"])
+                 for pane_id, spec in app_config["panes"].items()
+                 if "filters" in spec]
+        return maps
+
+    def test_filters_target_existing_pane_columns(self, filter_maps):
+        for owner, pane, filters in filter_maps:
+            assert pane, f"{owner} filters an unknown pane"
+            for col, spec in filters.items():
+                assert col in pane["columns"], \
+                    f"{owner} filters unknown column {col!r}"
+                if isinstance(spec, dict) and not (set(spec) & self.VALUES_KEYS):
+                    keys = set(spec) - self.RANGE_KEYS
+                    assert not keys, \
+                        f"{owner} column {col!r} has unknown filter keys {keys}"
+                    preset = spec.get("preset")
+                    assert preset is None or preset in self.PRESETS, \
+                        f"{owner} uses unknown preset {preset!r}"
+
+    def test_excluded_message_types_exist(self, filter_maps):
+        """Hide views and defaults exclude by displayed message name; a
+        renamed dictionary entry would bring the hidden messages back."""
+        from mkfix.fix.dictionary import FixDictionary
+        names = {m["name"] for m in FixDictionary("FIX.4.2").messages.values()}
+        checked = 0
+        for owner, _, filters in filter_maps:
+            spec = filters.get("msg_type_name")
+            if not isinstance(spec, dict):
+                continue
+            for value in spec.get("exclude", []) + spec.get("include", []):
+                checked += 1
+                assert value in names, \
+                    f"{owner} filters unknown message name {value!r}"
+        assert checked, "no message-name filter values checked"
+
+    def test_show_all_clears_without_merge(self, filter_items):
+        """A reset entry must replace (not merge) with empty filters, or
+        stacked views and the configured defaults could never be undone
+        from the menu."""
+        resets = [i for i in filter_items if i["args"]["filters"] == {}]
+        assert resets, "no Show All reset entry"
+        for item in resets:
+            assert not item["args"].get("merge"), \
+                f"menu {item['label']!r} merges an empty filter map (a no-op)"
+
+    def test_time_preset_columns_are_time_typed(self, filter_maps):
+        """A preset range needs the column's time frame; without a `types`
+        entry the FIX-format stamps parse as nothing and the view goes empty."""
+        checked = 0
+        for owner, pane, filters in filter_maps:
+            for col, spec in filters.items():
+                if isinstance(spec, dict) and "preset" in spec:
+                    checked += 1
+                    assert pane.get("types", {}).get(col, {}).get("type") == "time", \
+                        f"{owner} presets {col!r} without a time type"
+        assert checked, "no preset filters checked"
+
+    def test_messages_exclude_heartbeats_by_default(self, app_config):
+        """The default hides only Heartbeat, and as an *exclusion* — every
+        other message type, including ones never seen at config time, must
+        keep showing; an include list would hide them."""
+        spec = app_config["panes"]["raw-messages"]["filters"]["msg_type_name"]
+        assert spec == {"exclude": ["Heartbeat"]}
+
+    def test_blotters_default_to_today(self, app_config):
+        """Orders and trades open showing today's activity; the rolling
+        preset re-applies on a timer so rows age out at midnight."""
+        for pane_id, col in [("order-blotter", "updated_at"),
+                             ("market-order-blotter", "updated_at"),
+                             ("trade-blotter", "transact_time"),
+                             ("market-trade-blotter", "transact_time")]:
+            spec = app_config["panes"][pane_id]["filters"][col]
+            assert spec == {"preset": "today"}, \
+                f"pane {pane_id!r} default filter is {spec!r}, expected today preset"
+
+
 class TestVersions:
     def test_expected_version_matches_package(self, app_config):
         """A stale `expect` makes every client report a version mismatch."""
@@ -839,6 +940,22 @@ class TestVersions:
         floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
         floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
         assert floor >= (0, 2, 0), f"mkui floor {floor} predates expression config"
+
+    def test_mkui_floor_supports_configured_filters(self, app_config):
+        """`table.filter` and the `filters` pane key are mkui 0.2.3; an
+        earlier build leaves the menu items dead and the default filters
+        silently unapplied."""
+        uses_action = any(
+            item.get("action") == "table.filter"
+            for menu in app_config["menubar"] for item in menu.get("items", [])
+        ) or any("filters" in spec for spec in app_config["panes"].values())
+        if not uses_action:
+            pytest.skip("no configured filters")
+
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
+        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        assert floor >= (0, 2, 3), f"mkui floor {floor} predates table.filter"
 
     def test_mkui_floor_supports_time_typed_columns(self, app_config):
         """The `types` pane key is mkui 0.2.1; earlier builds ignore it and
