@@ -9,9 +9,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Session Management** -- Configure and run FIX sessions as initiator or
   acceptor from a live Sessions blotter showing status and sequence numbers,
   created and edited through modal dialogs. Buttons follow the session's state:
-  Start, Edit, Delete, and Reset Seq only while a session is down, Stop only
-  while it runs; the Reset Seq dialog opens prefilled with the current
-  sequence numbers. Multiple sessions on the same port with different CompIDs.
+  Start, Edit, Delete, Reset Seq, and Change Seq only while a session is
+  down, Stop only while it runs. Reset Seq resets a session in one click:
+  both sequence numbers return to 1 and a resend request from the
+  counterparty never replays anything sent before the reset; Change Seq
+  opens a dialog prefilled with the current sequence numbers for setting
+  them to arbitrary values. Multiple sessions on the same port with
+  different CompIDs.
   Outgoing timestamp granularity is configurable per session: protocol
   standard by default (seconds through FIX 4.1, milliseconds from 4.2), or
   forced to second, millisecond, microsecond, nanosecond, or picosecond. The

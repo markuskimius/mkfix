@@ -88,6 +88,13 @@ def _find_dialog(app_config: dict, op: str) -> dict:
     return dialog
 
 
+def _session_button(app_config: dict, label: str) -> dict:
+    buttons = app_config["panes"]["session-blotter"]["buttons"]
+    button = next((b for b in buttons if b["label"] == label), None)
+    assert button, f"no {label!r} button on the session blotter"
+    return button
+
+
 def _dialog_field_names(dialog: dict) -> set[str]:
     """Named payload fields of a dialog spec, flattening row groups."""
     names = set()
@@ -300,22 +307,42 @@ class TestPaneModuleIntegrity:
             checked += 1
         assert checked, "no panes with buttons and a table-backed service"
 
-    def test_reset_seq_dialog_fields_match_dispatch(self, app_config):
-        """The reset-seq dialog's field names become the fix_cmd payload; the
+    def test_change_seq_dialog_fields_match_dispatch(self, app_config):
+        """The Change Seq dialog's field names become the fix_cmd payload; the
         dispatch reads them by exact key, so a renamed field is silently
-        dropped and the reset falls back to defaults."""
-        dialog = next(
-            (node for node in _walk_dicts(app_config)
-             if node.get("submit", {}).get("op") == "reset_sequence"),
-            None,
-        )
-        assert dialog, "no reset_sequence dialog in app.json"
+        dropped and the change falls back to defaults."""
+        button = _session_button(app_config, "Change Seq")
+        assert button["action"]["type"] == "dialog"
+        dialog = button["action"]["dialog"]
+        assert dialog["submit"]["op"] == "reset_sequence"
         fields = _dialog_field_names(dialog)
-        assert fields, "reset-seq dialog defines no named fields"
+        assert {"session_id", "tx_seq_num", "rx_seq_num"} <= fields
         dispatch = (ROOT / "mkfix" / "services" / "fix_command.py").read_text()
         branch = dispatch.split('command == "reset_sequence"')[1].split("elif")[0]
         for field in fields:
-            assert field in branch, f"reset dialog field {field!r} not read by reset_sequence dispatch"
+            assert field in branch, f"change dialog field {field!r} not read by reset_sequence dispatch"
+
+    def test_reset_seq_is_one_click_reset_to_one(self, app_config):
+        """Reset Seq is a session reset, not a form: it submits reset_sequence
+        straight away with both numbers at 1. The dispatch also defaults to
+        1, but the literals keep the button's meaning explicit."""
+        button = _session_button(app_config, "Reset Seq")
+        action = button["action"]
+        assert action["type"] == "transaction"
+        assert (action["service"], action["op"]) == ("fix_cmd", "reset_sequence")
+        assert action["data"] == {
+            "session_id": "${row.session_id}",
+            "tx_seq_num": 1,
+            "rx_seq_num": 1,
+        }
+
+    def test_seq_buttons_only_while_down(self, app_config):
+        """Both sequence buttons act on a stopped session only: resetting a
+        live session's numbers would desync the counterparty."""
+        for label in ("Reset Seq", "Change Seq"):
+            when = _session_button(app_config, label)["enable"]["when"]
+            assert _conditions(when) == {"status": ["DOWN", "ERROR"]}, \
+                f"{label} gate must allow only DOWN/ERROR: {when}"
 
 
 class TestServiceReferences:

@@ -207,7 +207,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.20"
+        "text": "mkfix v0.21"
       }
     ],
     "bindStyle": {
@@ -766,6 +766,24 @@
         },
         {
           "label": "Reset Seq",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['DOWN', 'ERROR'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "reset_sequence",
+            "data": {
+              "session_id": "${row.session_id}",
+              "tx_seq_num": 1,
+              "rx_seq_num": 1
+            }
+          }
+        },
+        {
+          "label": "Change Seq",
           "unit": "row",
           "enable": {
             "connected": true,
@@ -774,7 +792,7 @@
           "action": {
             "type": "dialog",
             "dialog": {
-              "title": "Reset Seq ${row.session_id}",
+              "title": "Change Seq ${row.session_id}",
               "modal": true,
               "width": 320,
               "fields": [
@@ -807,7 +825,7 @@
                 }
               ],
               "submit": {
-                "label": "Reset",
+                "label": "Change",
                 "service": "fix_cmd",
                 "op": "reset_sequence"
               }
@@ -2078,7 +2096,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.20",
+      "version": "0.21",
       "mkio": "0.2",
       "expr": "1"
     },

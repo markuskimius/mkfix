@@ -141,3 +141,71 @@ async def test_resend_request_replays_recorded_messages(acceptor):
     assert [(r["seq_num"], r["msg_type"]) for r in tx] == [
         (1, "A"), (2, "8"), (1, "4"), (2, "8"), (3, "0")]
     assert parse_fix(tx[3]["raw_message"])["43"] == "Y", "the PossDup copy is recorded as sent"
+
+
+@pytest.mark.asyncio
+async def test_session_reset_fences_replay_at_the_reset(acceptor):
+    """Reset Seq on a down session: both numbers return to 1 — the peer's
+    next Logon at 1 is accepted rather than rejected as too low — and a
+    ResendRequest afterwards is served only from rows recorded after the
+    reset, even where the old space had sent the same numbers."""
+    db, engine, session, peer = acceptor
+
+    await peer.send({"35": "A", "98": "0", "108": "30"})
+    assert (await peer.read())["34"] == "1"
+    for cl_ord_id in ("C1", "C2"):
+        await peer.send({"35": "D", "11": cl_ord_id, "21": "1", "55": "AAPL", "54": "1",
+                         "38": "100", "40": "1", "60": "20260904-10:00:00.000"})
+        await _wait_for(db, f"SELECT * FROM fix_orders WHERE cl_ord_id = '{cl_ord_id}'")
+        await engine.accept_order("ACC", cl_ord_id)
+        assert (await peer.read())["11"] == cl_ord_id
+    assert (session._tx_seq_num, session._rx_seq_num) == (4, 4)
+
+    await peer.send({"35": "5"})
+    assert (await peer.read())["35"] == "5"
+    await _wait_for(db, "SELECT 1 FROM fix_session_state WHERE session_id = 'ACC' "
+                        "AND status = 'LISTENING' AND tx_seq_num = 5 AND rx_seq_num = 5")
+    await peer.close()
+
+    await engine.reset_sequence("ACC", 1, 1)
+
+    assert (session._tx_seq_num, session._rx_seq_num) == (1, 1)
+    await _wait_for(db, "SELECT 1 FROM fix_session_state WHERE session_id = 'ACC' "
+                        "AND tx_seq_num = 1 AND rx_seq_num = 1 AND seq_epoch > 0")
+    (state,) = await _fetch_all(db, "SELECT seq_epoch FROM fix_session_state WHERE session_id = 'ACC'")
+    (last,) = await _fetch_all(db, "SELECT MAX(id) AS id FROM fix_messages")
+    assert state["seq_epoch"] == last["id"], "the fence sits at the last pre-reset row"
+
+    reader, w = await asyncio.open_connection("127.0.0.1", session.config["port"])
+    peer = Peer(reader, w)
+    try:
+        await peer.send({"35": "A", "98": "0", "108": "30"})
+        logon = await peer.read()
+        assert logon["35"] == "A" and logon["34"] == "1", "a fresh space on both sides"
+
+        await peer.send({"35": "D", "11": "C3", "21": "1", "55": "AAPL", "54": "1",
+                         "38": "100", "40": "1", "60": "20260904-10:00:00.000"})
+        await _wait_for(db, "SELECT * FROM fix_orders WHERE cl_ord_id = 'C3'")
+        await engine.accept_order("ACC", "C3")
+        er = await peer.read()
+        assert er["34"] == "2" and er["11"] == "C3"
+
+        await peer.send({"35": "2", "7": "1", "16": "3"})
+        gap_fill = await peer.read()
+        assert (gap_fill["35"], gap_fill["34"], gap_fill["36"]) == ("4", "1", "2")
+        dup = await peer.read()
+        assert dup["35"] == "8" and dup["34"] == "2" and dup["43"] == "Y"
+        assert dup["11"] == "C3", "the post-reset ExecutionReport, not the old one under 2"
+
+        await peer.send({"35": "1", "112": "T1"})
+        hb = await peer.read()
+        assert hb["35"] == "0" and hb["34"] == "3", "nothing from the old space followed"
+
+        old_space = await engine.sent_messages("ACC", 1, 3, 0)
+        assert [r["seq_num"] for r in old_space] == [1, 2, 3], "old rows still exist"
+        fenced = await engine.sent_messages("ACC", 1, 3, state["seq_epoch"])
+        assert [(r["seq_num"], r["msg_type"]) for r in fenced] == [(1, "4"), (2, "8")], \
+            "post-reset rows only (the GapFill just replayed is the newest under 1)"
+        assert parse_fix(fenced[1]["raw_message"])["11"] == "C3"
+    finally:
+        await peer.close()
