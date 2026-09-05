@@ -52,6 +52,13 @@ columns = { name = "TEXT PRIMARY KEY", base_version = "TEXT DEFAULT ''", doc = "
 [tables.fix_replay_jobs]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", file_path = "TEXT NOT NULL", status = "TEXT DEFAULT 'loaded'", target_session = "TEXT DEFAULT ''", speed = "REAL DEFAULT 1.0", msg_filter = "TEXT DEFAULT ''", total_messages = "INTEGER DEFAULT 0", sent_messages = "INTEGER DEFAULT 0", error_text = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''" }
 
+# Saved window layouts for mkui's Layout menu: one row per save, the newest
+# being the user's current layout and the older ones its restorable history
+# (the client prunes through `delete`). mkfix has no login, so every save
+# lands under owner '' — the default history shared by everyone on this server.
+[tables.mkui_layouts]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", app = "TEXT NOT NULL DEFAULT ''", owner = "TEXT NOT NULL DEFAULT ''", saved = "TEXT DEFAULT CURRENT_TIMESTAMP", layout = "TEXT NOT NULL" }
+
 # ─��─ Transaction Services ───────────────────────────────────────────
 
 [services.session_mgmt]
@@ -97,6 +104,26 @@ sql = "SELECT session_id FROM fix_sessions ORDER BY session_id"
 [services.dictionaries_list]
 protocol = "reqrep"
 sql = "SELECT '' AS name, '(standard for version)' AS label UNION ALL SELECT v, v FROM (SELECT 'FIX.4.0' AS v UNION ALL SELECT 'FIX.4.1' UNION ALL SELECT 'FIX.4.2' UNION ALL SELECT 'FIX.4.3' UNION ALL SELECT 'FIX.4.4' UNION ALL SELECT 'FIX.5.0' UNION ALL SELECT 'FIX.5.0SP1' UNION ALL SELECT 'FIX.5.0SP2') UNION ALL SELECT name, name FROM fix_dictionaries ORDER BY name"
+
+# mkui's layout store: the shapes `mkui init` scaffolds, minus the `access`
+# pre-checks, which need a login (`_mkio_users`) mkfix does not have.
+[services.mkui_layouts]
+protocol = "transaction"
+description = "Save and delete window layouts"
+
+[services.mkui_layouts.ops]
+save = { table = "mkui_layouts", op_type = "insert", fields = ["app", "owner", "layout"] }
+delete = { table = "mkui_layouts", op_type = "delete", key = ["id"] }
+
+[services.mkui_layouts_list]
+protocol = "reqrep"
+description = "Saved layouts of one app and owner, newest first"
+sql = "SELECT id, saved FROM mkui_layouts WHERE app = :app AND owner = :owner ORDER BY id DESC"
+
+[services.mkui_layouts_get]
+protocol = "reqrep"
+description = "One saved layout"
+sql = "SELECT id, saved, layout FROM mkui_layouts WHERE id = :id"
 
 # ─── Query Services ─────────────────────────────────────────────────
 

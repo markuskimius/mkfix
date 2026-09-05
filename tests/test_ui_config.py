@@ -598,6 +598,124 @@ class TestServiceReferences:
         assert hosts["trade-blotter"] != hosts["market-trade-blotter"]
 
 
+class TestSavedLayouts:
+    """mkui's Layout menu is opt-in per app and its three halves fail silently
+    when one is missing: the `layouts` block constructs the LayoutManager (no
+    block, no `layout.*` actions), the menubar declares the entries, and the
+    server carries the store the client calls. Keep them together."""
+
+    def _layout_menu(self, app_config):
+        menus = [m for m in app_config["menubar"] if m.get("label") == "Layout"]
+        assert len(menus) == 1, "expected exactly one Layout menu"
+        return menus[0]
+
+    def test_layouts_block_enables_the_feature(self, app_config):
+        layouts = app_config.get("layouts")
+        assert isinstance(layouts, dict), "app.json needs a `layouts` block for the Layout menu to do anything"
+        assert layouts.get("key") == "mkfix", "store key must not ride on the app title"
+        assert layouts.get("store", "mkio") == "mkio"
+
+    def test_layout_menu_wires_every_action(self, app_config):
+        items = self._layout_menu(app_config)["items"]
+        actions = {i.get("action") for i in items if "action" in i}
+        assert actions == {"layout.save", "layout.reset"}
+        assert any(i.get("layouts") is True for i in items), "Restore needs a `layouts: true` submenu"
+
+    def test_layout_menu_precedes_window_menu(self, app_config):
+        labels = [m.get("label") for m in app_config["menubar"]]
+        assert labels.index("Layout") == labels.index("Window") - 1
+
+    def test_server_carries_the_mkio_layout_store(self, toml_config):
+        """The shapes mkui's MkioLayoutStore calls (`mkui init` scaffold)."""
+        services = toml_config["services"]
+        tables = toml_config["tables"]
+        assert set(tables["mkui_layouts"]["columns"]) >= {"id", "app", "owner", "saved", "layout"}
+        store = services["mkui_layouts"]
+        assert store["protocol"] == "transaction"
+        assert set(store["ops"]) == {"save", "delete"}
+        assert set(store["ops"]["save"]["fields"]) == {"app", "owner", "layout"}
+        assert store["ops"]["save"]["table"] == "mkui_layouts"
+        assert store["ops"]["delete"]["key"] == ["id"]
+        for name, params in (("mkui_layouts_list", {":app", ":owner"}), ("mkui_layouts_get", {":id"})):
+            svc = services[name]
+            assert svc["protocol"] == "reqrep"
+            assert "mkui_layouts" in svc["sql"]
+            assert params <= set(re.findall(r":\w+", svc["sql"]))
+
+    def test_layout_store_has_no_login_gated_access(self, toml_config):
+        """mkfix has no `_mkio_users`; an `access` view naming it would fail."""
+        assert "_mkio_users" not in toml_config["tables"]
+        services = toml_config["services"]
+        for name in ("mkui_layouts", "mkui_layouts_list", "mkui_layouts_get"):
+            assert "access" not in services[name]
+        for op in services["mkui_layouts"]["ops"].values():
+            assert "access" not in op
+
+
+    def test_store_matches_the_client_calls(self, toml_config):
+        """mkui's MkioLayoutStore (lib/layouts.js) sends `save` with app/owner/
+        layout, `delete` with id, and requests `_list` with app/owner and `_get`
+        with id. Read those shapes off the installed client so the TOML can't
+        drift from what the client actually sends."""
+        import mkui
+        src = (Path(mkui.static_dir) / "src" / "lib" / "layouts.js").read_text()
+        save = re.search(r"\{\s*app:[^}]*owner,?\s*layout:[^}]*\}\s*,\s*\{\s*op:\s*\"save\"", src)
+        assert save, "client save payload not found in mkui's layouts.js"
+        assert re.search(r"\{\s*id\s*\},\s*\{\s*op:\s*\"delete\"", src)
+        assert re.search(r"request\(this\._list,\s*\{\s*app:[^}]*owner\s*\}", src)
+        assert re.search(r"request\(this\._get,\s*\{\s*id\s*\}", src)
+        ops = toml_config["services"]["mkui_layouts"]["ops"]
+        assert set(ops["save"]["fields"]) == {"app", "owner", "layout"}
+        assert set(ops["save"].get("defaults", {})) == set(), "the client always sends every field"
+
+    def test_store_sql_round_trips_a_layout(self, toml_config):
+        """Drive the table and the three services' SQL through sqlite the way
+        the client does: save twice, list newest first, get one, delete one."""
+        import sqlite3
+        tables = toml_config["tables"]
+        services = toml_config["services"]
+        cols = tables["mkui_layouts"]["columns"]
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.execute("CREATE TABLE mkui_layouts (" + ", ".join(f"{k} {v}" for k, v in cols.items()) + ")")
+        fields = services["mkui_layouts"]["ops"]["save"]["fields"]
+        insert = f"INSERT INTO mkui_layouts ({', '.join(fields)}) VALUES ({', '.join(':' + f for f in fields)})"
+        for n in (1, 2):
+            db.execute(insert, {"app": "mkfix", "owner": "", "layout": json.dumps({"version": 1, "n": n})})
+        db.execute(insert, {"app": "other-app", "owner": "", "layout": "{}"})
+        db.execute(insert, {"app": "mkfix", "owner": "someone", "layout": "{}"})
+
+        rows = db.execute(services["mkui_layouts_list"]["sql"], {"app": "mkfix", "owner": ""}).fetchall()
+        assert [r["id"] for r in rows] == [2, 1], "newest first, scoped to app and owner"
+        assert set(rows[0].keys()) == {"id", "saved"}
+        assert rows[0]["saved"], "saved must default to the insert time"
+
+        got = db.execute(services["mkui_layouts_get"]["sql"], {"id": 1}).fetchone()
+        assert json.loads(got["layout"]) == {"version": 1, "n": 1}
+        assert set(got.keys()) == {"id", "saved", "layout"}
+
+        key = services["mkui_layouts"]["ops"]["delete"]["key"]
+        db.execute(f"DELETE FROM mkui_layouts WHERE {' AND '.join(k + ' = :' + k for k in key)}", {"id": 2})
+        rows = db.execute(services["mkui_layouts_list"]["sql"], {"app": "mkfix", "owner": ""}).fetchall()
+        assert [r["id"] for r in rows] == [1]
+
+    def test_store_passes_mkio_config_validation(self):
+        """mkio normalizes and validates transaction ops at load; a bad op_type,
+        a missing key, or an unknown table fails here rather than at startup."""
+        from mkfix.__main__ import _load_config
+        cfg = _load_config(ROOT / "mkfix" / "mkfix.toml")
+        store = cfg["services"]["mkui_layouts"]
+        assert store["protocol"] == "transaction"
+        for name in ("mkui_layouts_list", "mkui_layouts_get"):
+            assert cfg["services"][name]["protocol"] == "reqrep"
+        assert "mkui_layouts" in cfg["tables"]
+
+    def test_retention_defaults_are_sane(self, app_config):
+        layouts = app_config["layouts"]
+        assert layouts["keep"] > 0 and layouts["keepDays"] > 0, "both at 0 would keep every save forever"
+        assert layouts.get("autoload", True) is True, "the newest save must come back at startup"
+
+
 class TestStyleAndGateValues:
     """Style rules and enable gates compare against displayed values; a
     renamed column or display value leaves them silently dead in the browser,

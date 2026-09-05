@@ -89,6 +89,12 @@ A FIX protocol testing engine for capital markets connectivity, built on
   missing-required-field tests.
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
+- **Saved Layouts** -- The Layout menu saves the window arrangement (frame
+  positions, tabs, and each open table's filters, sort, and visible columns)
+  on the server and restores the newest save at startup; earlier saves stay
+  restorable from the Restore Layout submenu, and Reset to Default returns to
+  the shipped arrangement. mkfix has no login, so the history is shared by
+  everyone using the same server.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
   tracking.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
@@ -177,7 +183,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.2.0 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.2.8 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.2.9 -- Web Components UI
   framework
 
 ## License
