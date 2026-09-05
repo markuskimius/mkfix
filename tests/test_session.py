@@ -265,9 +265,10 @@ class TestRemoteLogoutStatus:
 
     @pytest.mark.asyncio
     async def test_stop_while_active_still_reports_down(self):
-        """A user-initiated stop tears the listener down, so DOWN stays right."""
+        """A user-initiated stop tears the listener down, so DOWN stays right
+        — even against a peer that never confirms the Logout."""
         engine = _make_engine()
-        session = _make_session(engine)
+        session = _make_session(engine, logout_test_request=0, logout_timeout=0.05)
         session._transport = FixListener(session)
         socket = _make_socket([_make_logon_msg()])
 
@@ -507,3 +508,237 @@ class TestSequenceEpoch:
 def parse_fix_field(raw, tag):
     from mkfix.fix.message import parse_fix
     return parse_fix(raw)[tag]
+
+
+class _Peer:
+    """A counterparty behind a mock socket: every message the session writes
+    is answered from a per-MsgType script, replies landing on the inbox the
+    session reads from. None on the inbox is the peer hanging up."""
+
+    def __init__(self, replies=None):
+        self.replies = replies or {}
+        self.inbox: asyncio.Queue = asyncio.Queue()
+        self.sent: list[FixMessage] = []
+        self.seq = 1
+        self.socket = MagicMock()
+        self.socket.closed = False
+        self.socket.close = AsyncMock()
+        self.socket.read = self._read
+        self.socket.write = self._write
+        self.inbox.put_nowait(self._msg({"35": "A", "98": "0", "108": "30"}))
+
+    def _msg(self, fields):
+        msg = FixMessage(fields)
+        msg.sendprep(FixDictionary("FIX.4.2"), "PEER", "SELF", self.seq)
+        self.seq += 1
+        return msg
+
+    async def _read(self):
+        msg = await self.inbox.get()
+        if msg is None:
+            raise ConnectionError("peer closed")
+        return msg
+
+    async def _write(self, msg, seq):
+        msg.sendprep(FixDictionary("FIX.4.2"), "SENDER", "TARGET", seq)
+        self.sent.append(msg)
+        for fields in self.replies.get(msg["35"], lambda m: [])(msg):
+            self.inbox.put_nowait(None if fields is None else self._msg(fields))
+        return msg
+
+    @property
+    def sent_types(self):
+        return [m["35"] for m in self.sent]
+
+
+async def _run_until_active(session, peer):
+    task = asyncio.create_task(session.on_connect(peer.socket, is_initiator=False))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if session._status == "ACTIVE":
+            return task
+    raise AssertionError(f"session never went ACTIVE: {session._status}")
+
+
+def _confirming_peer():
+    """Answers a TestRequest with the echoing Heartbeat and a Logout with the
+    confirming Logout, as the spec asks of the logout acceptor."""
+    return _Peer({
+        "1": lambda m: [{"35": "0", "112": m["112"]}],
+        "5": lambda m: [{"35": "5"}],
+    })
+
+
+class TestLocalLogoutHandshake:
+    """A locally initiated stop follows the session protocol's termination:
+    TestRequest, Logout, then wait for the confirming Logout."""
+
+    @pytest.mark.asyncio
+    async def test_test_request_then_logout_then_waits_for_confirmation(self):
+        engine = _make_engine()
+        session = _make_session(engine)
+        session._transport = FixListener(session)
+        peer = _confirming_peer()
+        task = await _run_until_active(session, peer)
+
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert peer.sent_types == ["A", "1", "5"]
+        assert peer.sent[1].get("112", "").startswith("MKFIX-LOGOUT-")
+        rx_types = [c.args[2]["35"] for c in engine.record_message.call_args_list if c.args[1] == "RX"]
+        assert rx_types == ["A", "0", "5"], "the echo Heartbeat and the confirming Logout were read"
+        assert session._status == "DOWN"
+        assert session._transport is None
+        assert session._socket is None
+
+    @pytest.mark.asyncio
+    async def test_confirming_logout_is_not_answered_and_seq_is_persisted(self):
+        engine = _make_engine()
+        session = _make_session(engine)
+        session._transport = FixListener(session)
+        peer = _confirming_peer()
+        task = await _run_until_active(session, peer)
+
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert peer.sent_types.count("5") == 1, "their confirming Logout gets no Logout back"
+        persisted = [c.args[1] for c in engine.update_session_state.call_args_list if "rx_seq_num" in c.args[1]]
+        assert persisted[-1]["rx_seq_num"] == 4, "Logon, Heartbeat, Logout consumed 1-3"
+
+    @pytest.mark.asyncio
+    async def test_resend_request_after_our_logout_is_still_answered(self):
+        """After Logout the initiator sends nothing unsolicited, but a
+        ResendRequest from the acceptor must still be honored."""
+        engine = _make_engine()
+        session = _make_session(engine, logout_test_request=0)
+        session._transport = FixListener(session)
+        peer = _Peer({
+            "5": lambda m: [{"35": "2", "7": "1", "16": "0"}, {"35": "5"}],
+        })
+        task = await _run_until_active(session, peer)
+
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert peer.sent_types == ["A", "5", "4"], "the GapFill answers the resend after our Logout"
+        assert session._status == "DOWN"
+
+    @pytest.mark.asyncio
+    async def test_test_request_can_be_switched_off(self):
+        engine = _make_engine()
+        session = _make_session(engine, logout_test_request=0)
+        session._transport = FixListener(session)
+        peer = _confirming_peer()
+        task = await _run_until_active(session, peer)
+
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert peer.sent_types == ["A", "5"]
+        assert session._status == "DOWN"
+
+    @pytest.mark.asyncio
+    async def test_unanswered_test_request_does_not_block_the_logout(self):
+        engine = _make_engine()
+        session = _make_session(engine, heartbeat_interval=0.05)
+        session._transport = FixListener(session)
+        peer = _Peer({"5": lambda m: [{"35": "5"}]})
+        task = await _run_until_active(session, peer)
+
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert peer.sent_types == ["A", "1", "5"]
+        assert session._status == "DOWN"
+
+    @pytest.mark.asyncio
+    async def test_silent_peer_times_out(self):
+        engine = _make_engine()
+        session = _make_session(engine, logout_test_request=0, logout_timeout=0.05)
+        session._transport = FixListener(session)
+        peer = _Peer()
+        task = await _run_until_active(session, peer)
+
+        started = asyncio.get_event_loop().time()
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert peer.sent_types == ["A", "5"]
+        assert 0.05 <= asyncio.get_event_loop().time() - started < 1
+        assert session._status == "DOWN"
+
+    @pytest.mark.asyncio
+    async def test_peer_dropping_instead_of_confirming_ends_the_wait(self):
+        engine = _make_engine()
+        session = _make_session(engine, logout_test_request=0, logout_timeout=30)
+        session._transport = FixListener(session)
+        peer = _Peer({"5": lambda m: [None]})
+        task = await _run_until_active(session, peer)
+
+        started = asyncio.get_event_loop().time()
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert asyncio.get_event_loop().time() - started < 1
+        assert session._status == "DOWN"
+
+    @pytest.mark.asyncio
+    async def test_remote_logout_persists_the_consumed_seq_num(self):
+        """The counterparty's Logout takes a sequence number like any other
+        message; the read loop's early return must not skip persisting it."""
+        engine = _make_engine()
+        session = _make_session(engine)
+        session._transport = FixListener(session)
+        socket = _make_socket([_make_logon_msg(), _make_logout_msg(seq_num=2)])
+
+        await session.on_connect(socket, is_initiator=False)
+        session._heartbeat_task.cancel()
+        await asyncio.gather(session._heartbeat_task, return_exceptions=True)
+
+        persisted = [c.args[1] for c in engine.update_session_state.call_args_list if "rx_seq_num" in c.args[1]]
+        assert persisted[-1]["rx_seq_num"] == 3
+
+    @pytest.mark.asyncio
+    async def test_stop_after_peer_hung_up_sends_nothing(self):
+        """The peer's EOF can end the read loop before on_connect's cleanup
+        runs; a stop landing in that window must not spend a TestRequest
+        and a heartbeat interval on a connection that is already gone."""
+        engine = _make_engine()
+        session = _make_session(engine, heartbeat_interval=30)
+        session._transport = FixListener(session)
+        peer = _Peer()
+        task = await _run_until_active(session, peer)
+
+        peer.inbox.put_nowait(None)
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if session._read_task.done():
+                break
+        assert session._read_task.done()
+        assert session._status == "ACTIVE", "cleanup has not run yet"
+
+        started = asyncio.get_event_loop().time()
+        await session.stop()
+        await asyncio.gather(task, return_exceptions=True)
+
+        assert peer.sent_types == ["A"]
+        assert asyncio.get_event_loop().time() - started < 1
+        assert session._status == "DOWN"
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_loop_exits_when_socket_is_detached(self):
+        """Cleanup sets _socket to None while the loop sleeps; waking up
+        into a send on None used to raise instead of returning."""
+        engine = _make_engine()
+        session = _make_session(engine, heartbeat_interval=0.01)
+        session._socket = _make_socket([])
+
+        loop_task = asyncio.create_task(session._heartbeat_loop())
+        await asyncio.sleep(0)
+        session._socket = None
+        await asyncio.wait_for(loop_task, timeout=1)
+
+        assert loop_task.exception() is None
+        assert engine.record_message.call_count == 0

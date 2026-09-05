@@ -56,6 +56,8 @@ class FixSession:
         self._status: str = "DOWN"
         self._last_rx_time: float = 0
         self._test_req_pending: str | None = None
+        self._logout_test_id: str | None = None
+        self._logout_heartbeat: asyncio.Event | None = None
         self._stopping = False
 
     @property
@@ -93,19 +95,11 @@ class FixSession:
 
         if self._socket and not self._socket.closed and self._status == "ACTIVE":
             try:
-                logout = self.factory.logout()
-                await self._send(logout)
-                await self.set_status("LOGOUT_SENT")
+                await self._initiate_logout()
             except (ConnectionError, OSError):
                 pass
 
-        if self._heartbeat_task and not self._heartbeat_task.done():
-            self._heartbeat_task.cancel()
-            try:
-                await self._heartbeat_task
-            except asyncio.CancelledError:
-                pass
-        self._heartbeat_task = None
+        await self._cancel_heartbeat()
 
         if self._read_task and not self._read_task.done():
             self._read_task.cancel()
@@ -124,6 +118,64 @@ class FixSession:
             self._transport = None
 
         await self.set_status("DOWN")
+
+    async def _initiate_logout(self) -> None:
+        """Terminate the way the session protocol asks: a TestRequest first,
+        whose answering Heartbeat shows the counterparty has processed
+        everything sent before it (a recommendation, so configurable), then
+        Logout, then wait for the confirming Logout — the read loop exits on
+        it — or for the peer to drop, giving up after logout_timeout (twice
+        the heartbeat interval unless configured). After our Logout nothing
+        goes out unsolicited, so the heartbeat loop stops before it."""
+        if self._connection_gone():
+            return
+        interval = float(self.config.get("heartbeat_interval") or 30)
+        timeout = float(self.config.get("logout_timeout") or 0) or interval * 2
+
+        if bool(self.config.get("logout_test_request", 1)):
+            await self._confirm_peer_caught_up(interval)
+            if self._connection_gone():
+                return
+
+        await self._cancel_heartbeat()
+        await self._send(self.factory.logout())
+        await self.set_status("LOGOUT_SENT")
+        if self._read_task and not self._read_task.done():
+            await asyncio.wait({self._read_task}, timeout=timeout)
+
+    async def _confirm_peer_caught_up(self, timeout: float) -> None:
+        """Send a TestRequest and wait for the Heartbeat echoing its id, or
+        for the read loop to end, for at most one heartbeat interval; a
+        silent peer doesn't block the Logout, only the confirmation."""
+        self._logout_test_id = f"MKFIX-LOGOUT-{int(asyncio.get_event_loop().time())}"
+        self._logout_heartbeat = asyncio.Event()
+        await self._send(self.factory.test_request(self._logout_test_id))
+
+        waiter = asyncio.ensure_future(self._logout_heartbeat.wait())
+        try:
+            if not self._connection_gone():
+                await asyncio.wait({waiter, self._read_task}, timeout=timeout,
+                                   return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            waiter.cancel()
+            self._logout_test_id = None
+            self._logout_heartbeat = None
+
+    def _connection_gone(self) -> bool:
+        """The read loop has ended (peer hung up), or on_connect's cleanup
+        has already detached the socket."""
+        if self._read_task is not None and self._read_task.done():
+            return True
+        return self._socket is None or self._socket.closed
+
+    async def _cancel_heartbeat(self) -> None:
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+        self._heartbeat_task = None
 
     async def on_connect(self, socket: FixSocket, is_initiator: bool) -> None:
         """Called by transport when TCP connection is established."""
@@ -235,14 +287,20 @@ class FixSession:
                 self._rx_seq_num = rx_seq + 1
 
             if msg_type == "0":
-                pass
+                if self._logout_heartbeat and msg.get("112") == self._logout_test_id:
+                    self._logout_heartbeat.set()
             elif msg_type == "1":
                 hb = self.factory.heartbeat(test_req_id=msg.get("112"))
                 await self._send(hb)
             elif msg_type == "5":
+                # Their Logout either opens the handshake (answer it) or
+                # confirms ours (LOGOUT_SENT: stop() is waiting for this
+                # loop to end). Persist first: the return skips the
+                # loop-bottom persist, and the Logout consumed a number.
                 if self._status == "ACTIVE":
                     response = self.factory.logout()
                     await self._send(response)
+                await self._persist_seq_nums()
                 return
             elif msg_type == "2":
                 await self._answer_resend_request(msg)
@@ -264,7 +322,7 @@ class FixSession:
 
         while self._socket and not self._socket.closed:
             await asyncio.sleep(interval)
-            if self._socket and self._socket.closed:
+            if not self._socket or self._socket.closed:
                 return
 
             now = asyncio.get_event_loop().time()

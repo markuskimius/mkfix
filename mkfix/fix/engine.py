@@ -103,8 +103,9 @@ class FixEngine:
         for task in list(self._replay_tasks.values()):
             await task.stop()
         self._replay_tasks.clear()
-        for session in list(self.sessions.values()):
-            await session.stop()
+        # Each stop may wait up to its logout_timeout for the peer's
+        # confirming Logout, so the sessions log out side by side.
+        await asyncio.gather(*(s.stop() for s in list(self.sessions.values())))
         self.sessions.clear()
 
     def _compile_ops(self) -> None:

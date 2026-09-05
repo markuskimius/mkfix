@@ -1106,3 +1106,51 @@ class TestDictionaryConfig:
             for code, name in values.items():
                 assert generated["enums"].get(tag, {}).get(code) == name, \
                     f"enum {tag}={code} lost its curated name"
+
+
+class TestSessionDialogs:
+    """The New and Edit session dialogs are the only way a session's
+    settings get set, so a setting missing from one of them is unreachable,
+    and a New default drifting from the TOML default means the dialog and a
+    scripted insert create different sessions."""
+
+    SETTINGS = ("heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon")
+
+    def _dialogs(self, app_config):
+        found = {}
+        for node in _walk_dicts(app_config):
+            submit = node.get("submit")
+            if isinstance(submit, dict) and submit.get("service") == "session_mgmt":
+                found[submit["op"]] = node
+        assert set(found) >= {"add", "update"}, sorted(found)
+        return found
+
+    def _fields(self, dialog):
+        out = {}
+        for item in dialog.get("fields", []):
+            for f in item.get("row", [item]):
+                if "name" in f:
+                    out[f["name"]] = f
+        return out
+
+    def test_new_defaults_match_toml_defaults(self, app_config, toml_config):
+        defaults = toml_config["services"]["session_mgmt"]["ops"]["add"][0]["defaults"]
+        fields = self._fields(self._dialogs(app_config)["add"])
+        for name in self.SETTINGS:
+            assert name in fields, f"New Session dialog lacks {name}"
+            assert str(fields[name]["value"]) == str(defaults[name]), \
+                f"New Session default for {name} is {fields[name]['value']!r}, TOML says {defaults[name]!r}"
+
+    def test_edit_prefills_every_setting_from_the_row(self, app_config):
+        fields = self._fields(self._dialogs(app_config)["update"])
+        for name in self.SETTINGS:
+            assert name in fields, f"Edit Session dialog lacks {name}"
+            assert fields[name]["value"] == "${row.%s}" % name
+
+    def test_logout_settings_are_columns_and_op_fields(self, toml_config):
+        columns = toml_config["tables"]["fix_sessions"]["columns"]
+        assert columns["logout_timeout"] == "INTEGER DEFAULT 0", "0 = twice the heartbeat interval"
+        assert columns["logout_test_request"] == "INTEGER DEFAULT 1", "the spec recommends it"
+        ops = toml_config["services"]["session_mgmt"]["ops"]
+        for op in ("add", "update"):
+            assert {"logout_timeout", "logout_test_request"} <= set(ops[op][0]["fields"]), op

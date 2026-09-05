@@ -1515,3 +1515,28 @@ class TestFix44ReplaceStatus:
         assert er["150"] == "5"
         orders = await _fetch_all(db, "SELECT * FROM fix_orders")
         assert orders[0]["status"] == "Replaced"
+
+
+class TestEngineStop:
+    @pytest.mark.asyncio
+    async def test_sessions_log_out_concurrently(self, stack):
+        """Each stop may wait up to its logout timeout for the peer's
+        confirming Logout; shutdown must pay that once, not per session."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        _, _, engine = stack
+
+        async def slow_stop():
+            await asyncio.sleep(0.1)
+
+        for sid in ("A", "B", "C"):
+            session = MagicMock()
+            session.stop = AsyncMock(side_effect=slow_stop)
+            engine.sessions[sid] = session
+
+        started = asyncio.get_event_loop().time()
+        await engine.stop()
+        elapsed = asyncio.get_event_loop().time() - started
+
+        assert elapsed < 0.25, f"stops ran one after another: {elapsed:.2f}s"
+        assert engine.sessions == {}

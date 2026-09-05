@@ -14,7 +14,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   sequence numbers. Multiple sessions on the same port with different CompIDs.
   Outgoing timestamp granularity is configurable per session: protocol
   standard by default (seconds through FIX 4.1, milliseconds from 4.2), or
-  forced to second, millisecond, microsecond, nanosecond, or picosecond.
+  forced to second, millisecond, microsecond, nanosecond, or picosecond. The
+  session dialog also sets the logout timeout (0 = twice the heartbeat
+  interval) and whether a TestRequest precedes the Logout on Stop.
 - **Message Viewer** -- Live virtualized table of FIX messages in tag=value
   format, streaming live by default, with time-based paging, per-column filters
   (value checklists with exclude/include intent, plus numeric and time-range
@@ -89,7 +91,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages
   go out again as PossDups under their original sequence numbers, admin runs
-  collapse into GapFills.
+  collapse into GapFills. Stopping a session logs out the way the spec asks:
+  a TestRequest to confirm the counterparty is caught up (optional per
+  session), then Logout, then a wait for the confirming Logout -- answering
+  any ResendRequest in the meantime -- bounded by a per-session logout
+  timeout that defaults to twice the heartbeat interval.
 - **Exact Message Storage** -- Every message is stored as its wire bytes (SOH
   delimiters included), so a value containing a literal `|` displays and
   retransmits correctly; the pipe form is only a rendering.

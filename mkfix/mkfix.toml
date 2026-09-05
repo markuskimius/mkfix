@@ -13,7 +13,7 @@ batch_max_wait_ms = 2.0
 # a query service with JOIN sql drops change events from non-primary tables, so
 # the sessions blotter can only live-update off a single table.
 [tables.fix_sessions]
-columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", dictionary = "TEXT DEFAULT ''", timestamp_precision = "TEXT DEFAULT ''", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1" }
+columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", dictionary = "TEXT DEFAULT ''", timestamp_precision = "TEXT DEFAULT ''", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", logout_timeout = "INTEGER DEFAULT 0", logout_test_request = "INTEGER DEFAULT 1", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1" }
 
 [tables.fix_session_state]
 columns = { session_id = "TEXT PRIMARY KEY", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1", last_tx_time = "TEXT DEFAULT ''", last_rx_time = "TEXT DEFAULT ''", session_start = "TEXT DEFAULT ''", error_text = "TEXT DEFAULT ''", seq_epoch = "INTEGER DEFAULT 0" }
@@ -59,11 +59,11 @@ protocol = "transaction"
 
 [services.session_mgmt.ops]
 add = [
-    { table = "fix_sessions", op_type = "insert", fields = ["session_id", "fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "reset_on_logon", "description"], defaults = { fix_version = "FIX.4.2", dictionary = "", timestamp_precision = "", host = "", port = 9876, heartbeat_interval = 30, reset_on_logon = 0, description = "" } },
+    { table = "fix_sessions", op_type = "insert", fields = ["session_id", "fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon", "description"], defaults = { fix_version = "FIX.4.2", dictionary = "", timestamp_precision = "", host = "", port = 9876, heartbeat_interval = 30, logout_timeout = 0, logout_test_request = 1, reset_on_logon = 0, description = "" } },
     { table = "fix_session_state", op_type = "insert", fields = ["session_id"], defaults = { status = "DOWN" } },
 ]
 update = [
-    { table = "fix_sessions", op_type = "update", key = ["session_id"], fields = ["fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "reset_on_logon", "enabled", "description"] },
+    { table = "fix_sessions", op_type = "update", key = ["session_id"], fields = ["fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon", "enabled", "description"] },
 ]
 delete = [
     { table = "fix_session_state", op_type = "delete", key = ["session_id"] },
