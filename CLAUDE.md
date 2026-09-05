@@ -44,6 +44,8 @@ tools/
 
 mkfix builds its server with mkio's programmatic API: `create_app(cfg)` in `__main__.py` returns an `MkioApp`, which runs schema migration and service preflight before the event loop starts. The FIX TCP engine runs in the same asyncio event loop. FIX messages are written to SQLite via mkio's `WriteBatcher.submit()` with pre-compiled `CompiledOp` objects. The UI is an mkui app with custom pane types. UI commands flow through `FixCommandService`, a custom mkio `Service` subclass.
 
+`serve()` does not call `app.run()`: it probes the web port first (`_check_port`), then mirrors `MkioApp.run` so the startup banner (`_banner` — Web UI URL, listen address, config and database paths, enabled sessions with role) prints only after the port is bound. The probe exists because mkio's `start()` runs the startup hooks (which open the database) before binding; a bind failure there leaves aiosqlite's non-daemon threads alive and the process hung, so losing the probe's race falls back to `os._exit(1)`.
+
 Key integration points:
 - `create_app` / `MkioApp` — server bootstrap; `app.db` / `app.writer` / `app.change_bus` / `app.services` expose internals to the engine
 - `app.add_service("fix_cmd", FixCommandService)` — custom service registration (not in TOML)

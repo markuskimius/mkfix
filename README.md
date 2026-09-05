@@ -124,7 +124,22 @@ mkfix -d :memory:            # in-memory database
 mkfix myconfig.toml          # custom config file
 ```
 
-Then open http://localhost:8080 in your browser.
+On startup mkfix prints where to find it, along with the config and database in
+use and the enabled FIX sessions:
+
+```
+mkfix <version>
+  Web UI:    http://localhost:8080/
+  Listening: 0.0.0.0:8080 (all interfaces)
+  Config:    /path/to/mkfix.toml
+  Database:  /path/to/mkfix.db
+  Sessions:  1 enabled
+    acc: MKFIX -> BROKER (FIX.4.2, acceptor on port 9876)
+  Press Ctrl+C to stop.
+```
+
+Open the Web UI URL in your browser. If the port is already taken, mkfix exits
+with an error instead of starting.
 
 ## Quick Start
 
