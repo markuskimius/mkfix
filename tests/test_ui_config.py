@@ -881,6 +881,18 @@ class TestConfiguredFilters:
                 f"pane {pane_id!r} default filter is {spec!r}, expected today preset"
 
 
+def _dependency_floor(name: str) -> tuple[int, ...]:
+    """The `>=` floor pyproject.toml declares for a framework dependency."""
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    floors = [d for d in pyproject["project"]["dependencies"] if d.startswith(name)]
+    assert floors, f"{name} missing from dependencies"
+    return tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+
+
+def _mkui_floor() -> tuple[int, ...]:
+    return _dependency_floor("mkui")
+
+
 class TestVersions:
     def test_expected_version_matches_package(self, app_config):
         """A stale `expect` makes every client report a version mismatch."""
@@ -923,10 +935,7 @@ class TestVersions:
         if not uses_new_options:
             pytest.skip("no pane uses live/select")
 
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
-        assert floors, "mkui missing from dependencies"
-        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        floor = _mkui_floor()
         assert floor >= (0, 1, 52), f"mkui floor {floor} predates live/select support"
 
     def test_mkui_floor_supports_expression_config(self, app_config):
@@ -936,9 +945,7 @@ class TestVersions:
         if not uses_when:
             pytest.skip("no expression config")
 
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
-        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        floor = _mkui_floor()
         assert floor >= (0, 2, 0), f"mkui floor {floor} predates expression config"
 
     def test_mkui_floor_supports_configured_filters(self, app_config):
@@ -952,10 +959,43 @@ class TestVersions:
         if not uses_action:
             pytest.skip("no configured filters")
 
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
-        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        floor = _mkui_floor()
         assert floor >= (0, 2, 3), f"mkui floor {floor} predates table.filter"
+
+    def test_mkui_floor_regates_buttons_on_live_updates(self, app_config):
+        """Blotter buttons gate on row columns the engine rewrites live
+        (`status`, `session_status`, `pending_action`). mkui 0.2.8 re-evaluates
+        `enable.when` when a selected row is replaced; before it the gate ran
+        only on selection changes, so Start stayed enabled and Stop disabled
+        after a session came up until the row was re-clicked."""
+        gates_on_row = any(
+            "when" in button.get("enable", {}) and "r." in button["enable"]["when"]
+            for spec in app_config["panes"].values()
+            for button in spec.get("buttons", [])
+        )
+        if not gates_on_row:
+            pytest.skip("no button gates on row columns")
+
+        floor = _mkui_floor()
+        assert floor >= (0, 2, 8), f"mkui floor {floor} predates live re-gating"
+
+    def test_readme_dependency_floors_match_pyproject(self):
+        """README's Dependencies section restates the floors by hand."""
+        readme = (ROOT / "README.md").read_text()
+        for name in ("mkio", "mkui"):
+            match = re.search(rf"\[{name}\]\([^)]*\) >= (\d+(?:\.\d+)*)", readme)
+            assert match, f"README does not state a {name} floor"
+            stated = tuple(int(n) for n in match.group(1).split("."))
+            assert stated == _dependency_floor(name), \
+                f"README says {name} >= {match.group(1)}, pyproject says {_dependency_floor(name)}"
+
+    def test_installed_mkui_meets_floor(self):
+        """The UI checks in this file run against the installed mkui; an older
+        one would pass the static checks while the app misbehaves."""
+        from importlib.metadata import version as pkg_version
+        installed = tuple(int(n) for n in pkg_version("mkui").split(".")[:3])
+        assert installed >= _mkui_floor(), \
+            f"installed mkui {installed} is below the declared floor {_mkui_floor()}"
 
     def test_mkui_floor_supports_time_typed_columns(self, app_config):
         """The `types` pane key is mkui 0.2.1; earlier builds ignore it and
@@ -964,9 +1004,7 @@ class TestVersions:
         if not uses_types:
             pytest.skip("no pane declares column types")
 
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
-        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        floor = _mkui_floor()
         assert floor >= (0, 2, 1), f"mkui floor {floor} predates the types pane key"
 
     def test_mkui_floor_supports_session_dialog(self):
@@ -978,10 +1016,7 @@ class TestVersions:
         if not uses_dialog:
             pytest.skip("no pane opens an mkui dialog")
 
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        floors = [d for d in pyproject["project"]["dependencies"] if d.startswith("mkui")]
-        assert floors, "mkui missing from dependencies"
-        floor = tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+        floor = _mkui_floor()
         assert floor >= (0, 1, 54), f"mkui floor {floor} predates dialog auto-grow"
 
     def test_readme_dependency_floors_match_pyproject(self):
