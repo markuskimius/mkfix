@@ -85,8 +85,14 @@ A FIX protocol testing engine for capital markets connectivity, built on
   session with speed control, message filtering, and pause/resume.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
   tracking.
-- **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, ResendRequest,
-  SequenceReset, GapFill, PossDupFlag handling, and heartbeat timeout detection.
+- **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
+  GapFill, PossDupFlag handling, and heartbeat timeout detection. A
+  ResendRequest is answered from the recorded messages: application messages
+  go out again as PossDups under their original sequence numbers, admin runs
+  collapse into GapFills.
+- **Exact Message Storage** -- Every message is stored as its wire bytes (SOH
+  delimiters included), so a value containing a literal `|` displays and
+  retransmits correctly; the pipe form is only a rendering.
 
 ## Installation
 

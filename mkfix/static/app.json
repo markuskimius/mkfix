@@ -207,7 +207,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.17"
+        "text": "mkfix v0.18"
       }
     ],
     "bindStyle": {
@@ -780,6 +780,9 @@
         "session_id": "Session",
         "msg_type_name": "Type",
         "raw_message": "Message"
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
       },
       "types": {
         "timestamp": {
@@ -2017,7 +2020,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.17",
+      "version": "0.18",
       "mkio": "0.2",
       "expr": "1"
     },

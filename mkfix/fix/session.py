@@ -6,7 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any, Callable, Awaitable
 
 from mkfix.fix.dictionary import FixDictionary
-from mkfix.fix.message import FixMessage, FixMessageFactory, _fix_timestamp
+from mkfix.fix.message import FixMessage, FixMessageFactory, _fix_timestamp, parse_fix
 from mkfix.fix.transport import FixSocket, FixInitiator, FixListener
 
 if TYPE_CHECKING:
@@ -14,6 +14,14 @@ if TYPE_CHECKING:
 
 # Callback type for when application messages arrive
 MessageCallback = Callable[["FixSession", str, FixMessage], Awaitable[None]]
+
+# Session-level message types: never retransmitted, a ResendRequest covering
+# them is answered with a SequenceReset-GapFill instead.
+ADMIN_MSG_TYPES = frozenset({"0", "1", "2", "3", "4", "5", "A"})
+
+# EndSeqNo(16) meaning "everything after BeginSeqNo": 0, or 999999 on the
+# FIX 4.0/4.1 wire.
+OPEN_ENDED_END_SEQ = frozenset({0, 999999})
 
 
 class FixSession:
@@ -42,6 +50,9 @@ class FixSession:
         self._heartbeat_task: asyncio.Task | None = None
         self._tx_seq_num: int = 1
         self._rx_seq_num: int = 1
+        # fix_messages id at the last sequence reset: a resend replays only
+        # rows after it, so a number reused across resets can't be confused
+        self._seq_epoch: int = 0
         self._status: str = "DOWN"
         self._last_rx_time: float = 0
         self._test_req_pending: str | None = None
@@ -67,6 +78,7 @@ class FixSession:
         if state:
             self._tx_seq_num = state.get("tx_seq_num", 1)
             self._rx_seq_num = state.get("rx_seq_num", 1)
+            self._seq_epoch = state.get("seq_epoch") or 0
 
         if self.config.get("host"):
             self._transport = FixInitiator(self)
@@ -152,8 +164,7 @@ class FixSession:
         await self.set_status("LOGON_SENT")
         reset = bool(self.config.get("reset_on_logon"))
         if reset:
-            self._tx_seq_num = 1
-            self._rx_seq_num = 1
+            await self._reset_seq_space()
 
         logon = self.factory.logon(
             heartbeat_interval=self.config.get("heartbeat_interval", 30),
@@ -182,8 +193,7 @@ class FixSession:
             raise ConnectionError(f"Expected Logon, got MsgType={logon_msg['35']}")
 
         if logon_msg.get("141") == "Y":
-            self._tx_seq_num = 1
-            self._rx_seq_num = 1
+            await self._reset_seq_space()
 
         rx_seq = logon_msg.get_int("34", 0)
         if rx_seq >= self._rx_seq_num:
@@ -235,12 +245,7 @@ class FixSession:
                     await self._send(response)
                 return
             elif msg_type == "2":
-                begin = msg.get_int("7", 1)
-                end = msg.get_int("16", 0)
-                gap_fill = self.factory.sequence_reset(
-                    new_seq=self._tx_seq_num, gap_fill=True,
-                )
-                await self._send(gap_fill)
+                await self._answer_resend_request(msg)
             elif msg_type == "4":
                 new_seq = msg.get_int("36", 0)
                 if new_seq > 0:
@@ -283,6 +288,63 @@ class FixSession:
                 except (ConnectionError, OSError):
                     return
 
+    async def _answer_resend_request(self, request: FixMessage) -> None:
+        """Replay the requested range from the recorded TX messages: each
+        application message goes out again as a PossDup with its original
+        MsgSeqNum, while runs of admin messages (and numbers with no record)
+        collapse into one SequenceReset-GapFill whose MsgSeqNum is the first
+        number of the run and NewSeqNo the number after it. Nothing here
+        spends a new sequence number."""
+        begin = request.get_int("7", 0)
+        end = request.get_int("16", 0)
+        last_sent = self._tx_seq_num - 1
+        if end in OPEN_ENDED_END_SEQ or end > last_sent:
+            end = last_sent
+        if begin < 1 or begin > last_sent or end < begin:
+            reject = self.factory.reject(
+                request.get_int("34", 0),
+                text=f"ResendRequest range {begin}-{request.get('16', '')} outside sent range 1-{last_sent}",
+            )
+            await self._send(reject)
+            return
+
+        rows = await self.engine.sent_messages(self.session_id, begin, end, self._seq_epoch)
+        by_seq = {int(r["seq_num"]): r for r in rows}
+
+        gap_start: int | None = None
+        for seq in range(begin, end + 1):
+            row = by_seq.get(seq)
+            if row is None or row["msg_type"] in ADMIN_MSG_TYPES:
+                if gap_start is None:
+                    gap_start = seq
+                continue
+            if gap_start is not None:
+                await self._send_gap_fill(gap_start, seq)
+                gap_start = None
+            original = parse_fix(row["raw_message"])
+            copy = original.retransmit_copy(self.dictionary, self.factory._now())
+            await self._retransmit(copy)
+        if gap_start is not None:
+            await self._send_gap_fill(gap_start, end + 1 if end < last_sent else self._tx_seq_num)
+
+    async def _send_gap_fill(self, seq_num: int, new_seq: int) -> None:
+        gap_fill = self.factory.sequence_reset(new_seq=new_seq, gap_fill=True)
+        if self.dictionary.defines("122"):
+            gap_fill["122"] = self.factory._now()
+        sent = await self._socket.write(gap_fill, seq_num)
+        await self._record("TX", sent)
+
+    async def _retransmit(self, msg: FixMessage) -> None:
+        """Write an already-prepared PossDup copy and record it, leaving the
+        outbound sequence number where it is."""
+        sent = await self._socket.write_prepared(msg)
+        await self._record("TX", sent)
+
+    async def _reset_seq_space(self, tx: int = 1, rx: int = 1) -> None:
+        self._tx_seq_num = tx
+        self._rx_seq_num = rx
+        self._seq_epoch = await self.engine.last_message_id()
+
     async def send_message(self, msg: FixMessage) -> FixMessage:
         """Send an application message. Called by the engine for outbound orders etc."""
         if not self._socket or self._socket.closed:
@@ -306,6 +368,7 @@ class FixSession:
         await self.engine.update_session_state(self.session_id, {
             "tx_seq_num": self._tx_seq_num,
             "rx_seq_num": self._rx_seq_num,
+            "seq_epoch": self._seq_epoch,
             "last_tx_time": _fix_timestamp(),
             "last_rx_time": _fix_timestamp(),
         })
@@ -329,6 +392,5 @@ class FixSession:
 
     async def reset_sequence_numbers(self, tx: int = 1, rx: int = 1) -> None:
         """Manually reset sequence numbers."""
-        self._tx_seq_num = tx
-        self._rx_seq_num = rx
+        await self._reset_seq_space(tx, rx)
         await self._persist_seq_nums()

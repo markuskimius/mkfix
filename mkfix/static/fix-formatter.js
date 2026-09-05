@@ -2,7 +2,7 @@
  * FIX message formatting utilities for the translated message viewer.
  */
 
-import { defaultDictionary } from "./fix-dictionary.js";
+import { defaultDictionary, splitFix } from "./fix-dictionary.js";
 
 /**
  * Build a one-line summary for any FIX message based on its type.
@@ -65,18 +65,11 @@ export function summarizeMessage(fields, dict = defaultDictionary) {
  * Returns {fields: {tag: value}, fieldList: [{tag, value}]}
  */
 export function parseRawMessage(raw) {
-  const sep = raw.includes("\x01") ? "\x01" : "|";
   const fields = {};
   const fieldList = [];
-  for (const pair of raw.split(sep)) {
-    if (!pair) continue;
-    const eq = pair.indexOf("=");
-    if (eq > 0) {
-      const tag = pair.substring(0, eq);
-      const value = pair.substring(eq + 1);
-      fields[tag] = value;
-      fieldList.push({ tag, value });
-    }
+  for (const { tag, value } of splitFix(raw)) {
+    fields[tag] = value;
+    fieldList.push({ tag, value });
   }
   return { fields, fieldList };
 }

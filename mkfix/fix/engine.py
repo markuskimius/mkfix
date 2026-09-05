@@ -147,7 +147,8 @@ class FixEngine:
         ),)
 
         state_cols = ["session_id", "status", "tx_seq_num", "rx_seq_num",
-                      "last_tx_time", "last_rx_time", "session_start", "error_text"]
+                      "last_tx_time", "last_rx_time", "session_start", "error_text",
+                      "seq_epoch"]
         set_clause = ", ".join(f"{c} = ?" for c in state_cols[1:])
         # The second op mirrors the live columns onto fix_sessions so the
         # sessions blotter can be a plain single-table query pane — a query
@@ -373,6 +374,35 @@ class FixEngine:
             session = FixSession(self, config)
             self.sessions[config["session_id"]] = session
 
+    async def last_message_id(self) -> int:
+        """The newest fix_messages id — the boundary a session records when
+        its sequence numbers reset, so a later resend looks only at the
+        current sequence space. Every prior send awaited its commit, so the
+        read is current."""
+        conn = self.db.read_conn
+        cursor = await conn.execute("SELECT COALESCE(MAX(id), 0) AS id FROM fix_messages")
+        row = await cursor.fetchone()
+        await cursor.close()
+        return int(row["id"]) if row else 0
+
+    async def sent_messages(self, session_id: str, begin: int, end: int,
+                            after_id: int = 0) -> list[dict[str, Any]]:
+        """Recorded TX messages of a session with MsgSeqNum in [begin, end],
+        newest row per sequence number (a number can recur only across a
+        reset, and `after_id` normally excludes those), in sequence order."""
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT seq_num, msg_type, raw_message FROM fix_messages "
+            "WHERE id IN (SELECT MAX(id) FROM fix_messages "
+            "  WHERE session_id = ? AND direction = 'TX' AND id > ? "
+            "  AND seq_num BETWEEN ? AND ? GROUP BY seq_num) "
+            "ORDER BY seq_num",
+            (session_id, after_id, begin, end),
+        )
+        rows = [dict(r) for r in await cursor.fetchall()]
+        await cursor.close()
+        return rows
+
     async def load_session_state(self, session_id: str) -> dict[str, Any] | None:
         """Load persisted session state."""
         conn = self.db.read_conn
@@ -413,7 +443,7 @@ class FixEngine:
             msg_type,
             dictionary.msg_type_name(msg_type),
             dictionary.msg_category(msg_type),
-            msg.to_pipe_string(),
+            msg.to_wire_string(),
             msg.get("49", ""),
             msg.get("56", ""),
             msg.get("11", ""),
@@ -440,11 +470,11 @@ class FixEngine:
             "last_rx_time": "",
             "session_start": "",
             "error_text": "",
+            "seq_epoch": 0,
         }
         state.update(updates)
 
-        params = (
-            state["session_id"],
+        values = (
             state["status"],
             state["tx_seq_num"],
             state["rx_seq_num"],
@@ -452,16 +482,9 @@ class FixEngine:
             state["last_rx_time"],
             state["session_start"],
             state["error_text"],
-            None,  # _mkio_ref
-            # ON CONFLICT SET values:
-            state["status"],
-            state["tx_seq_num"],
-            state["rx_seq_num"],
-            state["last_tx_time"],
-            state["last_rx_time"],
-            state["session_start"],
-            state["error_text"],
+            state.get("seq_epoch") or 0,
         )
+        params = (state["session_id"], *values, None, *values)
 
         mirror = (
             state["status"],
@@ -1353,7 +1376,7 @@ class FixEngine:
             msg.get("62", ""),
             now,
             direction,
-            msg.to_pipe_string(),
+            msg.to_wire_string(),
             None,
         )
         ops = self._compiled_ops["insert_ioi"]
@@ -1377,7 +1400,7 @@ class FixEngine:
             msg.get_int("78", 0),
             now,
             direction,
-            msg.to_pipe_string(),
+            msg.to_wire_string(),
             None,
         )
         ops = self._compiled_ops["insert_allocation"]

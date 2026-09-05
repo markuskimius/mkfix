@@ -179,6 +179,26 @@ export function msgTypeName(code, dict = defaultDictionary) {
     return dict.msgTypeName(code);
 }
 
+export const SOH = "\x01";
+
+/**
+ * Split a recorded FIX message into ordered {tag, value} pairs. SOH is the
+ * delimiter whenever the text has one — stored messages are the exact wire
+ * bytes, so a value holding a literal "|" survives — and "|" only for text
+ * that has no SOH (typed input, rows recorded before wire storage).
+ * Fragments without "=" are dropped.
+ */
+export function splitFix(raw) {
+    if (!raw || typeof raw !== "string") return [];
+    const sep = raw.includes(SOH) ? SOH : "|";
+    const pairs = [];
+    for (const p of raw.split(sep)) {
+        const i = p.indexOf("=");
+        if (i > 0) pairs.push({ tag: p.slice(0, i), value: p.slice(i + 1) });
+    }
+    return pairs;
+}
+
 /**
  * Parse a raw FIX message into a display tree using the dictionary's group
  * metadata. Returns top-level nodes in wire order:
@@ -193,12 +213,7 @@ export function msgTypeName(code, dict = defaultDictionary) {
  * @returns {Array<object>}
  */
 export function parseMessageTree(rawMessage, dict = defaultDictionary) {
-    const sep = rawMessage.includes("\x01") ? "\x01" : "|";
-    const pairs = [];
-    for (const p of rawMessage.split(sep)) {
-        const i = p.indexOf("=");
-        if (i > 0) pairs.push({ tag: p.slice(0, i), value: p.slice(i + 1) });
-    }
+    const pairs = splitFix(rawMessage);
 
     let idx = 0;
 
@@ -244,15 +259,9 @@ export function translateMessage(rawMessage, dict = defaultDictionary) {
         return [];
     }
 
-    const pairs = rawMessage.split(/\x01|\|/).filter(Boolean);
     const fields = [];
 
-    for (const pair of pairs) {
-        const eqIdx = pair.indexOf("=");
-        if (eqIdx === -1) continue;
-
-        const tag = pair.substring(0, eqIdx);
-        const value = pair.substring(eqIdx + 1);
+    for (const { tag, value } of splitFix(rawMessage)) {
         const section = dict.isHeader(tag) ? "header"
             : dict.isTrailer(tag) ? "trailer"
             : "body";

@@ -71,7 +71,7 @@ class TestParseLogFile:
         msgs = parse_log_file(path)
         assert len(msgs) == 1
         assert msgs[0].msg_type == "A"
-        assert "|" in msgs[0].raw
+        assert SOH in msgs[0].raw and "|" not in msgs[0].raw, "SOH logs replay exactly"
         Path(path).unlink()
 
     def test_quickfix_timestamped(self):

@@ -608,6 +608,24 @@ class TestStyleAndGateValues:
                     checked += 1
         assert checked > 50
 
+    def test_display_templates_compile_and_render(self, app_config):
+        """`display` templates are the pane's only say over what a cell
+        shows; the Messages pane relies on one to render the stored SOH
+        delimiters as pipes, and a template mkio rejects would show #ERR."""
+        from mkio import expr
+
+        env = expr.Env(strict=False)
+        templates = [(name, col, src) for name, pane in app_config["panes"].items()
+                     for col, src in (pane.get("display") or {}).items()]
+        assert ("raw-messages", "raw_message") in [(n, c) for n, c, _ in templates]
+        for name, col, src in templates:
+            assert col in app_config["panes"][name]["columns"], f"{name}.display.{col}"
+            expr.compile_template(src, env)
+        raw = next(src for n, c, src in templates if (n, c) == ("raw-messages", "raw_message"))
+        rendered = expr.compile_template(raw, env).evaluate(
+            expr.Scope({"value": "8=FIX.4.2\x0135=D\x0158=a|b\x01"}))
+        assert rendered == "8=FIX.4.2|35=D|58=a|b|"
+
     ENGINE_STATUSES = {"DOWN", "ERROR", "INITIATING", "LISTENING",
                        "LOGON_SENT", "ACTIVE", "LOGOUT_SENT"}
 

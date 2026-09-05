@@ -590,3 +590,115 @@ class TestVersionAwareWireCodes:
     def test_cancel_reject_434_gated(self):
         assert self._factory("FIX.4.1").order_cancel_reject("C2", "C1", "8", "1")["434"] is None
         assert self._factory("FIX.4.2").order_cancel_reject("C2", "C1", "8", "1")["434"] == "1"
+
+
+class TestWireStorage:
+    """What gets recorded is the exact wire text, so a value holding a
+    literal pipe survives storage and re-parse; the pipe form is display only."""
+
+    def test_wire_round_trip_keeps_pipe_in_value(self):
+        from mkfix.fix.parser import FixStreamParser
+        raw = SOH.join(["8=FIX.4.2", "9=30", "35=D", "11=C1", "58=A|B", "10=000", ""]).encode()
+        msg = FixStreamParser._parse(raw)
+        assert msg.raw == raw
+        assert msg["58"] == "A|B"
+        stored = msg.to_wire_string()
+        again = parse_fix(stored)
+        assert again["58"] == "A|B"
+        assert again.serialize() == raw
+        assert msg.to_pipe_string() == "8=FIX.4.2|9=30|35=D|11=C1|58=A|B|10=000", "display form is lossy by design"
+
+    def test_pipe_form_still_parses_without_soh(self):
+        msg = parse_fix("8=FIX.4.2|35=D|58=A")
+        assert msg["58"] == "A" and msg.raw is None
+
+    def test_to_wire_string_serializes_when_never_on_the_wire(self):
+        msg = FixMessage({"8": "FIX.4.2", "35": "0"})
+        assert msg.to_wire_string() == f"8=FIX.4.2{SOH}35=0{SOH}"
+
+    def test_high_bytes_survive_storage(self):
+        raw = "8=FIX.4.2|35=D|58=caf\xe9|10=000".replace("|", SOH).encode("latin-1")
+        msg = parse_fix(raw)
+        assert parse_fix(msg.to_wire_string()).raw == raw
+
+
+class TestRetransmitCopy:
+    def setup_method(self):
+        self.dictionary = FixDictionary("FIX.4.2")
+
+    def _sent(self, fields, seq=7):
+        msg = FixMessage(fields)
+        msg.sendprep(self.dictionary, "US", "THEM", seq)
+        return parse_fix(msg.serialize())
+
+    def test_marks_possdup_and_moves_sending_time(self):
+        original = self._sent({"35": "D", "11": "C1", "55": "AAPL", "54": "1", "38": "1", "40": "1"})
+        copy = original.retransmit_copy(self.dictionary, "20260904-10:00:00.000")
+        assert copy["34"] == "7"
+        assert copy["43"] == "Y"
+        assert copy["52"] == "20260904-10:00:00.000"
+        assert copy["122"] == original["52"]
+        tags = [t for t, _ in copy._pairs]
+        assert tags.index("43") < tags.index("52") < tags.index("122") < tags.index("11")
+        assert copy["9"] == str(len(copy.serialize()) - len(f"8=FIX.4.2{SOH}9={copy['9']}{SOH}10={copy['10']}{SOH}"))
+        assert int(copy["10"]) == _checksum(copy.serialize_without_checksum())
+        assert copy.raw == copy.serialize()
+        assert parse_fix(copy.raw)["55"] == "AAPL"
+
+    def test_keeps_repeating_groups_and_pipes(self):
+        raw = SOH.join(["8=FIX.4.2", "9=0", "35=D", "34=3", "49=US", "56=THEM",
+                        "52=20260904-09:00:00.000", "11=C1", "382=2", "375=A", "375=B",
+                        "58=x|y", "10=000", ""]).encode()
+        copy = parse_fix(raw).retransmit_copy(self.dictionary, "20260904-10:00:00.000")
+        assert [v for t, v in copy._pairs if t == "375"] == ["A", "B"]
+        assert copy["58"] == "x|y"
+
+    def test_second_copy_replaces_earlier_possdup_markers(self):
+        original = self._sent({"35": "D", "11": "C1", "55": "AAPL", "54": "1", "38": "1", "40": "1"})
+        first = original.retransmit_copy(self.dictionary, "20260904-10:00:00.000")
+        second = parse_fix(first.raw).retransmit_copy(self.dictionary, "20260904-11:00:00.000")
+        assert [t for t, _ in second._pairs].count("43") == 1
+        assert second["122"] == "20260904-10:00:00.000"
+
+    def test_message_without_sending_time_still_marked_possdup(self):
+        raw = SOH.join(["8=FIX.4.2", "9=0", "35=D", "34=3", "49=US", "56=THEM", "11=C1",
+                        "10=000", ""]).encode()
+        copy = parse_fix(raw).retransmit_copy(self.dictionary, "20260904-10:00:00.000")
+        assert copy["43"] == "Y" and "122" not in copy
+        assert [t for t, _ in copy._pairs][:4] == ["8", "9", "43", "35"]
+        assert int(copy["10"]) == _checksum(copy.serialize_without_checksum())
+
+
+class TestSocketRecordsWireBytes:
+    @pytest.mark.asyncio
+    async def test_write_sets_raw_to_the_bytes_written(self):
+        import asyncio
+        from unittest.mock import MagicMock, AsyncMock
+        from mkfix.fix.transport import FixSocket
+
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        dictionary = FixDictionary("FIX.4.2")
+        sock = FixSocket(MagicMock(), writer, FixMessageFactory(dictionary, "US", "THEM"))
+        msg = FixMessage({"35": "0"})
+
+        sent = await sock.write(msg, 7)
+
+        written = writer.write.call_args.args[0]
+        assert sent.raw == written and sent.to_wire_string() == written.decode("latin-1")
+        assert parse_fix(written)["34"] == "7"
+
+    @pytest.mark.asyncio
+    async def test_write_prepared_sends_raw_untouched(self):
+        from unittest.mock import MagicMock, AsyncMock
+        from mkfix.fix.transport import FixSocket
+
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        sock = FixSocket(MagicMock(), writer, FixMessageFactory(FixDictionary("FIX.4.2"), "US", "THEM"))
+        raw = SOH.join(["8=FIX.4.2", "9=5", "35=0", "34=2", "10=000", ""]).encode()
+        msg = parse_fix(raw)
+
+        await sock.write_prepared(msg)
+
+        assert writer.write.call_args.args[0] == raw

@@ -10,7 +10,7 @@
  * - UTC timestamps render in a selectable timezone (default: browser's).
  */
 
-import { loadDictionary, defaultDictionary, parseMessageTree } from "../fix-dictionary.js";
+import { loadDictionary, defaultDictionary, parseMessageTree, splitFix } from "../fix-dictionary.js";
 import { summarizeMessage, parseRawMessage } from "../fix-formatter.js";
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
 
@@ -147,9 +147,8 @@ registerPaneType("message-detail", async (spec, app, host) => {
   function versionFor(msg) {
     const v = sessionVersions.get(msg.session_id);
     if (v) return v;
-    const raw = msg.raw_message || "";
-    const m = /(?:^|[|\x01])8=([^|\x01]+)/.exec(raw);
-    if (m && m[1] && m[1] !== "FIXT.1.1") return m[1];
+    const begin = splitFix(msg.raw_message).find((p) => p.tag === "8");
+    if (begin && begin.value && begin.value !== "FIXT.1.1") return begin.value;
     return "FIX.4.2";
   }
 

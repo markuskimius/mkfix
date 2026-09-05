@@ -35,7 +35,17 @@ class FixSocket:
     async def write(self, msg: FixMessage, seq_num: int) -> FixMessage:
         msg.sendprep(self.factory.dictionary, self.factory.sender, self.factory.target, seq_num,
                      timestamp_precision=self.factory.timestamp_precision)
-        self.writer.write(msg.serialize())
+        msg.raw = msg.serialize()
+        self.writer.write(msg.raw)
+        await self.writer.drain()
+        return msg
+
+    async def write_prepared(self, msg: FixMessage) -> FixMessage:
+        """Write a message whose wire pairs are already final (a PossDup
+        retransmission) — no sendprep, no sequence stamping."""
+        if msg.raw is None:
+            msg.raw = msg.serialize()
+        self.writer.write(msg.raw)
         await self.writer.drain()
         return msg
 
@@ -199,5 +209,5 @@ class FixServer:
 
         sock = FixSocket(reader, writer, session.factory)
         # Push the already-read logon message back for the session to process
-        sock._parser._buffer = msg.serialize() + sock._parser._buffer
+        sock._parser._buffer = (msg.raw or msg.serialize()) + sock._parser._buffer
         await session.on_connect(sock, is_initiator=False)

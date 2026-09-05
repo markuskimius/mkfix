@@ -12,7 +12,7 @@ from mkio.writer import WriteBatcher
 
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.engine import FixEngine
-from mkfix.fix.message import FixMessageFactory, parse_fix
+from mkfix.fix.message import FixMessage, FixMessageFactory, parse_fix, SOH
 
 TABLES = tomllib.loads(
     (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
@@ -209,6 +209,64 @@ class StubSession:
 
 
 NEW_ORDER_RX = "8=FIX.4.2|35=D|11=C100|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
+
+
+class TestWireRecording:
+    @pytest.mark.asyncio
+    async def test_record_message_stores_wire_bytes(self, stack):
+        db, writer, engine = stack
+        raw = SOH.join(["8=FIX.4.2", "9=30", "35=D", "11=C1", "58=A|B", "10=000", ""]).encode()
+        await engine.record_message("S1", "RX", parse_fix(raw))
+        rows = await _fetch_all(db, "SELECT raw_message FROM fix_messages")
+        assert rows[0]["raw_message"] == raw.decode("latin-1")
+        assert parse_fix(rows[0]["raw_message"])["58"] == "A|B"
+
+    async def _record(self, engine, session_id, direction, seq, msg_type):
+        msg = FixMessage({"35": msg_type})
+        msg.sendprep(FixDictionary("FIX.4.2"), "US", "THEM", seq)
+        await engine.record_message(session_id, direction, msg)
+
+    @pytest.mark.asyncio
+    async def test_sent_messages_scoped_by_epoch_and_latest_per_seq(self, stack):
+        db, writer, engine = stack
+        await self._record(engine, "S1", "TX", 1, "A")
+        await self._record(engine, "S1", "TX", 2, "D")
+        epoch = await engine.last_message_id()
+        await self._record(engine, "S1", "TX", 1, "A")
+        await self._record(engine, "S1", "RX", 2, "8")
+        await self._record(engine, "S2", "TX", 2, "D")
+        await self._record(engine, "S1", "TX", 2, "F")
+        await self._record(engine, "S1", "TX", 2, "G")
+
+        rows = await engine.sent_messages("S1", 1, 5, epoch)
+        assert [(r["seq_num"], r["msg_type"]) for r in rows] == [(1, "A"), (2, "G")]
+        assert epoch == 2
+        assert await engine.sent_messages("S1", 3, 5, epoch) == []
+
+    @pytest.mark.asyncio
+    async def test_ioi_and_allocation_viewers_store_wire_form(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        ioi = SOH.join(["8=FIX.4.2", "35=6", "23=I1", "28=N", "55=AAPL", "54=1", "27=L",
+                        "58=x|y", "10=000", ""]).encode()
+        alloc = SOH.join(["8=FIX.4.2", "35=J", "70=A1", "71=0", "55=AAPL", "54=1", "53=100",
+                          "6=1.5", "75=20260904", "58=p|q", "10=000", ""]).encode()
+        await engine._handle_ioi(stub, parse_fix(ioi), "RX")
+        await engine._handle_allocation(stub, parse_fix(alloc), "RX")
+        ioi_row, = await _fetch_all(db, "SELECT raw_message FROM fix_iois")
+        alloc_row, = await _fetch_all(db, "SELECT raw_message FROM fix_allocations")
+        assert parse_fix(ioi_row["raw_message"])["58"] == "x|y"
+        assert parse_fix(alloc_row["raw_message"])["58"] == "p|q"
+
+    @pytest.mark.asyncio
+    async def test_seq_epoch_persists_in_state(self, stack):
+        db, writer, engine = stack
+        await engine.update_session_state("S1", {"seq_epoch": 12})
+        state = await engine.load_session_state("S1")
+        assert state["seq_epoch"] == 12
+        await engine.update_session_state("S1", {"status": "ACTIVE"})
+        assert (await engine.load_session_state("S1"))["seq_epoch"] == 12
 
 
 class TestMarketFlow:

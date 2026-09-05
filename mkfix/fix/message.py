@@ -20,9 +20,13 @@ class FixMessage:
     """
 
     def __init__(self, fields: dict[str, str] | None = None,
-                 pairs: list[tuple[str, str]] | None = None):
+                 pairs: list[tuple[str, str]] | None = None,
+                 raw: bytes | None = None):
         self.fields: dict[str, str] = {}
         self.extra: list[tuple[str, str]] = []
+        # The exact bytes this message had on the wire: set by the stream
+        # parser on receive and by the socket on send. What gets recorded.
+        self.raw: bytes | None = raw
         # Parsed messages carry their ordered wire pairs (duplicates included —
         # repeating groups); sendprep replaces them with the composed output.
         self._pairs: list[tuple[str, str]] | None = (
@@ -159,6 +163,44 @@ class FixMessage:
 
     def to_pipe_string(self) -> str:
         return "|".join(f"{tag}={value}" for tag, value in self._items())
+
+    def to_wire_string(self) -> str:
+        """The message exactly as it was (or would be) on the wire, SOH
+        delimiters included, as a latin-1 string so every byte survives a
+        trip through SQLite TEXT and JSON. This is what gets stored; the
+        pipe form is only a rendering."""
+        raw = self.raw if self.raw is not None else self.serialize()
+        return raw.decode("latin-1")
+
+    def retransmit_copy(self, dictionary: FixDictionary, sending_time: str) -> FixMessage:
+        """A PossDup copy of a message that already went out: same pairs and
+        MsgSeqNum (repeating groups intact), PossDupFlag(43)=Y, the original
+        SendingTime moved to OrigSendingTime(122), a fresh 52, and BodyLength
+        and CheckSum recomputed."""
+        pairs = [(t, v) for t, v in self._items()
+                 if t not in ("8", "9", "10", "43", "122")]
+        orig_time = self.fields.get("52", "")
+        header: list[tuple[str, str]] = []
+        for t, v in pairs:
+            if t == "52":
+                if dictionary.defines("43"):
+                    header.append(("43", "Y"))
+                header.append(("52", sending_time))
+                if dictionary.defines("122") and orig_time:
+                    header.append(("122", orig_time))
+            else:
+                header.append((t, v))
+        pairs = header
+        if "52" not in self.fields and dictionary.defines("43"):
+            pairs.insert(0, ("43", "Y"))
+
+        body_length = len(_serialize_wire(pairs))
+        final = [("8", self.fields.get("8") or dictionary.begin_string()),
+                 ("9", str(body_length))] + pairs
+        final.append(("10", f"{_checksum(_serialize_wire(final)):03d}"))
+        copy = FixMessage(dict(final), pairs=final)
+        copy.raw = _serialize_wire(final)
+        return copy
 
     def __str__(self) -> str:
         return self.to_pipe_string()
@@ -446,11 +488,20 @@ def _serialize_pairs(pairs: list[tuple[str, str]]) -> bytes:
     return "".join(f"{tag}={value}{SOH}" for tag, value in pairs).encode()
 
 
-def parse_fix(data: bytes | str) -> FixMessage:
-    """Parse a FIX message from raw bytes or pipe-delimited string.
+def _serialize_wire(pairs: list[tuple[str, str]]) -> bytes:
+    """Serializer for values that came off the wire: the parser decodes
+    bytes as latin-1, so latin-1 is the encoding that gives them back."""
+    return "".join(f"{tag}={value}{SOH}" for tag, value in pairs).encode("latin-1")
 
-    The ordered wire pairs ride along (duplicates preserved — that's a
-    repeating group); `fields` stays the last-wins dict view for lookups."""
+
+def parse_fix(data: bytes | str) -> FixMessage:
+    """Parse a FIX message from raw bytes or a string.
+
+    SOH is the delimiter whenever one is present, so a value holding a
+    literal `|` survives; the pipe form is accepted only when no SOH exists
+    (typed input, log files, rows recorded before wire storage). The ordered
+    wire pairs ride along (duplicates preserved — that's a repeating group);
+    `fields` stays the last-wins dict view for lookups."""
     if isinstance(data, bytes):
         text = data.decode("latin-1")
     else:
@@ -467,7 +518,8 @@ def parse_fix(data: bytes | str) -> FixMessage:
         if eq > 0:
             fields[pair[:eq]] = pair[eq + 1:]
             pairs.append((pair[:eq], pair[eq + 1:]))
-    return FixMessage(fields, pairs=pairs)
+    raw = data if isinstance(data, bytes) else (text.encode("latin-1") if sep == SOH else None)
+    return FixMessage(fields, pairs=pairs, raw=raw)
 
 
 # Tags of an inbound order or cancel/replace request the engine consumes into

@@ -82,3 +82,39 @@ def test_unknown_group_falls_flat(tmp_path):
     raw = "8=FIX.4.0|9=52|35=8|382=1|375=BRK|55=AAPL|10=000|"
     tree = parse_tree(tmp_path, "FIX40.json", raw)
     assert all(n["kind"] == "field" for n in tree)
+
+
+def test_soh_delimited_value_keeps_literal_pipe(tmp_path):
+    """Stored messages are the exact wire text; a pipe inside a value must
+    not split the field."""
+    raw = "\x01".join(["8=FIX.4.2", "9=40", "35=D", "11=C1", "58=price|qty", "10=000", ""])
+    tree = parse_tree(tmp_path, "FIX42.json", raw)
+    assert [(n["tag"], n["value"]) for n in tree if n["tag"] == "58"] == [("58", "price|qty")]
+
+
+def parse_raw(tmp_path: Path, raw: str):
+    """Run fix-formatter's parseRawMessage under node with its real import."""
+    for name in ("fix-dictionary.js", "fix-formatter.js"):
+        (tmp_path / name).write_text((STATIC / name).read_text())
+    (tmp_path / "package.json").write_text('{"type": "module"}')
+    script = tmp_path / "run.js"
+    script.write_text(
+        f"""
+import {{ parseRawMessage }} from "./fix-formatter.js";
+console.log(JSON.stringify(parseRawMessage({json.dumps(raw)})));
+"""
+    )
+    out = subprocess.run(["node", str(script)], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_formatter_parser_prefers_soh(tmp_path):
+    raw = "\x01".join(["8=FIX.4.2", "35=D", "58=a|b", "10=000", ""])
+    parsed = parse_raw(tmp_path, raw)
+    assert parsed["fields"]["58"] == "a|b"
+    assert [f["tag"] for f in parsed["fieldList"]] == ["8", "35", "58", "10"]
+
+
+def test_formatter_parser_accepts_legacy_pipe_rows(tmp_path):
+    parsed = parse_raw(tmp_path, "8=FIX.4.2|35=D|58=a|10=000")
+    assert parsed["fields"]["58"] == "a"

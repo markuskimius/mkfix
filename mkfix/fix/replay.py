@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Awaitable, NamedTuple, TYPE_CHECKING
 
-from mkfix.fix.message import parse_fix, FixMessage, SOH
+from mkfix.fix.message import parse_fix, FixMessage
 
 if TYPE_CHECKING:
     from mkfix.fix.session import FixSession
@@ -43,8 +43,7 @@ def parse_log_file(path: str | Path) -> list[ReplayMessage]:
         if not raw or ("8=FIX" not in raw and "35=" not in raw):
             continue
 
-        normalized = raw.replace(SOH, "|")
-        msg = parse_fix(normalized)
+        msg = parse_fix(raw)
         msg_type = msg.get("35", "")
 
         if ts is None:
@@ -52,7 +51,7 @@ def parse_log_file(path: str | Path) -> list[ReplayMessage]:
             if sending_time:
                 ts = _parse_fix_timestamp(sending_time)
 
-        messages.append(ReplayMessage(timestamp=ts, raw=normalized, msg_type=msg_type))
+        messages.append(ReplayMessage(timestamp=ts, raw=raw, msg_type=msg_type))
 
     return messages
 

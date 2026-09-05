@@ -73,7 +73,7 @@ class FixStreamParser:
             if eq > 0:
                 fields[pair[:eq]] = pair[eq + 1:]
                 pairs.append((pair[:eq], pair[eq + 1:]))
-        return FixMessage(fields, pairs=pairs)
+        return FixMessage(fields, pairs=pairs, raw=raw)
 
     async def __aiter__(self) -> AsyncIterator[FixMessage]:
         try:
