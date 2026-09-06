@@ -1,5 +1,6 @@
 """Tests for the prefixed ID generator and its persisted state."""
 
+import getpass
 import re
 import tomllib
 from pathlib import Path
@@ -11,7 +12,7 @@ from mkio.change_bus import ChangeBus
 from mkio.database import Database
 from mkio.writer import WriteBatcher
 
-from mkfix.fix.idgen import IdGenerator, _instance_code
+from mkfix.fix.idgen import IdGenerator, _instance_code, validate_instance_code
 
 TABLES = tomllib.loads(
     (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
@@ -40,8 +41,92 @@ class TestInstanceCode:
         assert _instance_code("m") == "MX"
         assert _instance_code("") == "XX"
 
+    def test_explicit_code_is_used_verbatim(self):
+        assert validate_instance_code("Q7") == "Q7"
+        assert validate_instance_code("ab") == "ab"
+
+    @pytest.mark.parametrize("bad", ["", "A", "ABC", "A-", "é1", "A B"])
+    def test_explicit_code_must_be_two_alphanumerics(self, bad):
+        with pytest.raises(ValueError, match="instance code"):
+            validate_instance_code(bad)
+
 
 class TestIdGenerator:
+    @pytest.mark.asyncio
+    async def test_explicit_instance_code_overrides_username(self, stack):
+        db, writer = stack
+        gen = IdGenerator(db, writer, instance_code="Q7")
+        assert await gen.next_id("RT") == "RTQ700000001"
+        assert gen.instance_id == "Q7"
+        assert gen.instance_source == "saved"
+
+    @pytest.mark.asyncio
+    async def test_default_code_comes_from_username(self, stack):
+        db, writer = stack
+        gen = IdGenerator(db, writer)
+        await gen.start()
+        assert gen.instance_id == _instance_code(getpass.getuser())
+        assert gen.instance_source == "username"
+
+    @pytest.mark.asyncio
+    async def test_explicit_code_persists_until_changed_or_cleared(self, stack):
+        """-i is remembered: later runs without it keep the code, a new code
+        replaces it, and '' goes back to the username default."""
+        db, writer = stack
+        await IdGenerator(db, writer, instance_code="Q7").start()
+        cur = await db.read_conn.execute("SELECT value FROM fix_settings WHERE key = 'instance_code'")
+        assert (await cur.fetchone())["value"] == "Q7"
+        await cur.close()
+
+        reborn = IdGenerator(db, writer)
+        await reborn.start()
+        assert reborn.instance_id == "Q7"
+        assert reborn.instance_source == "saved"
+
+        await IdGenerator(db, writer, instance_code="Z9").start()
+        again = IdGenerator(db, writer)
+        await again.start()
+        assert again.instance_id == "Z9"
+
+        cleared = IdGenerator(db, writer, instance_code="")
+        await cleared.start()
+        assert cleared.instance_id == _instance_code(getpass.getuser())
+        assert cleared.instance_source == "username"
+        cur = await db.read_conn.execute("SELECT value FROM fix_settings WHERE key = 'instance_code'")
+        assert (await cur.fetchone())["value"] == "", "cleared, not deleted: '' means username"
+        await cur.close()
+        after = IdGenerator(db, writer)
+        await after.start()
+        assert after.instance_id == _instance_code(getpass.getuser())
+        assert after.instance_source == "username"
+
+    @pytest.mark.asyncio
+    async def test_counters_survive_a_code_change(self, stack):
+        db, writer = stack
+        first = IdGenerator(db, writer, instance_code="Q7")
+        assert await first.next_id("RT") == "RTQ700000001"
+        second = IdGenerator(db, writer, instance_code="Z9")
+        assert await second.next_id("RT") == "RTZ900000002"
+
+    def test_bad_explicit_code_rejected_at_construction(self, stack):
+        db, writer = stack
+        with pytest.raises(ValueError):
+            IdGenerator(db, writer, instance_code="TOOLONG")
+
+    @pytest.mark.asyncio
+    async def test_saved_code_is_validated_on_read(self, stack):
+        """A hand-edited fix_settings row can't smuggle a malformed code into
+        the ID format; it is ignored like an empty one."""
+        db, writer = stack
+        await db.write_conn.execute(
+            "INSERT INTO fix_settings (key, value) VALUES ('instance_code', 'TOOLONG')"
+        )
+        await db.write_conn.commit()
+        gen = IdGenerator(db, writer)
+        await gen.start()
+        assert gen.instance_id == _instance_code(getpass.getuser())
+        assert gen.instance_source == "username"
+
     @pytest.mark.asyncio
     async def test_id_format(self, stack):
         db, writer = stack

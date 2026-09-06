@@ -80,6 +80,38 @@ def _order_params(**overrides):
     return insert + (None,) + update
 
 
+class TestInstanceCode:
+    @pytest.mark.asyncio
+    async def test_engine_passes_instance_code_to_id_generator(self, stack):
+        """The CLI's -i reaches the generator through the engine, and every
+        ID the engine mints carries it."""
+        db, writer, _ = stack
+        engine = FixEngine(db=db, writer=writer, instance_code="Q7")
+        await engine.start()
+        assert engine.ids.instance_id == "Q7"
+        assert await engine.ids.next_id("OR") == "ORQ700000001"
+        rows = await _fetch_all(db, "SELECT key, value FROM fix_settings")
+        assert rows == [{"key": "instance_code", "value": "Q7"}]
+        await engine.stop()
+
+    @pytest.mark.asyncio
+    async def test_engine_without_code_reuses_saved_one(self, stack):
+        db, writer, _ = stack
+        first = FixEngine(db=db, writer=writer, instance_code="Q7")
+        await first.start()
+        await first.stop()
+        second = FixEngine(db=db, writer=writer)
+        await second.start()
+        assert second.ids.instance_id == "Q7"
+        assert second.ids.instance_source == "saved"
+        await second.stop()
+
+    def test_engine_rejects_bad_code_before_start(self, stack):
+        db, writer, _ = stack
+        with pytest.raises(ValueError, match="instance code"):
+            FixEngine(db=db, writer=writer, instance_code="bad")
+
+
 class TestCompiledOps:
     @pytest.mark.asyncio
     async def test_insert_message_writes_ref(self, stack):

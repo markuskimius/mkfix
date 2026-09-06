@@ -232,7 +232,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.22"
+        "text": "mkfix v0.23"
       }
     ],
     "bindStyle": {
@@ -2121,7 +2121,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.22",
+      "version": "0.23",
       "mkio": "0.2",
       "expr": "1"
     },

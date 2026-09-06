@@ -80,10 +80,10 @@ def _sent_exec_kind(dictionary: FixDictionary, msg: FixMessage,
 class FixEngine:
     """Manages all FIX sessions and bridges messages to mkio's database."""
 
-    def __init__(self, db: Database, writer: WriteBatcher):
+    def __init__(self, db: Database, writer: WriteBatcher, instance_code: str | None = None):
         self.db = db
         self.writer = writer
-        self.ids = IdGenerator(db, writer)
+        self.ids = IdGenerator(db, writer, instance_code)
         self.sessions: dict[str, FixSession] = {}
         self._compiled_ops: dict[str, tuple[CompiledOp, ...]] = {}
         self._replay_tasks: dict[int, ReplayTask] = {}

@@ -56,7 +56,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   (routed), `OR` Order IDs, `EX` ExecIDs, `TR` Trade IDs -- followed by a
   2-character instance code (the first two letters of the username, so
   concurrent mkfix users against the same counterparty mint distinguishable
-  IDs) and an 8-digit counter that persists across restarts.
+  IDs; `-i CODE` sets it explicitly, e.g. for two instances run by one user,
+  and the database remembers it until `-i` is given again -- `-i ''` goes back
+  to the username) and an 8-digit counter that persists across restarts.
 - **Received Orders & Sent Trades Blotters** -- The other side of the same flow:
   new orders and incoming cancel and cancel/replace requests all appear on the
   Received Orders blotter as a pending action, and a single Accept/Reject pair
@@ -131,6 +133,8 @@ mkfix                        # start with defaults (port 8080, mkfix.db)
 mkfix -p 9090                # override port
 mkfix -d mytest              # use mytest.db
 mkfix -d :memory:            # in-memory database
+mkfix -i Q7                  # stamp Q7 into generated IDs (remembered by later runs on this database)
+mkfix -i ''                  # forget the saved code, back to the username default
 mkfix myconfig.toml          # custom config file
 ```
 
@@ -143,6 +147,7 @@ mkfix <version>
   Listening: 0.0.0.0:8080 (all interfaces)
   Config:    /path/to/mkfix.toml
   Database:  /path/to/mkfix.db
+  IDs:       RT/OR/EX/TR + MA + 8-digit counter (from username)
   Sessions:  1 enabled
     acc: MKFIX -> BROKER (FIX.4.2, acceptor on port 9876)
   Press Ctrl+C to stop.

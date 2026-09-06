@@ -42,6 +42,12 @@ columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NUL
 [tables.fix_id_state]
 columns = { name = "TEXT PRIMARY KEY", counter = "INTEGER DEFAULT 0" }
 
+# Engine settings that outlive a run: currently only instance_code, the two
+# characters generated IDs carry after their type code. `mkfix -i CODE` saves
+# it here and later runs reuse it; `-i ''` saves '' (back to the username).
+[tables.fix_settings]
+columns = { key = "TEXT PRIMARY KEY", value = "TEXT DEFAULT ''" }
+
 # User-defined FIX dictionaries: doc is JSON — a delta over base_version when
 # one is set, a complete standalone document otherwise. Written through fix_cmd
 # (create/update/delete_dictionary) so the engine's in-memory registry stays in

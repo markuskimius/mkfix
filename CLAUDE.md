@@ -10,6 +10,7 @@ mkfix                    # starts on port 8080 with built-in config
 mkfix -p 9090            # override port
 mkfix -d mytest          # use mytest.db (auto-adds .db extension)
 mkfix -d :memory:        # in-memory database, no persistence
+mkfix -i Q7              # instance code stamped into generated IDs, remembered per database (-i '' forgets it)
 ```
 
 ## Project layout
@@ -95,7 +96,7 @@ Every send action (`send_new_order`, `send_cancel`, `send_cancel_replace`, `acce
 
 ## ID scheme
 
-All generated business IDs come from `fix/idgen.py`: `<2-char type code><2-char instance code><8-digit counter>`, e.g. `RTMA00000001`. Type codes: `RT` ClOrdIDs mkfix sends, `OR` Order IDs (received orders' also go out as OrderID tag 37), `EX` ExecIDs, `TR` Trade IDs. The instance code is the first two characters of the username, uppercased and padded with trailing X's, so concurrent mkfix users facing the same counterparty mint distinguishable IDs. Per-prefix counters start at 1, increment forever, and persist in `fix_id_state` (written through the WriteBatcher so they serialize with engine writes — no reissued IDs across restarts).
+All generated business IDs come from `fix/idgen.py`: `<2-char type code><2-char instance code><8-digit counter>`, e.g. `RTMA00000001`. Type codes: `RT` ClOrdIDs mkfix sends, `OR` Order IDs (received orders' also go out as OrderID tag 37), `EX` ExecIDs, `TR` Trade IDs. The instance code is the first two characters of the username, uppercased and padded with trailing X's, so concurrent mkfix users facing the same counterparty mint distinguishable IDs; `-i/--instance-code` (`serve(instance_code=)` → `FixEngine` → `IdGenerator`) overrides it with exactly two ASCII letters or digits used verbatim — `validate_instance_code` rejects anything else, at argparse time for the CLI and at construction otherwise. The override is sticky: `IdGenerator._resolve_saved_code` writes it to the `fix_settings` table (key `instance_code`, through the WriteBatcher) and a run without `-i` reads it back, so the code stays until `-i` names another or `-i ''` saves the empty value, which means "derive from the username" again; a saved value that fails validation (a hand-edited row) is ignored the same way. `None` (flag absent) thus differs from `''` (flag given blank) all the way down. The startup banner's `IDs:` line shows the code in effect and its source (`instance_source`: `saved` or `username`). Only newly minted IDs change: counters live per type prefix in `fix_id_state`, not per instance code, so switching the code mid-database continues the same count. Per-prefix counters start at 1, increment forever, and persist in `fix_id_state` (written through the WriteBatcher so they serialize with engine writes — no reissued IDs across restarts).
 
 Identity rules the engine enforces:
 - `fix_orders.order_id` is write-once: the upsert SQL guards it with an `iif` (like `order_qty`/`price`) so an inbound ER's OrderID(37) can't replace the locally minted OR id on a sent order. Sent orders get `order_id` at `send_new_order`; received orders at `_handle_new_order` (arrival, not accept).

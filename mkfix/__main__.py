@@ -16,6 +16,7 @@ from mkio.config import load_config
 
 from mkfix import __version__
 from mkfix.fix.engine import FixEngine
+from mkfix.fix.idgen import validate_instance_code
 from mkfix.services.fix_command import FixCommandService
 
 
@@ -24,8 +25,15 @@ def serve(
     host: str | None = None,
     port: int | None = None,
     db_path: str | None = None,
+    instance_code: str | None = None,
 ) -> None:
-    """Start the mkfix server. Blocks until shutdown."""
+    """Start the mkfix server. Blocks until shutdown.
+
+    ``instance_code`` sets the two characters generated IDs carry after their
+    type code (see idgen.py) and saves them in the database for later runs;
+    '' clears the saved code, None keeps whatever is saved."""
+    if instance_code:
+        validate_instance_code(instance_code)
     cfg = _load_config(config)
     if host is not None:
         cfg["host"] = host
@@ -41,7 +49,7 @@ def serve(
 
     async def start_fix_engine() -> None:
         nonlocal engine
-        engine = FixEngine(db=app.db, writer=app.writer)
+        engine = FixEngine(db=app.db, writer=app.writer, instance_code=instance_code)
         app.services["fix_cmd"].set_engine(engine)
         await engine.start()
 
@@ -125,6 +133,12 @@ def _banner(
         f"  Database:  {database}",
     ]
 
+    if engine is not None:
+        source = {"saved": "saved code", "username": "from username"}[engine.ids.instance_source]
+        lines.append(
+            f"  IDs:       RT/OR/EX/TR + {engine.ids.instance_id} + 8-digit counter ({source})"
+        )
+
     sessions = list(engine.sessions.values()) if engine is not None else []
     lines.append(f"  Sessions:  {len(sessions)} enabled")
     for session in sessions:
@@ -182,16 +196,32 @@ def main() -> None:
         help="database filename (.db added if no extension; use ':memory:' for in-memory)",
     )
     parser.add_argument(
+        "-i", "--instance-code", default=None, metavar="CODE",
+        help="two letters/digits stamped into generated IDs after the type code; "
+             "saved in the database and reused by later runs until given again "
+             "(default: first two letters of the username, uppercased; "
+             "pass '' to go back to it)",
+    )
+    parser.add_argument(
         "--version", action="version", version=f"mkfix {__version__}",
     )
     args = parser.parse_args()
+
+    if args.instance_code:
+        try:
+            validate_instance_code(args.instance_code)
+        except ValueError as exc:
+            parser.error(str(exc))
 
     db_path = args.db
     if db_path is not None and db_path != ":memory:" and not Path(db_path).suffix:
         db_path += ".db"
 
     config_path = args.config or _find_config()
-    serve(config_path, host=args.host, port=args.port, db_path=db_path)
+    serve(
+        config_path, host=args.host, port=args.port, db_path=db_path,
+        instance_code=args.instance_code,
+    )
 
 
 def _find_config() -> str:
