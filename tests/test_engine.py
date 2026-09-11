@@ -1049,6 +1049,250 @@ class TestClientSideIds:
         assert all(i.startswith("RT") for i in (first, second, third))
 
 
+class EagerSession(StubSession):
+    """A counterparty that answers the moment a message hits the wire — the
+    inbound ExecutionReport is processed inside send_message, before the
+    sending call has written its own row."""
+
+    def __init__(self, engine, session_id="S1"):
+        super().__init__(session_id)
+        self.engine = engine
+        self.answer_to = ""
+
+    async def send_message(self, msg):
+        await super().send_message(msg)
+        if msg.get("35") != self.answer_to:
+            return msg
+        if self.answer_to == "D":
+            er = (f"8=FIX.4.2|35=8|11={msg.get('11')}|37=ORMKT99|17=E1|20=0|150=8|39=8|"
+                  f"55={msg.get('55')}|54={msg.get('54')}|38={msg.get('38')}|14=0|6=0|151=0|58=No")
+        else:
+            er = (f"8=FIX.4.2|35=8|11={msg.get('11')}|41={msg.get('41')}|37=ORMKT99|17=E2|20=0|"
+                  f"150=5|39=5|55={msg.get('55')}|54={msg.get('54')}|38={msg.get('38')}|"
+                  f"44={msg.get('44')}|14=0|6=0|151={msg.get('38')}")
+        await self.engine.on_app_message(self, "8", parse_fix(er))
+        return msg
+
+
+class InterruptingSession(StubSession):
+    """A counterparty whose cancel request lands while the market side's own
+    ExecutionReport is still being sent — the inbound 35=F is processed inside
+    send_message, before the sending call has written its own row."""
+
+    def __init__(self, engine, session_id="S1"):
+        super().__init__(session_id)
+        self.engine = engine
+        self.interrupt = ""  # ClOrdID the request supersedes
+
+    async def send_message(self, msg):
+        await super().send_message(msg)
+        if not self.interrupt:
+            return msg
+        orig, self.interrupt = self.interrupt, ""
+        req = (f"8=FIX.4.2|35=F|11=C200|41={orig}|55=AAPL|54=1|38=100|9001=late")
+        await self.engine.on_app_message(self, "F", parse_fix(req))
+        return msg
+
+
+class TestRequestDuringMarketSend:
+    """A market-side action writes its own row before its ExecutionReport goes
+    out: the send awaits, so an inbound cancel request can be parked in between
+    and must not be clobbered by the pre-send snapshot."""
+
+    async def _received_order(self, engine, stub):
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        return "C100"
+
+    @pytest.mark.asyncio
+    async def test_accept_order_keeps_request_that_arrived_mid_send(self, stack):
+        db, writer, engine = stack
+        stub = InterruptingSession(engine)
+        cl_ord_id = await self._received_order(engine, stub)
+        stub.interrupt = cl_ord_id
+        await engine.accept_order("S1", cl_ord_id)
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert rows[0]["status"] == "New"
+        assert rows[0]["pending_action"] == "Cancel", \
+            "the cancel request that arrived during the send must stay parked"
+        assert rows[0]["pending_cl_ord_id"] == "C200"
+        assert rows[0]["pending_extra_tags"] == "9001=late"
+
+    @pytest.mark.asyncio
+    async def test_fill_keeps_request_that_arrived_mid_send(self, stack):
+        db, writer, engine = stack
+        stub = InterruptingSession(engine)
+        cl_ord_id = await self._received_order(engine, stub)
+        await engine.accept_order("S1", cl_ord_id)
+        stub.interrupt = cl_ord_id
+        await engine.fill_order("S1", cl_ord_id, qty=40, price=150.25)
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert rows[0]["cum_qty"] == 40.0, "the fill must still be recorded"
+        assert rows[0]["status"] == "PartiallyFilled"
+        assert rows[0]["pending_action"] == "Cancel"
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert len(execs) == 1 and execs[0]["last_qty"] == 40.0
+
+    @pytest.mark.asyncio
+    async def test_reject_order_keeps_request_that_arrived_mid_send(self, stack):
+        db, writer, engine = stack
+        stub = InterruptingSession(engine)
+        cl_ord_id = await self._received_order(engine, stub)
+        stub.interrupt = cl_ord_id
+        await engine.reject_order("S1", cl_ord_id, text="no")
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert rows[0]["status"] == "Rejected"
+        assert rows[0]["pending_action"] == "Cancel"
+
+    @pytest.mark.asyncio
+    async def test_every_market_action_writes_before_it_sends(self, stack):
+        """The invariant behind the three tests above, checked on every
+        market-side action: all of an action's writes are submitted before its
+        message reaches the wire, so nothing it derived from a pre-send snapshot
+        can land on top of what arrived during the send."""
+        db, writer, engine = stack
+        trace: list[str] = []
+
+        class TracingSession(StubSession):
+            async def send_message(self, msg):
+                trace.append("sent")
+                return await super().send_message(msg)
+
+        stub = TracingSession()
+        engine.sessions["S1"] = stub
+        real_submit = writer.submit
+
+        async def spy(ops, params_list, data, *a, **kw):
+            trace.append("wrote")
+            return await real_submit(ops, params_list, data, *a, **kw)
+
+        async def traced(label, coro):
+            trace.clear()
+            writer.submit = spy
+            try:
+                result = await coro
+            finally:
+                writer.submit = real_submit
+            assert trace.count("sent") == 1, f"{label}: {trace}"
+            assert trace[-1] == "sent", f"{label} sent before writing: {trace}"
+            assert "wrote" in trace, f"{label} wrote nothing: {trace}"
+            return result
+
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await traced("accept_order", engine.accept_order("S1", "C100"))
+        filled = await traced("fill_order",
+                              engine.fill_order("S1", "C100", qty=40, price=150.25))
+        corrected = await traced("correct_trade",
+                                 engine.correct_trade("S1", filled, qty=50, price=150.5))
+        await traced("bust_trade", engine.bust_trade("S1", corrected))
+
+        replace_req = "8=FIX.4.2|35=G|11=C200|41=C100|55=AAPL|54=1|38=200|40=2|44=151.0"
+        await engine.on_app_message(stub, "G", parse_fix(replace_req))
+        await traced("accept_replace", engine.accept_replace("S1", "C100"))
+
+        cancel_req = "8=FIX.4.2|35=F|11=C300|41=C200|55=AAPL|54=1|38=200"
+        await engine.on_app_message(stub, "F", parse_fix(cancel_req))
+        await traced("reject_cancel", engine.reject_cancel("S1", "C200", text="no"))
+
+        cancel_again = "8=FIX.4.2|35=F|11=C400|41=C200|55=AAPL|54=1|38=200"
+        await engine.on_app_message(stub, "F", parse_fix(cancel_again))
+        await traced("accept_cancel", engine.accept_cancel("S1", "C200"))
+
+        second = "8=FIX.4.2|35=D|11=C500|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
+        await engine.on_app_message(stub, "D", parse_fix(second))
+        await traced("reject_order", engine.reject_order("S1", "C500", text="no"))
+
+
+class TestAnswerBeforeOwnWrite:
+    """A sent order's own row must be written before the message goes out: the
+    send awaits, so a fast counterparty's answer can be processed first."""
+
+    @pytest.mark.asyncio
+    async def test_reject_answered_during_send_survives(self, stack):
+        db, writer, engine = stack
+        stub = EagerSession(engine)
+        stub.answer_to = "D"
+        engine.sessions["S1"] = stub
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "Rejected", \
+            "the reject must not be overwritten by the order's own PendingNew write"
+        assert rows[0]["order_id"].startswith("OR"), rows[0]["order_id"]
+        assert rows[0]["order_id"] != "ORMKT99", \
+            "the counterparty's OrderID(37) must not become our Order ID"
+
+    @pytest.mark.asyncio
+    async def test_replace_answered_during_send_keeps_entered_terms(self, stack):
+        db, writer, engine = stack
+        stub = EagerSession(engine)
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        stub.answer_to = "G"
+        await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=250, price=151.5,
+        )
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "Replaced"
+        assert rows[0]["entered_qty"] == 250.0, \
+            "the Replace dialog's terms must be recorded before the chain is renamed"
+        assert rows[0]["entered_price"] == 151.5
+
+    @pytest.mark.asyncio
+    async def test_every_sent_side_action_writes_before_it_sends(self, stack):
+        """The market side's invariant, checked on the sending side too: all of
+        an action's writes are submitted before its message reaches the wire."""
+        db, writer, engine = stack
+        trace: list[str] = []
+
+        class TracingSession(StubSession):
+            async def send_message(self, msg):
+                trace.append("sent")
+                return await super().send_message(msg)
+
+        stub = TracingSession()
+        engine.sessions["S1"] = stub
+        real_submit = writer.submit
+
+        async def spy(ops, params_list, data, *a, **kw):
+            trace.append("wrote")
+            return await real_submit(ops, params_list, data, *a, **kw)
+
+        async def traced(label, coro):
+            trace.clear()
+            writer.submit = spy
+            try:
+                result = await coro
+            finally:
+                writer.submit = real_submit
+            assert trace.count("sent") == 1, f"{label}: {trace}"
+            assert trace[-1] == "sent", f"{label} sent before writing: {trace}"
+            return result
+
+        first = await traced("send_new_order", engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0))
+        second = await traced("send_cancel_replace", engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0))
+        await traced("send_cancel", engine.send_cancel(
+            "S1", orig_cl_ord_id=second, symbol="AAPL", side="1", qty=200))
+
+    @pytest.mark.asyncio
+    async def test_failed_send_leaves_no_live_order(self, stack):
+        db, writer, engine = stack
+
+        class DeadSession(StubSession):
+            async def send_message(self, msg):
+                raise ConnectionError("socket gone")
+
+        engine.sessions["S1"] = DeadSession()
+        with pytest.raises(ConnectionError):
+            await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert rows[0]["status"] == "Rejected"
+        assert "Send failed" in rows[0]["text"]
+
+
 class TestExtraTags:
     @pytest.mark.asyncio
     async def test_send_new_order_attaches_extra_pairs(self, stack):

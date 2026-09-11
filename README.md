@@ -51,7 +51,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the request's ClOrdID (per the FIX chain), while an immutable Order ID keeps
   the order recognizable across the chain; corrections and busts likewise
   replace the ExecID while an immutable Trade ID groups a fill with its
-  corrections and busts.
+  corrections and busts. Every blotter row is written before its message
+  leaves, so a counterparty that answers instantly -- a reject arriving while
+  the order is still going out -- lands on the blotter as a reject and stays
+  there, under the Order ID mkfix minted rather than the counterparty's.
 - **Prefixed IDs** -- Every generated ID states its kind: `RT` ClOrdIDs
   (routed), `OR` Order IDs, `EX` ExecIDs, `TR` Trade IDs -- followed by a
   2-character instance code (the first two letters of the username, so
@@ -186,9 +189,9 @@ the built-in `mkfix.toml` for the full schema.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 0.2.0 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 0.5.1 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.2.9 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.5.0 -- Web Components UI
   framework
 
 ## License

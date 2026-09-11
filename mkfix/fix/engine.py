@@ -746,9 +746,13 @@ class FixEngine:
             **extra,
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
-        # Pre-populate order row as PendingNew
+        # Pre-populate the order row as PendingNew *before* the message goes on
+        # the wire: send_message awaits, so the counterparty's answer can be read
+        # and processed first, and an ExecutionReport reaching the upsert with no
+        # row to update creates one itself — adopting its OrderID(37) as our
+        # write-once order_id, only for this write to then land on top of it and
+        # put the order back to PendingNew.
         dictionary = session.dictionary
         now = _fix_timestamp()
         order_row = {
@@ -789,6 +793,13 @@ class FixEngine:
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
+
+        try:
+            await session.send_message(msg)
+        except Exception as exc:
+            await self._write_order(order_row, status="Rejected", leaves_qty=0.0,
+                                    text=f"Send failed: {exc}")
+            raise
 
         return cl_ord_id
 
@@ -855,7 +866,6 @@ class FixEngine:
             **extra,
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         dictionary = session.dictionary
         entered = {
@@ -871,7 +881,11 @@ class FixEngine:
         if tif is not None:
             entered["time_in_force"] = dictionary.enum_name("59", tif)
             entered["tif_code"] = tif
+        # Recorded before the send for the same reason send_new_order writes
+        # first: an ExecutionReport accepting the replace renames the chain to
+        # the new ClOrdID, and this lookup by the superseded one would miss.
         await self._record_entered(session_id, orig_cl_ord_id, entered)
+        await session.send_message(msg)
         return cl_ord_id
 
     async def _record_entered(self, session_id: str, cl_ord_id: str, entered: dict[str, Any]) -> None:
@@ -936,6 +950,14 @@ class FixEngine:
         return dict(row)
 
     async def _write_order(self, order: dict[str, Any], **updates: Any) -> None:
+        """Apply updates to an order row on top of the snapshot its caller loaded.
+
+        Callers must submit this — and any rename or execution insert that goes
+        with it — *before* putting their message on the wire. The send awaits, so
+        an inbound message for the same order (a cancel request, say) can be
+        processed in between; this write then puts the whole of ORDER_UPDATE_COLS
+        back to the pre-send snapshot, losing the pending_* columns it set.
+        """
         row = {**order, **updates, "updated_at": _fix_timestamp()}
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(row),), {"cl_ord_id": row["cl_ord_id"]})
@@ -1010,10 +1032,10 @@ class FixEngine:
             leaves_qty=order["order_qty"],
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         await self._write_order(order, order_id=order_id, status="New",
                                 pending_action="", pending_extra_tags="")
+        await session.send_message(msg)
         return order_id
 
     async def reject_order(self, session_id: str, cl_ord_id: str, text: str = "",
@@ -1038,10 +1060,10 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         await self._write_order(order, status="Rejected", leaves_qty=0.0, text=text,
                                 pending_action="", pending_extra_tags="")
+        await session.send_message(msg)
 
     async def fill_order(
         self, session_id: str, cl_ord_id: str, qty: float, price: float,
@@ -1080,7 +1102,6 @@ class FixEngine:
             leaves_qty=leaves_qty,
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         # A fill on a not-yet-accepted order implicitly acknowledges it, so the
         # pending New is consumed; a pending Cancel/Replace stays parked.
@@ -1097,6 +1118,7 @@ class FixEngine:
             *_sent_exec_kind(dictionary, msg, status_code),
             qty, price, cum_qty, avg_price, leaves_qty,
         )
+        await session.send_message(msg)
         return exec_id
 
     async def accept_request(self, session_id: str, cl_ord_id: str, extra_tags: str = "") -> str:
@@ -1153,7 +1175,6 @@ class FixEngine:
             **{"41": cl_ord_id},
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
@@ -1162,6 +1183,7 @@ class FixEngine:
             pending_action="", pending_cl_ord_id="",
             pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
         )
+        await session.send_message(msg)
         return exec_id
 
     async def accept_replace(self, session_id: str, cl_ord_id: str, extra_tags: str = "") -> str:
@@ -1206,7 +1228,6 @@ class FixEngine:
             **{"41": cl_ord_id, "44": str(new_price)},
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
@@ -1225,6 +1246,7 @@ class FixEngine:
             _fix_timestamp(), None, session_id, new_cl_ord_id)
         await self.writer.submit(self._compiled_ops["record_entered"], (params,),
                                  {"cl_ord_id": new_cl_ord_id})
+        await session.send_message(msg)
         return exec_id
 
     async def reject_cancel(self, session_id: str, cl_ord_id: str, text: str = "",
@@ -1247,12 +1269,12 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         await self._write_order(
             order, pending_action="", pending_cl_ord_id="",
             pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
         )
+        await session.send_message(msg)
 
     async def correct_trade(
         self, session_id: str, exec_id: str, qty: float, price: float,
@@ -1294,7 +1316,6 @@ class FixEngine:
             exec_ref_id=exec_id,
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         await self._write_order(
             order, status=dictionary.enum_name("39", status_code),
@@ -1305,6 +1326,7 @@ class FixEngine:
             order, new_exec_id, trade_id, *_sent_exec_kind(dictionary, msg, "2"),
             qty, price, cum_qty, avg_price, leaves_qty,
         )
+        await session.send_message(msg)
         return new_exec_id
 
     async def bust_trade(self, session_id: str, exec_id: str, extra_tags: str = "") -> str:
@@ -1342,7 +1364,6 @@ class FixEngine:
             exec_ref_id=exec_id,
         )
         msg.extra = extra_pairs
-        await session.send_message(msg)
 
         await self._write_order(
             order, status=dictionary.enum_name("39", status_code),
@@ -1354,6 +1375,7 @@ class FixEngine:
             execution["last_qty"], execution["last_price"],
             cum_qty, avg_price, leaves_qty,
         )
+        await session.send_message(msg)
         return new_exec_id
 
     async def reset_sequence(self, session_id: str, tx: int = 1, rx: int = 1) -> None:
