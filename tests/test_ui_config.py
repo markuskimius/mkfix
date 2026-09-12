@@ -963,11 +963,94 @@ class TestTimeTypedColumns:
         assert checked, "no engine-stamped columns checked"
 
 
+class TestMenubar:
+    """The menubar is app.json data mkui renders verbatim: an item with a
+    typo'd key or an action mkui does not register is a dead entry with at
+    most a console warning, and the order of the menus is a layout the eye
+    learns, so both are pinned here."""
+
+    MENUS = ["Sessions", "Messages", "Edit", "Trading", "Tools", "Layout", "Window"]
+    BUILTIN_ACTIONS = {
+        "pane.show", "edit.copy", "edit.selectAll", "edit.undo", "edit.redo",
+        "layout.save", "layout.reset",
+        "window.tileH", "window.tileV", "window.grid", "window.cascade",
+    }
+
+    def test_menu_order(self, app_config):
+        assert [m["label"] for m in app_config["menubar"]] == self.MENUS
+
+    def test_every_item_is_an_action_separator_or_submenu(self, app_config):
+        for menu in app_config["menubar"]:
+            for item in menu["items"]:
+                kinds = set(item) & {"action", "sep", "layouts", "windows"}
+                assert len(kinds) == 1, f"{menu['label']}: ambiguous item {item}"
+                if "action" in item:
+                    assert item["label"], f"{menu['label']}: action without a label"
+                    assert item["action"] in self.BUILTIN_ACTIONS, \
+                        f"{menu['label']}: {item['action']!r} is not an mkui built-in"
+
+    def test_pane_show_items_carry_a_pane_id(self, app_config):
+        for menu in app_config["menubar"]:
+            for item in menu["items"]:
+                if item.get("action") == "pane.show":
+                    assert isinstance(item["args"], str), \
+                        f"{menu['label']}: pane.show args must be a pane id"
+
+    def test_no_menu_repeats_a_label(self, app_config):
+        for menu in app_config["menubar"]:
+            labels = [i["label"] for i in menu["items"] if "label" in i]
+            assert len(labels) == len(set(labels)), f"{menu['label']} repeats a label"
+
+    def test_separators_never_lead_trail_or_double(self, app_config):
+        for menu in app_config["menubar"]:
+            items = menu["items"]
+            assert not items[0].get("sep") and not items[-1].get("sep"), \
+                f"{menu['label']} starts or ends with a separator"
+            for a, b in zip(items, items[1:]):
+                assert not (a.get("sep") and b.get("sep")), \
+                    f"{menu['label']} has adjacent separators"
+
+    def test_edit_menu_leads_with_undo_and_redo(self, app_config):
+        edit = next(m for m in app_config["menubar"] if m["label"] == "Edit")
+        actions = [item.get("action") for item in edit["items"]]
+        assert actions[:2] == ["edit.undo", "edit.redo"]
+        assert actions[2:] == [None, "edit.copy", "edit.selectAll"]
+
+    def test_undo_labels_name_the_only_undoable_table(self, app_config, toml_config):
+        """mkui's undo steps a record's recorded versions, not an editor's
+        text; the example label "Undo record" says that, but here only
+        sessions are undoable (orders and trades are read-only history),
+        so the label says which."""
+        undoable = {
+            spec["history"]["table"]
+            for spec in app_config["panes"].values()
+            if "undo" in spec.get("history", {})
+        }
+        assert undoable == {"fix_sessions"}
+        ops = toml_config["services"]["session_mgmt"]["ops"]
+        assert ops["undo"][0]["op_type"] == "undo"
+        assert ops["redo"][0]["op_type"] == "redo"
+        edit = next(m for m in app_config["menubar"] if m["label"] == "Edit")
+        labels = {i["action"]: i["label"] for i in edit["items"] if "action" in i}
+        assert labels["edit.undo"] == "Undo Session Change"
+        assert labels["edit.redo"] == "Redo Session Change"
+
+    def test_no_menu_opens_a_filter_view(self, app_config):
+        """The one-click Messages views were dropped in 0.29: the header
+        filters cover them and the entries hid the default heartbeat
+        exclusion's own reset. `TestConfiguredFilters` still validates any
+        that come back."""
+        for menu in app_config["menubar"]:
+            for item in menu["items"]:
+                assert item.get("action") != "table.filter", \
+                    f"{menu['label']} carries filter view {item.get('label')!r}"
+
+
 class TestConfiguredFilters:
-    """`table.filter` menu items and pane `filters` defaults name panes,
-    columns, and values by string; a typo leaves an entry that silently
-    filters nothing (an unknown column) or everything (a value the engine
-    never writes)."""
+    """Pane `filters` defaults (and any `table.filter` menu items) name
+    panes, columns, and values by string; a typo leaves an entry that
+    silently filters nothing (an unknown column) or everything (a value the
+    engine never writes)."""
 
     PRESETS = {"today", "1h", "15m"}
     RANGE_KEYS = {"from", "to", "empty", "preset", "type"}
@@ -975,11 +1058,9 @@ class TestConfiguredFilters:
 
     @pytest.fixture(scope="class")
     def filter_items(self, app_config):
-        items = [item for menu in app_config["menubar"]
-                 for item in menu.get("items", [])
-                 if item.get("action") == "table.filter"]
-        assert items, "no table.filter menu items"
-        return items
+        return [item for menu in app_config["menubar"]
+                for item in menu.get("items", [])
+                if item.get("action") == "table.filter"]
 
     @pytest.fixture(scope="class")
     def filter_maps(self, app_config, filter_items):
@@ -1023,12 +1104,11 @@ class TestConfiguredFilters:
                     f"{owner} filters unknown message name {value!r}"
         assert checked, "no message-name filter values checked"
 
-    def test_show_all_clears_without_merge(self, filter_items):
-        """A reset entry must replace (not merge) with empty filters, or
-        stacked views and the configured defaults could never be undone
-        from the menu."""
+    def test_reset_entries_clear_without_merge(self, filter_items):
+        """A reset entry (empty filters) must replace, not merge, or the
+        stacked views and configured defaults could never be undone from
+        the menu."""
         resets = [i for i in filter_items if i["args"]["filters"] == {}]
-        assert resets, "no Show All reset entry"
         for item in resets:
             assert not item["args"].get("merge"), \
                 f"menu {item['label']!r} merges an empty filter map (a no-op)"
@@ -1448,13 +1528,15 @@ class TestRecordHistory:
             for col in cfg.get("unversioned", []):
                 assert col in cfg["columns"], f"{name}: unversioned {col} is not a column"
 
-    def test_every_history_pane_has_a_menu_entry(self, app_config, history_panes):
-        opened = {
-            item["args"]["pane"]
-            for menu in app_config["menubar"] for item in menu.get("items", [])
+    def test_menus_do_not_open_histories(self, app_config):
+        """The timeline is reached only through each blotter's History
+        button; a menu entry would open it over whichever blotter's
+        selection happened to be current."""
+        opened = [
+            item for menu in app_config["menubar"] for item in menu.get("items", [])
             if item.get("action") == "table.history"
-        }
-        assert opened == set(history_panes)
+        ]
+        assert not opened
 
     def test_every_history_pane_has_a_history_button(self, history_panes):
         """The version timeline opens only through `table.history` (Undo,
@@ -1471,11 +1553,6 @@ class TestRecordHistory:
             }, f"{pane_id} History button must open its own history"
             assert button.get("unit") == "row"
             assert button["enable"] == {"connected": True}
-
-    def test_edit_menu_offers_undo_and_redo(self, app_config):
-        edit = next(m for m in app_config["menubar"] if m["label"] == "Edit")
-        actions = [item.get("action") for item in edit["items"]]
-        assert "edit.undo" in actions and "edit.redo" in actions
 
     def test_engine_registers_the_undo_redo_hook(self):
         main = (ROOT / "mkfix" / "__main__.py").read_text()

@@ -14,48 +14,12 @@
   },
   "menubar": [
     {
-      "label": "Edit",
-      "items": [
-        {
-          "label": "Copy",
-          "action": "edit.copy",
-          "shortcut": "mod+C"
-        },
-        {
-          "label": "Select All",
-          "action": "edit.selectAll",
-          "shortcut": "mod+A"
-        },
-        {
-          "sep": true
-        },
-        {
-          "label": "Undo Record",
-          "action": "edit.undo"
-        },
-        {
-          "label": "Redo Record",
-          "action": "edit.redo"
-        }
-      ]
-    },
-    {
       "label": "Sessions",
       "items": [
         {
           "label": "Sessions",
           "action": "pane.show",
           "args": "session-blotter"
-        },
-        {
-          "sep": true
-        },
-        {
-          "label": "Session History",
-          "action": "table.history",
-          "args": {
-            "pane": "session-blotter"
-          }
         }
       ]
     },
@@ -71,66 +35,32 @@
           "label": "Detail",
           "action": "pane.show",
           "args": "message-detail"
+        }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        {
+          "label": "Undo Session Change",
+          "action": "edit.undo"
+        },
+        {
+          "label": "Redo Session Change",
+          "action": "edit.redo"
         },
         {
           "sep": true
         },
         {
-          "label": "Hide Heartbeats",
-          "action": "table.filter",
-          "args": {
-            "pane": "raw-messages",
-            "filters": {
-              "msg_type_name": {
-                "exclude": [
-                  "Heartbeat",
-                  "TestRequest"
-                ]
-              }
-            },
-            "merge": true
-          }
+          "label": "Copy",
+          "action": "edit.copy",
+          "shortcut": "mod+C"
         },
         {
-          "label": "Hide Session Admin",
-          "action": "table.filter",
-          "args": {
-            "pane": "raw-messages",
-            "filters": {
-              "msg_type_name": {
-                "exclude": [
-                  "Heartbeat",
-                  "TestRequest",
-                  "Logon",
-                  "Logout",
-                  "ResendRequest",
-                  "SequenceReset"
-                ]
-              }
-            },
-            "merge": true
-          }
-        },
-        {
-          "label": "Last 15 Minutes",
-          "action": "table.filter",
-          "args": {
-            "pane": "raw-messages",
-            "filters": {
-              "timestamp": {
-                "preset": "15m"
-              }
-            },
-            "merge": true
-          }
-        },
-        {
-          "label": "Show All",
-          "action": "table.filter",
-          "args": {
-            "pane": "raw-messages",
-            "filters": {}
-          }
+          "label": "Select All",
+          "action": "edit.selectAll",
+          "shortcut": "mod+A"
         }
       ]
     },
@@ -159,37 +89,6 @@
           "label": "Sent Trades",
           "action": "pane.show",
           "args": "market-trade-blotter"
-        },
-        {
-          "sep": true
-        },
-        {
-          "label": "Sent Order History",
-          "action": "table.history",
-          "args": {
-            "pane": "order-blotter"
-          }
-        },
-        {
-          "label": "Received Trade History",
-          "action": "table.history",
-          "args": {
-            "pane": "trade-blotter"
-          }
-        },
-        {
-          "label": "Received Order History",
-          "action": "table.history",
-          "args": {
-            "pane": "market-order-blotter"
-          }
-        },
-        {
-          "label": "Sent Trade History",
-          "action": "table.history",
-          "args": {
-            "pane": "market-trade-blotter"
-          }
         }
       ]
     },
@@ -284,7 +183,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.28"
+        "text": "mkfix v0.29"
       }
     ],
     "bindStyle": {
@@ -2447,7 +2346,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.28",
+      "version": "0.29",
       "mkio": "0.7",
       "expr": "1"
     },

@@ -26,10 +26,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   (value checklists with exclude/include intent, plus numeric and time-range
   bounds with Today / Last hour / Last 15 min presets on timestamp columns),
   sorting, and clipboard copy. Heartbeats are hidden by default (every other
-  message type shows); the Messages menu carries one-click views -- Hide
-  Heartbeats, Hide Session Admin, Last 15 Minutes, and Show All, which also
-  restores hidden heartbeats. The same filtering applies across every blotter,
-  and the order and trade blotters open showing today's activity by default.
+  message type shows); the header filter on the message type column restores
+  them. The same filtering applies across every blotter, and the order and
+  trade blotters open showing today's activity by default.
 - **Message Detail** -- Field-by-field breakdown of the message selected in
   the Messages viewer, translated through the owning session's dictionary:
   collapsible header/body/trailer sections and repeating-group trees,
@@ -105,13 +104,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the shipped arrangement. mkfix has no login, so the history is shared by
   everyone using the same server.
 - **Record History** -- Sessions, orders and trades are versioned: every
-  change to a row is recorded, and each blotter's History button (also the
-  Sessions and Trading menus) opens a History pane showing the selected
-  record's versions with a Diff and Blame of what changed between them -- a
-  trade's versions being its fill, corrections and bust. An
-  As of… button reads a blotter as it stood at a moment. Session config
-  edits can be undone and redone from the Edit menu; the engine reloads the
-  session to match. Orders and trades are read-only history, since the
+  change to a row is recorded, and each blotter's History button opens a
+  History pane showing the selected record's versions with a Diff and Blame
+  of what changed between them -- a trade's versions being its fill,
+  corrections and bust. An As of… button reads a blotter as it stood at a
+  moment. Session config edits can be undone and redone (Undo Session Change
+  / Redo Session Change in the Edit menu); the engine reloads the session to
+  match. Orders and trades are read-only history, since the
   counterparty's view of them cannot be rewound.
 - **Archiving** -- `mkfix archive` moves the running data (messages, orders,
   trades, IOIs, allocations) from before a cutoff -- midnight at the start of
