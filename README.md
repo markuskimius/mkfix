@@ -113,6 +113,14 @@ A FIX protocol testing engine for capital markets connectivity, built on
   edits can be undone and redone from the Edit menu; the engine reloads the
   session to match. Orders and trades are read-only history, since the
   counterparty's view of them cannot be rewound.
+- **Archiving** -- `mkfix archive` moves the running data (messages, orders,
+  trades, IOIs, allocations) from before a cutoff -- midnight at the start of
+  today by default -- into CSV files and deletes it, so a test bed starts
+  fresh with its sessions intact and the old data on disk. Run it while the
+  server is up and the blotters drop the rows live; the config tables
+  (sessions with their state, dictionaries, settings, ID counters, replay
+  jobs, layouts) go only when named, and a running session refuses. `mkfix
+  restore` puts an archive back exactly as it was, history included.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
   tracking.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
@@ -153,6 +161,33 @@ mkfix -i Q7                  # stamp Q7 into generated IDs (remembered by later 
 mkfix -i ''                  # forget the saved code, back to the username default
 mkfix myconfig.toml          # custom config file
 ```
+
+### Archiving old data
+
+```bash
+mkfix archive --dry-run                 # what would go: the data tables, from before today
+mkfix archive                           # archive it (asks first; -y skips the question)
+mkfix archive --cutoff 2026-09-01       # everything from before that date (local time)
+mkfix archive --cutoff 7d --tables orders,trades
+mkfix archive --all --cutoff 0m         # every table, config included, from before now
+mkfix restore archive/mkfix_20260912-020000
+```
+
+`mkfix archive` writes one directory per run under `./archive` (`--out` to
+change it): a `manifest.json`, a CSV per table with every column, the version
+history of the orders, trades and sessions archived, and the session state
+rows alongside their sessions. The running-data tables are the default;
+`--tables` takes the short names `messages`, `orders`, `trades`, `iois`,
+`allocations`, `sessions`, `dictionaries`, `settings`, `ids`, `replay_jobs`,
+`layouts`, and `--group config` or `--all` reaches the config tables, which
+are archived whole rather than by cutoff. Give the same `-d`, `-p` and
+`--host` as the server: when a server answers on that port the archive runs
+through it, the engine refuses to archive a running session, a dictionary a
+remaining session uses, or the ID counters, and the blotters drop the rows
+as they go; otherwise the database file is archived directly, which needs
+the server stopped. `mkfix restore` is offline only and refuses while a
+server answers; a row that already exists blocks the restore of a data
+table, while a config table's row is replaced.
 
 On startup mkfix prints where to find it, along with the config and database in
 use and the enabled FIX sessions:
@@ -203,7 +238,7 @@ the built-in `mkfix.toml` for the full schema.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 0.6.0 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 0.7.0 -- async microservice
   framework (aiohttp + aiosqlite)
 - [mkui](https://github.com/markuskimius/mkui) >= 0.5.0 -- Web Components UI
   framework

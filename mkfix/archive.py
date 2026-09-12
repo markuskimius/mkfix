@@ -1,0 +1,290 @@
+"""``mkfix archive`` and ``mkfix restore``: mkio's row archiving with mkfix's
+defaults.
+
+The tables come from the ``archive`` keys in mkfix.toml — the running-data
+tables (messages, orders, trades, IOIs, allocations) in the ``data`` group,
+archived by default, and the config/state tables in ``config``, archived
+only when named. The default cutoff is the start of today in local time, so
+a plain ``mkfix archive`` clears down everything from before today. Short
+table names (``orders``, ``trades``, ...) map to the real ones in ``ALIASES``.
+
+If a server answers on the configured port and serves ``fix_cmd``, the
+archive runs through it (``_mkio`` archive request): the engine's guards
+apply and the blotters drop the rows live. Otherwise the database file is
+archived directly, which is only correct with the server stopped. ``--url``
+and ``--offline`` force one or the other. Restore is offline only and
+refuses to run while a server answers.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+from mkio.archive import (
+    ArchiveError,
+    archive_offline,
+    midnight_today,
+    parse_cutoff,
+    restore_offline,
+)
+
+ALIASES: dict[str, str] = {
+    "messages": "fix_messages",
+    "orders": "fix_orders",
+    "trades": "fix_executions",
+    "executions": "fix_executions",
+    "iois": "fix_iois",
+    "allocations": "fix_allocations",
+    "sessions": "fix_sessions",
+    "dictionaries": "fix_dictionaries",
+    "settings": "fix_settings",
+    "ids": "fix_id_state",
+    "replay_jobs": "fix_replay_jobs",
+    "layouts": "mkui_layouts",
+}
+
+DEFAULT_OUT = "archive"
+
+
+def resolve_tables(text: str | None) -> list[str] | None:
+    if not text:
+        return None
+    names = [t.strip() for t in text.split(",") if t.strip()]
+    return [ALIASES.get(n, n) for n in names]
+
+
+def default_cutoff() -> str:
+    """The start of today, local time, as an ISO instant mkio's cutoff parser
+    takes verbatim."""
+    return midnight_today().isoformat(timespec="seconds")
+
+
+def _parser(cmd: str) -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog=f"mkfix {cmd}")
+    p.add_argument("config", nargs="?", default=None,
+                   help="path to mkfix.toml (default: auto-detect)")
+    p.add_argument("-d", "--db", default=None, metavar="PATH",
+                   help="database filename (.db added if no extension)")
+    p.add_argument("-p", "--port", type=int, default=None,
+                   help="the server's port, when it was started with -p")
+    p.add_argument("--host", default=None, help="the server's host, when it was started with --host")
+    if cmd == "archive":
+        p.description = (
+            "Archive rows to CSV and delete them from the database. Runs through "
+            "the server when one is up on the configured port, else on the file."
+        )
+        p.add_argument("--tables", default=None, metavar="A,B",
+                       help="tables to archive, short names allowed: "
+                            + ", ".join(ALIASES) + " (default: the data group)")
+        p.add_argument("--group", default=None, help="archive one group: data or config")
+        p.add_argument("--all", action="store_true", help="archive every archivable table")
+        p.add_argument("--cutoff", default=None, metavar="WHEN",
+                       help="Nd/Nh/Nm back from now, a date, or a date-time (local unless "
+                            "it carries a zone); default: midnight at the start of today")
+        p.add_argument("--cutoff-literal", default=None, metavar="TEXT",
+                       help="compare the cutoff columns against this text as given")
+        p.add_argument("--out", default=DEFAULT_OUT, metavar="DIR",
+                       help=f"directory the run's folder is created in (default: ./{DEFAULT_OUT})")
+        p.add_argument("--url", default=None, help="archive through the server at this URL")
+        p.add_argument("--offline", action="store_true",
+                       help="archive the database file directly (server must be stopped)")
+        p.add_argument("--dry-run", action="store_true", help="report what would go, change nothing")
+        p.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation")
+    else:
+        p.description = "Put an archive's rows back into the database. The server must be stopped."
+        p.add_argument("archive_dir", help="the run directory an archive wrote")
+        p.add_argument("--tables", default=None, metavar="A,B",
+                       help="restore only these tables (short names allowed)")
+        p.add_argument("--dry-run", action="store_true", help="report what would be restored, change nothing")
+    return p
+
+
+def main(cmd: str, argv: list[str]) -> None:
+    from mkfix.__main__ import _find_config, _load_config, resolve_db_arg
+
+    parser = _parser(cmd)
+    args = parser.parse_args(argv)
+    config_path = args.config or _find_config()
+    cfg = _load_config(config_path)
+    db_path = resolve_db_arg(args.db)
+    if db_path is not None:
+        cfg["db_path"] = db_path
+    if args.port is not None:
+        cfg["port"] = args.port
+    if args.host is not None:
+        cfg["host"] = args.host
+    if cfg.get("db_path") == ":memory:":
+        parser.error("an in-memory database has nothing to archive or restore into")
+    tables = resolve_tables(args.tables)
+    try:
+        if cmd == "archive":
+            _archive(cfg, args, tables)
+        else:
+            _restore(cfg, args, tables)
+    except ArchiveError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _archive(cfg: dict[str, Any], args: argparse.Namespace, tables: list[str] | None) -> None:
+    if args.all and (tables or args.group):
+        raise ArchiveError("--all cannot be combined with --tables or --group")
+    if args.cutoff and args.cutoff_literal:
+        raise ArchiveError("give either --cutoff or --cutoff-literal, not both")
+    if args.url and args.offline:
+        raise ArchiveError("give either --url or --offline, not both")
+    group = "all" if args.all else args.group
+    cutoff = None if args.cutoff_literal else (args.cutoff or default_cutoff())
+    cutoff_desc = args.cutoff_literal or args.cutoff or f"{cutoff} (start of today)"
+    out_dir = Path(args.out).resolve()
+
+    url = args.url
+    if url is None and not args.offline:
+        url = server_url(cfg) if server_answers(cfg) else None
+    if url is not None:
+        print(f"Archiving through the server at {url}")
+        asyncio.run(_archive_online(url, tables, group, cutoff, args.cutoff_literal,
+                                    out_dir, args.dry_run, args.yes, cutoff_desc))
+        return
+
+    print(f"Archiving the database file {Path(cfg['db_path']).resolve()} (no server answering)")
+    instant = parse_cutoff(cutoff) if cutoff else None
+    kwargs: dict[str, Any] = dict(
+        tables=tables, group=group, cutoff=instant, cutoff_literal=args.cutoff_literal,
+        cutoff_given=args.cutoff_literal or cutoff, out_dir=out_dir,
+        mkio_version=_mkio_version(),
+    )
+    preview = archive_offline(cfg, dry_run=True, **kwargs)
+    print_summary(preview, cutoff_desc=cutoff_desc, dry_run=args.dry_run)
+    if args.dry_run:
+        return
+    if not _total(preview):
+        print("Nothing to archive.")
+        return
+    if not args.yes and not confirm("Archive and delete these rows?"):
+        print("Aborted.")
+        sys.exit(1)
+    result = archive_offline(cfg, dry_run=False, **kwargs)
+    print(f"  Archived {_total(result):,} rows to {result['dir']}")
+
+
+async def _archive_online(
+    url: str, tables: list[str] | None, group: str | None, cutoff: str | None,
+    cutoff_literal: str | None, out_dir: Path, dry_run: bool, assume_yes: bool,
+    cutoff_desc: str,
+) -> None:
+    from mkio.client import MkioClient
+
+    spec: dict[str, Any] = {
+        "tables": tables, "group": group, "cutoff": cutoff,
+        "cutoff_literal": cutoff_literal, "out": str(out_dir),
+    }
+    ws_url = url.replace("http://", "ws://", 1).replace("https://", "wss://", 1).rstrip("/") + "/ws"
+    async with MkioClient(ws_url, reconnect=False) as client:
+        preview = await client.request("_mkio", {"archive": {**spec, "dry_run": True}})
+        if preview.get("type") == "error":
+            raise ArchiveError(preview.get("message", "unknown error"))
+        print_summary(preview["row"], cutoff_desc=cutoff_desc, dry_run=dry_run)
+        if dry_run:
+            return
+        if not _total(preview["row"]):
+            print("Nothing to archive.")
+            return
+        if not assume_yes and not confirm("Archive and delete these rows?"):
+            print("Aborted.")
+            sys.exit(1)
+        result = await client.request("_mkio", {"archive": {**spec, "dry_run": False}})
+        if result.get("type") == "error":
+            raise ArchiveError(result.get("message", "unknown error"))
+        print(f"  Archived {_total(result['row']):,} rows to {result['row']['dir']}")
+
+
+def _restore(cfg: dict[str, Any], args: argparse.Namespace, tables: list[str] | None) -> None:
+    if server_answers(cfg):
+        raise ArchiveError(
+            f"a server is answering at {server_url(cfg)} — restore needs it stopped"
+        )
+    result = restore_offline(cfg, args.archive_dir, tables=tables, dry_run=args.dry_run)
+    verb = "would be restored" if args.dry_run else "restored"
+    print(f"Restoring from {args.archive_dir}" + (" (dry run)" if args.dry_run else ""))
+    for name, t in result["tables"].items():
+        parts = [f"{t['rows']:,} rows"]
+        if t.get("history"):
+            parts.append(f"{t['history']:,} history rows")
+        for comp, n in (t.get("companions") or {}).items():
+            parts.append(f"{n:,} {comp} rows")
+        note = f", {t['replaced']:,} existing replaced" if t.get("replaced") else ""
+        print(f"  {name}: {', '.join(parts)} {verb}{note}")
+        if t.get("history_skipped"):
+            print(f"    note: {t['history_skipped']}")
+    if not args.dry_run:
+        print("  Done.")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+
+def server_url(cfg: dict[str, Any]) -> str:
+    host = cfg.get("host", "0.0.0.0")
+    if host in ("", "0.0.0.0", "::"):
+        host = "localhost"
+    if ":" in host:
+        host = f"[{host}]"
+    return f"http://{host}:{cfg.get('port', 8080)}"
+
+
+def server_answers(cfg: dict[str, Any], *, timeout: float = 1.0) -> bool:
+    """True when something at the configured address serves mkfix's
+    ``fix_cmd`` — the mkfix server for this config, not just any listener."""
+    try:
+        with urllib.request.urlopen(f"{server_url(cfg)}/api/services", timeout=timeout) as resp:
+            services = json.loads(resp.read().decode())
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+    return any(isinstance(s, dict) and s.get("name") == "fix_cmd" for s in services)
+
+
+def confirm(prompt: str) -> bool:
+    if not sys.stdin.isatty():
+        print("Error: pass --yes to confirm (stdin is not a terminal)", file=sys.stderr)
+        sys.exit(1)
+    try:
+        answer = input(f"{prompt} [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
+def _total(summary: dict[str, Any]) -> int:
+    return sum(t["rows"] for t in summary.get("tables", {}).values())
+
+
+def print_summary(summary: dict[str, Any], *, cutoff_desc: str, dry_run: bool) -> None:
+    verb = "would be archived" if dry_run else "to archive"
+    print(f"  Cutoff: {cutoff_desc}")
+    for name, t in summary.get("tables", {}).items():
+        parts = [f"{t['rows']:,} rows"]
+        if t.get("history") is not None:
+            parts.append(f"{t['history']:,} history rows")
+        for comp, n in (t.get("companions") or {}).items():
+            parts.append(f"{n:,} {comp} rows")
+        if t.get("cutoff_column"):
+            scope = f"{t['cutoff_column']} < {t['cutoff_value']}"
+        else:
+            scope = "whole table, cutoff ignored"
+        print(f"  {name}: {', '.join(parts)} {verb} ({scope})")
+
+
+def _mkio_version() -> str:
+    import importlib.metadata
+    try:
+        return importlib.metadata.version("mkio")
+    except importlib.metadata.PackageNotFoundError:
+        return "dev"

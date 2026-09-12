@@ -9,6 +9,15 @@ batch_max_wait_ms = 2.0
 
 # ─── Tables ─────────────────────────────────────────────────────────
 
+# `archive = {...}` marks a table `mkfix archive` may clear down to CSV (mkio's
+# row archiving). The running-data tables are in the default `data` group and
+# archive by their FIX-format time column against the cutoff; the config and
+# state tables are in the `config` group, archived only when asked for and
+# whole (they have no meaningful time column), with fix_session_state riding
+# along with its fix_sessions row. FixEngine.check_archive guards the config
+# group when the server does the archiving. Every table here is either
+# archivable or on the never-archive list in tests/test_archive.py.
+
 # status/tx_seq_num/rx_seq_num are engine-written mirrors of fix_session_state:
 # a query service with JOIN sql drops change events from non-primary tables, so
 # the sessions blotter can only live-update off a single table. The table is
@@ -20,12 +29,14 @@ batch_max_wait_ms = 2.0
 columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", dictionary = "TEXT DEFAULT ''", timestamp_precision = "TEXT DEFAULT ''", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", logout_timeout = "INTEGER DEFAULT 0", logout_test_request = "INTEGER DEFAULT 1", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1" }
 versioned = true
 unversioned = ["status", "tx_seq_num", "rx_seq_num"]
+archive = { group = "config", with = ["fix_session_state"] }
 
 [tables.fix_session_state]
 columns = { session_id = "TEXT PRIMARY KEY", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1", last_tx_time = "TEXT DEFAULT ''", last_rx_time = "TEXT DEFAULT ''", session_start = "TEXT DEFAULT ''", error_text = "TEXT DEFAULT ''", seq_epoch = "INTEGER DEFAULT 0" }
 
 [tables.fix_messages]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", timestamp = "TEXT NOT NULL", direction = "TEXT NOT NULL", seq_num = "INTEGER DEFAULT 0", msg_type = "TEXT DEFAULT ''", msg_type_name = "TEXT DEFAULT ''", category = "TEXT DEFAULT 'APP'", raw_message = "TEXT NOT NULL", sender_comp = "TEXT DEFAULT ''", target_comp = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", exec_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", body_length = "INTEGER DEFAULT 0", checksum = "TEXT DEFAULT ''" }
+archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 # session_status on fix_orders/fix_executions is an engine-written mirror of
 # the owning session's live status (same rationale as the fix_sessions mirror:
@@ -35,28 +46,34 @@ columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NUL
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", session_status = "TEXT DEFAULT 'DOWN'", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL" }
 versioned = true
 unversioned = ["session_status"]
+archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_executions]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", session_status = "TEXT DEFAULT 'DOWN'" }
 versioned = true
 unversioned = ["session_status"]
+archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_iois]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", ioi_id = "TEXT NOT NULL", ioi_trans_type = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ioi_qty = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", valid_until = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
+archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_allocations]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", alloc_id = "TEXT NOT NULL", alloc_trans_type = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", quantity = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", trade_date = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", num_allocs = "INTEGER DEFAULT 0", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
+archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 # ID generator state: one row per ID prefix holding its counter (see
 # mkfix/fix/idgen.py).
 [tables.fix_id_state]
 columns = { name = "TEXT PRIMARY KEY", counter = "INTEGER DEFAULT 0" }
+archive = { group = "config" }
 
 # Engine settings that outlive a run: currently only instance_code, the two
 # characters generated IDs carry after their type code. `mkfix -i CODE` saves
 # it here and later runs reuse it; `-i ''` saves '' (back to the username).
 [tables.fix_settings]
 columns = { key = "TEXT PRIMARY KEY", value = "TEXT DEFAULT ''" }
+archive = { group = "config" }
 
 # User-defined FIX dictionaries: doc is JSON — a delta over base_version when
 # one is set, a complete standalone document otherwise. Written through fix_cmd
@@ -64,9 +81,11 @@ columns = { key = "TEXT PRIMARY KEY", value = "TEXT DEFAULT ''" }
 # step; resolution lives in mkfix/fix/dictionary.py.
 [tables.fix_dictionaries]
 columns = { name = "TEXT PRIMARY KEY", base_version = "TEXT DEFAULT ''", doc = "TEXT NOT NULL DEFAULT '{}'", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+archive = { group = "config" }
 
 [tables.fix_replay_jobs]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", file_path = "TEXT NOT NULL", status = "TEXT DEFAULT 'loaded'", target_session = "TEXT DEFAULT ''", speed = "REAL DEFAULT 1.0", msg_filter = "TEXT DEFAULT ''", total_messages = "INTEGER DEFAULT 0", sent_messages = "INTEGER DEFAULT 0", error_text = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''" }
+archive = { group = "config" }
 
 # Saved window layouts for mkui's Layout menu: one row per save, the newest
 # being the user's current layout and the older ones its restorable history
@@ -74,6 +93,7 @@ columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", fi
 # lands under owner '' — the default history shared by everyone on this server.
 [tables.mkui_layouts]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", app = "TEXT NOT NULL DEFAULT ''", owner = "TEXT NOT NULL DEFAULT ''", saved = "TEXT DEFAULT CURRENT_TIMESTAMP", layout = "TEXT NOT NULL" }
+archive = { cutoff = "saved", group = "config" }
 
 # ─��─ Transaction Services ───────────────────────────────────────────
 

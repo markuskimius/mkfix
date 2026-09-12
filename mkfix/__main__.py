@@ -57,6 +57,14 @@ def serve(
         if engine is not None:
             await engine.stop()
 
+    async def guard_archive(stage: str, selection: dict[str, list[dict[str, Any]]]) -> None:
+        if engine is None:
+            return
+        if stage == "before":
+            await engine.check_archive(selection)
+        else:
+            await engine.after_archive(selection)
+
     async def follow_undo_redo(event: ChangeEvent) -> None:
         # The listener is wired at start, the engine built in the startup
         # hook, so this dispatches through the closure rather than binding
@@ -67,6 +75,7 @@ def serve(
     app.on_startup(start_fix_engine)
     app.on_shutdown(stop_fix_engine)
     app.on_undo_redo(follow_undo_redo)
+    app.on_archive(guard_archive)
 
     # Mirrors MkioApp.run, but announces the server only once the port is
     # actually bound, so the URL printed is one that answers. The port is
@@ -182,7 +191,13 @@ def _load_config(config: str | Path | dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point. ``mkfix archive`` and ``mkfix restore`` are
+    subcommands; anything else is the server, whose optional positional is
+    a config path."""
+    if len(sys.argv) > 1 and sys.argv[1] in ("archive", "restore"):
+        from mkfix.archive import main as archive_main
+        archive_main(sys.argv[1], sys.argv[2:])
+        return
     parser = argparse.ArgumentParser(
         prog="mkfix",
         description="FIX protocol testing engine built on mkio and mkui",
@@ -221,15 +236,19 @@ def main() -> None:
         except ValueError as exc:
             parser.error(str(exc))
 
-    db_path = args.db
-    if db_path is not None and db_path != ":memory:" and not Path(db_path).suffix:
-        db_path += ".db"
-
+    db_path = resolve_db_arg(args.db)
     config_path = args.config or _find_config()
     serve(
         config_path, host=args.host, port=args.port, db_path=db_path,
         instance_code=args.instance_code,
     )
+
+
+def resolve_db_arg(db: str | None) -> str | None:
+    """``-d NAME`` → ``NAME.db`` unless it already has an extension or is ``:memory:``."""
+    if db is not None and db != ":memory:" and not Path(db).suffix:
+        db += ".db"
+    return db
 
 
 def _find_config() -> str:

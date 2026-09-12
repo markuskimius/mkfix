@@ -1728,6 +1728,53 @@ class FixEngine:
             await self.update_session_state(session_id, {"status": "DOWN"})
         await self.reload_session(session_id)
 
+    async def check_archive(self, selection: dict[str, list[dict[str, Any]]]) -> None:
+        """mkio's ``on_archive`` "before" stage: refuse an online archive that
+        would pull rows out from under the engine.
+
+        A session goes only while stopped (``DOWN``/``ERROR`` — the same gate
+        as Delete); a dictionary only while no surviving session names it
+        (the ``delete_dictionary`` rule, minus the sessions leaving in the
+        same run); the ID counters never while the engine holds them in
+        memory, since emptying the table would restart every prefix at 1
+        on the next run and reissue IDs. Offline runs (server stopped) have
+        no engine to ask and are the user's responsibility."""
+        problems: list[str] = []
+        leaving = {r["session_id"] for r in selection.get("fix_sessions", [])}
+        for session_id in sorted(leaving):
+            session = self.sessions.get(session_id)
+            status = session.status if session else "DOWN"
+            if status not in ("DOWN", "ERROR"):
+                problems.append(f"session {session_id} is {status} — stop it before archiving it")
+        names = {r["name"] for r in selection.get("fix_dictionaries", [])}
+        if names:
+            conn = self.db.read_conn
+            cursor = await conn.execute(
+                "SELECT session_id, dictionary FROM fix_sessions WHERE dictionary != ''")
+            rows = await cursor.fetchall()
+            await cursor.close()
+            for row in rows:
+                if row["dictionary"] in names and row["session_id"] not in leaving:
+                    problems.append(
+                        f"dictionary {row['dictionary']} is bound to session {row['session_id']}")
+        if selection.get("fix_id_state"):
+            problems.append(
+                "fix_id_state holds the ID counters the running engine is using — "
+                "archive it offline, with the server stopped")
+        if problems:
+            raise ValueError("; ".join(problems))
+
+    async def after_archive(self, selection: dict[str, list[dict[str, Any]]]) -> None:
+        """mkio's ``on_archive`` "after" stage: drop what the archived config
+        rows had built — the session objects (already stopped, per
+        ``check_archive``) and the custom dictionary registrations."""
+        for row in selection.get("fix_sessions", []):
+            session = self.sessions.pop(row["session_id"], None)
+            if session is not None:
+                await session.stop()
+        for row in selection.get("fix_dictionaries", []):
+            unregister_custom(row["name"])
+
     async def reload_session(self, session_id: str) -> None:
         """Reload a session's config from the database."""
         conn = self.db.read_conn
