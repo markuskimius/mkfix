@@ -100,6 +100,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
   restorable from the Restore Layout submenu, and Reset to Default returns to
   the shipped arrangement. mkfix has no login, so the history is shared by
   everyone using the same server.
+- **Record History** -- Sessions, orders and trades are versioned: every
+  change to a row is recorded, and each blotter's History pane shows the
+  record's versions with a Diff and Blame of what changed between them. An
+  As of… button reads a blotter as it stood at a moment. Session config
+  edits can be undone and redone from the Edit menu; the engine reloads the
+  session to match. Orders and trades are read-only history, since the
+  counterparty's view of them cannot be rewound.
 - **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
   tracking.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
@@ -189,7 +196,7 @@ the built-in `mkfix.toml` for the full schema.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 0.5.1 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 0.6.0 -- async microservice
   framework (aiohttp + aiosqlite)
 - [mkui](https://github.com/markuskimius/mkui) >= 0.5.0 -- Web Components UI
   framework

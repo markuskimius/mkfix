@@ -1299,3 +1299,146 @@ class TestSessionDialogs:
         ops = toml_config["services"]["session_mgmt"]["ops"]
         for op in ("add", "update"):
             assert {"logout_timeout", "logout_test_request"} <= set(ops[op][0]["fields"]), op
+
+
+def _primary_key(table_cfg: dict) -> list[str]:
+    pk = list(table_cfg.get("primary_key", []) or [])
+    if pk:
+        return pk
+    return [name for name, col in table_cfg["columns"].items()
+            if "PRIMARY KEY" in col.upper()]
+
+
+class TestRecordHistory:
+    """The five blotters' `history` blocks name services mkio never writes on
+    its own; a missing or misnamed one leaves the History pane, the As of…
+    button, or Undo silently dead in the browser (mkui warns at most)."""
+
+    HISTORY_PANES = ("session-blotter", "order-blotter", "trade-blotter",
+                     "market-order-blotter", "market-trade-blotter")
+
+    @pytest.fixture(scope="class")
+    def history_panes(self, app_config):
+        panes = {pid: app_config["panes"][pid] for pid in self.HISTORY_PANES}
+        for pid, spec in panes.items():
+            assert "history" in spec, f"{pid} declares no history block"
+        return panes
+
+    def test_only_the_five_blotters_carry_history(self, app_config):
+        with_history = {pid for pid, spec in app_config["panes"].items() if "history" in spec}
+        assert with_history == set(self.HISTORY_PANES)
+
+    def test_history_table_is_the_versioned_primary_table(self, history_panes, toml_config):
+        for pid, spec in history_panes.items():
+            table = spec["history"]["table"]
+            assert table == toml_config["services"][spec["service"]]["primary_table"], \
+                f"{pid}: history.table is not the pane's table"
+            assert toml_config["tables"][table].get("versioned") is True, \
+                f"{pid}: {table} is not versioned in mkfix.toml"
+
+    def test_history_key_is_the_tables_primary_key(self, history_panes, toml_config):
+        for pid, spec in history_panes.items():
+            table = spec["history"]["table"]
+            assert spec["history"]["key"] == _primary_key(toml_config["tables"][table]), \
+                f"{pid}: history.key must be the primary key of {table}"
+
+    def test_reqrep_services_read_the_history_table_by_key(self, history_panes, toml_config):
+        for pid, spec in history_panes.items():
+            h = spec["history"]
+            hist_table = f"{h['table']}__history"
+            for role in ("versions", "state"):
+                svc = toml_config["services"].get(h[role])
+                assert svc and svc["protocol"] == "reqrep", f"{pid}: history.{role} is not a reqrep"
+                assert hist_table in svc["sql"], f"{pid}: {h[role]} does not read {hist_table}"
+                for key in h["key"]:
+                    assert f":{key}" in svc["sql"], f"{pid}: {h[role]} does not bind :{key}"
+            svc = toml_config["services"].get(h["asOf"])
+            assert svc and svc["protocol"] == "reqrep", f"{pid}: history.asOf is not a reqrep"
+            assert hist_table in svc["sql"] and ":as_of" in svc["sql"]
+
+    def test_feed_is_a_query_over_the_history_table_filterable_by_key(self, history_panes, toml_config):
+        """mkio-history builds its table on the feed and narrows it to one
+        record server-side, so the key must be filterable."""
+        for pid, spec in history_panes.items():
+            h = spec["history"]
+            svc = toml_config["services"].get(h["feed"])
+            assert svc and svc["protocol"] == "query", f"{pid}: history.feed is not a query"
+            assert svc["primary_table"] == f"{h['table']}__history"
+            for key in h["key"]:
+                assert key in svc.get("filterable", []), \
+                    f"{pid}: {h['feed']} must list {key} as filterable"
+
+    def test_as_of_matches_the_panes_direction(self, history_panes, toml_config):
+        """A pane's `filter` narrows only its live subscription; the as-of
+        rows come from a reqrep, so each direction-split blotter needs an
+        as-of service that applies the same split."""
+        for pid, spec in history_panes.items():
+            match = re.fullmatch(r"direction == '(TX|RX)'", spec.get("filter", ""))
+            sql = toml_config["services"][spec["history"]["asOf"]]["sql"]
+            if match:
+                assert f"h.direction = '{match.group(1)}'" in sql, \
+                    f"{pid}: as-of view must be limited to direction {match.group(1)}"
+            else:
+                assert "direction" not in sql
+
+    def test_undo_redo_only_on_sessions(self, history_panes, toml_config):
+        """An undo rewinds only the local row — the counterparty's view of an
+        order or trade does not move — so orders and trades are read-only."""
+        for pid, spec in history_panes.items():
+            h = spec["history"]
+            if pid != "session-blotter":
+                assert "undo" not in h and "redo" not in h, f"{pid} must not offer undo"
+                continue
+            for direction in ("undo", "redo"):
+                step = h[direction]
+                ops = toml_config["services"][step["service"]]["ops"]
+                op = ops[step["op"]]
+                assert [(o["table"], o["op_type"], o["key"]) for o in op] == [
+                    (h["table"], direction, h["key"])]
+            assert h.get("confirm", True) is True, "a cursor move is a shared write"
+
+    def test_session_history_diffs_only_the_config_columns(self, history_panes, toml_config):
+        """`history.columns` drives Diff and Blame; the live mirrors are
+        unversioned and absent from history rows, so listing them would show
+        blank cells."""
+        h = history_panes["session-blotter"]["history"]
+        table = toml_config["tables"]["fix_sessions"]
+        assert set(h["columns"]) <= set(table["columns"])
+        assert not set(h["columns"]) & set(table["unversioned"])
+        assert set(h["columns"]) >= set(table["columns"]) - set(table["unversioned"]) - {"session_id"}
+
+    def test_unversioned_columns_are_the_engine_mirrors(self, toml_config):
+        tables = toml_config["tables"]
+        assert tables["fix_sessions"]["unversioned"] == ["status", "tx_seq_num", "rx_seq_num"]
+        assert tables["fix_orders"]["unversioned"] == ["session_status"]
+        assert tables["fix_executions"]["unversioned"] == ["session_status"]
+        for name, cfg in tables.items():
+            for col in cfg.get("unversioned", []):
+                assert col in cfg["columns"], f"{name}: unversioned {col} is not a column"
+
+    def test_every_history_pane_has_a_menu_entry(self, app_config, history_panes):
+        opened = {
+            item["args"]["pane"]
+            for menu in app_config["menubar"] for item in menu.get("items", [])
+            if item.get("action") == "table.history"
+        }
+        assert opened == set(history_panes)
+
+    def test_edit_menu_offers_undo_and_redo(self, app_config):
+        edit = next(m for m in app_config["menubar"] if m["label"] == "Edit")
+        actions = [item.get("action") for item in edit["items"]]
+        assert "edit.undo" in actions and "edit.redo" in actions
+
+    def test_engine_registers_the_undo_redo_hook(self):
+        main = (ROOT / "mkfix" / "__main__.py").read_text()
+        assert "app.on_undo_redo(" in main
+        engine = (ROOT / "mkfix" / "fix" / "engine.py").read_text()
+        assert "async def handle_undo_redo" in engine
+
+    def test_mkio_floor_supports_writer_owned_versioning(self, toml_config):
+        """`unversioned` and writer-side counter bumps are mkio 0.6; an
+        earlier mkio rejects the table key, and before it the engine's
+        hand-written ops would have recorded a flat history."""
+        if not any("unversioned" in t for t in toml_config["tables"].values()):
+            pytest.skip("no unversioned columns")
+        assert _dependency_floor("mkio") >= (0, 6, 0)

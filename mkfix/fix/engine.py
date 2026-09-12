@@ -154,6 +154,15 @@ class FixEngine:
         # The second op mirrors the live columns onto fix_sessions so the
         # sessions blotter can be a plain single-table query pane — a query
         # service with JOIN sql drops change events from non-primary tables.
+        # Follows an undo that removes a session row (handle_undo_redo): the
+        # state table is not versioned, so the cursor move leaves it behind.
+        self._compiled_ops["delete_state"] = (CompiledOp(
+            table="fix_session_state",
+            op_type="delete",
+            sql="DELETE FROM fix_session_state WHERE session_id = ?",
+            param_names=("session_id",),
+        ),)
+
         self._compiled_ops["upsert_state"] = (CompiledOp(
             table="fix_session_state",
             op_type="upsert",
@@ -301,7 +310,11 @@ class FixEngine:
     async def _backfill_entered_terms(self) -> None:
         """Seed the as-submitted terms of orders recorded before those columns
         existed from their working terms, so their Replace dialog doesn't open
-        on qty 0. Idempotent: every row written since carries entered_qty."""
+        on qty 0. Idempotent: every row written since carries entered_qty.
+
+        Runs on the raw connection, after migration has baselined the rows, so
+        a row it touches shows the pre-backfill values at version 1 of its
+        history; the next edit records the row as it then stands."""
         conn = self.db.write_conn
         await (await conn.execute(
             "UPDATE fix_orders SET entered_qty = order_qty, entered_price = nullif(price, 0) "
@@ -1584,6 +1597,34 @@ class FixEngine:
             out.append({"name": name, "kind": "custom",
                         "base_version": meta.get("base_version", "")})
         return out
+
+    async def handle_undo_redo(self, event: Any) -> None:
+        """Follow a version cursor move on fix_sessions (mkio's on_undo_redo).
+
+        mkio puts the config row right; this puts the engine right. The row's
+        live columns (status, sequence numbers) are unversioned, so a move
+        never touches them — only the session object and its state row need
+        following. An undone Add (the row is gone) stops and drops the
+        session and deletes its state row, which the cursor move left behind
+        because fix_session_state is not versioned; a redone Add rebuilds
+        both; an undone or redone edit reloads, which rebuilds a stopped
+        session and swaps config on a running one, exactly as Edit does."""
+        if event.table != "fix_sessions":
+            return
+        if event.new is None:
+            session_id = event.old["session_id"]
+            session = self.sessions.pop(session_id, None)
+            if session is not None:
+                await session.stop()
+            await self.writer.submit(
+                self._compiled_ops["delete_state"], ((session_id,),),
+                {"session_id": session_id},
+            )
+            return
+        session_id = event.new["session_id"]
+        if event.old is None:
+            await self.update_session_state(session_id, {"status": "DOWN"})
+        await self.reload_session(session_id)
 
     async def reload_session(self, session_id: str) -> None:
         """Reload a session's config from the database."""

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from mkio import create_app
+from mkio import ChangeEvent, create_app
 from mkio.config import load_config
 
 from mkfix import __version__
@@ -57,8 +57,16 @@ def serve(
         if engine is not None:
             await engine.stop()
 
+    async def follow_undo_redo(event: ChangeEvent) -> None:
+        # The listener is wired at start, the engine built in the startup
+        # hook, so this dispatches through the closure rather than binding
+        # the method up front.
+        if engine is not None:
+            await engine.handle_undo_redo(event)
+
     app.on_startup(start_fix_engine)
     app.on_shutdown(stop_fix_engine)
+    app.on_undo_redo(follow_undo_redo)
 
     # Mirrors MkioApp.run, but announces the server only once the port is
     # actually bound, so the URL printed is one that answers. The port is

@@ -7,8 +7,10 @@ import pytest
 import pytest_asyncio
 
 from mkio.change_bus import ChangeBus
+from mkio.config import load_config
 from mkio.database import Database
-from mkio.writer import WriteBatcher
+from mkio.history import history_specs, versioned_tables
+from mkio.writer import CompiledOp, WriteBatcher
 
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.engine import FixEngine
@@ -18,13 +20,21 @@ TABLES = tomllib.loads(
     (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
 )["tables"]
 
+# Loaded through mkio so the versioned tables' derived history tables exist
+# and the writer records versions, as the real server does.
+CONFIG = load_config({"db_path": ":memory:", "tables": TABLES})
+
 
 @pytest_asyncio.fixture
 async def stack():
-    db = Database(path=":memory:", tables=TABLES, config={})
+    db = Database(path=":memory:", tables=CONFIG["tables"], config=CONFIG)
     await db.start()
     bus = ChangeBus()
-    writer = WriteBatcher(db, bus)
+    writer = WriteBatcher(
+        db, bus,
+        versioned=history_specs(CONFIG),
+        versioned_configs=versioned_tables(CONFIG),
+    )
     await writer.start()
     engine = FixEngine(db=db, writer=writer)
     engine._compile_ops()
@@ -1816,3 +1826,205 @@ class TestEngineStop:
 
         assert elapsed < 0.25, f"stops ran one after another: {elapsed:.2f}s"
         assert engine.sessions == {}
+
+
+INSERT_SESSION = (CompiledOp(
+    table="fix_sessions",
+    op_type="insert",
+    sql=(
+        "INSERT INTO fix_sessions (session_id, sender_comp_id, target_comp_id, host, port, _mkio_ref) "
+        "VALUES (?, ?, ?, ?, ?, ?) RETURNING *"
+    ),
+    param_names=("session_id", "sender_comp_id", "target_comp_id", "host", "port", "_mkio_ref"),
+),)
+
+
+async def _add_session(writer, session_id="S1", host="", port=9876):
+    """Insert a session row the way session_mgmt.add does: through the writer,
+    so the row gets its version 1 recorded."""
+    await writer.submit(
+        INSERT_SESSION, ((session_id, "A", "B", host, port, None),),
+        {"session_id": session_id},
+    )
+
+
+async def _versions(db, table, where=""):
+    return await _fetch_all(
+        db, f"SELECT * FROM {table}__history {where} ORDER BY _mkio_version"
+    )
+
+
+class TestVersioning:
+    """fix_sessions, fix_orders and fix_executions are versioned; the writer
+    records a version per change and steps the row's counter itself, so the
+    engine's hand-written ops need only their RETURNING *. The live mirrors
+    are unversioned, so a heartbeat or a session transition records nothing
+    (mkio 0.6, `unversioned` in mkfix.toml)."""
+
+    @pytest.mark.asyncio
+    async def test_tables_are_versioned(self):
+        assert set(versioned_tables(CONFIG)) == {
+            "fix_sessions", "fix_orders", "fix_executions"}
+
+    @pytest.mark.asyncio
+    async def test_order_lifecycle_is_one_chain(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.accept_order("S1", "C100")
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+
+        live = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        chain = await _versions(db, "fix_orders")
+        assert live["_mkio_version"] == 3
+        assert [(v["_mkio_version"], v["_mkio_op"], v["status"]) for v in chain] == [
+            (1, "insert", "PendingNew"), (2, "update", "New"), (3, "update", "PartiallyFilled")]
+        assert "session_status" not in chain[0], "the mirror column stays out of history"
+        # The live row sits on its newest version.
+        for col in ("cl_ord_id", "status", "cum_qty", "pending_action"):
+            assert live[col] == chain[-1][col]
+
+    @pytest.mark.asyncio
+    async def test_rename_versions_the_row_and_keeps_its_identity(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.accept_order("S1", "C100")
+        await engine.on_app_message(stub, "F", parse_fix(CANCEL_REQ_RX))
+        await engine.accept_cancel("S1", "C100")
+
+        chain = await _versions(db, "fix_orders")
+        assert [v["cl_ord_id"] for v in chain][-1] == "C101"
+        assert len({v["id"] for v in chain}) == 1, "one chain, keyed by the immutable id"
+
+    @pytest.mark.asyncio
+    async def test_execution_rows_have_one_version(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        await engine.update_session_state("S1", {"status": "ACTIVE"})
+
+        chain = await _versions(db, "fix_executions")
+        assert [(v["_mkio_version"], v["_mkio_op"]) for v in chain] == [(1, "insert")]
+        live = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (live["_mkio_version"], live["session_status"]) == (1, "ACTIVE")
+
+    @pytest.mark.asyncio
+    async def test_session_status_mirror_records_no_order_version(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        before = await _versions(db, "fix_orders")
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        await engine.update_session_state("S1", {"status": "ACTIVE"})
+        after = await _versions(db, "fix_orders")
+        assert [v["_mkio_ref"] for v in after] == [v["_mkio_ref"] for v in before]
+        live = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert (live["_mkio_version"], live["session_status"]) == (1, "ACTIVE")
+
+    @pytest.mark.asyncio
+    async def test_seq_num_persist_records_no_session_version(self, stack):
+        db, writer, engine = stack
+        await _add_session(writer)
+        for n in range(1, 4):
+            await engine.update_session_state(
+                "S1", {"status": "ACTIVE", "tx_seq_num": n, "rx_seq_num": n})
+        await engine.update_session_state("S1", {"status": "DOWN"})
+
+        live = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
+        assert (live["status"], live["tx_seq_num"], live["_mkio_version"]) == ("DOWN", 3, 1)
+        chain = await _versions(db, "fix_sessions")
+        assert [(v["_mkio_version"], v["_mkio_op"]) for v in chain] == [(1, "insert")]
+        assert not {"status", "tx_seq_num", "rx_seq_num"} & set(chain[0])
+
+    @pytest.mark.asyncio
+    async def test_identical_rewrite_of_an_order_records_nothing(self, stack):
+        """The writer compares against the pre-image, so re-upserting the
+        row as it stands (same updated_at included) is not an edit."""
+        from mkfix.fix.engine import _order_params
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        ops = engine._compiled_ops["upsert_order"]
+        await writer.submit(ops, (_order_params(row),), {"cl_ord_id": row["cl_ord_id"]})
+        live = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert live["_mkio_version"] == 1
+        assert len(await _versions(db, "fix_orders")) == 1
+
+
+def _move(table, op, new, old, cause):
+    """A ChangeEvent shaped like the one mkio's on_undo_redo hook delivers."""
+    return ChangeBus.make_event(table, op, new if new is not None else old, "r1",
+                                cause=cause, old=old)
+
+
+class TestUndoRedoHook:
+    """FixEngine.handle_undo_redo follows a cursor move on fix_sessions: the
+    engine's session map and the unversioned fix_session_state row."""
+
+    @pytest.mark.asyncio
+    async def test_ignores_other_tables(self, stack):
+        db, writer, engine = stack
+        await engine.handle_undo_redo(_move("fix_orders", "update", {"id": 1}, {"id": 1}, "undo"))
+        assert engine.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_undone_edit_rebuilds_a_stopped_session(self, stack):
+        db, writer, engine = stack
+        await _add_session(writer, host="old.example")
+        row = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
+        await engine.handle_undo_redo(_move(
+            "fix_sessions", "update", row, {**row, "host": "new.example"}, "undo"))
+        assert engine.sessions["S1"].config["host"] == "old.example"
+
+    @pytest.mark.asyncio
+    async def test_undone_edit_swaps_config_on_a_running_session(self, stack):
+        db, writer, engine = stack
+        await _add_session(writer, host="old.example")
+        row = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
+        running = StubSession()
+        running._transport = object()
+        running._socket = None
+        running.config = {**row, "host": "new.example"}
+        engine.sessions["S1"] = running
+        await engine.handle_undo_redo(_move(
+            "fix_sessions", "update", row, running.config, "undo"))
+        assert engine.sessions["S1"] is running, "a live transport is kept"
+        assert running.config["host"] == "old.example"
+
+    @pytest.mark.asyncio
+    async def test_undone_add_drops_the_session_and_its_state(self, stack):
+        db, writer, engine = stack
+        await _add_session(writer)
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        stub = StubSession()
+        stopped = []
+
+        async def stop():
+            stopped.append(True)
+        stub.stop = stop
+        engine.sessions["S1"] = stub
+        row = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
+
+        await engine.handle_undo_redo(_move("fix_sessions", "delete", None, row, "undo"))
+        assert "S1" not in engine.sessions
+        assert stopped == [True]
+        assert await _fetch_all(db, "SELECT * FROM fix_session_state") == []
+
+    @pytest.mark.asyncio
+    async def test_redone_add_rebuilds_the_session_and_its_state(self, stack):
+        db, writer, engine = stack
+        await _add_session(writer)
+        row = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
+        await engine.handle_undo_redo(_move("fix_sessions", "insert", row, None, "redo"))
+        assert engine.sessions["S1"].config["session_id"] == "S1"
+        state = await _fetch_all(db, "SELECT * FROM fix_session_state")
+        assert [(s["session_id"], s["status"]) for s in state] == [("S1", "DOWN")]
