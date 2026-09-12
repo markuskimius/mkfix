@@ -183,7 +183,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.29"
+        "text": "mkfix v0.30"
       }
     ],
     "bindStyle": {
@@ -1075,6 +1075,10 @@
                         {
                           "value": "5",
                           "label": "Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "Sell Short Exempt"
                         }
                       ]
                     }
@@ -1104,14 +1108,6 @@
                         {
                           "value": "2",
                           "label": "Limit"
-                        },
-                        {
-                          "value": "3",
-                          "label": "Stop"
-                        },
-                        {
-                          "value": "4",
-                          "label": "Stop Limit"
                         }
                       ]
                     }
@@ -1150,10 +1146,25 @@
                           "label": "FOK"
                         },
                         {
+                          "value": "5",
+                          "label": "GTX"
+                        },
+                        {
                           "value": "6",
                           "label": "GTD"
                         }
                       ]
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "expire_time",
+                      "label": "Expire (local; time optional)",
+                      "type": "datetime",
+                      "time": "optional",
+                      "step": 1
                     }
                   ]
                 },
@@ -1224,6 +1235,10 @@
                         {
                           "value": "5",
                           "label": "Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "Sell Short Exempt"
                         }
                       ]
                     }
@@ -1254,14 +1269,6 @@
                         {
                           "value": "2",
                           "label": "Limit"
-                        },
-                        {
-                          "value": "3",
-                          "label": "Stop"
-                        },
-                        {
-                          "value": "4",
-                          "label": "Stop Limit"
                         }
                       ]
                     }
@@ -1302,10 +1309,31 @@
                           "label": "FOK"
                         },
                         {
+                          "value": "5",
+                          "label": "GTX"
+                        },
+                        {
                           "value": "6",
                           "label": "GTD"
                         }
                       ]
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "expire_time",
+                      "label": "Expire (local; time optional)",
+                      "type": "datetime",
+                      "time": "optional",
+                      "value": "${IF(row.expire_time != '', row.expire_time, row.expire_date)}",
+                      "parse": [
+                        "%Y%m%d-%H:%M:%S.%f",
+                        "%Y%m%d-%H:%M:%S",
+                        "%Y%m%d"
+                      ],
+                      "step": 1
                     }
                   ]
                 },
@@ -2346,7 +2374,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.29",
+      "version": "0.30",
       "mkio": "0.7",
       "expr": "1"
     },

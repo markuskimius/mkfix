@@ -67,6 +67,9 @@ class FixCommandService(Service):
                 price=float(data["price"]) if data.get("price") else None,
                 tif=data.get("tif", "0"),
                 extra_tags=data.get("extra_tags", ""),
+                expire_time=data.get("expire_time", ""),
+                expire_date=data.get("expire_date", ""),
+                expire_precision=data.get("expire_precision", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -92,6 +95,9 @@ class FixCommandService(Service):
                 price=float(data["price"]) if data.get("price") else None,
                 tif=data.get("tif"),
                 extra_tags=data.get("extra_tags", ""),
+                expire_time=data.get("expire_time", ""),
+                expire_date=data.get("expire_date", ""),
+                expire_precision=data.get("expire_precision", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 

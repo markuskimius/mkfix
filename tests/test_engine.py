@@ -60,6 +60,7 @@ ORDER_COLS = [
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
     "pending_extra_tags", "session_status",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
+    "expire_time", "expire_date",
 ]
 
 ORDER_UPDATE_COLS = [
@@ -83,6 +84,7 @@ def _order_params(**overrides):
         "pending_qty": 0.0, "pending_price": 0.0, "pending_extra_tags": "",
         "session_status": "ACTIVE",
         "tif_code": "0", "extra_tags": "", "entered_qty": 100.0, "entered_price": 150.25,
+        "expire_time": "", "expire_date": "",
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
@@ -1612,6 +1614,147 @@ class TestEnteredTerms:
         assert row["entered_qty"] == 200.0 and row["entered_price"] == 151.0, \
             "entered terms stay what was submitted"
         assert row["tif_code"] == "1" and row["extra_tags"] == "5001=X"
+
+    @pytest.mark.asyncio
+    async def test_expiry_rides_new_order_and_replace(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0, tif="6",
+            expire_time="20260912-21:00:00", expire_date="20260912",
+        )
+        assert stub.sent[-1]["126"] == "20260912-21:00:00"
+        assert stub.sent[-1]["432"] == "20260912"
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["expire_time"] == "20260912-21:00:00"
+        assert row["expire_date"] == "20260912"
+        await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0,
+            expire_time="20260913-21:00:00",
+        )
+        assert stub.sent[-1]["35"] == "G"
+        assert stub.sent[-1]["126"] == "20260913-21:00:00"
+        assert "432" not in stub.sent[-1].fields, "an empty expiry field sends no tag"
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["expire_time"] == "20260913-21:00:00" and row["expire_date"] == "", \
+            "the Replace dialog prefills from what the last Replace submitted"
+
+    def test_dialog_instant_becomes_fix_stamp_at_precision(self):
+        from mkfix.fix.message import normalize_expire_time
+        iso = "2026-09-12T21:00:00Z"
+        assert normalize_expire_time(iso, "second") == "20260912-21:00:00"
+        assert normalize_expire_time(iso, "millisecond") == "20260912-21:00:00.000"
+        assert normalize_expire_time(iso, "microsecond") == "20260912-21:00:00.000000"
+        assert normalize_expire_time(iso, "nanosecond") == "20260912-21:00:00.000000000"
+        assert normalize_expire_time(iso, "picosecond") == "20260912-21:00:00.000000000000"
+        assert normalize_expire_time("2026-09-12T21:00:00.123Z", "microsecond") == "20260912-21:00:00.123000"
+        assert normalize_expire_time("2026-09-12T21:00:00.123456789Z", "millisecond") == "20260912-21:00:00.123"
+        assert normalize_expire_time("2026-09-12T17:00:00-04:00", "second") == "20260912-21:00:00"
+        assert normalize_expire_time("2026-09-13T02:30+05:30", "second") == "20260912-21:00:00"
+        assert normalize_expire_time("2026-09-12 21:00", "second") == "20260912-21:00:00", "naive is UTC"
+
+    def test_fix_stamp_passes_unless_precision_asked(self):
+        from mkfix.fix.message import normalize_expire_date, normalize_expire_time
+        stamp = "20260912-21:00:00.123456"
+        assert normalize_expire_time(stamp, "millisecond", explicit=False) == stamp
+        assert normalize_expire_time(stamp, "millisecond") == "20260912-21:00:00.123"
+        assert normalize_expire_time(stamp, "second") == "20260912-21:00:00"
+        assert normalize_expire_time("whatever", "second") == "whatever"
+        assert normalize_expire_time("  ", "second") == ""
+        assert normalize_expire_date("2026-09-12") == "20260912"
+        assert normalize_expire_date("20260912") == "20260912"
+        assert normalize_expire_date("") == ""
+
+    def test_factory_expire_precision_defaults_to_session(self):
+        iso = "2026-09-12T21:00:00Z"
+        d42 = FixDictionary("FIX.4.2")
+        assert FixMessageFactory(d42, "A", "B").expire_time_stamp(iso) == "20260912-21:00:00.000"
+        assert FixMessageFactory(FixDictionary("FIX.4.0"), "A", "B").expire_time_stamp(iso) == "20260912-21:00:00"
+        micro = FixMessageFactory(d42, "A", "B", timestamp_precision="microsecond")
+        assert micro.expire_time_stamp(iso) == "20260912-21:00:00.000000"
+        assert micro.expire_time_stamp(iso, "picosecond") == "20260912-21:00:00.000000000000"
+        msg = micro.new_order_single("C1", "AAPL", "1", 100, price=1.0, tif="6",
+                                     expire_time=iso, expire_date="2026-09-12",
+                                     expire_precision="nanosecond")
+        assert msg["126"] == "20260912-21:00:00.000000000" and msg["432"] == "20260912"
+
+    def test_bare_date_in_expire_time_is_an_expire_date(self):
+        factory = FixMessageFactory(FixDictionary("FIX.4.2"), "A", "B")
+        assert factory.expiry("2026-09-12", "", "") == ("", "20260912")
+        assert factory.expiry("20260912", "", "") == ("", "20260912")
+        assert factory.expiry("2026-09-12", "20260930", "") == ("", "20260930"), \
+            "an explicit ExpireDate wins over the dialog's bare date"
+        assert factory.expiry("2026-09-12T21:00:00Z", "", "second") == ("20260912-21:00:00", "")
+        assert factory.expiry("", "", "") == ("", "")
+        msg = factory.new_order_single("C1", "AAPL", "1", 100, price=1.0, tif="6", expire_time="2026-09-12")
+        assert "126" not in msg.fields and msg["432"] == "20260912"
+
+    @pytest.mark.asyncio
+    async def test_date_only_expiry_sends_and_records_expire_date(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0, tif="6",
+            expire_time="2026-09-12",
+        )
+        assert "126" not in stub.sent[-1].fields and stub.sent[-1]["432"] == "20260912"
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert (row["expire_time"], row["expire_date"]) == ("", "20260912")
+        await engine.send_cancel_replace(
+            "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0,
+            expire_time="2026-09-13T21:00:00Z",
+        )
+        assert stub.sent[-1]["126"] == "20260913-21:00:00.000" and "432" not in stub.sent[-1].fields
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert (row["expire_time"], row["expire_date"]) == ("20260913-21:00:00.000", ""), \
+            "switching from a date to an instant clears the date the Replace prefill would show"
+
+    @pytest.mark.asyncio
+    async def test_dialog_expiry_is_recorded_as_sent(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order(
+            "S1", symbol="AAPL", side="1", qty=100, price=150.0, tif="6",
+            expire_time="2026-09-12T21:00:00Z", expire_date="2026-09-12",
+            expire_precision="microsecond",
+        )
+        assert stub.sent[-1]["126"] == "20260912-21:00:00.000000"
+        assert stub.sent[-1]["432"] == "20260912"
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["expire_time"] == "20260912-21:00:00.000000", "the column holds the stamp as sent"
+        assert row["expire_date"] == "20260912"
+
+    @pytest.mark.asyncio
+    async def test_expiry_omitted_when_blank(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        assert "126" not in stub.sent[-1].fields and "432" not in stub.sent[-1].fields
+
+    def test_expire_date_withheld_before_fix42(self):
+        for version, defined in (("FIX.4.0", False), ("FIX.4.1", False), ("FIX.4.2", True)):
+            factory = FixMessageFactory(FixDictionary(version), "A", "B")
+            msg = factory.new_order_single(
+                "C1", "AAPL", "1", 100, price=1.0, tif="6",
+                expire_time="20260912-21:00:00", expire_date="20260912",
+            )
+            assert msg["126"] == "20260912-21:00:00", version
+            assert ("432" in msg.fields) is defined, version
+
+    @pytest.mark.asyncio
+    async def test_received_order_records_expiry(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        raw = NEW_ORDER_RX + "|126=20260912-21:00:00|432=20260912"
+        await engine.on_app_message(stub, "D", parse_fix(raw))
+        row = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
+        assert row["expire_time"] == "20260912-21:00:00"
+        assert row["expire_date"] == "20260912"
 
     @pytest.mark.asyncio
     async def test_received_order_records_tif_code(self, stack):

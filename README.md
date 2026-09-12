@@ -46,7 +46,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
   directly from the blotter -- the Replace dialog opens on the order's full
   form, prefilled with the terms last entered (the New dialog's or the previous
-  replace's) -- and a fully filled order can still be replaced up to revive it. An accepted cancel or replace moves the order to
+  replace's) -- and a fully filled order can still be replaced up to revive it.
+  The form offers Market and Limit orders, Buy / Sell / Sell Short / Sell
+  Short Exempt, and Day / GTC / IOC / FOK / GTX / GTD, plus an Expire field
+  drawn as the browser's own date and time pickers: pick a date alone and
+  the order carries ExpireDate; add a time (entered in your local zone) and
+  it goes out as ExpireTime in UTC at the session's timestamp precision.
+  Anything else rides as an extra tag. An accepted cancel or replace moves the order to
   the request's ClOrdID (per the FIX chain), while an immutable Order ID keeps
   the order recognizable across the chain; a trade is likewise one blotter
   row under an immutable Trade ID, and a correction or bust rewrites it as a
@@ -239,7 +245,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.7.0 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.5.0 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.6.0 -- Web Components UI
   framework
 
 ## License

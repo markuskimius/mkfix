@@ -157,6 +157,7 @@ class TestDispatch:
         engine.send_new_order.assert_awaited_once_with(
             session_id="S1", symbol="AAPL", side="1", qty=100.0,
             ord_type="2", price=150.25, tif="0", extra_tags="",
+            expire_time="", expire_date="", expire_precision="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -217,6 +218,7 @@ class TestDispatch:
         engine.send_cancel_replace.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
             side="1", qty=200.0, ord_type="2", price=151.0, tif=None, extra_tags="",
+            expire_time="", expire_date="", expire_precision="",
         )
 
     @pytest.mark.asyncio
@@ -235,6 +237,7 @@ class TestDispatch:
         engine.send_cancel_replace.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
             side="1", qty=200.0, ord_type="1", price=None, tif="3", extra_tags="5001=X",
+            expire_time="", expire_date="", expire_precision="",
         )
 
     @pytest.mark.asyncio

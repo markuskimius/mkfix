@@ -29,6 +29,7 @@ ORDER_COLS = [
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
     "pending_extra_tags", "session_status",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
+    "expire_time", "expire_date",
 ]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
@@ -37,6 +38,7 @@ ORDER_COLS = [
 ENTERED_COLS = [
     "symbol", "side", "side_code", "ord_type", "ord_type_code",
     "time_in_force", "tif_code", "extra_tags", "entered_qty", "entered_price",
+    "expire_time", "expire_date",
 ]
 
 ORDER_UPDATE_COLS = [
@@ -628,6 +630,8 @@ class FixEngine:
             "extra_tags": "",
             "entered_qty": msg.get_float("38", 0.0),
             "entered_price": msg.get_float("44", 0.0) or None,
+            "expire_time": msg.get("126", ""),
+            "expire_date": msg.get("432", ""),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -722,6 +726,8 @@ class FixEngine:
             "extra_tags": extras,
             "entered_qty": qty,
             "entered_price": msg.get_float("44", 0.0) or None,
+            "expire_time": msg.get("126", ""),
+            "expire_date": msg.get("432", ""),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
@@ -766,6 +772,9 @@ class FixEngine:
         price: float | None = None,
         tif: str = "0",
         extra_tags: str = "",
+        expire_time: str = "",
+        expire_date: str = "",
+        expire_precision: str = "",
         **extra: str,
     ) -> str:
         """Send a NewOrderSingle and return the ClOrdID."""
@@ -783,9 +792,13 @@ class FixEngine:
             ord_type=ord_type,
             price=price,
             tif=tif,
+            expire_time=expire_time,
+            expire_date=expire_date,
+            expire_precision=expire_precision,
             **extra,
         )
         msg.extra = extra_pairs
+        expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
 
         # Pre-populate the order row as PendingNew *before* the message goes on
         # the wire: send_message awaits, so the counterparty's answer can be read
@@ -830,6 +843,8 @@ class FixEngine:
             "extra_tags": extra_tags,
             "entered_qty": qty,
             "entered_price": price,
+            "expire_time": expire_time,
+            "expire_date": expire_date,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -881,6 +896,9 @@ class FixEngine:
         price: float | None = None,
         tif: str | None = None,
         extra_tags: str = "",
+        expire_time: str = "",
+        expire_date: str = "",
+        expire_precision: str = "",
         **extra: str,
     ) -> str:
         """Send an OrderCancelReplaceRequest and return the new ClOrdID.
@@ -903,9 +921,13 @@ class FixEngine:
             ord_type=ord_type,
             price=price,
             tif=tif,
+            expire_time=expire_time,
+            expire_date=expire_date,
+            expire_precision=expire_precision,
             **extra,
         )
         msg.extra = extra_pairs
+        expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
 
         dictionary = session.dictionary
         entered = {
@@ -917,6 +939,8 @@ class FixEngine:
             "extra_tags": extra_tags,
             "entered_qty": qty,
             "entered_price": price,
+            "expire_time": expire_time,
+            "expire_date": expire_date,
         }
         if tif is not None:
             entered["time_in_force"] = dictionary.enum_name("59", tif)

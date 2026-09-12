@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from mkfix.fix.dictionary import FixDictionary
@@ -226,6 +227,33 @@ class FixMessageFactory:
         if self.dictionary.begin_string() in ("FIX.4.0", "FIX.4.1"):
             fields.pop("60", None)
 
+    def _add_expiry(self, fields: dict[str, str], expire_time: str, expire_date: str,
+                    precision: str = "") -> None:
+        """ExpireTime(126) and ExpireDate(432) go out only when given and the
+        dictionary defines them — 432 joined in FIX 4.2. Values arrive as
+        FIX stamps or as the dialog's ISO forms (see `normalize_expire_time`)."""
+        expire_time, expire_date = self.expiry(expire_time, expire_date, precision)
+        if expire_time and self.dictionary.defines("126"):
+            fields["126"] = expire_time
+        if expire_date and self.dictionary.defines("432"):
+            fields["432"] = expire_date
+
+    def expiry(self, expire_time: str, expire_date: str, precision: str = "") -> tuple[str, str]:
+        """(ExpireTime, ExpireDate) as they would go out. The order dialog has
+        one Expire field whose time is optional: a bare date arriving as
+        `expire_time` is an ExpireDate, not an ExpireTime at midnight."""
+        if is_bare_date(expire_time):
+            expire_date = expire_date or expire_time
+            expire_time = ""
+        return (self.expire_time_stamp(expire_time, precision),
+                normalize_expire_date(expire_date))
+
+    def expire_time_stamp(self, value: str, precision: str = "") -> str:
+        """The ExpireTime this factory would send: `''` precision means the
+        session's own timestamp precision."""
+        return normalize_expire_time(value, precision or self.timestamp_precision,
+                                     explicit=bool(precision))
+
     def wire_exec_codes(self, exec_trans_type: str, exec_type: str) -> tuple[str | None, str | None]:
         """Translate FIX 4.2-style execution codes to this dictionary's wire.
 
@@ -310,6 +338,9 @@ class FixMessageFactory:
         tif: str = "0",
         account: str | None = None,
         handl_inst: str = "1",
+        expire_time: str = "",
+        expire_date: str = "",
+        expire_precision: str = "",
         **extra: str,
     ) -> FixMessage:
         fields: dict[str, str] = {
@@ -327,6 +358,7 @@ class FixMessageFactory:
             fields["44"] = str(price)
         if account:
             fields["1"] = account
+        self._add_expiry(fields, expire_time, expire_date, expire_precision)
         fields.update(extra)
         self._strip_legacy_body_time(fields)
         return self.create(fields)
@@ -416,6 +448,9 @@ class FixMessageFactory:
         price: float | None = None,
         tif: str | None = None,
         handl_inst: str = "1",
+        expire_time: str = "",
+        expire_date: str = "",
+        expire_precision: str = "",
         **extra: str,
     ) -> FixMessage:
         fields: dict[str, str] = {
@@ -433,6 +468,7 @@ class FixMessageFactory:
             fields["44"] = str(price)
         if tif is not None:
             fields["59"] = tif
+        self._add_expiry(fields, expire_time, expire_date, expire_precision)
         fields.update(extra)
         self._strip_legacy_body_time(fields)
         return self.create(fields)
@@ -590,6 +626,59 @@ _PRECISION_DIGITS = {
     "nanosecond": 9,
     "picosecond": 12,
 }
+
+
+_ISO_INSTANT_RE = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,12}))?)?"
+    r"(Z|[+-]\d{2}:?\d{2})?$")
+_FIX_STAMP_RE = re.compile(r"^(\d{8}-\d{2}:\d{2}:\d{2})(?:\.(\d+))?$")
+
+
+def normalize_expire_time(value: str, precision: str = "millisecond", explicit: bool = True) -> str:
+    """ExpireTime(126) as it should go on the wire. An ISO-8601 instant — what
+    the order dialog's picker submits, `Z`/offset or naive-as-UTC — becomes a
+    UTC FIX stamp at `precision` (fraction digits zero-padded or cut; whole
+    seconds for "second"). A stamp already in FIX form is re-padded only when
+    the precision was asked for (`explicit`), otherwise sent as written; any
+    other text passes through verbatim, a test tool's escape hatch."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    digits = _PRECISION_DIGITS.get(precision, 3)
+    m = _ISO_INSTANT_RE.match(value)
+    if m:
+        year, month, day, hour, minute = (int(x) for x in m.groups()[:5])
+        second = int(m.group(6) or 0)
+        frac = m.group(7) or ""
+        offset = m.group(8)
+        local = datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+        if offset and offset != "Z":
+            sign = 1 if offset[0] == "+" else -1
+            hh, mm = int(offset[1:3]), int(offset[-2:])
+            local -= sign * timedelta(hours=hh, minutes=mm)
+        base = local.strftime("%Y%m%d-%H:%M:%S")
+    else:
+        m = _FIX_STAMP_RE.match(value)
+        if not m or not explicit:
+            return value
+        base, frac = m.group(1), m.group(2) or ""
+    if digits == 0:
+        return base
+    return f"{base}." + frac.ljust(digits, "0")[:digits]
+
+
+def is_bare_date(value: str) -> bool:
+    """`YYYY-MM-DD` (the date picker) or `YYYYMMDD` (LocalMktDate)."""
+    return re.fullmatch(r"\d{4}-?\d{2}-?\d{2}", (value or "").strip()) is not None
+
+
+def normalize_expire_date(value: str) -> str:
+    """ExpireDate(432) as LocalMktDate: the date picker's `YYYY-MM-DD`
+    becomes `YYYYMMDD`; anything else passes through verbatim."""
+    value = (value or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return value.replace("-", "")
+    return value
 
 
 def standard_precision(begin_string: str) -> str:

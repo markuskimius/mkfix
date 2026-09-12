@@ -533,6 +533,31 @@ class TestServiceReferences:
             defined |= set(FixDictionary(version).enums["127"])
         assert set(offered) == defined
 
+    def test_order_dialog_codes_are_dictionary_values(self, app_config):
+        """Side, Order Type and Time in Force offer FIX codes by hand; each
+        must be a value the FIX 4.2 dictionary defines for its tag (a typo
+        would silently send a bad code), Order Type is Market/Limit only,
+        and New and Replace offer the same lists."""
+        from mkfix.fix.dictionary import FixDictionary
+        d = FixDictionary("FIX.4.2")
+        tags = {"side": "54", "ord_type": "40", "tif": "59"}
+        lists = {}
+        for op in ("send_new_order", "send_cancel_replace"):
+            for item in _find_dialog(app_config, op)["fields"]:
+                for f in (item["row"] if "row" in item else [item]):
+                    if f.get("name") in tags:
+                        lists[(op, f["name"])] = [o["value"] for o in f["options"]]
+        for (op, name), values in lists.items():
+            assert values, f"{op} {name} offers nothing"
+            assert len(values) == len(set(values)), f"{op} {name} repeats a code"
+            for v in values:
+                assert d.has_enum(tags[name], v), f"{op} {name} offers {v!r}, not a FIX 4.2 value of tag {tags[name]}"
+        for name in tags:
+            assert lists[("send_new_order", name)] == lists[("send_cancel_replace", name)]
+        assert lists[("send_new_order", "ord_type")] == ["1", "2"]
+        assert "6" in lists[("send_new_order", "side")], "Sell Short Exempt"
+        assert "5" in lists[("send_new_order", "tif")], "GTX"
+
     def test_new_order_dialog_has_no_account_field(self, app_config):
         """Account rides as an extra tag (1=...); a dedicated field would be
         silently dropped by the dispatch, which no longer reads it."""
@@ -565,6 +590,30 @@ class TestServiceReferences:
             assert column in columns
         assert set(replace["rowData"]) == {"session_id", "orig_cl_ord_id"}, \
             "only the identity rides as rowData — everything else is an editable field"
+
+    def test_expiry_fields_are_native_pickers(self, app_config):
+        """The order dialogs take ExpireTime/ExpireDate through one mkui
+        native-picker field; the Replace dialog reads the row's FIX stamps
+        back through `parse` formats that match what the engine records. The
+        stamp's precision is the session's (its Timestamps setting), so no
+        dialog asks for one."""
+        import mkio.expr
+        mkio.expr.compile("IF(row.expire_time != '', row.expire_time, row.expire_date)")
+        for op in ("send_new_order", "send_cancel_replace"):
+            fields = {
+                f["name"]: f for item in _find_dialog(app_config, op)["fields"]
+                for f in (item["row"] if "row" in item else [item]) if f.get("name")
+            }
+            assert fields["expire_time"]["type"] == "datetime"
+            assert fields["expire_time"].get("time") == "optional", \
+                "one Expire field: a date alone is an ExpireDate, with a time an ExpireTime"
+            assert fields["expire_time"].get("step") == 1, "the picker must take seconds"
+            assert "expire_date" not in fields and "expire_precision" not in fields
+            if op == "send_cancel_replace":
+                assert fields["expire_time"]["value"] == \
+                    "${IF(row.expire_time != '', row.expire_time, row.expire_date)}"
+                assert fields["expire_time"]["parse"] == \
+                    ["%Y%m%d-%H:%M:%S.%f", "%Y%m%d-%H:%M:%S", "%Y%m%d"]
 
     def test_market_dialogs_echo_extra_tags(self, app_config, toml_config):
         """Accept/Reject prefill the pending request's custom tags and Fill the
