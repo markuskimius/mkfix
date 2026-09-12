@@ -47,11 +47,18 @@ A FIX protocol testing engine for capital markets connectivity, built on
   directly from the blotter -- the Replace dialog opens on the order's full
   form, prefilled with the terms last entered (the New dialog's or the previous
   replace's) -- and a fully filled order can still be replaced up to revive it.
-  The form offers Market and Limit orders, Buy / Sell / Sell Short / Sell
-  Short Exempt, and Day / GTC / IOC / FOK / GTX / GTD, plus an Expire field
+  The form offers Market / Limit / Market on Close / Limit on Close / Funari
+  orders, Buy / Sell / Sell Short / Sell Short Exempt, and Day / GTC / At the
+  Opening / IOC / FOK / GTX / GTD / At the Close, plus an Expire field
   drawn as the browser's own date and time pickers: pick a date alone and
   the order carries ExpireDate; add a time (entered in your local zone) and
   it goes out as ExpireTime in UTC at the session's timestamp precision.
+  Values that only some FIX versions define (Market/Limit on Close through
+  4.3, At the Close from 4.2) say so in the dropdown, but every value can be
+  sent on every session -- an invalid combination is a test scenario.
+  Every order and trade dialog names the FIX tag on each field, lists
+  dropdown values as `code - name`, and ends with a live "Terms as tags"
+  line showing the entered terms as `tag=value` pairs before they are sent.
   Anything else rides as an extra tag. An accepted cancel or replace moves the order to
   the request's ClOrdID (per the FIX chain), while an immutable Order ID keeps
   the order recognizable across the chain; a trade is likewise one blotter

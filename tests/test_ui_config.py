@@ -535,11 +535,15 @@ class TestServiceReferences:
 
     def test_order_dialog_codes_are_dictionary_values(self, app_config):
         """Side, Order Type and Time in Force offer FIX codes by hand; each
-        must be a value the FIX 4.2 dictionary defines for its tag (a typo
-        would silently send a bad code), Order Type is Market/Limit only,
-        and New and Replace offer the same lists."""
-        from mkfix.fix.dictionary import FixDictionary
-        d = FixDictionary("FIX.4.2")
+        must be a value some standard dictionary defines for its tag (a typo
+        would silently send a bad code), and New and Replace offer the same
+        lists. The lists are deliberately not narrowed to the session's
+        version: a value the session's dictionary lacks (Market on Close on
+        4.4, At the Close on 4.1) is a test scenario, so the engine sends
+        whatever code is picked and the labels only advise where the value
+        is standard."""
+        from mkfix.fix.dictionary import STANDARD_VERSIONS, FixDictionary
+        dictionaries = [FixDictionary(v) for v in STANDARD_VERSIONS]
         tags = {"side": "54", "ord_type": "40", "tif": "59"}
         lists = {}
         for op in ("send_new_order", "send_cancel_replace"):
@@ -551,12 +555,43 @@ class TestServiceReferences:
             assert values, f"{op} {name} offers nothing"
             assert len(values) == len(set(values)), f"{op} {name} repeats a code"
             for v in values:
-                assert d.has_enum(tags[name], v), f"{op} {name} offers {v!r}, not a FIX 4.2 value of tag {tags[name]}"
+                assert any(d.has_enum(tags[name], v) for d in dictionaries), \
+                    f"{op} {name} offers {v!r}, not a value of tag {tags[name]} in any standard dictionary"
         for name in tags:
             assert lists[("send_new_order", name)] == lists[("send_cancel_replace", name)]
-        assert lists[("send_new_order", "ord_type")] == ["1", "2"]
+        assert lists[("send_new_order", "ord_type")] == ["1", "2", "5", "B", "I"]
+        assert lists[("send_new_order", "tif")] == ["0", "1", "2", "3", "4", "5", "6", "7"]
         assert "6" in lists[("send_new_order", "side")], "Sell Short Exempt"
-        assert "5" in lists[("send_new_order", "tif")], "GTX"
+
+    def test_order_dialog_version_notes_follow_the_dictionaries(self, app_config):
+        """The version annotations on the on-close values are advisory
+        labels, so a regenerated dictionary can't move them; this pins the
+        facts they state. Market/Limit on Close (40=5/B) are defined through
+        4.3, dropped by 4.4 (the label says <= 4.3; 5.0 restored them), and
+        At the Close (59=7) exists from 4.2. Each annotated value also shows
+        a readonly note only while it is selected."""
+        from mkfix.fix.dictionary import FixDictionary
+        for code in ("5", "B"):
+            assert FixDictionary("FIX.4.3").has_enum("40", code)
+            assert not FixDictionary("FIX.4.4").has_enum("40", code)
+            assert FixDictionary("FIX.5.0").has_enum("40", code)
+        assert not FixDictionary("FIX.4.1").has_enum("59", "7")
+        assert FixDictionary("FIX.4.2").has_enum("59", "7")
+        for op in ("send_new_order", "send_cancel_replace"):
+            labels = {}
+            notes = []
+            for item in _find_dialog(app_config, op)["fields"]:
+                if item.get("type") == "readonly" and "showWhen" in item:
+                    notes.append(item["showWhen"])
+                for f in (item["row"] if "row" in item else [item]):
+                    if f.get("name") in ("ord_type", "tif"):
+                        labels.update({(f["name"], o["value"]): o["label"] for o in f["options"]})
+            assert labels[("ord_type", "5")].endswith("(<= FIX 4.3)")
+            assert labels[("ord_type", "B")].endswith("(<= FIX 4.3)")
+            assert labels[("tif", "7")].endswith("(>= FIX 4.2)")
+            assert "(" not in labels[("ord_type", "I")], "Funari carries no annotation"
+            assert "(" not in labels[("tif", "2")], "At the Opening is in every version"
+            assert notes == ["CONTAINS(['5', 'B'], ord_type)", "tif == '7'"], op
 
     def test_new_order_dialog_has_no_account_field(self, app_config):
         """Account rides as an extra tag (1=...); a dedicated field would be
@@ -1616,3 +1651,97 @@ class TestRecordHistory:
         if not any("unversioned" in t for t in toml_config["tables"].values()):
             pytest.skip("no unversioned columns")
         assert _dependency_floor("mkio") >= (0, 6, 0)
+
+
+class TestTagPreviews:
+    """Every order and trade dialog names the FIX tag on each field label,
+    prefixes each hand-listed option with its code, and ends with a
+    computed "Terms as tags" line showing the entered terms as tag=value
+    pairs. The line is a promise about what the engine sends, so each
+    expression is compiled and evaluated here, and every `row.*` it reads
+    must be a column of the table behind the blotter."""
+
+    OPS = ("send_new_order", "send_cancel_replace", "send_cancel", "dk_trade",
+           "accept_request", "reject_request", "fill_order", "correct_trade", "bust_trade")
+    ORDER_OPS = {"send_new_order", "send_cancel_replace", "send_cancel",
+                 "accept_request", "reject_request", "fill_order"}
+    LABELS = {
+        "symbol": "(55)", "side": "(54)", "qty": "(38)", "ord_type": "(40)", "price": "(44)",
+        "tif": "(59)", "expire_time": "(126/432", "dk_reason": "(127)", "text": "(58)",
+    }
+    TRADE_LABELS = {"qty": "(32)", "price": "(31)"}
+
+    @staticmethod
+    def _fields(dialog):
+        for item in dialog["fields"]:
+            yield from (item["row"] if "row" in item else [item])
+
+    @staticmethod
+    def _preview(dialog):
+        lines = [f for f in dialog["fields"] if f.get("label") == "Terms as tags"]
+        assert len(lines) == 1, "one Terms as tags line per dialog"
+        line = lines[0]
+        assert line["type"] == "readonly" and "compute" in line
+        assert dialog["fields"][-1] is line, "the preview closes the dialog, after Extra Tags"
+        return line["compute"]
+
+    def test_labels_name_the_tag(self, app_config):
+        for op in self.OPS:
+            labels = self.TRADE_LABELS if op in ("fill_order", "correct_trade") else self.LABELS
+            for f in self._fields(_find_dialog(app_config, op)):
+                if f.get("name") in labels:
+                    assert labels[f["name"]] in f["label"], f"{op} {f['name']}: {f['label']!r}"
+
+    def test_options_lead_with_their_code(self, app_config):
+        for op in self.OPS:
+            for f in self._fields(_find_dialog(app_config, op)):
+                for o in f.get("options", []):
+                    assert o["label"].startswith(o["value"] + " - "), f"{op} {f['name']}: {o!r}"
+
+    def test_previews_read_real_columns(self, app_config, toml_config):
+        from mkio import expr
+        orders = set(toml_config["tables"]["fix_orders"]["columns"])
+        executions = set(toml_config["tables"]["fix_executions"]["columns"])
+        for op in self.OPS:
+            dialog = _find_dialog(app_config, op)
+            source = self._preview(dialog)
+            names = _dialog_field_names(dialog)
+            columns = orders if op in self.ORDER_OPS else executions
+            for ref in expr.field_refs(expr.parse(source)):
+                assert ref == "row" or ref in names, f"{op} preview reads unknown field {ref!r}"
+            for attr in re.findall(r"\brow\.(\w+)", source):
+                assert attr in columns, f"{op} preview reads row.{attr}, not a column"
+
+    def test_previews_render_the_entered_terms(self, app_config):
+        from mkio import expr
+        row = {
+            "cl_ord_id": "C2", "pending_cl_ord_id": "C3", "pending_action": "Replace",
+            "pending_qty": 200.0, "pending_price": 151.5, "symbol": "AAPL", "side_code": "1",
+            "order_qty": 100.0, "order_id": "OR1", "exec_id": "EX1",
+        }
+        cases = {
+            "send_new_order": (
+                {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "2", "price": 150.25, "tif": "0", "extra_tags": "5001=X"},
+                "55=AAPL|54=1|38=100|40=2|44=150.25|59=0|5001=X"),
+            "send_cancel_replace": (
+                {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "1", "price": None, "tif": "7", "extra_tags": ""},
+                "41=C2|55=AAPL|54=1|38=100|40=1|59=7"),
+            "send_cancel": ({"extra_tags": ""}, "41=C2|55=AAPL|54=1|38=100"),
+            "dk_trade": ({"dk_reason": "D", "text": "", "extra_tags": ""}, "37=OR1|17=EX1|127=D"),
+            "accept_request": ({"extra_tags": ""}, "11=C3|41=C2|38=200|44=151.5"),
+            "reject_request": ({"text": "no", "extra_tags": ""}, "11=C3|41=C2|434=2|58=no"),
+            "fill_order": ({"qty": "50", "price": "150.5", "extra_tags": ""}, "11=C2|32=50|31=150.5"),
+            "correct_trade": ({"qty": "40", "price": "149", "extra_tags": ""}, "19=EX1|32=40|31=149"),
+            "bust_trade": ({"extra_tags": "58=oops"}, "19=EX1|58=oops"),
+        }
+        assert set(cases) == set(self.OPS)
+        for op, (fields, expected) in cases.items():
+            source = self._preview(_find_dialog(app_config, op))
+            assert expr.evaluate(source, {**fields, "row": row}) == expected, op
+        pending_new = {**row, "pending_action": "New"}
+        for op, expected in (("accept_request", "11=C2"), ("reject_request", "11=C2")):
+            source = self._preview(_find_dialog(app_config, op))
+            assert expr.evaluate(source, {"text": "", "extra_tags": "", "row": pending_new}) == expected, op
+        blank = {"symbol": None, "side": "1", "qty": None, "ord_type": "2", "price": None, "tif": "0", "extra_tags": None}
+        source = self._preview(_find_dialog(app_config, "send_new_order"))
+        assert expr.evaluate(source, {**blank, "row": row}) == "55=|54=1|38=|40=2|59=0", "an empty form must not error"

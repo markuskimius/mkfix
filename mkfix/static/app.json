@@ -183,7 +183,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.30"
+        "text": "mkfix v0.31"
       }
     ],
     "bindStyle": {
@@ -1052,7 +1052,7 @@
                   "row": [
                     {
                       "name": "symbol",
-                      "label": "Symbol",
+                      "label": "Symbol (55)",
                       "type": "text",
                       "placeholder": "AAPL",
                       "width": 0.5,
@@ -1060,25 +1060,25 @@
                     },
                     {
                       "name": "side",
-                      "label": "Side",
+                      "label": "Side (54)",
                       "type": "select",
                       "width": 0.5,
                       "options": [
                         {
                           "value": "1",
-                          "label": "Buy"
+                          "label": "1 - Buy"
                         },
                         {
                           "value": "2",
-                          "label": "Sell"
+                          "label": "2 - Sell"
                         },
                         {
                           "value": "5",
-                          "label": "Sell Short"
+                          "label": "5 - Sell Short"
                         },
                         {
                           "value": "6",
-                          "label": "Sell Short Exempt"
+                          "label": "6 - Sell Short Exempt"
                         }
                       ]
                     }
@@ -1088,7 +1088,7 @@
                   "row": [
                     {
                       "name": "qty",
-                      "label": "Quantity",
+                      "label": "Quantity (38)",
                       "type": "number",
                       "placeholder": "100",
                       "min": 1,
@@ -1097,27 +1097,44 @@
                     },
                     {
                       "name": "ord_type",
-                      "label": "Order Type",
+                      "label": "Order Type (40)",
                       "type": "select",
                       "width": 0.5,
                       "options": [
                         {
                           "value": "1",
-                          "label": "Market"
+                          "label": "1 - Market"
                         },
                         {
                           "value": "2",
-                          "label": "Limit"
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
                         }
                       ]
                     }
                   ]
                 },
                 {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['5', 'B'], ord_type)",
+                  "value": "Defined through FIX 4.3 (and again in 5.0). Elsewhere it is a non-standard OrdType, allowed for testing."
+                },
+                {
                   "row": [
                     {
                       "name": "price",
-                      "label": "Price",
+                      "label": "Price (44)",
                       "type": "number",
                       "placeholder": "0.00",
                       "step": "0.01",
@@ -1125,43 +1142,56 @@
                     },
                     {
                       "name": "tif",
-                      "label": "Time in Force",
+                      "label": "Time in Force (59)",
                       "type": "select",
                       "width": 0.5,
                       "options": [
                         {
                           "value": "0",
-                          "label": "Day"
+                          "label": "0 - Day"
                         },
                         {
                           "value": "1",
-                          "label": "GTC"
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
                         },
                         {
                           "value": "3",
-                          "label": "IOC"
+                          "label": "3 - IOC"
                         },
                         {
                           "value": "4",
-                          "label": "FOK"
+                          "label": "4 - FOK"
                         },
                         {
                           "value": "5",
-                          "label": "GTX"
+                          "label": "5 - GTX"
                         },
                         {
                           "value": "6",
-                          "label": "GTD"
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
                         }
                       ]
                     }
                   ]
                 },
                 {
+                  "type": "readonly",
+                  "showWhen": "tif == '7'",
+                  "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
+                },
+                {
                   "row": [
                     {
                       "name": "expire_time",
-                      "label": "Expire (local; time optional)",
+                      "label": "Expire (126/432; local, time optional)",
                       "type": "datetime",
                       "time": "optional",
                       "step": 1
@@ -1173,6 +1203,11 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -1211,7 +1246,7 @@
                   "row": [
                     {
                       "name": "symbol",
-                      "label": "Symbol",
+                      "label": "Symbol (55)",
                       "type": "text",
                       "value": "${row.symbol}",
                       "width": 0.5,
@@ -1219,26 +1254,26 @@
                     },
                     {
                       "name": "side",
-                      "label": "Side",
+                      "label": "Side (54)",
                       "type": "select",
                       "value": "${row.side_code}",
                       "width": 0.5,
                       "options": [
                         {
                           "value": "1",
-                          "label": "Buy"
+                          "label": "1 - Buy"
                         },
                         {
                           "value": "2",
-                          "label": "Sell"
+                          "label": "2 - Sell"
                         },
                         {
                           "value": "5",
-                          "label": "Sell Short"
+                          "label": "5 - Sell Short"
                         },
                         {
                           "value": "6",
-                          "label": "Sell Short Exempt"
+                          "label": "6 - Sell Short Exempt"
                         }
                       ]
                     }
@@ -1248,7 +1283,7 @@
                   "row": [
                     {
                       "name": "qty",
-                      "label": "Quantity",
+                      "label": "Quantity (38)",
                       "type": "number",
                       "value": "${row.entered_qty}",
                       "min": 1,
@@ -1257,28 +1292,45 @@
                     },
                     {
                       "name": "ord_type",
-                      "label": "Order Type",
+                      "label": "Order Type (40)",
                       "type": "select",
                       "value": "${row.ord_type_code}",
                       "width": 0.5,
                       "options": [
                         {
                           "value": "1",
-                          "label": "Market"
+                          "label": "1 - Market"
                         },
                         {
                           "value": "2",
-                          "label": "Limit"
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
                         }
                       ]
                     }
                   ]
                 },
                 {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['5', 'B'], ord_type)",
+                  "value": "Defined through FIX 4.3 (and again in 5.0). Elsewhere it is a non-standard OrdType, allowed for testing."
+                },
+                {
                   "row": [
                     {
                       "name": "price",
-                      "label": "Price",
+                      "label": "Price (44)",
                       "type": "number",
                       "value": "${row.entered_price}",
                       "placeholder": "0.00",
@@ -1287,44 +1339,57 @@
                     },
                     {
                       "name": "tif",
-                      "label": "Time in Force",
+                      "label": "Time in Force (59)",
                       "type": "select",
                       "value": "${row.tif_code}",
                       "width": 0.5,
                       "options": [
                         {
                           "value": "0",
-                          "label": "Day"
+                          "label": "0 - Day"
                         },
                         {
                           "value": "1",
-                          "label": "GTC"
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
                         },
                         {
                           "value": "3",
-                          "label": "IOC"
+                          "label": "3 - IOC"
                         },
                         {
                           "value": "4",
-                          "label": "FOK"
+                          "label": "4 - FOK"
                         },
                         {
                           "value": "5",
-                          "label": "GTX"
+                          "label": "5 - GTX"
                         },
                         {
                           "value": "6",
-                          "label": "GTD"
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
                         }
                       ]
                     }
                   ]
                 },
                 {
+                  "type": "readonly",
+                  "showWhen": "tif == '7'",
+                  "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
+                },
+                {
                   "row": [
                     {
                       "name": "expire_time",
-                      "label": "Expire (local; time optional)",
+                      "label": "Expire (126/432; local, time optional)",
                       "type": "datetime",
                       "time": "optional",
                       "value": "${IF(row.expire_time != '', row.expire_time, row.expire_date)}",
@@ -1343,6 +1408,11 @@
                   "type": "text",
                   "value": "${row.extra_tags}",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('41=', row.cl_ord_id, '|', CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), '')))"
                 }
               ],
               "submit": {
@@ -1380,6 +1450,11 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('41=', row.cl_ord_id, '|55=', row.symbol, '|54=', row.side_code, '|38=', STR(row.order_qty), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -1550,7 +1625,7 @@
               "fields": [
                 {
                   "name": "dk_reason",
-                  "label": "DK Reason",
+                  "label": "DK Reason (127)",
                   "type": "select",
                   "value": "D",
                   "required": true,
@@ -1591,15 +1666,20 @@
                 },
                 {
                   "name": "text",
-                  "label": "Text",
+                  "label": "Text (58)",
                   "type": "text",
-                  "placeholder": "optional Text(58)"
+                  "placeholder": "optional"
                 },
                 {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('37=', row.order_id, '|17=', row.exec_id, '|127=', dk_reason, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -1764,6 +1844,11 @@
                   "type": "text",
                   "value": "${row.pending_extra_tags}",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(IF(row.pending_action == 'New', CONCAT('11=', row.cl_ord_id), CONCAT('11=', row.pending_cl_ord_id, '|41=', row.cl_ord_id)), IF(row.pending_action == 'Replace', CONCAT('|38=', STR(row.pending_qty), '|44=', STR(row.pending_price)), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -1797,7 +1882,7 @@
                   "row": [
                     {
                       "name": "text",
-                      "label": "Reason",
+                      "label": "Reason (58)",
                       "type": "text",
                       "value": "",
                       "width": 1
@@ -1810,6 +1895,11 @@
                   "type": "text",
                   "value": "${row.pending_extra_tags}",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(IF(row.pending_action == 'New', CONCAT('11=', row.cl_ord_id), CONCAT('11=', row.pending_cl_ord_id, '|41=', row.cl_ord_id, '|434=', IF(row.pending_action == 'Cancel', '1', '2'))), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -1843,7 +1933,7 @@
                   "row": [
                     {
                       "name": "qty",
-                      "label": "Quantity",
+                      "label": "Last Qty (32)",
                       "type": "text",
                       "value": "${row.leaves_qty}",
                       "width": 0.5,
@@ -1851,7 +1941,7 @@
                     },
                     {
                       "name": "price",
-                      "label": "Price",
+                      "label": "Last Px (31)",
                       "type": "text",
                       "value": "${row.price}",
                       "width": 0.5,
@@ -1865,6 +1955,11 @@
                   "type": "text",
                   "value": "${row.extra_tags}",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('11=', row.cl_ord_id, '|32=', COALESCE(qty, ''), '|31=', COALESCE(price, ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2037,7 +2132,7 @@
                   "row": [
                     {
                       "name": "qty",
-                      "label": "Quantity",
+                      "label": "Last Qty (32)",
                       "type": "text",
                       "value": "${row.last_qty}",
                       "width": 0.5,
@@ -2045,7 +2140,7 @@
                     },
                     {
                       "name": "price",
-                      "label": "Price",
+                      "label": "Last Px (31)",
                       "type": "text",
                       "value": "${row.last_price}",
                       "width": 0.5,
@@ -2058,6 +2153,11 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('19=', row.exec_id, '|32=', COALESCE(qty, ''), '|31=', COALESCE(price, ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2092,6 +2192,11 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('19=', row.exec_id, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2374,7 +2479,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.30",
+      "version": "0.31",
       "mkio": "0.7",
       "expr": "1"
     },

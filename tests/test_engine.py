@@ -2053,6 +2053,45 @@ class TestFix44Executions:
         assert chain[0]["trade_id"] == chain[1]["trade_id"]
 
 
+class TestNonStandardOrderCodes:
+    """The order dialogs offer OrdType/TimeInForce values annotated with the
+    versions that define them, but the engine never narrows by the session's
+    dictionary: sending a code the dictionary lacks is a test scenario, so
+    the picked code goes out unchanged on any version."""
+
+    @pytest.mark.asyncio
+    async def test_market_on_close_goes_out_on_fix44(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        assert not stub.dictionary.has_enum("40", "5")
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, ord_type="5", tif="7")
+        d = stub.sent[-1]
+        assert d["40"] == "5"
+        assert d["59"] == "7"
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert rows[0]["ord_type_code"] == "5"
+        assert rows[0]["tif_code"] == "7"
+
+    @pytest.mark.asyncio
+    async def test_at_the_close_goes_out_on_fix40(self, stack):
+        db, writer, engine = stack
+        stub = StubSession("S1")
+        stub.dictionary = FixDictionary("FIX.4.0")
+        stub.factory = FixMessageFactory(stub.dictionary, "MKT", "CLIENT")
+        engine.sessions["S1"] = stub
+        assert not stub.dictionary.has_enum("59", "7")
+        assert not stub.dictionary.has_enum("40", "I")
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, ord_type="I", price=150.0, tif="7")
+        d = stub.sent[-1]
+        assert d["40"] == "I"
+        assert d["59"] == "7"
+        await engine.send_cancel_replace("S1", orig_cl_ord_id=d["11"], symbol="AAPL", side="1", qty=200, ord_type="B", price=151.0, tif="2")
+        g = stub.sent[-1]
+        assert g["40"] == "B"
+        assert g["59"] == "2"
+
+
 REPLACE_REQ_44_RX = "8=FIX.4.4|35=G|11=C102|41=C100|55=AAPL|54=1|38=200|40=2|44=151.5"
 
 
