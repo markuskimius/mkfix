@@ -356,6 +356,8 @@ class TestServiceReferences:
         for pane_id, spec in app_config["panes"].items():
             for button in spec.get("buttons", []):
                 action = button["action"]
+                if action["type"] == "action":
+                    continue
                 target = action.get("service") or action.get("dialog", {}).get("submit", {}).get("service")
                 assert target in known_services, \
                     f"pane {pane_id!r} button {button['label']!r} calls unknown service {target!r}"
@@ -439,11 +441,11 @@ class TestServiceReferences:
         a reorder that swaps actions under the labels would be worse than the
         old order."""
         buttons = app_config["panes"]["order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["New", "Replace", "Cancel"]
+        assert [b["label"] for b in buttons] == ["New", "Replace", "Cancel", "History"]
         ops = {
             b["label"]: b["action"].get("op")
             or b["action"]["dialog"]["submit"]["op"]
-            for b in buttons
+            for b in buttons if b["action"]["type"] != "action"
         }
         assert ops == {"New": "send_new_order", "Replace": "send_cancel_replace",
                        "Cancel": "send_cancel"}
@@ -455,7 +457,7 @@ class TestServiceReferences:
         status only — a pending request must not block fills on the
         still-working order."""
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill"]
+        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill", "History"]
         by = {b["label"]: b for b in buttons}
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
         assert _conditions(by["Accept"]["enable"]["when"]) == pending
@@ -472,6 +474,7 @@ class TestServiceReferences:
             "order-blotter": ["Replace", "Cancel"],
             "market-order-blotter": ["Accept", "Reject", "Fill"],
             "market-trade-blotter": ["Correct", "Bust"],
+            "trade-blotter": ["DK"],
         }
         for pane_id, labels in gated.items():
             by = {b["label"]: b for b in app_config["panes"][pane_id]["buttons"]}
@@ -498,10 +501,13 @@ class TestServiceReferences:
         """Every button that sends a FIX message must expose the optional
         extra_tags field — the whole point of the feature is that no send
         path is exempt. Flatten row groups: fields may nest one level."""
-        send_panes = ["order-blotter", "market-order-blotter", "market-trade-blotter"]
+        send_panes = ["order-blotter", "market-order-blotter", "market-trade-blotter",
+                      "trade-blotter"]
         checked = 0
         for pane_id in send_panes:
             for button in app_config["panes"][pane_id]["buttons"]:
+                if button["action"]["type"] == "action":
+                    continue
                 dialog = button["action"]["dialog"]
                 names = _dialog_field_names(dialog)
                 assert "extra_tags" in names, \
@@ -512,6 +518,20 @@ class TestServiceReferences:
                 ), "extra_tags must stay optional"
                 checked += 1
         assert checked >= 8
+
+    def test_dk_reason_options_cover_every_shipped_dictionary(self, app_config):
+        """The DK dialog lists DKReason(127) codes by hand; a regenerated
+        dictionary that adds one would otherwise leave it unreachable."""
+        from mkfix.fix.dictionary import FixDictionary, STANDARD_VERSIONS
+        dialog = _find_dialog(app_config, "dk_trade")
+        field = next(f for f in dialog["fields"] if f.get("name") == "dk_reason")
+        offered = [o["value"] for o in field["options"]]
+        assert len(offered) == len(set(offered))
+        assert field["value"] in offered
+        defined = set()
+        for version in STANDARD_VERSIONS:
+            defined |= set(FixDictionary(version).enums["127"])
+        assert set(offered) == defined
 
     def test_new_order_dialog_has_no_account_field(self, app_config):
         """Account rides as an extra tag (1=...); a dedicated field would be
@@ -1423,6 +1443,22 @@ class TestRecordHistory:
             if item.get("action") == "table.history"
         }
         assert opened == set(history_panes)
+
+    def test_every_history_pane_has_a_history_button(self, history_panes):
+        """The version timeline opens only through `table.history` (Undo,
+        Redo and As of… arrive with the `history` block, the timeline does
+        not), so each blotter offers it next to its other buttons, aimed at
+        itself: `pane` must name the blotter the button sits on, or the
+        timeline opens over another table's selection. Single-record like
+        mkui's own example, since a history is one record's chain."""
+        for pane_id, spec in history_panes.items():
+            button = next((b for b in spec.get("buttons", []) if b["label"] == "History"), None)
+            assert button is not None, f"{pane_id} has no History button"
+            assert button["action"] == {
+                "type": "action", "name": "table.history", "args": {"pane": pane_id},
+            }, f"{pane_id} History button must open its own history"
+            assert button.get("unit") == "row"
+            assert button["enable"] == {"connected": True}
 
     def test_edit_menu_offers_undo_and_redo(self, app_config):
         edit = next(m for m in app_config["menubar"] if m["label"] == "Edit")

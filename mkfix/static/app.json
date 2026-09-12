@@ -284,7 +284,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.25"
+        "text": "mkfix v0.26"
       }
     ],
     "bindStyle": {
@@ -943,6 +943,20 @@
               }
             }
           }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "session-blotter"
+            }
+          }
         }
       ]
     },
@@ -1448,6 +1462,20 @@
               }
             }
           }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "order-blotter"
+            }
+          }
         }
       ]
     },
@@ -1549,7 +1577,104 @@
             "strike": true
           }
         ]
-      }
+      },
+      "buttons": [
+        {
+          "label": "DK",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['PartialFill', 'Fill', 'Correct', 'Trade', 'TradeCorrect'], r.exec_type) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "DK ${row.exec_id}",
+              "modal": true,
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "exec_id": "${row.exec_id}"
+              },
+              "fields": [
+                {
+                  "name": "dk_reason",
+                  "label": "DK Reason",
+                  "type": "select",
+                  "value": "D",
+                  "required": true,
+                  "options": [
+                    {
+                      "value": "A",
+                      "label": "A - Unknown symbol"
+                    },
+                    {
+                      "value": "B",
+                      "label": "B - Wrong side"
+                    },
+                    {
+                      "value": "C",
+                      "label": "C - Quantity exceeds order"
+                    },
+                    {
+                      "value": "D",
+                      "label": "D - No matching order"
+                    },
+                    {
+                      "value": "E",
+                      "label": "E - Price exceeds limit"
+                    },
+                    {
+                      "value": "F",
+                      "label": "F - Calculation difference (FIX 4.4+)"
+                    },
+                    {
+                      "value": "G",
+                      "label": "G - No matching execution report (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "Z",
+                      "label": "Z - Other"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text",
+                  "type": "text",
+                  "placeholder": "optional Text(58)"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "DK",
+                "service": "fix_cmd",
+                "op": "dk_trade"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "trade-blotter"
+            }
+          }
+        }
+      ]
     },
     "market-order-blotter": {
       "title": "Received Orders",
@@ -1799,6 +1924,20 @@
               }
             }
           }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-order-blotter"
+            }
+          }
         }
       ]
     },
@@ -1987,6 +2126,20 @@
                 "service": "fix_cmd",
                 "op": "bust_trade"
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-trade-blotter"
             }
           }
         }
@@ -2248,7 +2401,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.25",
+      "version": "0.26",
       "mkio": "0.6",
       "expr": "1"
     },

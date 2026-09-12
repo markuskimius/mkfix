@@ -591,6 +591,20 @@ class TestVersionAwareWireCodes:
         assert self._factory("FIX.4.1").order_cancel_reject("C2", "C1", "8", "1")["434"] is None
         assert self._factory("FIX.4.2").order_cancel_reject("C2", "C1", "8", "1")["434"] == "1"
 
+    def test_dont_know_trade_fields(self):
+        msg = self._factory("FIX.4.2").dont_know_trade(
+            "O1", "E1", "B", "AAPL", "1", 100, last_qty=40, last_price=150.5, text="nope")
+        assert msg["35"] == "Q"
+        assert (msg["37"], msg["17"], msg["127"]) == ("O1", "E1", "B")
+        assert (msg["55"], msg["54"], msg["38"]) == ("AAPL", "1", "100")
+        assert (msg["32"], msg["31"], msg["58"]) == ("40", "150.5", "nope")
+
+    def test_dont_know_trade_withholds_unknown_last_qty_and_price(self):
+        for version in ("FIX.4.0", "FIX.4.4", "FIX.5.0SP2"):
+            msg = self._factory(version).dont_know_trade("O1", "E1", "D", "AAPL", "1", 100)
+            assert msg["32"] is None and msg["31"] is None and msg["58"] is None, version
+            assert msg["127"] == "D"
+
 
 class TestWireStorage:
     """What gets recorded is the exact wire text, so a value holding a

@@ -72,6 +72,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   from the Sent Trades blotter (ExecTransType Correct/Cancel through FIX 4.2,
   ExecType TradeCorrect/TradeCancel from 4.3 on, always with ExecRefID) --
   including trades filled before a replace renamed the order's ClOrdID chain.
+  On the client side, a received trade can be DK'd from the Received Trades
+  blotter (DontKnowTrade with the counterparty's OrderID/ExecID, a DKReason
+  and optional Text); the trade row stays as received.
   Every message goes out version-correct: fills report ExecType F from FIX
   4.3, tags a version does not define are withheld, FIX 4.0 cancels carry
   CxlType, and FIXT.1.1 Logons carry DefaultApplVerID.
@@ -81,7 +84,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   Order and trade action buttons disable while the owning FIX session is
   down, driven by the session's live status mirrored onto each row.
 - **Extra Tags on Anything** -- Every send action (New, Replace, Cancel,
-  Accept, Reject, Fill, Correct, Bust) takes an optional Extra Tags field in
+  Accept, Reject, Fill, Correct, Bust, DK) takes an optional Extra Tags field in
   pipe-delimited FIX format (`528=A|382=2|375=BRK1|375=BRK2`). Custom tags on
   received orders and cancel/replace requests are captured and prefill the
   Accept/Reject/Fill dialogs' Extra Tags field, so they can be confirmed or
@@ -101,7 +104,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the shipped arrangement. mkfix has no login, so the history is shared by
   everyone using the same server.
 - **Record History** -- Sessions, orders and trades are versioned: every
-  change to a row is recorded, and each blotter's History pane shows the
+  change to a row is recorded, and each blotter's History button (also the
+  Sessions and Trading menus) opens a History pane showing the selected
   record's versions with a Diff and Blame of what changed between them. An
   As of… button reads a blotter as it stood at a moment. Session config
   edits can be undone and redone from the Edit menu; the engine reloads the
@@ -176,7 +180,8 @@ with an error instead of starting.
    it in the Messages pane and the blotter itself; click any message row to
    break it out field by field in the Detail pane. On the acceptor side it
    appears in Received Orders, where it can be accepted, rejected, or filled;
-   fills land in Sent Trades, where they can be corrected or busted.
+   fills land in Sent Trades, where they can be corrected or busted, and on
+   the client side in Received Trades, where they can be DK'd.
 4. **Replay a log** from Tools > Replay Control -- load a production FIX log and
    replay it into a test session.
 

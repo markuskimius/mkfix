@@ -33,6 +33,7 @@ def _make_engine():
     engine.fill_order = AsyncMock(return_value="EXXX00000001")
     engine.correct_trade = AsyncMock(return_value="EXXX00000002")
     engine.bust_trade = AsyncMock(return_value="EXXX00000003")
+    engine.dk_trade = AsyncMock()
     engine.accept_cancel = AsyncMock(return_value="EXXX00000004")
     engine.accept_replace = AsyncMock(return_value="EXXX00000005")
     engine.reject_cancel = AsyncMock()
@@ -325,6 +326,21 @@ class TestDispatch:
             session_id="S1", exec_id="E1", extra_tags="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000003"
+
+    @pytest.mark.asyncio
+    async def test_dk_trade(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "dk_trade",
+            "data": {"session_id": "S1", "exec_id": "E1", "dk_reason": "B",
+                     "text": "wrong side"},
+        })
+        engine.dk_trade.assert_awaited_once_with(
+            session_id="S1", exec_id="E1", reason="B", text="wrong side", extra_tags="",
+        )
+        assert _sent(ws)["ok"] is True
 
     @pytest.mark.asyncio
     async def test_accept_request(self):

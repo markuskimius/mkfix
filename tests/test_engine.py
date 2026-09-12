@@ -924,6 +924,70 @@ CLIENT_BUST_RX = (
 )
 
 
+class TestDkTrade:
+    """DK answers a received trade with DontKnowTrade (35=Q) naming the
+    counterparty's identifiers; the trade row stays as received."""
+
+    async def _fill(self, engine):
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_RX))
+        return stub
+
+    @pytest.mark.asyncio
+    async def test_dk_sends_q_for_the_received_execution(self, stack):
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+        await engine.dk_trade("S1", "E1", "B", text="wrong side", extra_tags="5001=X")
+        msg = stub.sent[-1]
+        assert msg["35"] == "Q"
+        assert msg["37"] == "O1", "OrderID is the counterparty's, from the ER"
+        assert msg["17"] == "E1"
+        assert msg["127"] == "B"
+        assert msg["55"] == "AAPL"
+        assert msg["54"] == "1"
+        assert msg["38"] == "100"
+        assert msg["32"] == "100"
+        assert msg["31"] == "150.0"
+        assert msg["58"] == "wrong side"
+        assert msg.extra == [("5001", "X")]
+
+    @pytest.mark.asyncio
+    async def test_dk_writes_nothing(self, stack):
+        db, writer, engine = stack
+        await self._fill(engine)
+        before = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        orders_before = await _fetch_all(db, "SELECT * FROM fix_orders")
+        await engine.dk_trade("S1", "E1", "D")
+        assert await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id") == before
+        assert await _fetch_all(db, "SELECT * FROM fix_orders") == orders_before
+
+    @pytest.mark.asyncio
+    async def test_dk_order_qty_survives_a_renamed_chain(self, stack):
+        """The fill-time ClOrdID no longer names an order row after an
+        accepted replace; the ER's own CumQty + LeavesQty is the OrderQty."""
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+        replaced = ("8=FIX.4.2|35=8|11=C2|41=C1|37=O1|17=E2|20=0|150=5|39=5|55=AAPL|54=1|"
+                    "38=250|44=151|14=100|6=150|151=150")
+        await engine.on_app_message(stub, "8", parse_fix(replaced))
+        await engine.dk_trade("S1", "E1", "C")
+        assert stub.sent[-1]["38"] == "100"
+
+    @pytest.mark.asyncio
+    async def test_dk_requires_reason_known_execution_and_active_session(self, stack):
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+        with pytest.raises(ValueError, match="reason"):
+            await engine.dk_trade("S1", "E1", "")
+        with pytest.raises(ValueError, match="Unknown execution"):
+            await engine.dk_trade("S1", "NOPE", "D")
+        stub.is_active = False
+        with pytest.raises(ValueError, match="not active"):
+            await engine.dk_trade("S1", "E1", "D")
+        assert [m["35"] for m in stub.sent] == []
+
+
 class TestClientExecutionReports:
     @pytest.mark.asyncio
     async def test_fill_records_tx_order_and_rx_execution(self, stack):
@@ -1286,6 +1350,10 @@ class TestAnswerBeforeOwnWrite:
             "S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200, price=151.0))
         await traced("send_cancel", engine.send_cancel(
             "S1", orig_cl_ord_id=second, symbol="AAPL", side="1", qty=200))
+        fill = (f"8=FIX.4.2|35=8|11={second}|37=O1|17=E9|20=0|150=2|39=2|55=AAPL|54=1|"
+                "38=200|32=200|31=150|14=200|6=150|151=0")
+        await engine.on_app_message(stub, "8", parse_fix(fill))
+        await traced("dk_trade", engine.dk_trade("S1", "E9", "D"))
 
     @pytest.mark.asyncio
     async def test_failed_send_leaves_no_live_order(self, stack):

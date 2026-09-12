@@ -1391,6 +1391,46 @@ class FixEngine:
         await session.send_message(msg)
         return new_exec_id
 
+    async def dk_trade(
+        self, session_id: str, exec_id: str, reason: str, text: str = "",
+        extra_tags: str = "",
+    ) -> None:
+        """Answer a received trade with DontKnowTrade (35=Q).
+
+        Nothing is written: the trade row is the counterparty's report and stays
+        as received; the DK is a message, recorded like any other send.
+        """
+        if not reason:
+            raise ValueError("DK reason is required")
+        session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
+        execution = await self._load_execution(session_id, exec_id)
+
+        msg = session.factory.dont_know_trade(
+            order_id=execution["order_id"],
+            exec_id=exec_id,
+            dk_reason=reason,
+            symbol=execution["symbol"],
+            side=execution["side_code"],
+            qty=await self._order_qty_of(execution),
+            last_qty=execution["last_qty"],
+            last_price=execution["last_price"],
+            text=text or None,
+        )
+        msg.extra = extra_pairs
+        await session.send_message(msg)
+
+    async def _order_qty_of(self, execution: dict[str, Any]) -> float:
+        """OrderQty for a received execution. Its order_id is the counterparty's
+        OrderID(37), never ours, so the order is found by the fill-time ClOrdID;
+        an accepted replace since then renamed the chain, in which case the
+        execution's own CumQty + LeavesQty is the quantity the ER reported."""
+        try:
+            order = await self._load_order(execution["session_id"], execution["cl_ord_id"])
+        except ValueError:
+            return execution["cum_qty"] + execution["leaves_qty"]
+        return order["order_qty"]
+
     async def reset_sequence(self, session_id: str, tx: int = 1, rx: int = 1) -> None:
         session = self.sessions.get(session_id)
         if not session:

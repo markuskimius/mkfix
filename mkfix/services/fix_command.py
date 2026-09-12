@@ -182,6 +182,16 @@ class FixCommandService(Service):
             )
             return {"ok": True, "exec_id": exec_id}
 
+        elif command == "dk_trade":
+            await engine.dk_trade(
+                session_id=data["session_id"],
+                exec_id=data["exec_id"],
+                reason=data.get("dk_reason", ""),
+                text=data.get("text", ""),
+                extra_tags=data.get("extra_tags", ""),
+            )
+            return {"ok": True}
+
         elif command == "reset_sequence":
             await engine.reset_sequence(
                 session_id=data["session_id"],

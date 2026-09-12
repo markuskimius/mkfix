@@ -464,6 +464,38 @@ class FixMessageFactory:
         self._strip_legacy_body_time(fields)
         return self.create(fields)
 
+    def dont_know_trade(
+        self,
+        order_id: str,
+        exec_id: str,
+        dk_reason: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        last_qty: float = 0.0,
+        last_price: float = 0.0,
+        text: str | None = None,
+    ) -> FixMessage:
+        """DontKnowTrade (35=Q) answering a received ExecutionReport: OrderID(37)
+        and ExecID(17) are the counterparty's own identifiers for the trade,
+        DKReason(127) the code; LastShares/LastPx ride only when known."""
+        fields: dict[str, str] = {
+            "35": "Q",
+            "37": order_id,
+            "17": exec_id,
+            "127": dk_reason,
+            "55": symbol,
+            "54": side,
+            "38": str(int(qty)),
+        }
+        if last_qty:
+            fields["32"] = str(int(last_qty))
+        if last_price:
+            fields["31"] = str(last_price)
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
 
 def parse_extra_tags(text: str) -> list[tuple[str, str]]:
     """Parse user-supplied extra tags: pipe- or SOH-delimited tag=value pairs,
