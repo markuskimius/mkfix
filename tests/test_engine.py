@@ -460,10 +460,17 @@ class TestMarketFlow:
         assert row["status"] == "PartiallyFilled"
 
         execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
-        assert execs[-1]["exec_type"] == "Correct"
-        assert execs[-1]["direction"] == "TX"
-        assert execs[-1]["last_qty"] == 50.0
-        assert execs[-1]["trade_id"] == execs[0]["trade_id"], "the Trade ID survives a correction"
+        assert len(execs) == 1, "a correction is a new version of the trade, not a new row"
+        assert execs[0]["exec_type"] == "Correct"
+        assert execs[0]["direction"] == "TX"
+        assert execs[0]["last_qty"] == 50.0
+        assert execs[0]["exec_id"] == new_exec_id
+        assert execs[0]["exec_ref_id"] == exec_id
+        chain = await _versions(db, "fix_executions")
+        assert [(v["_mkio_version"], v["exec_id"], v["exec_type"]) for v in chain] == [
+            (1, exec_id, "PartialFill"), (2, new_exec_id, "Correct")]
+        assert {v["trade_id"] for v in chain} == {execs[0]["trade_id"]}, \
+            "the Trade ID survives a correction"
 
     @pytest.mark.asyncio
     async def test_bust_trade(self, stack):
@@ -485,10 +492,56 @@ class TestMarketFlow:
         assert row["status"] == "New"
 
         execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
-        assert execs[-1]["exec_type"] == "Cancel"
-        assert execs[-1]["last_qty"] == 40.0
-        assert execs[-1]["trade_id"] == execs[0]["trade_id"], "the Trade ID survives a bust"
-        assert execs[-1]["exec_id"] != execs[0]["exec_id"], "a bust replaces the ExecID"
+        assert len(execs) == 1, "a bust is a new version of the trade, not a new row"
+        assert execs[0]["exec_type"] == "Cancel"
+        assert execs[0]["last_qty"] == 40.0
+        assert execs[0]["exec_ref_id"] == exec_id
+        assert execs[0]["exec_id"] != exec_id, "a bust replaces the ExecID"
+        chain = await _versions(db, "fix_executions")
+        assert [(v["_mkio_version"], v["exec_type"]) for v in chain] == [
+            (1, "PartialFill"), (2, "Cancel")]
+        assert {v["trade_id"] for v in chain} == {execs[0]["trade_id"]}, \
+            "the Trade ID survives a bust"
+
+    @pytest.mark.asyncio
+    async def test_busted_trade_takes_no_further_action(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+        exec_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        bust_id = await engine.bust_trade("S1", exec_id)
+        for ref in (exec_id, bust_id):
+            with pytest.raises(ValueError, match="is busted"):
+                await engine.correct_trade("S1", ref, qty=10, price=1.0)
+            with pytest.raises(ValueError, match="is busted"):
+                await engine.bust_trade("S1", ref)
+
+    @pytest.mark.asyncio
+    async def test_earlier_exec_id_in_chain_resolves_through_history(self, stack):
+        """After a correction the live row carries the correction's ExecID; a
+        bust naming the original fill's ExecID still lands on the same trade."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.accept_order("S1", "C100")
+        fill_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        correct_id = await engine.correct_trade("S1", fill_id, qty=50, price=151.0)
+        second = await engine.correct_trade("S1", fill_id, qty=60, price=152.0)
+        msg = stub.sent[-1]
+        assert msg["19"] == fill_id
+        assert (await self._order(db))["cum_qty"] == 60.0
+
+        bust_id = await engine.bust_trade("S1", correct_id)
+        assert stub.sent[-1]["19"] == correct_id
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert len(execs) == 1
+        assert execs[0]["exec_id"] == bust_id
+        assert execs[0]["exec_type"] == "Cancel"
+        chain = await _versions(db, "fix_executions")
+        assert [v["exec_id"] for v in chain] == [fill_id, correct_id, second, bust_id]
+        assert [v["exec_ref_id"] for v in chain] == ["", fill_id, fill_id, correct_id]
+        row = await self._order(db)
+        assert row["cum_qty"] == 0.0
+        assert row["status"] == "New"
 
     @pytest.mark.asyncio
     async def test_correct_rejects_nonpositive_qty(self, stack):
@@ -711,7 +764,8 @@ class TestCancelReplaceRequests:
         assert msg["11"] == "C102", "the correction reports the chain's latest ClOrdID"
         assert msg["37"] == row["order_id"]
         execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
-        assert execs[-1]["cl_ord_id"] == "C102"
+        assert [e["cl_ord_id"] for e in execs] == ["C102"], \
+            "the trade row now reports under the chain's latest ClOrdID"
         row = await self._order(db)
         assert row["cum_qty"] == 50.0
         assert row["leaves_qty"] == 150.0
@@ -1010,11 +1064,40 @@ class TestClientExecutionReports:
         orders = await _fetch_all(db, "SELECT * FROM fix_orders")
         assert orders[0]["cum_qty"] == 0.0
         execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
-        assert [e["exec_type"] for e in execs] == ["Fill", "Cancel"]
-        assert execs[-1]["exec_type_code"] == "1"
+        assert [(e["exec_type"], e["exec_type_code"], e["exec_id"], e["exec_ref_id"])
+                for e in execs] == [("Cancel", "1", "E2", "E1")], \
+            "a bust referencing the fill (tag 19) is a new version of its trade"
         assert execs[0]["trade_id"].startswith("TR")
-        assert execs[-1]["trade_id"] == execs[0]["trade_id"], \
-            "a bust referencing the fill (tag 19) joins its trade"
+        chain = await _versions(db, "fix_executions")
+        assert [(v["_mkio_version"], v["exec_type"]) for v in chain] == [(1, "Fill"), (2, "Cancel")]
+        assert {v["trade_id"] for v in chain} == {execs[0]["trade_id"]}
+
+    @pytest.mark.asyncio
+    async def test_unknown_exec_ref_id_starts_a_new_trade(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_RX))
+        await engine.on_app_message(
+            stub, "8", parse_fix(CLIENT_BUST_RX.replace("19=E1", "19=NOPE")))
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [e["exec_type"] for e in execs] == ["Fill", "Cancel"]
+        assert execs[0]["trade_id"] != execs[1]["trade_id"]
+        assert execs[1]["exec_ref_id"] == "NOPE"
+
+    @pytest.mark.asyncio
+    async def test_inbound_reference_to_earlier_exec_id_resolves_through_history(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_RX))
+        correct = ("8=FIX.4.2|35=8|11=C1|37=O1|17=E2|19=E1|20=2|150=2|39=2|55=AAPL|54=1|"
+                   "38=100|32=100|31=149|14=100|6=149|151=0")
+        await engine.on_app_message(stub, "8", parse_fix(correct))
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_BUST_RX.replace("17=E2", "17=E3")))
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert [(e["exec_id"], e["exec_type"]) for e in execs] == [("E3", "Cancel")]
+        chain = await _versions(db, "fix_executions")
+        assert [v["exec_id"] for v in chain] == ["E1", "E2", "E3"]
+        assert len({v["trade_id"] for v in chain}) == 1
 
     @pytest.mark.asyncio
     async def test_cancel_er_updates_order_but_keeps_price(self, stack):
@@ -1782,9 +1865,10 @@ class TestFix44Executions:
         assert er["20"] is None
         assert er["19"] == fill_id
         rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
-        assert [r["exec_type"] for r in rows] == ["Trade", "TradeCancel"]
-        assert rows[0]["trade_id"] == rows[1]["trade_id"]
-        assert rows[-1]["exec_type_code"] == "H"
+        assert [(r["exec_type"], r["exec_type_code"]) for r in rows] == [("TradeCancel", "H")]
+        chain = await _versions(db, "fix_executions")
+        assert [v["exec_type"] for v in chain] == ["Trade", "TradeCancel"]
+        assert chain[0]["trade_id"] == chain[1]["trade_id"]
 
     @pytest.mark.asyncio
     async def test_correct_sends_trade_correct(self, stack):
@@ -1806,8 +1890,10 @@ class TestFix44Executions:
         await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_44_RX))
         await engine.on_app_message(stub, "8", parse_fix(CLIENT_BUST_44_RX))
         rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
-        assert [r["exec_type"] for r in rows] == ["Trade", "TradeCancel"]
-        assert rows[0]["trade_id"] == rows[1]["trade_id"]
+        assert [r["exec_type"] for r in rows] == ["TradeCancel"]
+        chain = await _versions(db, "fix_executions")
+        assert [v["exec_type"] for v in chain] == ["Trade", "TradeCancel"]
+        assert chain[0]["trade_id"] == chain[1]["trade_id"]
         orders = await _fetch_all(db, "SELECT * FROM fix_orders")
         assert orders[0]["cum_qty"] == 0.0
 
@@ -1818,8 +1904,10 @@ class TestFix44Executions:
         await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_44_RX))
         await engine.on_app_message(stub, "8", parse_fix(CLIENT_CORRECT_44_RX))
         rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
-        assert [r["exec_type"] for r in rows] == ["Trade", "TradeCorrect"]
-        assert rows[0]["trade_id"] == rows[1]["trade_id"]
+        assert [r["exec_type"] for r in rows] == ["TradeCorrect"]
+        chain = await _versions(db, "fix_executions")
+        assert [v["exec_type"] for v in chain] == ["Trade", "TradeCorrect"]
+        assert chain[0]["trade_id"] == chain[1]["trade_id"]
 
 
 REPLACE_REQ_44_RX = "8=FIX.4.4|35=G|11=C102|41=C100|55=AAPL|54=1|38=200|40=2|44=151.5"
@@ -1968,7 +2056,7 @@ class TestVersioning:
         assert len({v["id"] for v in chain}) == 1, "one chain, keyed by the immutable id"
 
     @pytest.mark.asyncio
-    async def test_execution_rows_have_one_version(self, stack):
+    async def test_fill_rows_have_one_version(self, stack):
         db, writer, engine = stack
         stub = StubSession()
         engine.sessions["S1"] = stub
@@ -1981,6 +2069,30 @@ class TestVersioning:
         assert [(v["_mkio_version"], v["_mkio_op"]) for v in chain] == [(1, "insert")]
         live = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
         assert (live["_mkio_version"], live["session_status"]) == (1, "ACTIVE")
+
+    @pytest.mark.asyncio
+    async def test_trade_chain_is_its_corrections_and_bust(self, stack):
+        """One chain per trade, keyed by the row id: the fill, each correction
+        and the bust are its versions, all under the one Trade ID."""
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        fill_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        corr_id = await engine.correct_trade("S1", fill_id, qty=30, price=149.0)
+        bust_id = await engine.bust_trade("S1", corr_id)
+
+        chain = await _versions(db, "fix_executions")
+        assert [(v["_mkio_version"], v["_mkio_op"], v["exec_id"], v["exec_type"], v["last_qty"])
+                for v in chain] == [
+            (1, "insert", fill_id, "PartialFill", 40.0),
+            (2, "update", corr_id, "Correct", 30.0),
+            (3, "update", bust_id, "Cancel", 30.0),
+        ]
+        assert len({v["id"] for v in chain}) == 1
+        assert len({v["trade_id"] for v in chain}) == 1
+        live = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (live["_mkio_version"], live["exec_id"]) == (3, bust_id)
 
     @pytest.mark.asyncio
     async def test_session_status_mirror_records_no_order_version(self, stack):

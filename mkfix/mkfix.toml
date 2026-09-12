@@ -37,7 +37,7 @@ versioned = true
 unversioned = ["session_status"]
 
 [tables.fix_executions]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", session_status = "TEXT DEFAULT 'DOWN'" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", session_status = "TEXT DEFAULT 'DOWN'" }
 versioned = true
 unversioned = ["session_status"]
 
@@ -290,7 +290,7 @@ protocol = "query"
 description = "Every recorded execution version, newest first, live"
 primary_table = "fix_executions__history"
 sql = "SELECT * FROM fix_executions__history ORDER BY _mkio_ref DESC"
-filterable = ["id", "session_id", "trade_id", "exec_id", "order_id", "direction", "_mkio_op", "_mkio_version"]
+filterable = ["id", "session_id", "trade_id", "exec_id", "exec_ref_id", "order_id", "direction", "_mkio_op", "_mkio_version"]
 change_log_size = 10000
 
 [services.received_trades_as_of]

@@ -284,7 +284,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.26"
+        "text": "mkfix v0.27"
       }
     ],
     "bindStyle": {
@@ -1488,6 +1488,7 @@
       "columns": [
         "trade_id",
         "exec_id",
+        "exec_ref_id",
         "session_id",
         "symbol",
         "side",
@@ -1506,7 +1507,21 @@
         "versions": "executions_versions",
         "state": "executions_state",
         "feed": "executions_history",
-        "asOf": "received_trades_as_of"
+        "asOf": "received_trades_as_of",
+        "columns": [
+          "exec_id",
+          "exec_ref_id",
+          "exec_type",
+          "last_qty",
+          "last_price",
+          "cum_qty",
+          "avg_price",
+          "leaves_qty",
+          "cl_ord_id",
+          "order_id",
+          "transact_time",
+          "text"
+        ]
       },
       "labels": {
         "trade_id": "Trade ID",
@@ -1519,7 +1534,9 @@
         "cum_qty": "Cum Qty",
         "avg_price": "Avg Px",
         "exec_type": "Exec Type",
-        "transact_time": "Time"
+        "transact_time": "Time",
+        "exec_ref_id": "ExecRefID",
+        "_mkio_version": "Ver"
       },
       "types": {
         "transact_time": {
@@ -1578,6 +1595,12 @@
           }
         ]
       },
+      "rowStyle": [
+        {
+          "when": "CONTAINS(['Cancel', 'TradeCancel'], exec_type)",
+          "color": "#858585"
+        }
+      ],
       "buttons": [
         {
           "label": "DK",
@@ -1950,6 +1973,7 @@
       "columns": [
         "trade_id",
         "exec_id",
+        "exec_ref_id",
         "session_id",
         "symbol",
         "side",
@@ -1968,7 +1992,21 @@
         "versions": "executions_versions",
         "state": "executions_state",
         "feed": "executions_history",
-        "asOf": "sent_trades_as_of"
+        "asOf": "sent_trades_as_of",
+        "columns": [
+          "exec_id",
+          "exec_ref_id",
+          "exec_type",
+          "last_qty",
+          "last_price",
+          "cum_qty",
+          "avg_price",
+          "leaves_qty",
+          "cl_ord_id",
+          "order_id",
+          "transact_time",
+          "text"
+        ]
       },
       "labels": {
         "trade_id": "Trade ID",
@@ -1981,7 +2019,9 @@
         "cum_qty": "Cum Qty",
         "avg_price": "Avg Px",
         "exec_type": "Exec Type",
-        "transact_time": "Time"
+        "transact_time": "Time",
+        "exec_ref_id": "ExecRefID",
+        "_mkio_version": "Ver"
       },
       "types": {
         "transact_time": {
@@ -2040,6 +2080,12 @@
           }
         ]
       },
+      "rowStyle": [
+        {
+          "when": "CONTAINS(['Cancel', 'TradeCancel'], exec_type)",
+          "color": "#858585"
+        }
+      ],
       "buttons": [
         {
           "label": "Correct",
@@ -2401,7 +2447,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.26",
+      "version": "0.27",
       "mkio": "0.6",
       "expr": "1"
     },

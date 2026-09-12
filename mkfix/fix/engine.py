@@ -47,10 +47,23 @@ ORDER_UPDATE_COLS = [
 ]
 
 EXEC_COLS = [
-    "session_id", "exec_id", "trade_id", "order_id", "cl_ord_id", "symbol",
-    "side", "side_code", "last_qty", "last_price", "cum_qty",
+    "session_id", "exec_id", "exec_ref_id", "trade_id", "order_id", "cl_ord_id",
+    "symbol", "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
     "transact_time", "text", "timestamp", "direction", "session_status",
+]
+
+# exec_type display names a bust records (ExecTransType Cancel through FIX
+# 4.2, ExecType TradeCancel from 4.3); the trade blotters' gates test the same.
+BUSTED_EXEC_TYPES = ("Cancel", "TradeCancel")
+
+# What a correction or bust rewrites on its trade's row: everything but the
+# identity (session, trade_id, direction) and the mirror.
+EXEC_UPDATE_COLS = [
+    "exec_id", "exec_ref_id", "order_id", "cl_ord_id", "symbol", "side",
+    "side_code", "last_qty", "last_price", "cum_qty", "avg_price",
+    "exec_type", "exec_type_code", "leaves_qty", "transact_time", "text",
+    "timestamp",
 ]
 
 
@@ -62,6 +75,10 @@ def _order_params(row: dict[str, Any]) -> tuple[Any, ...]:
 
 def _exec_params(row: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(row[c] for c in EXEC_COLS) + (None,)
+
+
+def _exec_update_params(row: dict[str, Any], row_id: int) -> tuple[Any, ...]:
+    return tuple(row[c] for c in EXEC_UPDATE_COLS) + (None, row_id)
 
 
 def _sent_exec_kind(dictionary: FixDictionary, msg: FixMessage,
@@ -257,6 +274,16 @@ class FixEngine:
             op_type="insert",
             sql=f"INSERT INTO fix_executions ({exec_col_str}) VALUES ({exec_placeholders}) RETURNING *",
             param_names=tuple(EXEC_COLS + ["_mkio_ref"]),
+        ),)
+        # A correction or bust is a new version of its trade's row, not a new
+        # row: keyed by the row id so databases holding pre-0.27 append-only
+        # chains need no unique index and keep working.
+        exec_set = ", ".join(f"{c} = ?" for c in EXEC_UPDATE_COLS + ["_mkio_ref"])
+        self._compiled_ops["update_execution"] = (CompiledOp(
+            table="fix_executions",
+            op_type="update",
+            sql=f"UPDATE fix_executions SET {exec_set} WHERE id = ? RETURNING *",
+            param_names=tuple(EXEC_UPDATE_COLS + ["_mkio_ref", "id"]),
         ),)
 
         ioi_cols = [
@@ -616,18 +643,19 @@ class FixEngine:
         else:
             return
 
-        # A correction/bust belongs to the trade of the execution it references
-        # (tag 19); a new fill starts a new trade.
-        trade_id = ""
+        # A correction/bust is a new version of the trade whose execution it
+        # references (tag 19); a new fill, or a reference we can't resolve,
+        # starts a new trade.
+        referenced = None
         exec_ref_id = msg.get("19", "")
         if exec_ref_id:
-            trade_id = await self._lookup_trade_id(session_id, exec_ref_id)
-        if not trade_id:
-            trade_id = await self.ids.next_id("TR")
+            referenced = await self._find_execution(session_id, exec_ref_id)
+        trade_id = referenced["trade_id"] if referenced else await self.ids.next_id("TR")
 
         exec_row = {
             "session_id": session_id,
             "exec_id": msg.get("17", ""),
+            "exec_ref_id": exec_ref_id,
             "trade_id": trade_id,
             "order_id": msg.get("37", ""),
             "cl_ord_id": cl_ord_id,
@@ -647,8 +675,7 @@ class FixEngine:
             "direction": "RX",
             "session_status": session.status,
         }
-        ops = self._compiled_ops["insert_execution"]
-        await self.writer.submit(ops, (_exec_params(exec_row),), {"exec_id": msg.get("17", "")})
+        await self._submit_execution(exec_row, referenced["id"] if referenced else None)
 
     async def _handle_new_order(self, session: FixSession, msg: FixMessage) -> None:
         """Record an inbound NewOrderSingle (35=D) as a received order awaiting action."""
@@ -950,17 +977,20 @@ class FixEngine:
         return dict(row)
 
     async def _load_execution(self, session_id: str, exec_id: str) -> dict[str, Any]:
-        conn = self.db.read_conn
-        cursor = await conn.execute(
-            "SELECT * FROM fix_executions WHERE session_id = ? AND exec_id = ? "
-            "ORDER BY id DESC LIMIT 1",
-            (session_id, exec_id),
-        )
-        row = await cursor.fetchone()
-        await cursor.close()
+        row = await self._find_execution(session_id, exec_id)
         if not row:
             raise ValueError(f"Unknown execution: {exec_id} on {session_id}")
-        return dict(row)
+        return row
+
+    @staticmethod
+    def _require_live_trade(execution: dict[str, Any], action: str) -> None:
+        """A busted trade is done: its row's exec_type is the trade's state.
+        Tested by name — code 1 is ExecTransType Cancel on one dialect and
+        ExecType PartialFill on the other."""
+        if execution["exec_type"] in BUSTED_EXEC_TYPES:
+            raise ValueError(
+                f"Cannot {action} {execution['exec_id']}: trade "
+                f"{execution['trade_id']} is busted")
 
     async def _write_order(self, order: dict[str, Any], **updates: Any) -> None:
         """Apply updates to an order row on top of the snapshot its caller loaded.
@@ -984,25 +1014,54 @@ class FixEngine:
         ops = self._compiled_ops["rename_order"]
         await self.writer.submit(ops, (params,), {"cl_ord_id": new_cl_ord_id})
 
-    async def _lookup_trade_id(self, session_id: str, exec_id: str) -> str:
-        cursor = await self.db.read_conn.execute(
-            "SELECT trade_id FROM fix_executions WHERE session_id = ? AND exec_id = ? "
+    async def _find_execution(self, session_id: str, exec_id: str) -> dict[str, Any] | None:
+        """The live trade row an ExecID belongs to, or None.
+
+        The live row carries the trade's latest ExecID; an earlier one in the
+        chain — the original fill's after a correction — is found through the
+        row's recorded versions, which is what makes a bust of the fill land
+        on the corrected trade rather than start a new one.
+        """
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT * FROM fix_executions WHERE session_id = ? AND exec_id = ? "
             "ORDER BY id DESC LIMIT 1",
             (session_id, exec_id),
         )
         row = await cursor.fetchone()
         await cursor.close()
-        return row["trade_id"] if row else ""
+        if row:
+            return dict(row)
+        cursor = await conn.execute(
+            "SELECT e.* FROM fix_executions e JOIN fix_executions__history h ON h.id = e.id "
+            "WHERE h.session_id = ? AND h.exec_id = ? ORDER BY e.id DESC LIMIT 1",
+            (session_id, exec_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
+
+    async def _submit_execution(self, exec_row: dict[str, Any], row_id: int | None) -> None:
+        """Insert a new trade, or rewrite the trade row `row_id` as a new version."""
+        if row_id is None:
+            ops = self._compiled_ops["insert_execution"]
+            params = _exec_params(exec_row)
+        else:
+            ops = self._compiled_ops["update_execution"]
+            params = _exec_update_params(exec_row, row_id)
+        await self.writer.submit(ops, (params,), {"exec_id": exec_row["exec_id"]})
 
     async def _write_sent_execution(
         self, order: dict[str, Any], exec_id: str, trade_id: str, exec_type: str,
         exec_type_code: str, last_qty: float, last_price: float,
         cum_qty: float, avg_price: float, leaves_qty: float,
+        exec_ref_id: str = "", row_id: int | None = None,
     ) -> None:
         now = _fix_timestamp()
         exec_row = {
             "session_id": order["session_id"],
             "exec_id": exec_id,
+            "exec_ref_id": exec_ref_id,
             "trade_id": trade_id,
             "order_id": order["order_id"],
             "cl_ord_id": order["cl_ord_id"],
@@ -1022,8 +1081,7 @@ class FixEngine:
             "direction": "TX",
             "session_status": order["session_status"],
         }
-        ops = self._compiled_ops["insert_execution"]
-        await self.writer.submit(ops, (_exec_params(exec_row),), {"exec_id": exec_id})
+        await self._submit_execution(exec_row, row_id)
 
     async def accept_order(self, session_id: str, cl_ord_id: str, extra_tags: str = "") -> str:
         """Accept a received order: send ExecutionReport(New), return the OrderID."""
@@ -1300,6 +1358,7 @@ class FixEngine:
         extra_pairs = parse_extra_tags(extra_tags)
         dictionary = session.dictionary
         execution = await self._load_execution(session_id, exec_id)
+        self._require_live_trade(execution, "correct")
         order = await self._load_order_for_execution(execution)
 
         new_exec_id = await self.ids.next_id("EX")
@@ -1338,6 +1397,7 @@ class FixEngine:
         await self._write_sent_execution(
             order, new_exec_id, trade_id, *_sent_exec_kind(dictionary, msg, "2"),
             qty, price, cum_qty, avg_price, leaves_qty,
+            exec_ref_id=exec_id, row_id=execution["id"],
         )
         await session.send_message(msg)
         return new_exec_id
@@ -1348,6 +1408,7 @@ class FixEngine:
         extra_pairs = parse_extra_tags(extra_tags)
         dictionary = session.dictionary
         execution = await self._load_execution(session_id, exec_id)
+        self._require_live_trade(execution, "bust")
         order = await self._load_order_for_execution(execution)
 
         new_exec_id = await self.ids.next_id("EX")
@@ -1387,6 +1448,7 @@ class FixEngine:
             order, new_exec_id, trade_id, *_sent_exec_kind(dictionary, msg, "1"),
             execution["last_qty"], execution["last_price"],
             cum_qty, avg_price, leaves_qty,
+            exec_ref_id=exec_id, row_id=execution["id"],
         )
         await session.send_message(msg)
         return new_exec_id

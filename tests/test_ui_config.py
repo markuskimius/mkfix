@@ -1427,6 +1427,18 @@ class TestRecordHistory:
         assert not set(h["columns"]) & set(table["unversioned"])
         assert set(h["columns"]) >= set(table["columns"]) - set(table["unversioned"]) - {"session_id"}
 
+    def test_trade_history_diffs_the_execution_columns(self, history_panes, toml_config):
+        """A trade's chain is its fill, corrections and bust — every version
+        rewrites the execution columns, so Diff/Blame list those and skip the
+        identity columns and the mirror."""
+        table = toml_config["tables"]["fix_executions"]
+        for pid in ("trade-blotter", "market-trade-blotter"):
+            cols = history_panes[pid]["history"]["columns"]
+            assert set(cols) <= set(table["columns"]), pid
+            assert not set(cols) & set(table["unversioned"]), pid
+            assert {"exec_id", "exec_ref_id", "exec_type", "last_qty", "last_price"} <= set(cols), pid
+            assert "exec_ref_id" in history_panes[pid]["columns"], pid
+
     def test_unversioned_columns_are_the_engine_mirrors(self, toml_config):
         tables = toml_config["tables"]
         assert tables["fix_sessions"]["unversioned"] == ["status", "tx_seq_num", "rx_seq_num"]

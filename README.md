@@ -49,9 +49,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   form, prefilled with the terms last entered (the New dialog's or the previous
   replace's) -- and a fully filled order can still be replaced up to revive it. An accepted cancel or replace moves the order to
   the request's ClOrdID (per the FIX chain), while an immutable Order ID keeps
-  the order recognizable across the chain; corrections and busts likewise
-  replace the ExecID while an immutable Trade ID groups a fill with its
-  corrections and busts. Every blotter row is written before its message
+  the order recognizable across the chain; a trade is likewise one blotter
+  row under an immutable Trade ID, and a correction or bust rewrites it as a
+  new version carrying the fresh ExecID and the ExecRefID it answered, with
+  the fill and earlier corrections kept in its history. Every blotter row is written before its message
   leaves, so a counterparty that answers instantly -- a reject arriving while
   the order is still going out -- lands on the blotter as a reject and stays
   there, under the Order ID mkfix minted rather than the counterparty's.
@@ -106,7 +107,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Record History** -- Sessions, orders and trades are versioned: every
   change to a row is recorded, and each blotter's History button (also the
   Sessions and Trading menus) opens a History pane showing the selected
-  record's versions with a Diff and Blame of what changed between them. An
+  record's versions with a Diff and Blame of what changed between them -- a
+  trade's versions being its fill, corrections and bust. An
   As of… button reads a blotter as it stood at a moment. Session config
   edits can be undone and redone from the Edit menu; the engine reloads the
   session to match. Orders and trades are read-only history, since the
