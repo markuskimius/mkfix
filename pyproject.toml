@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Office/Business :: Financial",
 ]
 dependencies = [
-    "mkio>=0.9.0",
+    "mkio>=0.10.0",
     "mkui>=0.7.0",
 ]
 

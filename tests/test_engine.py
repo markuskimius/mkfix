@@ -623,6 +623,14 @@ class LiveQuery:
         self.svc.name = name
         self.sent: list[bytes] = []
         self.closed = False
+        # Re-queries of the whole sql after a change to a watched table.
+        self.requeries = 0
+        real = self.svc._on_secondary
+
+        async def counting(event):
+            self.requeries += 1
+            await real(event)
+        self.svc._on_secondary = counting
 
     async def send_bytes(self, data: bytes) -> None:
         self.sent.append(data)
@@ -671,6 +679,10 @@ class TestLiveStatusJoin:
             assert (row["status"], row["tx_seq_num"], row["rx_seq_num"], row["_mkio_row"]) == \
                 ("ACTIVE", 7, 9, "S1")
             assert row["host"] == "", "the config columns ride along"
+            await engine.update_session_state("S1", {"tx_seq_num": 8})
+            [(op, row)] = await q.updates()
+            assert (op, row["tx_seq_num"], q.requeries) == ("update", 8, 2), \
+                "the sessions blotter shows the counters, so every state write re-queries its two rows"
 
     @pytest.mark.asyncio
     async def test_orders_and_trades_follow_their_sessions_status(self, stack):
@@ -698,13 +710,18 @@ class TestLiveStatusJoin:
             assert row["cl_ord_id"] == "C100", "the order's own columns ride along"
             [(op, row)] = await trades.updates()
             assert (op, row["session_status"]) == ("update", "DOWN")
+            assert (orders.requeries, trades.requeries) == (1, 1)
 
-            await engine.update_session_state("S1", {"tx_seq_num": 5, "rx_seq_num": 7})
+            for n in range(3):
+                await engine.update_session_state("S1", {"tx_seq_num": 5 + n, "rx_seq_num": 7 + n})
             assert await orders.updates() == [], "a seq-num write changes nothing the query shows"
             assert await trades.updates() == []
+            assert (orders.requeries, trades.requeries) == (1, 1), \
+                "and, status being the only watched column, is dropped before any re-query"
 
             await engine.update_session_state("S1", {"status": "ACTIVE"})
             assert [(op, r["session_status"]) for op, r in await orders.updates()] == [("update", "ACTIVE")]
+            assert (orders.requeries, trades.requeries) == (2, 2)
 
     @pytest.mark.asyncio
     async def test_a_new_order_carries_its_sessions_status(self, stack):

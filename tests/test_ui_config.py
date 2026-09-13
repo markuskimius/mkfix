@@ -1708,6 +1708,22 @@ class TestRecordHistory:
             assert svc["key"] == pk, name
             assert set(live) <= set(svc["filterable"]) | {"tx_seq_num", "rx_seq_num", "error_text"}, name
 
+        # watch_columns must equal the state columns the sql reads: fewer
+        # would miss a change, more would re-query for nothing. The sessions
+        # query reads all but seq_epoch (never written alone), so it lists
+        # none and re-runs on every state write, as it must.
+        state_cols = set(tables["fix_session_state"]["columns"]) - {"session_id"}
+        for name in joined:
+            svc = services[name]
+            alias = re.search(r"JOIN fix_session_state (\w+) ON", svc["sql"]).group(1)
+            read = set(re.findall(rf"\b{alias}\.(\w+)", svc["sql"])) - {"session_id"}
+            assert read <= state_cols, name
+            if "watch_columns" in svc:
+                assert svc["watch_columns"] == {"fix_session_state": sorted(read)}, name
+            else:
+                assert read >= state_cols - {"seq_epoch"}, \
+                    f"{name} reads only {sorted(read)}: declare watch_columns"
+
         for pane_id, spec in history_panes.items():
             assert spec["history"]["key"] == services[spec["service"]]["key"], \
                 f"{pane_id}: history.key must be the identity the query stamps as _mkio_row"
@@ -1746,16 +1762,17 @@ class TestRecordHistory:
 
     def test_mkio_floor_supports_joined_queries_with_a_key(self, toml_config):
         """A query that watches a table beyond its primary one live-updates
-        only from mkio 0.8, and `key` is 0.9: an earlier mkio rejects the
-        key, and without it identifies a joined row by a composite the
-        history blocks and mkui's as-of view do not match."""
-        joined = [
-            name for name, svc in toml_config["services"].items()
-            if svc.get("protocol") == "query" and len(svc.get("watch_tables", [])) > 1
-        ]
+        only from mkio 0.8, `key` is 0.9 and `watch_columns` 0.10: an
+        earlier mkio rejects the keys, and without `key` identifies a
+        joined row by a composite the history blocks and mkui's as-of view
+        do not match."""
+        services = toml_config["services"].values()
+        joined = [s for s in services if s.get("protocol") == "query" and len(s.get("watch_tables", [])) > 1]
         if not joined:
             pytest.skip("no joined query services")
         assert _dependency_floor("mkio") >= (0, 9, 0)
+        if any("watch_columns" in s for s in joined):
+            assert _dependency_floor("mkio") >= (0, 10, 0)
 
 
 class TestTagPreviews:

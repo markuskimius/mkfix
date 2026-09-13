@@ -199,6 +199,9 @@ sql = "SELECT id, saved, layout FROM mkui_layouts WHERE id = :id"
 # and publishes only the rows that differ). LEFT JOIN with defaults: a redone
 # Add has its config row back before the engine re-inserts the state row.
 # `key` keeps _mkio_row the primary key, which the history blocks key by.
+# The state table is written on every message; orders_query and
+# executions_query read only its status, and `watch_columns` says so, so a
+# sequence-number write is dropped before any re-query (mkio 0.10).
 [services.sessions_query]
 protocol = "query"
 primary_table = "fix_sessions"
@@ -215,6 +218,7 @@ filterable = ["session_id", "enabled", "status"]
 protocol = "query"
 primary_table = "fix_orders"
 watch_tables = ["fix_orders", "fix_session_state"]
+watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
 sql = """SELECT o.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_orders o LEFT JOIN fix_session_state t ON t.session_id = o.session_id"""
@@ -224,6 +228,7 @@ filterable = ["session_id", "status", "symbol", "side", "direction", "session_st
 protocol = "query"
 primary_table = "fix_executions"
 watch_tables = ["fix_executions", "fix_session_state"]
+watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
 sql = """SELECT e.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_executions e LEFT JOIN fix_session_state t ON t.session_id = e.session_id"""

@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.34"
+        "text": "mkfix v0.35"
       }
     ],
     "bindStyle": {
@@ -3042,8 +3042,8 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.34",
-      "mkio": "0.9",
+      "version": "0.35",
+      "mkio": "0.10",
       "expr": "1"
     },
     "connected": {
