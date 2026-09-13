@@ -112,8 +112,8 @@ class TestWebSocket:
                 assert resp["txnid"] == "t2"
 
                 await asyncio.sleep(0.3)
-                # sessions_query serves the blotter; status must be mirrored
-                # onto the fix_sessions row, not just fix_session_state.
+                # sessions_query serves the blotter: it joins fix_session_state
+                # onto the session row, so the status must come through.
                 await ws.send_json({"service": "sessions_query", "type": "subscribe",
                                     "protocol": "query", "subid": "s1", "ref": "q1"})
                 snap = await _recv_json(ws)

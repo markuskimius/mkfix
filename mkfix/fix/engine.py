@@ -27,7 +27,7 @@ ORDER_COLS = [
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
     "created_at", "updated_at", "direction",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "pending_extra_tags", "session_status",
+    "pending_extra_tags",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date",
 ]
@@ -45,14 +45,14 @@ ORDER_UPDATE_COLS = [
     "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "pending_extra_tags", "session_status",
+    "pending_extra_tags",
 ]
 
 EXEC_COLS = [
     "session_id", "exec_id", "exec_ref_id", "trade_id", "order_id", "cl_ord_id",
     "symbol", "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
-    "transact_time", "text", "timestamp", "direction", "session_status",
+    "transact_time", "text", "timestamp", "direction",
 ]
 
 # exec_type display names a bust records (ExecTransType Cancel through FIX
@@ -60,7 +60,7 @@ EXEC_COLS = [
 BUSTED_EXEC_TYPES = ("Cancel", "TradeCancel")
 
 # What a correction or bust rewrites on its trade's row: everything but the
-# identity (session, trade_id, direction) and the mirror.
+# identity (session, trade_id, direction).
 EXEC_UPDATE_COLS = [
     "exec_id", "exec_ref_id", "order_id", "cl_ord_id", "symbol", "side",
     "side_code", "last_qty", "last_price", "cum_qty", "avg_price",
@@ -180,9 +180,6 @@ class FixEngine:
                       "last_tx_time", "last_rx_time", "session_start", "error_text",
                       "seq_epoch"]
         set_clause = ", ".join(f"{c} = ?" for c in state_cols[1:])
-        # The second op mirrors the live columns onto fix_sessions so the
-        # sessions blotter can be a plain single-table query pane — a query
-        # service with JOIN sql drops change events from non-primary tables.
         # Follows an undo that removes a session row (handle_undo_redo): the
         # state table is not versioned, so the cursor move leaves it behind.
         self._compiled_ops["delete_state"] = (CompiledOp(
@@ -202,15 +199,7 @@ class FixEngine:
                 f"RETURNING *"
             ),
             param_names=tuple(state_cols + ["_mkio_ref"] + state_cols[1:]),
-        ), CompiledOp(
-            table="fix_sessions",
-            op_type="update",
-            sql=(
-                "UPDATE fix_sessions SET status = ?, tx_seq_num = ?, rx_seq_num = ?, _mkio_ref = ? "
-                "WHERE session_id = ? RETURNING *"
-            ),
-            param_names=("status", "tx_seq_num", "rx_seq_num", "_mkio_ref", "session_id"),
-        ))
+        ),)
 
         order_set = ", ".join(f"{c} = ?" for c in ORDER_UPDATE_COLS)
         # order_qty/price update from the insert values, guarded so an
@@ -262,22 +251,6 @@ class FixEngine:
             param_names=("cl_ord_id", "orig_cl_ord_id", "updated_at", "_mkio_ref",
                          "session_id", "old_cl_ord_id", "new_cl_ord_id"),
         ),)
-
-        # Mirrors a session status change onto its order/execution rows so the
-        # blotters can gate action buttons on session_status. Keyed by rowid:
-        # the writer returns (and publishes) one row per op, so a whole-session
-        # UPDATE would live-update only one blotter row.
-        self._compiled_ops["mirror_session_status"] = (CompiledOp(
-            table="fix_orders",
-            op_type="update",
-            sql="UPDATE fix_orders SET session_status = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
-            param_names=("session_status", "_mkio_ref", "id"),
-        ), CompiledOp(
-            table="fix_executions",
-            op_type="update",
-            sql="UPDATE fix_executions SET session_status = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
-            param_names=("session_status", "_mkio_ref", "id"),
-        ))
 
         exec_placeholders = ", ".join(["?"] * (len(EXEC_COLS) + 1))
         exec_col_str = ", ".join(EXEC_COLS + ["_mkio_ref"])
@@ -358,6 +331,12 @@ class FixEngine:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_orders_clord_session "
             "ON fix_orders(cl_ord_id, session_id)"
         )).close()
+        # orders_query/executions_query join fix_session_state by session_id
+        # and re-run on every state write.
+        for table in ("fix_orders", "fix_executions"):
+            await (await conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table}(session_id)"
+            )).close()
         # A template name is unique within its scope (save_template
         # overwrites by it). Templates never shipped without the index, so a
         # duplicate can only be a hand-made row; the newest wins rather than
@@ -564,36 +543,8 @@ class FixEngine:
             state.get("seq_epoch") or 0,
         )
         params = (state["session_id"], *values, None, *values)
-
-        mirror = (
-            state["status"],
-            state["tx_seq_num"],
-            state["rx_seq_num"],
-            None,  # _mkio_ref
-            state["session_id"],
-        )
         ops = self._compiled_ops["upsert_state"]
-        await self.writer.submit(ops, (params, mirror), {"session_id": session_id})
-        if "status" in updates:
-            await self._mirror_session_status(session_id, state["status"])
-
-    async def _mirror_session_status(self, session_id: str, status: str) -> None:
-        """Mirror a session status change onto its order/execution rows."""
-        conn = self.db.read_conn
-        row_ids: list[tuple[int, int]] = []  # (op index, rowid)
-        for idx, table in enumerate(("fix_orders", "fix_executions")):
-            cursor = await conn.execute(
-                f"SELECT id FROM {table} WHERE session_id = ? AND session_status != ?",
-                (session_id, status),
-            )
-            row_ids += [(idx, row["id"]) for row in await cursor.fetchall()]
-            await cursor.close()
-        if not row_ids:
-            return
-        mirror_ops = self._compiled_ops["mirror_session_status"]
-        ops = tuple(mirror_ops[idx] for idx, _ in row_ids)
-        params_list = tuple((status, None, row_id) for _, row_id in row_ids)
-        await self.writer.submit(ops, params_list, {"session_id": session_id})
+        await self.writer.submit(ops, (params,), {"session_id": session_id})
 
     async def on_app_message(self, session: FixSession, msg_type: str, msg: FixMessage) -> None:
         """Handle an inbound application-level FIX message."""
@@ -661,7 +612,6 @@ class FixEngine:
             "pending_qty": 0.0,
             "pending_price": 0.0,
             "pending_extra_tags": "",
-            "session_status": session.status,
             "tif_code": tif_code,
             "extra_tags": "",
             "entered_qty": msg.get_float("38", 0.0),
@@ -713,7 +663,6 @@ class FixEngine:
             "text": msg.get("58", ""),
             "timestamp": now,
             "direction": "RX",
-            "session_status": session.status,
         }
         await self._submit_execution(exec_row, referenced["id"] if referenced else None)
 
@@ -757,7 +706,6 @@ class FixEngine:
             "pending_qty": 0.0,
             "pending_price": 0.0,
             "pending_extra_tags": extras,
-            "session_status": session.status,
             "tif_code": tif_code,
             "extra_tags": extras,
             "entered_qty": qty,
@@ -874,7 +822,6 @@ class FixEngine:
             "pending_qty": 0.0,
             "pending_price": 0.0,
             "pending_extra_tags": "",
-            "session_status": session.status,
             "tif_code": tif,
             "extra_tags": extra_tags,
             "entered_qty": qty,
@@ -1139,7 +1086,6 @@ class FixEngine:
             "text": "",
             "timestamp": now,
             "direction": "TX",
-            "session_status": order["session_status"],
         }
         await self._submit_execution(exec_row, row_id)
 
@@ -1782,10 +1728,8 @@ class FixEngine:
     async def handle_undo_redo(self, event: Any) -> None:
         """Follow a version cursor move on fix_sessions (mkio's on_undo_redo).
 
-        mkio puts the config row right; this puts the engine right. The row's
-        live columns (status, sequence numbers) are unversioned, so a move
-        never touches them — only the session object and its state row need
-        following. An undone Add (the row is gone) stops and drops the
+        mkio puts the config row right; this puts the engine right: the
+        session object and its state row need following. An undone Add (the row is gone) stops and drops the
         session and deletes its state row, which the cursor move left behind
         because fix_session_state is not versioned; a redone Add rebuilds
         both; an undone or redone edit reloads, which rebuilds a stopped

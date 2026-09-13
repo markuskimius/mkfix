@@ -7,7 +7,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
 ## Features
 
 - **Session Management** -- Configure and run FIX sessions as initiator or
-  acceptor from a live Sessions blotter showing status and sequence numbers,
+  acceptor from a live Sessions blotter showing status, sequence numbers and
+  the last error,
   created and edited through modal dialogs. Buttons follow the session's state:
   Start, Edit, Delete, Reset Seq, and Change Seq only while a session is
   down, Stop only while it runs. Reset Seq resets a session in one click:
@@ -95,7 +96,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   buy/sell sides, order statuses, exec types, TX/RX direction, and pending
   requests are colored; heartbeat chatter is dimmed in the Messages viewer.
   Order and trade action buttons disable while the owning FIX session is
-  down, driven by the session's live status mirrored onto each row.
+  down, the session's live status joined onto each row as it changes.
 - **Templates, in every dialog** -- Every order and trade dialog (New,
   Replace, Cancel, Accept, Reject, Fill, DK, Correct, Bust) opens on a
   Template dropdown and closes on a "Save as template" name. Pick a template
@@ -176,6 +177,11 @@ git clone https://github.com/markuskimius/mkfix.git
 cd mkfix
 pip install -e .
 ```
+
+Upgrading from 0.33 or earlier: the first start drops the session-status
+columns the old engine mirrored onto `fix_sessions`, `fix_orders` and
+`fix_executions` (the blotters now read the state table through a join),
+and `mkfix restore` accepts archives that still carry them.
 
 ## Usage
 
@@ -265,7 +271,7 @@ the built-in `mkfix.toml` for the full schema.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 0.8.0 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 0.9.0 -- async microservice
   framework (aiohttp + aiosqlite)
 - [mkui](https://github.com/markuskimius/mkui) >= 0.7.0 -- Web Components UI
   framework

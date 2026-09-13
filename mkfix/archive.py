@@ -35,6 +35,8 @@ from mkio.archive import (
     restore_offline,
 )
 
+from mkfix.upgrade import mirror_columns_in_archive, strip_mirror_columns
+
 ALIASES: dict[str, str] = {
     "messages": "fix_messages",
     "orders": "fix_orders",
@@ -212,9 +214,13 @@ def _restore(cfg: dict[str, Any], args: argparse.Namespace, tables: list[str] | 
         raise ArchiveError(
             f"a server is answering at {server_url(cfg)} — restore needs it stopped"
         )
-    result = restore_offline(cfg, args.archive_dir, tables=tables, dry_run=args.dry_run)
+    stale = mirror_columns_in_archive(args.archive_dir)
+    result = restore_offline(cfg, strip_mirror_columns(args.archive_dir),
+                             tables=tables, dry_run=args.dry_run)
     verb = "would be restored" if args.dry_run else "restored"
     print(f"Restoring from {args.archive_dir}" + (" (dry run)" if args.dry_run else ""))
+    for table, columns in stale.items():
+        print(f"  {table}: pre-0.34 mirror column(s) {', '.join(columns)} left behind")
     for name, t in result["tables"].items():
         parts = [f"{t['rows']:,} rows"]
         if t.get("history"):

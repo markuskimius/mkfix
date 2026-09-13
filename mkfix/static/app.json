@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.33"
+        "text": "mkfix v0.34"
       }
     ],
     "bindStyle": {
@@ -215,7 +215,8 @@
         "port",
         "status",
         "tx_seq_num",
-        "rx_seq_num"
+        "rx_seq_num",
+        "error_text"
       ],
       "history": {
         "table": "fix_sessions",
@@ -234,21 +235,6 @@
           "service": "session_mgmt",
           "op": "redo"
         },
-        "columns": [
-          "fix_version",
-          "dictionary",
-          "timestamp_precision",
-          "sender_comp_id",
-          "target_comp_id",
-          "host",
-          "port",
-          "heartbeat_interval",
-          "logout_timeout",
-          "logout_test_request",
-          "reset_on_logon",
-          "enabled",
-          "description"
-        ],
         "confirm": true
       },
       "labels": {
@@ -262,7 +248,8 @@
         "tx_seq_num": "TX Seq",
         "rx_seq_num": "RX Seq",
         "dictionary": "Dictionary",
-        "_mkio_version": "Ver"
+        "_mkio_version": "Ver",
+        "error_text": "Error"
       },
       "styles": {
         "status": [
@@ -3055,8 +3042,8 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.33",
-      "mkio": "0.8",
+      "version": "0.34",
+      "mkio": "0.9",
       "expr": "1"
     },
     "connected": {

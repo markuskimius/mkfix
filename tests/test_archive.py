@@ -273,7 +273,7 @@ async def _trade_a_little(url: str, db: Path) -> None:
             assert r.get("type") == "result", r
         for _ in range(100):
             await asyncio.sleep(0.1)
-            statuses = {r["session_id"]: r["status"] for r in _rows(db, "SELECT session_id, status FROM fix_sessions")}
+            statuses = {r["session_id"]: r["status"] for r in _rows(db, "SELECT session_id, status FROM fix_session_state")}
             if statuses == {"ACC": "ACTIVE", "INI": "ACTIVE"}:
                 break
         else:
@@ -365,7 +365,7 @@ class TestThroughTheServer:
             assert _rows(server.db, "SELECT * FROM fix_orders__history") == []
             assert _rows(server.db, "SELECT * FROM fix_messages") == []
             # Sessions stayed up and untouched.
-            assert {r["status"] for r in _rows(server.db, "SELECT status FROM fix_sessions")} == {"ACTIVE"}
+            assert {r["status"] for r in _rows(server.db, "SELECT status FROM fix_session_state")} == {"ACTIVE"}
 
             # Restore needs the server stopped.
             out = _cli("restore", *flags, str(run_dir), expect=1)

@@ -5,8 +5,12 @@ JS module that no longer exists fails silently in the browser rather than at
 import time. These tests fail the build instead.
 """
 
+import contextlib
+import functools
+import io
 import json
 import re
+import sqlite3
 import tomllib
 from pathlib import Path
 
@@ -66,6 +70,32 @@ def _conditions(when):
     for values, name in _COND_IN.findall(when or ""):
         out.setdefault(name, []).extend(re.findall(r"'([^']*)'", values))
     return out
+
+
+@functools.lru_cache(maxsize=None)
+def _schema_conn() -> sqlite3.Connection:
+    """The TOML tables, created empty in memory, to run a service's sql against."""
+    from mkio.migration import migrate_schema
+    conn = sqlite3.connect(":memory:")
+    with contextlib.redirect_stdout(io.StringIO()):
+        migrate_schema(conn, tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text())["tables"])
+    return conn
+
+
+def _service_columns(toml_config, service_name):
+    """The columns a query service's rows carry: the primary table's under
+    the default SQL, else whatever its `sql` returns — joined and computed
+    columns included — read against the TOML schema. None for a service
+    without a primary table."""
+    service = toml_config["services"].get(service_name, {})
+    table = service.get("primary_table")
+    if not table:
+        return None
+    sql = service.get("sql")
+    if not sql:
+        return set(toml_config["tables"][table]["columns"])
+    cur = _schema_conn().execute(f"SELECT * FROM ({sql.strip().rstrip(';')}) LIMIT 0")
+    return {d[0] for d in cur.description}
 
 
 def _walk_dicts(obj):
@@ -303,19 +333,16 @@ class TestPaneModuleIntegrity:
 
     def test_button_row_tokens_name_real_columns(self, app_config, toml_config):
         """`${row.X}` resolves against the pane's service rows; a token naming
-        a column the table does not have silently interpolates empty."""
-        services = toml_config["services"]
-        tables = toml_config["tables"]
+        a column the rows do not carry silently interpolates empty."""
         checked = 0
         for pane_id, spec in app_config["panes"].items():
-            table = services.get(spec.get("service"), {}).get("primary_table")
-            if not table or "buttons" not in spec:
+            columns = _service_columns(toml_config, spec.get("service"))
+            if columns is None or "buttons" not in spec:
                 continue
-            columns = set(tables[table]["columns"])
             tokens = set(re.findall(r"\$\{row\.(\w+)\}", json.dumps(spec["buttons"])))
             unknown = tokens - columns
             assert not unknown, \
-                f"pane {pane_id!r} buttons reference non-columns of {table}: {sorted(unknown)}"
+                f"pane {pane_id!r} buttons reference columns {spec['service']} rows lack: {sorted(unknown)}"
             checked += 1
         assert checked, "no panes with buttons and a table-backed service"
 
@@ -479,8 +506,9 @@ class TestServiceReferences:
         assert "pending_action" not in _conditions(by["Fill"]["enable"].get("when"))
     def test_order_and_trade_actions_gate_on_live_session(self, app_config):
         """Every button that acts on an existing order or trade requires the
-        row's session to be up (session_status is the engine-written mirror of
-        the owning session's live status). New order entry is exempt — its
+        row's session to be up (session_status is the owning session's live
+        status, joined onto the row by orders_query/executions_query). New
+        order entry is exempt — its
         dialog picks the session itself, and the server rejects a dead one."""
         gated = {
             "order-blotter": ["Replace", "Cancel"],
@@ -684,18 +712,17 @@ class TestServiceReferences:
             assert field.get("value") == value, \
                 f"{op} dialog must prefill extra_tags from {value}"
 
-    def test_pane_columns_exist_in_primary_table(self, app_config, toml_config):
+    def test_pane_columns_exist_in_service_rows(self, app_config, toml_config):
         """A misspelled column renders as a permanently empty blotter column."""
         checked = 0
         for pane_id, spec in app_config["panes"].items():
-            service = toml_config["services"].get(spec.get("service"), {})
-            table = toml_config["tables"].get(service.get("primary_table"), {})
-            if not table or "columns" not in spec:
+            columns = _service_columns(toml_config, spec.get("service"))
+            if columns is None or "columns" not in spec:
                 continue
             checked += 1
-            unknown = set(spec["columns"]) - set(table["columns"])
+            unknown = set(spec["columns"]) - columns
             assert not unknown, f"pane {pane_id!r} shows unknown columns {sorted(unknown)}"
-        assert checked, "no pane columns checked against a table schema"
+        assert checked, "no pane columns checked against a service's rows"
 
     def test_blotter_titles_state_direction(self, app_config):
         """Blotter titles say the direction outright (Sent = TX, Received = RX);
@@ -894,7 +921,9 @@ class TestStyleAndGateValues:
 
     @pytest.fixture(scope="class")
     def value_domains(self):
-        """Known display-value domains keyed by (table, column)."""
+        """Known display-value domains keyed by (primary table, column) —
+        a joined column (`session_status`, the sessions blotter's `status`)
+        under the pane's primary table."""
         from mkfix.fix.dictionary import FixDictionary
         d = FixDictionary("FIX.4.2")
         sides = set(d.enums["54"].values())
@@ -928,10 +957,9 @@ class TestStyleAndGateValues:
     def test_style_rules_reference_real_columns(self, app_config, toml_config):
         checked = 0
         for pane_id, spec in app_config["panes"].items():
-            table = toml_config["tables"].get(self._pane_table(spec, toml_config), {})
-            if not table:
+            cols = _service_columns(toml_config, spec.get("service"))
+            if cols is None:
                 continue
-            cols = set(table["columns"])
             for col in spec.get("styles", {}):
                 checked += 1
                 assert col in cols, f"pane {pane_id!r} styles unknown column {col!r}"
@@ -1362,7 +1390,7 @@ class TestVersions:
         assert floor >= (0, 2, 3), f"mkui floor {floor} predates table.filter"
 
     def test_mkui_floor_regates_buttons_on_live_updates(self, app_config):
-        """Blotter buttons gate on row columns the engine rewrites live
+        """Blotter buttons gate on row columns that change live under them
         (`status`, `session_status`, `pending_action`). mkui 0.2.8 re-evaluates
         `enable.when` when a selected row is replaced; before it the gate ran
         only on selection changes, so Start stayed enabled and Stop disabled
@@ -1624,36 +1652,65 @@ class TestRecordHistory:
                     (h["table"], direction, h["key"])]
             assert h.get("confirm", True) is True, "a cursor move is a shared write"
 
-    def test_session_history_diffs_only_the_config_columns(self, history_panes, toml_config):
-        """`history.columns` drives Diff and Blame; the live mirrors are
-        unversioned and absent from history rows, so listing them would show
-        blank cells."""
+    def test_session_history_needs_no_column_override(self, history_panes, toml_config):
+        """Every fix_sessions column is versioned config, so Diff and Blame
+        take the history row as it is. The live columns the blotter shows
+        (status, sequence numbers) come from the sessions_query join and
+        never reach the history table, so a `columns` override would only
+        be a list to keep in step."""
         h = history_panes["session-blotter"]["history"]
-        table = toml_config["tables"]["fix_sessions"]
-        assert set(h["columns"]) <= set(table["columns"])
-        assert not set(h["columns"]) & set(table["unversioned"])
-        assert set(h["columns"]) >= set(table["columns"]) - set(table["unversioned"]) - {"session_id"}
+        assert "columns" not in h
+        config_cols = set(toml_config["tables"]["fix_sessions"]["columns"])
+        assert not {"status", "tx_seq_num", "rx_seq_num"} & config_cols
 
     def test_trade_history_diffs_the_execution_columns(self, history_panes, toml_config):
         """A trade's chain is its fill, corrections and bust — every version
         rewrites the execution columns, so Diff/Blame list those and skip the
-        identity columns and the mirror."""
+        identity columns."""
         table = toml_config["tables"]["fix_executions"]
         for pid in ("trade-blotter", "market-trade-blotter"):
             cols = history_panes[pid]["history"]["columns"]
             assert set(cols) <= set(table["columns"]), pid
-            assert not set(cols) & set(table["unversioned"]), pid
             assert {"exec_id", "exec_ref_id", "exec_type", "last_qty", "last_price"} <= set(cols), pid
             assert "exec_ref_id" in history_panes[pid]["columns"], pid
 
-    def test_unversioned_columns_are_the_engine_mirrors(self, toml_config):
+    def test_live_columns_come_from_the_state_join(self, history_panes, toml_config):
+        """A session's live status and sequence numbers live in
+        fix_session_state alone; the blotters read them through a join that
+        mkio re-runs when the state table changes. The SQL must return the
+        primary key under its own name (that arms mkio's re-read), name the
+        state table in watch_tables next to the primary table (mkio
+        subscribes the list as written), and pin `key` to the primary key,
+        since a watched table's key would otherwise join the row identity
+        the history blocks key records by."""
         tables = toml_config["tables"]
-        assert tables["fix_sessions"]["unversioned"] == ["status", "tx_seq_num", "rx_seq_num"]
-        assert tables["fix_orders"]["unversioned"] == ["session_status"]
-        assert tables["fix_executions"]["unversioned"] == ["session_status"]
-        for name, cfg in tables.items():
-            for col in cfg.get("unversioned", []):
-                assert col in cfg["columns"], f"{name}: unversioned {col} is not a column"
+        services = toml_config["services"]
+        assert not any("unversioned" in t for t in tables.values()), \
+            "no engine-written mirror columns remain"
+        assert not {"status", "tx_seq_num", "rx_seq_num"} & set(tables["fix_sessions"]["columns"])
+        for table in ("fix_orders", "fix_executions"):
+            assert "session_status" not in tables[table]["columns"]
+
+        joined = {
+            "sessions_query": ("fix_sessions", {"status", "tx_seq_num", "rx_seq_num", "error_text"}),
+            "orders_query": ("fix_orders", {"session_status"}),
+            "executions_query": ("fix_executions", {"session_status"}),
+        }
+        for name, (table, live) in joined.items():
+            svc = services[name]
+            assert svc["primary_table"] == table, name
+            assert svc["watch_tables"] == [table, "fix_session_state"], name
+            assert "LEFT JOIN fix_session_state" in svc["sql"], name
+            cols = _service_columns(toml_config, name)
+            assert live <= cols, name
+            pk = [c for c, d in tables[table]["columns"].items() if "PRIMARY KEY" in d]
+            assert set(pk) <= cols, f"{name}: the primary key must come back under its own name"
+            assert svc["key"] == pk, name
+            assert set(live) <= set(svc["filterable"]) | {"tx_seq_num", "rx_seq_num", "error_text"}, name
+
+        for pane_id, spec in history_panes.items():
+            assert spec["history"]["key"] == services[spec["service"]]["key"], \
+                f"{pane_id}: history.key must be the identity the query stamps as _mkio_row"
 
     def test_menus_do_not_open_histories(self, app_config):
         """The timeline is reached only through each blotter's History
@@ -1687,13 +1744,18 @@ class TestRecordHistory:
         engine = (ROOT / "mkfix" / "fix" / "engine.py").read_text()
         assert "async def handle_undo_redo" in engine
 
-    def test_mkio_floor_supports_writer_owned_versioning(self, toml_config):
-        """`unversioned` and writer-side counter bumps are mkio 0.6; an
-        earlier mkio rejects the table key, and before it the engine's
-        hand-written ops would have recorded a flat history."""
-        if not any("unversioned" in t for t in toml_config["tables"].values()):
-            pytest.skip("no unversioned columns")
-        assert _dependency_floor("mkio") >= (0, 6, 0)
+    def test_mkio_floor_supports_joined_queries_with_a_key(self, toml_config):
+        """A query that watches a table beyond its primary one live-updates
+        only from mkio 0.8, and `key` is 0.9: an earlier mkio rejects the
+        key, and without it identifies a joined row by a composite the
+        history blocks and mkui's as-of view do not match."""
+        joined = [
+            name for name, svc in toml_config["services"].items()
+            if svc.get("protocol") == "query" and len(svc.get("watch_tables", [])) > 1
+        ]
+        if not joined:
+            pytest.skip("no joined query services")
+        assert _dependency_floor("mkio") >= (0, 9, 0)
 
 
 class TestTagPreviews:

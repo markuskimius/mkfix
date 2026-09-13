@@ -1,5 +1,6 @@
 """Tests for FixEngine's compiled write operations against a real mkio stack."""
 
+import asyncio
 import tomllib
 from pathlib import Path
 
@@ -20,10 +21,14 @@ MKFIX_TOML = tomllib.loads(
     (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
 )
 TABLES = MKFIX_TOML["tables"]
+QUERY_SERVICES = ("sessions_query", "orders_query", "executions_query")
 
 # Loaded through mkio so the versioned tables' derived history tables exist
 # and the writer records versions, as the real server does.
-CONFIG = load_config({"db_path": ":memory:", "tables": TABLES})
+CONFIG = load_config({
+    "db_path": ":memory:", "tables": TABLES,
+    "services": {name: MKFIX_TOML["services"][name] for name in QUERY_SERVICES},
+})
 
 
 @pytest_asyncio.fixture
@@ -59,7 +64,7 @@ ORDER_COLS = [
     "leaves_qty", "last_qty", "last_price", "text", "transact_time",
     "created_at", "updated_at", "direction",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "pending_extra_tags", "session_status",
+    "pending_extra_tags",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date",
 ]
@@ -68,7 +73,7 @@ ORDER_UPDATE_COLS = [
     "status", "cum_qty", "avg_price", "leaves_qty",
     "last_qty", "last_price", "text", "transact_time", "updated_at",
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "pending_extra_tags", "session_status",
+    "pending_extra_tags",
 ]
 
 
@@ -83,7 +88,6 @@ def _order_params(**overrides):
         "transact_time": "", "created_at": "", "updated_at": "", "direction": "TX",
         "pending_action": "", "pending_cl_ord_id": "",
         "pending_qty": 0.0, "pending_price": 0.0, "pending_extra_tags": "",
-        "session_status": "ACTIVE",
         "tif_code": "0", "extra_tags": "", "entered_qty": 100.0, "entered_price": 150.25,
         "expire_time": "", "expire_date": "",
     }
@@ -148,24 +152,36 @@ class TestCompiledOps:
         assert rows[0]["_mkio_ref"], "update path must not null out _mkio_ref"
 
     @pytest.mark.asyncio
-    async def test_state_write_mirrors_live_columns_onto_session_row(self, stack):
-        """The sessions blotter reads a single table, so status and seq nums
-        must be mirrored onto fix_sessions in the same write."""
+    async def test_state_write_is_one_op_on_the_state_table(self, stack):
+        """fix_session_state is the only place a session's live state goes:
+        the blotters join it, so nothing is mirrored onto fix_sessions,
+        fix_orders or fix_executions (through 0.33 every message rewrote
+        the session row and every transition every order row)."""
         db, writer, engine = stack
-        await db.write_conn.execute(
-            "INSERT INTO fix_sessions (session_id, sender_comp_id, target_comp_id) "
-            "VALUES ('S1', 'A', 'B')"
-        )
-        await db.write_conn.commit()
+        await _add_session(writer)
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        submitted = []
+        real_submit = writer.submit
+
+        async def spy(ops, params_list, data):
+            submitted.append([(op.table, op.op_type) for op in ops])
+            return await real_submit(ops, params_list, data)
+        writer.submit = spy
 
         await engine.update_session_state(
-            "S1", {"status": "ACTIVE", "tx_seq_num": 7, "rx_seq_num": 9}
-        )
-        row = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
-        assert row["status"] == "ACTIVE"
-        assert row["tx_seq_num"] == 7
-        assert row["rx_seq_num"] == 9
-        assert row["_mkio_ref"], "the mirror update must publish a change event"
+            "S1", {"status": "ACTIVE", "tx_seq_num": 7, "rx_seq_num": 9})
+        await engine.update_session_state("S1", {"status": "DOWN"})
+        assert submitted == [[("fix_session_state", "upsert")]] * 2
+        state = (await _fetch_all(db, "SELECT * FROM fix_session_state"))[0]
+        assert (state["status"], state["tx_seq_num"], state["rx_seq_num"]) == ("DOWN", 7, 9)
+        gone = {"fix_sessions": {"status", "tx_seq_num", "rx_seq_num"},
+                "fix_orders": {"session_status"}, "fix_executions": {"session_status"}}
+        for table, columns in gone.items():
+            cols = {r["name"] for r in await _fetch_all(db, f"PRAGMA table_info({table})")}
+            assert not cols & columns, table
 
     @pytest.mark.asyncio
     async def test_upsert_order_insert_records_fix_codes(self, stack):
@@ -596,59 +612,113 @@ class TestMarketFlow:
             await engine.accept_order("S1", "NOPE")
 
 
-class TestSessionStatusMirror:
-    """session_status on order/execution rows mirrors the owning session's
-    live status so blotter buttons can gate on it (rowMatch only reads the
-    row's own columns, and a JOIN query would not live-update)."""
+class LiveQuery:
+    """A subscriber to one of mkfix.toml's query services, run against the
+    test stack the way the server runs it, collecting what it is sent."""
+
+    def __init__(self, db, writer, name):
+        from mkio.services.query import QueryService
+        self.svc = QueryService(config=CONFIG["services"][name], db=db,
+                                change_bus=writer._bus, writer=writer)
+        self.svc.name = name
+        self.sent: list[bytes] = []
+        self.closed = False
+
+    async def send_bytes(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    async def __aenter__(self):
+        await self.svc.start()
+        await self.svc.on_subscribe(self, {"type": "subscribe"})
+        self.snapshot = self.messages()[0]["rows"]
+        self.sent.clear()
+        return self
+
+    async def __aexit__(self, *exc):
+        await self.svc.stop()
+
+    def messages(self):
+        from mkio._json import loads
+        return [loads(b) for b in self.sent]
+
+    async def updates(self):
+        await asyncio.sleep(0.15)
+        out = [(m["op"], m["row"]) for m in self.messages() if m.get("type") == "update"]
+        self.sent.clear()
+        return out
+
+
+class TestLiveStatusJoin:
+    """The blotters read a session's live status through mkio 0.8 joined
+    queries on fix_session_state instead of mirror columns: a state write
+    reaches the sessions blotter as an update to the session row, and a
+    status transition reaches every order and trade of that session as an
+    update carrying session_status — while a seq-num-only write, which
+    changes nothing the orders query selects, publishes nothing to it."""
 
     @pytest.mark.asyncio
-    async def test_status_change_mirrors_onto_orders_and_executions(self, stack):
+    async def test_session_row_follows_its_state(self, stack):
         db, writer, engine = stack
-        stub = StubSession()
-        engine.sessions["S1"] = stub
-        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
-        await engine.fill_order("S1", "C100", qty=40, price=150.0)
-
-        rows = await _fetch_all(db, "SELECT session_status FROM fix_orders") \
-            + await _fetch_all(db, "SELECT session_status FROM fix_executions")
-        assert all(r["session_status"] == "ACTIVE" for r in rows), \
-            "rows written over a live session carry ACTIVE"
-
-        await engine.update_session_state("S1", {"status": "DOWN"})
-        rows = await _fetch_all(db, "SELECT session_status FROM fix_orders") \
-            + await _fetch_all(db, "SELECT session_status FROM fix_executions")
-        assert all(r["session_status"] == "DOWN" for r in rows)
-
-        await engine.update_session_state("S1", {"status": "ACTIVE"})
-        rows = await _fetch_all(db, "SELECT session_status FROM fix_orders") \
-            + await _fetch_all(db, "SELECT session_status FROM fix_executions")
-        assert all(r["session_status"] == "ACTIVE" for r in rows)
+        await _add_session(writer)
+        async with LiveQuery(db, writer, "sessions_query") as q:
+            [row] = q.snapshot
+            assert (row["status"], row["tx_seq_num"], row["_mkio_row"]) == ("DOWN", 1, "S1"), \
+                "a session without a state row still shows, as DOWN"
+            await engine.update_session_state(
+                "S1", {"status": "ACTIVE", "tx_seq_num": 7, "rx_seq_num": 9, "error_text": ""})
+            [(op, row)] = await q.updates()
+            assert op == "update"
+            assert (row["status"], row["tx_seq_num"], row["rx_seq_num"], row["_mkio_row"]) == \
+                ("ACTIVE", 7, 9, "S1")
+            assert row["host"] == "", "the config columns ride along"
 
     @pytest.mark.asyncio
-    async def test_seq_num_persist_does_not_touch_rows(self, stack):
-        """Only status transitions mirror — the per-message seq-num persist
-        must not rewrite every order row."""
-        db, writer, engine = stack
-        stub = StubSession()
-        engine.sessions["S1"] = stub
-        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
-        await engine.update_session_state("S1", {"status": "DOWN"})
-        await engine.update_session_state("S1", {"tx_seq_num": 5, "rx_seq_num": 7})
-        row = (await _fetch_all(db, "SELECT session_status FROM fix_orders"))[0]
-        assert row["session_status"] == "DOWN"
-
-    @pytest.mark.asyncio
-    async def test_mirror_touches_only_the_sessions_rows(self, stack):
+    async def test_orders_and_trades_follow_their_sessions_status(self, stack):
         db, writer, engine = stack
         s1, s2 = StubSession("S1"), StubSession("S2")
-        engine.sessions["S1"] = s1
-        engine.sessions["S2"] = s2
+        engine.sessions["S1"], engine.sessions["S2"] = s1, s2
+        await engine.update_session_state("S1", {"status": "ACTIVE"})
+        await engine.update_session_state("S2", {"status": "ACTIVE"})
         await engine.on_app_message(s1, "D", parse_fix(NEW_ORDER_RX))
         await engine.on_app_message(s2, "D", parse_fix(NEW_ORDER_RX))
-        await engine.update_session_state("S1", {"status": "DOWN"})
-        rows = await _fetch_all(db, "SELECT session_id, session_status FROM fix_orders")
-        by = {r["session_id"]: r["session_status"] for r in rows}
-        assert by == {"S1": "DOWN", "S2": "ACTIVE"}
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+
+        async with LiveQuery(db, writer, "orders_query") as orders, \
+                   LiveQuery(db, writer, "executions_query") as trades:
+            assert {r["session_id"]: r["session_status"] for r in orders.snapshot} == \
+                {"S1": "ACTIVE", "S2": "ACTIVE"}
+            [trade] = trades.snapshot
+            assert (trade["session_status"], trade["_mkio_row"]) == ("ACTIVE", str(trade["id"]))
+
+            await engine.update_session_state("S1", {"status": "DOWN"})
+            [(op, row)] = await orders.updates()
+            assert (op, row["session_id"], row["session_status"]) == ("update", "S1", "DOWN")
+            assert row["_mkio_row"] == str(row["id"]), \
+                "the row identity stays the primary key the history block keys by"
+            assert row["cl_ord_id"] == "C100", "the order's own columns ride along"
+            [(op, row)] = await trades.updates()
+            assert (op, row["session_status"]) == ("update", "DOWN")
+
+            await engine.update_session_state("S1", {"tx_seq_num": 5, "rx_seq_num": 7})
+            assert await orders.updates() == [], "a seq-num write changes nothing the query shows"
+            assert await trades.updates() == []
+
+            await engine.update_session_state("S1", {"status": "ACTIVE"})
+            assert [(op, r["session_status"]) for op, r in await orders.updates()] == [("update", "ACTIVE")]
+
+    @pytest.mark.asyncio
+    async def test_a_new_order_carries_its_sessions_status(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        async with LiveQuery(db, writer, "orders_query") as orders:
+            await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+            [(op, row)] = await orders.updates()
+            assert (op, row["session_status"]) == ("insert", "DOWN"), \
+                "no state row yet: the join defaults, the insert still shows"
+            await engine.update_session_state("S1", {"status": "ACTIVE"})
+            [(op, row)] = await orders.updates()
+            assert (op, row["session_status"]) == ("update", "ACTIVE")
 
 
 CANCEL_REQ_RX = "8=FIX.4.2|35=F|11=C101|41=C100|55=AAPL|54=1|38=100"
@@ -2196,9 +2266,9 @@ async def _versions(db, table, where=""):
 class TestVersioning:
     """fix_sessions, fix_orders and fix_executions are versioned; the writer
     records a version per change and steps the row's counter itself, so the
-    engine's hand-written ops need only their RETURNING *. The live mirrors
-    are unversioned, so a heartbeat or a session transition records nothing
-    (mkio 0.6, `unversioned` in mkfix.toml)."""
+    engine's hand-written ops need only their RETURNING *. A session's live
+    state is its own unversioned table, so a heartbeat or a session
+    transition records nothing on any versioned row."""
 
     @pytest.mark.asyncio
     async def test_tables_are_versioned(self):
@@ -2219,7 +2289,7 @@ class TestVersioning:
         assert live["_mkio_version"] == 3
         assert [(v["_mkio_version"], v["_mkio_op"], v["status"]) for v in chain] == [
             (1, "insert", "PendingNew"), (2, "update", "New"), (3, "update", "PartiallyFilled")]
-        assert "session_status" not in chain[0], "the mirror column stays out of history"
+        assert "session_status" not in chain[0], "the joined column is not a column"
         # The live row sits on its newest version.
         for col in ("cl_ord_id", "status", "cum_qty", "pending_action"):
             assert live[col] == chain[-1][col]
@@ -2251,7 +2321,7 @@ class TestVersioning:
         chain = await _versions(db, "fix_executions")
         assert [(v["_mkio_version"], v["_mkio_op"]) for v in chain] == [(1, "insert")]
         live = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
-        assert (live["_mkio_version"], live["session_status"]) == (1, "ACTIVE")
+        assert live["_mkio_version"] == 1
 
     @pytest.mark.asyncio
     async def test_trade_chain_is_its_corrections_and_bust(self, stack):
@@ -2278,7 +2348,7 @@ class TestVersioning:
         assert (live["_mkio_version"], live["exec_id"]) == (3, bust_id)
 
     @pytest.mark.asyncio
-    async def test_session_status_mirror_records_no_order_version(self, stack):
+    async def test_session_transition_records_no_order_version(self, stack):
         db, writer, engine = stack
         stub = StubSession()
         engine.sessions["S1"] = stub
@@ -2287,12 +2357,12 @@ class TestVersioning:
         await engine.update_session_state("S1", {"status": "DOWN"})
         await engine.update_session_state("S1", {"status": "ACTIVE"})
         after = await _versions(db, "fix_orders")
-        assert [v["_mkio_ref"] for v in after] == [v["_mkio_ref"] for v in before]
+        assert after == before
         live = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
-        assert (live["_mkio_version"], live["session_status"]) == (1, "ACTIVE")
+        assert live["_mkio_version"] == 1
 
     @pytest.mark.asyncio
-    async def test_seq_num_persist_records_no_session_version(self, stack):
+    async def test_state_writes_record_no_session_version(self, stack):
         db, writer, engine = stack
         await _add_session(writer)
         for n in range(1, 4):
@@ -2301,7 +2371,9 @@ class TestVersioning:
         await engine.update_session_state("S1", {"status": "DOWN"})
 
         live = (await _fetch_all(db, "SELECT * FROM fix_sessions"))[0]
-        assert (live["status"], live["tx_seq_num"], live["_mkio_version"]) == ("DOWN", 3, 1)
+        assert live["_mkio_version"] == 1
+        state = (await _fetch_all(db, "SELECT * FROM fix_session_state"))[0]
+        assert (state["status"], state["tx_seq_num"]) == ("DOWN", 3)
         chain = await _versions(db, "fix_sessions")
         assert [(v["_mkio_version"], v["_mkio_op"]) for v in chain] == [(1, "insert")]
         assert not {"status", "tx_seq_num", "rx_seq_num"} & set(chain[0])
@@ -2331,7 +2403,7 @@ def _move(table, op, new, old, cause):
 
 class TestUndoRedoHook:
     """FixEngine.handle_undo_redo follows a cursor move on fix_sessions: the
-    engine's session map and the unversioned fix_session_state row."""
+    engine's session map and the (unversioned) fix_session_state row."""
 
     @pytest.mark.asyncio
     async def test_ignores_other_tables(self, stack):

@@ -18,17 +18,12 @@ batch_max_wait_ms = 2.0
 # group when the server does the archiving. Every table here is either
 # archivable or on the never-archive list in tests/test_archive.py.
 
-# status/tx_seq_num/rx_seq_num are engine-written mirrors of fix_session_state:
-# a query service with JOIN sql drops change events from non-primary tables, so
-# the sessions blotter can only live-update off a single table. The table is
-# versioned (every config edit lands in fix_sessions__history, and the History
-# pane, undo and redo read that chain); the mirrors are `unversioned`, so a
-# heartbeat's sequence numbers never make a version and undo never restores a
-# stale status.
+# The session's config. Versioned: every edit lands in fix_sessions__history,
+# and the History pane, undo and redo read that chain. Its live state (status,
+# sequence numbers) is fix_session_state, joined in by sessions_query.
 [tables.fix_sessions]
-columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", dictionary = "TEXT DEFAULT ''", timestamp_precision = "TEXT DEFAULT ''", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", logout_timeout = "INTEGER DEFAULT 0", logout_test_request = "INTEGER DEFAULT 1", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1" }
+columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", dictionary = "TEXT DEFAULT ''", timestamp_precision = "TEXT DEFAULT ''", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", logout_timeout = "INTEGER DEFAULT 0", logout_test_request = "INTEGER DEFAULT 1", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''" }
 versioned = true
-unversioned = ["status", "tx_seq_num", "rx_seq_num"]
 archive = { group = "config", with = ["fix_session_state"] }
 
 [tables.fix_session_state]
@@ -38,20 +33,16 @@ columns = { session_id = "TEXT PRIMARY KEY", status = "TEXT DEFAULT 'DOWN'", tx_
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", timestamp = "TEXT NOT NULL", direction = "TEXT NOT NULL", seq_num = "INTEGER DEFAULT 0", msg_type = "TEXT DEFAULT ''", msg_type_name = "TEXT DEFAULT ''", category = "TEXT DEFAULT 'APP'", raw_message = "TEXT NOT NULL", sender_comp = "TEXT DEFAULT ''", target_comp = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", exec_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", body_length = "INTEGER DEFAULT 0", checksum = "TEXT DEFAULT ''" }
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
-# session_status on fix_orders/fix_executions is an engine-written mirror of
-# the owning session's live status (same rationale as the fix_sessions mirror:
-# blotter buttons can only gate on the row's own columns, and a JOIN query
-# would not live-update).
+# orders_query/executions_query join the owning session's live status onto
+# these rows as session_status, which the blotters' action buttons gate on.
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", session_status = "TEXT DEFAULT 'DOWN'", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''" }
 versioned = true
-unversioned = ["session_status"]
 archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_executions]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", session_status = "TEXT DEFAULT 'DOWN'" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'" }
 versioned = true
-unversioned = ["session_status"]
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_iois]
@@ -203,20 +194,40 @@ sql = "SELECT id, saved, layout FROM mkui_layouts WHERE id = :id"
 
 # ─── Query Services ─────────────────────────────────────────────────
 
+# The blotters read a session's live state through a join on
+# fix_session_state (mkio 0.8 re-runs the SQL when a watched table changes
+# and publishes only the rows that differ). LEFT JOIN with defaults: a redone
+# Add has its config row back before the engine re-inserts the state row.
+# `key` keeps _mkio_row the primary key, which the history blocks key by.
 [services.sessions_query]
 protocol = "query"
 primary_table = "fix_sessions"
-filterable = ["session_id", "enabled"]
+watch_tables = ["fix_sessions", "fix_session_state"]
+key = ["session_id"]
+sql = """SELECT s.*, COALESCE(t.status, 'DOWN') AS status,
+                COALESCE(t.tx_seq_num, 1) AS tx_seq_num, COALESCE(t.rx_seq_num, 1) AS rx_seq_num,
+                COALESCE(t.error_text, '') AS error_text, COALESCE(t.session_start, '') AS session_start,
+                COALESCE(t.last_tx_time, '') AS last_tx_time, COALESCE(t.last_rx_time, '') AS last_rx_time
+         FROM fix_sessions s LEFT JOIN fix_session_state t ON t.session_id = s.session_id"""
+filterable = ["session_id", "enabled", "status"]
 
 [services.orders_query]
 protocol = "query"
 primary_table = "fix_orders"
-filterable = ["session_id", "status", "symbol", "side", "direction"]
+watch_tables = ["fix_orders", "fix_session_state"]
+key = ["id"]
+sql = """SELECT o.*, COALESCE(t.status, 'DOWN') AS session_status
+         FROM fix_orders o LEFT JOIN fix_session_state t ON t.session_id = o.session_id"""
+filterable = ["session_id", "status", "symbol", "side", "direction", "session_status"]
 
 [services.executions_query]
 protocol = "query"
 primary_table = "fix_executions"
-filterable = ["session_id", "symbol", "side", "direction"]
+watch_tables = ["fix_executions", "fix_session_state"]
+key = ["id"]
+sql = """SELECT e.*, COALESCE(t.status, 'DOWN') AS session_status
+         FROM fix_executions e LEFT JOIN fix_session_state t ON t.session_id = e.session_id"""
+filterable = ["session_id", "symbol", "side", "direction", "session_status"]
 
 [services.messages_query]
 protocol = "query"
@@ -397,13 +408,6 @@ filterable = ["session_id", "direction", "msg_type", "category"]
 protocol = "stream"
 primary_table = "fix_executions"
 buffer_size = 50000
-
-# ─── SubPub Services ────────────────────────────────────────────────
-
-[services.session_live]
-protocol = "subpub"
-primary_table = "fix_session_state"
-topic = "session_id"
 
 # ─── Static Serving ─────────────────────────────────────────────────
 

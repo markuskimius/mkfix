@@ -18,6 +18,7 @@ from mkfix import __version__
 from mkfix.fix.engine import FixEngine
 from mkfix.fix.idgen import validate_instance_code
 from mkfix.services.fix_command import FixCommandService
+from mkfix.upgrade import retire_mirror_columns
 
 
 def serve(
@@ -42,6 +43,7 @@ def serve(
     if db_path is not None:
         cfg["db_path"] = db_path
 
+    retire_mirror_columns(cfg["db_path"])
     app = create_app(cfg)
     app.add_service("fix_cmd", FixCommandService)
 
