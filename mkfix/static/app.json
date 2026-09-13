@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "mkfix \u2014 FIX Protocol Testing Engine",
+    "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark"
   },
   "state": {
@@ -89,6 +89,14 @@
           "label": "Sent Trades",
           "action": "pane.show",
           "args": "market-trade-blotter"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Templates",
+          "action": "pane.show",
+          "args": "templates"
         }
       ]
     },
@@ -183,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.31"
+        "text": "mkfix v0.32"
       }
     ],
     "bindStyle": {
@@ -1038,6 +1046,33 @@
               "width": 420,
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "order"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "session_id": "session_id",
+                    "symbol": "symbol",
+                    "side": "side",
+                    "qty": "qty",
+                    "ord_type": "ord_type",
+                    "price": "price",
+                    "tif": "tif",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_new_order",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "session_id",
                   "label": "Session",
                   "type": "select",
@@ -1205,6 +1240,12 @@
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
                 },
                 {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
                   "label": "Terms as tags",
                   "type": "readonly",
                   "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
@@ -1237,6 +1278,32 @@
                 "orig_cl_ord_id": "${row.cl_ord_id}"
               },
               "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "order"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "symbol": "symbol",
+                    "side": "side",
+                    "qty": "qty",
+                    "ord_type": "ord_type",
+                    "price": "price",
+                    "tif": "tif",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_cancel_replace",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
                 {
                   "label": "Session",
                   "type": "readonly",
@@ -1410,6 +1477,12 @@
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
                 },
                 {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
                   "label": "Terms as tags",
                   "type": "readonly",
                   "compute": "CONCAT('41=', row.cl_ord_id, '|', CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), '')))"
@@ -1446,10 +1519,36 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "cancel"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_cancel",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
                 },
                 {
                   "label": "Terms as tags",
@@ -1624,6 +1723,28 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "dk"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "dk_reason": "dk_reason",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.dk_trade",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "dk_reason",
                   "label": "DK Reason (127)",
                   "type": "select",
@@ -1675,6 +1796,12 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
                 },
                 {
                   "label": "Terms as tags",
@@ -1839,11 +1966,37 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "accept"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.accept_request",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
                   "value": "${row.pending_extra_tags}",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
                 },
                 {
                   "label": "Terms as tags",
@@ -1879,6 +2032,27 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "reject"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.reject_request",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "row": [
                     {
                       "name": "text",
@@ -1895,6 +2069,12 @@
                   "type": "text",
                   "value": "${row.pending_extra_tags}",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
                 },
                 {
                   "label": "Terms as tags",
@@ -1930,6 +2110,28 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "fill"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "qty": "qty",
+                    "price": "price",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.fill_order",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "row": [
                     {
                       "name": "qty",
@@ -1955,6 +2157,12 @@
                   "type": "text",
                   "value": "${row.extra_tags}",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
                 },
                 {
                   "label": "Terms as tags",
@@ -2129,6 +2337,28 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "correct"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "qty": "qty",
+                    "price": "price",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.correct_trade",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "row": [
                     {
                       "name": "qty",
@@ -2153,6 +2383,12 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
                 },
                 {
                   "label": "Terms as tags",
@@ -2188,10 +2424,36 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "bust"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.bust_trade",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
                 },
                 {
                   "label": "Terms as tags",
@@ -2364,6 +2626,320 @@
     "dictionaries": {
       "title": "Dictionaries",
       "type": "dictionaries"
+    },
+    "templates": {
+      "title": "Templates",
+      "type": "mkio-table",
+      "service": "templates_query",
+      "protocol": "query",
+      "columns": [
+        "name",
+        "scope",
+        "session_id",
+        "symbol",
+        "side",
+        "ord_type",
+        "qty",
+        "price",
+        "tif",
+        "dk_reason",
+        "text",
+        "extra_tags"
+      ],
+      "labels": {
+        "name": "Template",
+        "scope": "Kind",
+        "session_id": "Session",
+        "symbol": "Symbol (55)",
+        "side": "Side (54)",
+        "ord_type": "Type (40)",
+        "qty": "Qty (38/32)",
+        "price": "Px (44/31)",
+        "tif": "TIF (59)",
+        "dk_reason": "DK Reason (127)",
+        "text": "Text (58)",
+        "extra_tags": "Extra Tags"
+      },
+      "sort": [
+        "scope",
+        "name"
+      ],
+      "styles": {
+        "scope": [
+          {
+            "when": "CONTAINS(['order', 'cancel'], value)",
+            "color": "#569cd6"
+          },
+          {
+            "when": "CONTAINS(['accept', 'fill'], value)",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "CONTAINS(['reject', 'bust'], value)",
+            "color": "#f44747"
+          },
+          {
+            "when": "CONTAINS(['dk', 'correct'], value)",
+            "color": "#dcdcaa"
+          }
+        ]
+      },
+      "buttons": [
+        {
+          "label": "Edit",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Edit Template ${row.name}",
+              "modal": true,
+              "width": 420,
+              "fields": [
+                {
+                  "name": "name",
+                  "label": "Template Name",
+                  "type": "text",
+                  "required": true,
+                  "value": "${row.name}"
+                },
+                {
+                  "label": "Kind",
+                  "type": "readonly",
+                  "value": "${row.scope}"
+                },
+                {
+                  "name": "session_id",
+                  "label": "Session (blank = ask)",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "compute": "row.session_id",
+                  "showWhen": "row.scope == 'order'"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.symbol}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "value": "${row.side}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "${IF(row.scope == 'order', 'Quantity (38)', 'Last Qty (32; blank = ask)')}",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.qty}",
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct'], row.scope)"
+                    },
+                    {
+                      "name": "price",
+                      "label": "${IF(row.scope == 'order', 'Price (44)', 'Last Px (31; blank = ask)')}",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.price}",
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct'], row.scope)"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "value": "${row.ord_type}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.tif}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "name": "dk_reason",
+                  "label": "DK Reason (127)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "A",
+                      "label": "A - Unknown symbol"
+                    },
+                    {
+                      "value": "B",
+                      "label": "B - Wrong side"
+                    },
+                    {
+                      "value": "C",
+                      "label": "C - Quantity exceeds order"
+                    },
+                    {
+                      "value": "D",
+                      "label": "D - No matching order"
+                    },
+                    {
+                      "value": "E",
+                      "label": "E - Price exceeds limit"
+                    },
+                    {
+                      "value": "F",
+                      "label": "F - Calculation difference (FIX 4.4+)"
+                    },
+                    {
+                      "value": "G",
+                      "label": "G - No matching execution report (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "Z",
+                      "label": "Z - Other"
+                    }
+                  ],
+                  "value": "${row.dk_reason}",
+                  "showWhen": "row.scope == 'dk'"
+                },
+                {
+                  "name": "text",
+                  "label": "${IF(row.scope == 'reject', 'Reason (58)', 'Text (58)')}",
+                  "type": "text",
+                  "value": "${row.text}",
+                  "showWhen": "CONTAINS(['reject', 'dk'], row.scope)"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Save Template",
+                "service": "templates",
+                "op": "update"
+              },
+              "submitPerRow": true,
+              "rowData": {
+                "id": "${row.id}"
+              }
+            }
+          }
+        },
+        {
+          "label": "Delete",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "transaction",
+            "service": "templates",
+            "op": "delete",
+            "data": {
+              "id": "${row.id}"
+            }
+          }
+        }
+      ]
     }
   },
   "frames": [
@@ -2479,7 +3055,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.31",
+      "version": "0.32",
       "mkio": "0.7",
       "expr": "1"
     },

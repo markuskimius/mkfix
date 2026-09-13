@@ -68,6 +68,16 @@ EXEC_UPDATE_COLS = [
     "timestamp",
 ]
 
+# Blotter action templates (fix_templates): the scopes a dialog can load and
+# save one under, and the term columns kept as typed (text; blank means
+# "ask the row" when loaded). A name is unique within its scope, so a
+# dialog's Save-as overwrites the template it names.
+TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust")
+TEMPLATE_TERM_COLS = [
+    "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
+    "dk_reason", "text", "extra_tags",
+]
+
 
 def _order_params(row: dict[str, Any]) -> tuple[Any, ...]:
     insert = tuple(row[c] for c in ORDER_COLS)
@@ -315,6 +325,20 @@ class FixEngine:
             param_names=tuple(alloc_cols + ["_mkio_ref"]),
         ),)
 
+        tmpl_cols = ["scope", "name"] + TEMPLATE_TERM_COLS
+        tmpl_set = ", ".join(f"{c} = excluded.{c}" for c in TEMPLATE_TERM_COLS)
+        self._compiled_ops["upsert_template"] = (CompiledOp(
+            table="fix_templates",
+            op_type="upsert",
+            sql=(
+                f"INSERT INTO fix_templates ({', '.join(tmpl_cols)}, _mkio_ref) "
+                f"VALUES ({', '.join(['?'] * (len(tmpl_cols) + 1))}) "
+                f"ON CONFLICT(scope, name) DO UPDATE SET {tmpl_set}, _mkio_ref = excluded._mkio_ref "
+                f"RETURNING *"
+            ),
+            param_names=tuple(tmpl_cols + ["_mkio_ref"]),
+        ),)
+
         replay_cols = ["id", "status", "sent_messages", "error_text"]
         replay_set = ", ".join(f"{c} = ?" for c in replay_cols[1:])
         self._compiled_ops["update_replay"] = (CompiledOp(
@@ -333,6 +357,18 @@ class FixEngine:
         await (await conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_orders_clord_session "
             "ON fix_orders(cl_ord_id, session_id)"
+        )).close()
+        # A template name is unique within its scope (save_template
+        # overwrites by it). Templates never shipped without the index, so a
+        # duplicate can only be a hand-made row; the newest wins rather than
+        # the index failing and the server with it.
+        await (await conn.execute(
+            "DELETE FROM fix_templates WHERE id NOT IN "
+            "(SELECT MAX(id) FROM fix_templates GROUP BY scope, name)"
+        )).close()
+        await (await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_templates_scope_name "
+            "ON fix_templates(scope, name)"
         )).close()
         await conn.commit()
 
@@ -1677,6 +1713,25 @@ class FixEngine:
         params = (name, base_version, json.dumps(doc), now, now, None)
         await self.writer.submit(
             self._compiled_ops["upsert_dictionary"], (params,), {"name": name})
+        return name
+
+    async def save_template(self, scope: str, name: str, **terms: Any) -> str:
+        """Keep a dialog's terms as a template of `scope`, replacing the one
+        of the same name. Terms are stored as typed (text, None as blank): a
+        blank one means "ask the row" when the template is loaded. A write
+        like any other, so a dialog's Save-as lands before its send."""
+        if scope not in TEMPLATE_SCOPES:
+            raise ValueError(f"Unknown template scope: {scope}")
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("A template needs a name")
+        unknown = set(terms) - set(TEMPLATE_TERM_COLS)
+        if unknown:
+            raise ValueError(f"Not template terms: {', '.join(sorted(unknown))}")
+        values = tuple("" if terms.get(c) is None else str(terms[c]) for c in TEMPLATE_TERM_COLS)
+        await self.writer.submit(
+            self._compiled_ops["upsert_template"], ((scope, name) + values + (None,),),
+            {"scope": scope, "name": name})
         return name
 
     async def delete_dictionary(self, name: str) -> None:

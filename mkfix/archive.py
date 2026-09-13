@@ -47,6 +47,7 @@ ALIASES: dict[str, str] = {
     "settings": "fix_settings",
     "ids": "fix_id_state",
     "replay_jobs": "fix_replay_jobs",
+    "templates": "fix_templates",
     "layouts": "mkui_layouts",
 }
 

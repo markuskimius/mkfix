@@ -12,6 +12,25 @@ if TYPE_CHECKING:
     from mkfix.fix.engine import FixEngine
 
 
+# The dialogs that load and save templates: their op, the template scope,
+# and the payload keys kept as the template's terms. An op's `save_as`
+# names the template to keep them under — written before the send. Only an
+# order template records a session: the New dialog's own field, which a
+# pick fills; every other dialog acts on its row's session.
+ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "extra_tags")
+TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "send_new_order": ("order", ORDER_TERMS),
+    "send_cancel_replace": ("order", ORDER_TERMS),
+    "send_cancel": ("cancel", ("extra_tags",)),
+    "accept_request": ("accept", ("extra_tags",)),
+    "reject_request": ("reject", ("text", "extra_tags")),
+    "fill_order": ("fill", ("qty", "price", "extra_tags")),
+    "dk_trade": ("dk", ("dk_reason", "text", "extra_tags")),
+    "correct_trade": ("correct", ("qty", "price", "extra_tags")),
+    "bust_trade": ("bust", ("extra_tags",)),
+}
+
+
 class FixCommandService(Service):
     """Receives commands from the UI via WebSocket and dispatches to the FIX engine.
 
@@ -48,6 +67,11 @@ class FixCommandService(Service):
 
     async def _dispatch(self, command: str, data: dict[str, Any]) -> dict[str, Any]:
         engine = self._engine
+
+        if data.get("save_as") and command in TEMPLATE_TERMS:
+            scope, keys = TEMPLATE_TERMS[command]
+            await engine.save_template(
+                scope, data["save_as"], **{k: data.get(k, "") for k in keys})
 
         if command == "start_session":
             await engine.start_session(data["session_id"])

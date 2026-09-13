@@ -39,6 +39,7 @@ def _make_engine():
     engine.reject_cancel = AsyncMock()
     engine.accept_request = AsyncMock(return_value="EXXX00000006")
     engine.reject_request = AsyncMock()
+    engine.save_template = AsyncMock(return_value="tmpl")
     engine.save_dictionary = AsyncMock(return_value="MYDICT")
     engine.delete_dictionary = AsyncMock()
     engine.get_dictionary = MagicMock(return_value={
@@ -436,6 +437,90 @@ class TestDispatch:
         ws = _make_ws()
         await svc.on_message(ws, {"ref": "r", "op": command, "data": {"job_id": "3"}})
         getattr(engine, command).assert_awaited_once_with(3)
+
+
+class TestSaveAsTemplate:
+    """A dialog's `save_as` keeps the op's terms as a template of the op's
+    scope, written before the send (the engine's write-before-send rule
+    holds for a template too); without it nothing is saved."""
+
+    @pytest.mark.asyncio
+    async def test_fill_saves_its_terms_then_sends(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        order = []
+        engine.save_template.side_effect = lambda *a, **k: order.append("save")
+        engine.fill_order.side_effect = lambda **k: order.append("send") or "EXXX00000001"
+        await svc.on_message(ws, {
+            "ref": "r", "op": "fill_order",
+            "data": {"session_id": "S1", "cl_ord_id": "C1", "qty": "50", "price": "150.5",
+                     "extra_tags": "5001=X", "save_as": "half", "_template": "3"},
+        })
+        engine.save_template.assert_awaited_once_with(
+            "fill", "half", qty="50", price="150.5", extra_tags="5001=X")
+        assert order == ["save", "send"]
+        assert _sent(ws)["ok"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("op,scope,data,terms", [
+        ("send_new_order", "order",
+         {"session_id": "S1", "symbol": "AAPL", "side": "1", "qty": "100", "ord_type": "2",
+          "price": "150.25", "tif": "0"},
+         {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "100",
+          "price": "150.25", "tif": "0", "extra_tags": ""}),
+        ("send_cancel_replace", "order",
+         {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "120",
+          "ord_type": "2", "price": "151", "tif": "0"},
+         {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "120",
+          "price": "151", "tif": "0", "extra_tags": ""}),
+        ("send_cancel", "cancel",
+         {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "100",
+          "extra_tags": "58=bye"},
+         {"extra_tags": "58=bye"}),
+        ("accept_request", "accept", {"session_id": "S1", "cl_ord_id": "C1", "extra_tags": "5001=A"},
+         {"extra_tags": "5001=A"}),
+        ("reject_request", "reject", {"session_id": "S1", "cl_ord_id": "C1", "text": "busy"},
+         {"text": "busy", "extra_tags": ""}),
+        ("dk_trade", "dk", {"session_id": "S1", "exec_id": "E1", "dk_reason": "B", "text": "?"},
+         {"dk_reason": "B", "text": "?", "extra_tags": ""}),
+        ("correct_trade", "correct", {"session_id": "S1", "exec_id": "E1", "qty": "40", "price": "149"},
+         {"qty": "40", "price": "149", "extra_tags": ""}),
+        ("bust_trade", "bust", {"session_id": "S1", "exec_id": "E1", "extra_tags": "58=oops"},
+         {"extra_tags": "58=oops"}),
+    ])
+    async def test_each_dialog_op_saves_its_own_terms(self, op, scope, data, terms):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r", "op": op, "data": {**data, "save_as": "t1"}})
+        engine.save_template.assert_awaited_once_with(scope, "t1", **terms)
+        assert _sent(ws)["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_blank_save_as_saves_nothing(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "bust_trade",
+            "data": {"session_id": "S1", "exec_id": "E1", "save_as": ""},
+        })
+        engine.save_template.assert_not_awaited()
+        engine.bust_trade.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_save_stops_the_send(self):
+        engine = _make_engine()
+        engine.save_template.side_effect = ValueError("A template needs a name")
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "bust_trade",
+            "data": {"session_id": "S1", "exec_id": "E1", "save_as": "  "},
+        })
+        engine.bust_trade.assert_not_awaited()
+        assert _sent(ws)["type"] == "error"
 
 
 class TestDictionaryCommands:

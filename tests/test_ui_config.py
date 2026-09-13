@@ -15,6 +15,7 @@ import pytest
 from mkfix import __version__
 
 STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
+TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -114,6 +115,16 @@ def _menubar_pane_ids(menubar: list) -> list[str]:
     ]
 
 
+def _button_pane_ids(panes: dict) -> list[str]:
+    """Panes a toolbar button opens (`pane.show` actions)."""
+    return [
+        b["action"]["args"]
+        for spec in panes.values()
+        for b in spec.get("buttons", [])
+        if b["action"].get("type") == "action" and b["action"].get("name") == "pane.show"
+    ]
+
+
 def _pane_frame_ids(app_config: dict) -> dict[str, str]:
     """Map each pane id to the frame that hosts it."""
     hosts = {}
@@ -138,6 +149,7 @@ class TestPaneReferences:
     def test_every_pane_is_reachable(self, app_config):
         """A pane nobody opens is dead config."""
         referenced = set(_menubar_pane_ids(app_config["menubar"]))
+        referenced.update(_button_pane_ids(app_config["panes"]))
         for frame in app_config["frames"]:
             referenced.update(_frame_pane_ids(frame["layout"]))
         orphans = set(app_config["panes"]) - referenced
@@ -509,6 +521,8 @@ class TestServiceReferences:
                 if button["action"]["type"] == "action":
                     continue
                 dialog = button["action"]["dialog"]
+                if dialog["submit"]["service"] != "fix_cmd":
+                    continue
                 names = _dialog_field_names(dialog)
                 assert "extra_tags" in names, \
                     f"{pane_id} {button['label']} dialog must offer extra_tags"
@@ -904,6 +918,7 @@ class TestStyleAndGateValues:
             ("fix_iois", "direction"): {"TX", "RX"},
             ("fix_allocations", "side"): sides,
             ("fix_allocations", "direction"): {"TX", "RX"},
+            ("fix_templates", "scope"): TEMPLATE_SCOPES,
         }
 
     def _pane_table(self, spec, toml_config):
@@ -1284,6 +1299,19 @@ class TestVersions:
 
         floor = _mkui_floor()
         assert floor >= (0, 1, 52), f"mkui floor {floor} predates live/select support"
+
+    def test_mkui_floor_supports_dialog_fill(self, app_config):
+        """A select's `fill` is mkui 0.7.0; an earlier build ignores the key,
+        so a Template pick would fill nothing and say nothing."""
+        uses_fill = any(
+            node.get("type") == "select" and "fill" in node
+            for node in _walk_dicts(app_config)
+        )
+        if not uses_fill:
+            pytest.skip("no dialog uses fill")
+
+        floor = _mkui_floor()
+        assert floor >= (0, 7, 0), f"mkui floor {floor} predates dialog fill"
 
     def test_mkui_floor_supports_expression_config(self, app_config):
         """`when` rules and gates are mkui 0.2.0 expressions; earlier builds
@@ -1745,3 +1773,147 @@ class TestTagPreviews:
         blank = {"symbol": None, "side": "1", "qty": None, "ord_type": "2", "price": None, "tif": "0", "extra_tags": None}
         source = self._preview(_find_dialog(app_config, "send_new_order"))
         assert expr.evaluate(source, {**blank, "row": row}) == "55=|54=1|38=|40=2|59=0", "an empty form must not error"
+
+
+class TestTemplates:
+    """Blotter action templates: every order and trade dialog opens on a
+    Template dropdown — `templates_list` rows of the dialog's scope, mkui's
+    `fill` copying the picked row's terms into the form — and closes on a
+    Save-as name, under which the fix_cmd op keeps the terms it was sent
+    (`TEMPLATE_TERMS` in fix_command.py, `save_template` in the engine, a
+    name unique within its scope). One Templates pane under the Trading menu
+    edits and deletes; no blotter button opens a template list any more."""
+
+    # fix_cmd op -> the template scope its dialog loads and saves
+    SCOPES = {
+        "send_new_order": "order", "send_cancel_replace": "order", "send_cancel": "cancel",
+        "accept_request": "accept", "reject_request": "reject", "fill_order": "fill",
+        "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
+    }
+
+    @staticmethod
+    def _fields(dialog):
+        for item in dialog["fields"]:
+            yield from (item["row"] if "row" in item else [item])
+
+    def test_scopes_agree_everywhere(self):
+        from mkfix.fix.engine import TEMPLATE_SCOPES as engine_scopes
+        from mkfix.services.fix_command import TEMPLATE_TERMS
+        assert set(engine_scopes) == TEMPLATE_SCOPES
+        assert {op: scope for op, (scope, _) in TEMPLATE_TERMS.items()} == self.SCOPES
+        assert set(self.SCOPES.values()) == TEMPLATE_SCOPES
+
+    def test_every_dialog_opens_on_a_template_dropdown(self, app_config, toml_config):
+        """The pick fills exactly the terms Save-as keeps; a term the dialog
+        does not ask for (Replace's session) rides as rowData instead. Only
+        an order template records a session — the one field a pick fills."""
+        from mkfix.services.fix_command import TEMPLATE_TERMS
+        columns = set(toml_config["tables"]["fix_templates"]["columns"])
+        for op, scope in self.SCOPES.items():
+            dialog = _find_dialog(app_config, op)
+            first = dialog["fields"][0]
+            assert first["type"] == "select" and first["name"].startswith("_"), \
+                f"{op}: the pick itself must never be submitted"
+            assert first["optionsFrom"] == {
+                "service": "templates_list", "params": {"scope": scope},
+                "value": "name", "label": "name",
+            }, f"{op}: options are keyed by name, what Save-as and remember know"
+            names = _dialog_field_names(dialog)
+            fill = first["fill"]
+            assert set(fill.values()) <= columns, op
+            keys = set(TEMPLATE_TERMS[op][1])
+            assert ("session_id" in keys) == (scope == "order"), op
+            assert set(fill) == keys & names, op
+            assert keys - names <= set(dialog.get("rowData", {})), op
+            assert all(fill[k] == k for k in fill), f"{op}: template columns are named as the fields"
+
+    def test_each_dialog_remembers_its_last_template(self, app_config):
+        """mkui's `remember` reopens the dialog on the template last picked
+        or saved there — the Save-as name when one was typed, since that is
+        the template the sent terms now live under — keyed per dialog, so
+        New and Replace keep separate memories of the order scope."""
+        from mkio import expr
+        keys = set()
+        for op in self.SCOPES:
+            first = _find_dialog(app_config, op)["fields"][0]
+            remember = first["remember"]
+            assert remember["key"] == f"mkfix.template.{op}"
+            keys.add(remember["key"])
+            source = remember["value"]
+            for ref in expr.field_refs(expr.parse(source)):
+                assert ref in ("save_as", "_template"), f"{op} remembers from {ref!r}"
+            assert expr.evaluate(source, {"save_as": "", "_template": "big"}) == "big"
+            assert expr.evaluate(source, {"save_as": None, "_template": ""}) == ""
+            assert expr.evaluate(source, {"save_as": "mine", "_template": "big"}) == "mine"
+        assert len(keys) == len(self.SCOPES)
+
+    def test_every_dialog_closes_on_an_optional_save_as(self, app_config):
+        for op in self.SCOPES:
+            fields = _find_dialog(app_config, op)["fields"]
+            save = fields[-2]
+            assert save.get("name") == "save_as" and save["type"] == "text", op
+            assert "required" not in save and "value" not in save, f"{op}: saving is optional"
+            assert fields[-1].get("label") == "Terms as tags", f"{op}: the preview still closes"
+
+    def test_templates_list_serves_every_term_of_one_scope(self, toml_config):
+        svc = toml_config["services"]["templates_list"]
+        assert svc["protocol"] == "reqrep"
+        selected = set(re.findall(r"\w+", svc["sql"].split(" FROM ")[0][len("SELECT "):]))
+        assert selected == set(toml_config["tables"]["fix_templates"]["columns"]) - {"created_at"}
+        assert "WHERE scope = :scope" in svc["sql"]
+
+    def test_one_templates_pane_under_the_trading_menu(self, app_config, toml_config):
+        spec = app_config["panes"]["templates"]
+        assert spec["type"] == "mkio-table" and spec["service"] == "templates_query"
+        assert "filter" not in spec, "every scope in the one pane"
+        assert toml_config["services"]["templates_query"]["primary_table"] == "fix_templates"
+        assert [b["label"] for b in spec["buttons"]] == ["Edit", "Delete"]
+        trading = next(m for m in app_config["menubar"] if m["label"] == "Trading")
+        assert trading["items"][-1] == {"label": "Templates", "action": "pane.show", "args": "templates"}
+        assert _menubar_pane_ids(app_config["menubar"]).count("templates") == 1
+        for pane_id, pane in app_config["panes"].items():
+            for b in pane.get("buttons", []):
+                assert b["label"] != "Templates", f"{pane_id} still opens a template pane"
+                dialog = b["action"].get("dialog")
+                if dialog and pane_id != "templates":
+                    assert dialog["submit"]["service"] != "templates", \
+                        f"{pane_id} {b['label']}: dialogs save through their fix_cmd op"
+
+    def test_edit_shows_each_scope_the_terms_its_dialog_loads(self, app_config, toml_config):
+        from mkio import expr
+        from mkfix.services.fix_command import TEMPLATE_TERMS
+        spec = app_config["panes"]["templates"]
+        edit = next(b for b in spec["buttons"] if b["label"] == "Edit")["action"]["dialog"]
+        assert edit["submit"] == {"label": "Save Template", "service": "templates", "op": "update"}
+        assert edit["rowData"] == {"id": "${row.id}"}
+        terms = set(toml_config["tables"]["fix_templates"]["columns"]) - {"id", "scope", "created_at"}
+        assert _dialog_field_names(edit) == terms, "a template keeps its kind"
+        for f in self._fields(edit):
+            if f.get("name") in terms:
+                assert f.get("value") == "${row.%s}" % f["name"] or f.get("compute") == "row.%s" % f["name"], \
+                    f"Edit must prefill {f['name']} from the row"
+        for op, (scope, keys) in TEMPLATE_TERMS.items():
+            shown = {
+                f["name"] for f in self._fields(edit)
+                if f.get("name") in terms - {"name"}
+                and expr.evaluate(f.get("showWhen", "TRUE"), {"row": {"scope": scope}})
+            }
+            assert shown == set(keys), scope
+        delete = next(b for b in spec["buttons"] if b["label"] == "Delete")["action"]
+        assert delete == {"type": "transaction", "service": "templates", "op": "delete",
+                          "data": {"id": "${row.id}"}}
+
+    def test_templates_table_is_config_data(self, toml_config):
+        from mkfix.archive import ALIASES
+        from mkfix.fix.engine import TEMPLATE_TERM_COLS
+        table = toml_config["tables"]["fix_templates"]
+        assert table["archive"] == {"group": "config"}
+        assert ALIASES["templates"] == "fix_templates"
+        columns = set(table["columns"]) - {"id", "created_at"}
+        assert set(TEMPLATE_TERM_COLS) == columns - {"scope", "name"}
+        ops = toml_config["services"]["templates"]["ops"]
+        assert set(ops["add"][0]["fields"]) == columns
+        assert set(ops["update"][0]["fields"]) == columns - {"scope"}
+        for op in ("add", "update"):
+            required = set(ops[op][0]["fields"]) - set(ops[op][0]["defaults"])
+            assert required == ({"scope", "name"} if op == "add" else {"name"})

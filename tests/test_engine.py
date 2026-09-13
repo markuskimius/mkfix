@@ -16,9 +16,10 @@ from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.engine import FixEngine
 from mkfix.fix.message import FixMessage, FixMessageFactory, parse_fix, SOH
 
-TABLES = tomllib.loads(
+MKFIX_TOML = tomllib.loads(
     (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
-)["tables"]
+)
+TABLES = MKFIX_TOML["tables"]
 
 # Loaded through mkio so the versioned tables' derived history tables exist
 # and the writer records versions, as the real server does.
@@ -2390,3 +2391,66 @@ class TestUndoRedoHook:
         assert engine.sessions["S1"].config["session_id"] == "S1"
         state = await _fetch_all(db, "SELECT * FROM fix_session_state")
         assert [(s["session_id"], s["status"]) for s in state] == [("S1", "DOWN")]
+
+
+class TestTemplates:
+    """A dialog's Save-as keeps its terms under a scope and name; the name is
+    unique within its scope (an engine index), so saving it again replaces
+    the terms in place rather than adding a second row."""
+
+    @pytest.mark.asyncio
+    async def test_save_creates_then_replaces_by_scope_and_name(self, stack):
+        db, writer, engine = stack
+        await engine.save_template("fill", "half", qty="50", price="", extra_tags="5001=X")
+        await engine.save_template("order", "half", symbol="AAPL", side="1", qty=100, price=None)
+        rows = await _fetch_all(db, "SELECT * FROM fix_templates ORDER BY scope")
+        assert [(r["scope"], r["name"]) for r in rows] == [("fill", "half"), ("order", "half")]
+        fill, order = rows
+        assert (fill["qty"], fill["price"], fill["extra_tags"]) == ("50", "", "5001=X")
+        assert (order["qty"], order["price"], order["symbol"]) == ("100", "", "AAPL"), \
+            "terms are kept as text, None as blank"
+        assert fill["_mkio_ref"]
+        await engine.save_template("fill", "half", qty="", price="99.5", extra_tags="")
+        rows = await _fetch_all(db, "SELECT * FROM fix_templates WHERE scope = 'fill'")
+        assert len(rows) == 1 and rows[0]["id"] == fill["id"]
+        assert (rows[0]["qty"], rows[0]["price"], rows[0]["extra_tags"]) == ("", "99.5", "")
+
+    @pytest.mark.asyncio
+    async def test_templates_list_serves_one_scope_with_every_term(self, stack):
+        """The dropdown's reqrep, run as SQL against the table the engine
+        writes: one scope's rows by name, every term along for the fill."""
+        db, writer, engine = stack
+        await engine.save_template("fill", "b-half", qty="50", price="", extra_tags="")
+        await engine.save_template("fill", "a-all", qty="", price="", extra_tags="5001=X")
+        await engine.save_template("order", "b-half", symbol="AAPL", side="1", qty="100", tif="0")
+        sql = MKFIX_TOML["services"]["templates_list"]["sql"]
+        rows = await _fetch_all(db, sql.replace(":scope", "'fill'"))
+        assert [r["name"] for r in rows] == ["a-all", "b-half"], "one scope, by name"
+        from mkfix.fix.engine import TEMPLATE_TERM_COLS
+        assert set(rows[0]) >= {"id", "name", "scope", *TEMPLATE_TERM_COLS}
+        assert (rows[1]["qty"], rows[1]["price"], rows[0]["extra_tags"]) == ("50", "", "5001=X")
+
+    @pytest.mark.asyncio
+    async def test_save_refuses_bad_scope_name_or_term(self, stack):
+        db, writer, engine = stack
+        with pytest.raises(ValueError, match="scope"):
+            await engine.save_template("orders", "x", symbol="AAPL")
+        with pytest.raises(ValueError, match="name"):
+            await engine.save_template("order", "  ", symbol="AAPL")
+        with pytest.raises(ValueError, match="cl_ord_id"):
+            await engine.save_template("order", "x", cl_ord_id="C1")
+        assert await _fetch_all(db, "SELECT * FROM fix_templates") == []
+
+    @pytest.mark.asyncio
+    async def test_index_keeps_the_newest_of_hand_made_duplicates(self, stack):
+        db, writer, engine = stack
+        conn = db.write_conn
+        await (await conn.execute("DROP INDEX idx_fix_templates_scope_name")).close()
+        for qty in ("1", "2"):
+            await (await conn.execute(
+                "INSERT INTO fix_templates (scope, name, qty) VALUES ('fill', 'dup', ?)", (qty,))).close()
+        await conn.commit()
+        await engine._ensure_indexes()
+        rows = await _fetch_all(db, "SELECT * FROM fix_templates")
+        assert [r["qty"] for r in rows] == ["2"]
+

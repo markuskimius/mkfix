@@ -96,6 +96,21 @@ A FIX protocol testing engine for capital markets connectivity, built on
   requests are colored; heartbeat chatter is dimmed in the Messages viewer.
   Order and trade action buttons disable while the owning FIX session is
   down, driven by the session's live status mirrored onto each row.
+- **Templates, in every dialog** -- Every order and trade dialog (New,
+  Replace, Cancel, Accept, Reject, Fill, DK, Correct, Bust) opens on a
+  Template dropdown and closes on a "Save as template" name. Pick a template
+  and its terms fill the form -- a blank term leaves the field to the row (a
+  fill's leaves, the order's price) -- edit what differs, and send; type a
+  name and the terms you sent are kept under it for next time, replacing a
+  template of that name. Each dialog reopens on the template last picked
+  or saved in it (the saved one when both happened), remembered per
+  browser. Each dialog keeps its own kind of template (an
+  order template holds symbol, side, quantity, type, price, TIF, extra tags
+  and optionally the session; a fill template quantity and price; a DK
+  template its reason and text; Cancel, Accept and Bust their extra tags),
+  and the dialog's pin keeps it open for a run. The Templates pane under the
+  Trading menu lists every kind for editing and deleting. Templates live in
+  the database and are shared by everyone on the server, like layouts.
 - **Extra Tags on Anything** -- Every send action (New, Replace, Cancel,
   Accept, Reject, Fill, Correct, Bust, DK) takes an optional Extra Tags field in
   pipe-delimited FIX format (`528=A|382=2|375=BRK1|375=BRK2`). Custom tags on
@@ -252,7 +267,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 0.7.0 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 0.6.0 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 0.7.0 -- Web Components UI
   framework
 
 ## License
