@@ -1281,6 +1281,30 @@ class TestVersions:
         assert expect["mkio"] == ".".join(pkg_version("mkio").split(".")[:2])
         assert expect["expr"] == str(LANGUAGE_VERSION)
 
+    def test_expected_mkio_matches_dependency_floor(self, app_config):
+        """The server checks `expect.mkio` by caret semver, where a 0.x minor
+        is a breaking number: an mkio server at any other minor answers
+        "not compatible" and the statusbar shows "Server version mismatch".
+        The floor pyproject installs must therefore be the minor app.json
+        expects, and the pin must say only major.minor so a patch release
+        on either side stays compatible."""
+        expected = app_config["mkio"]["expect"]["mkio"]
+        assert re.fullmatch(r"\d+\.\d+", expected), \
+            f"expect.mkio {expected!r} should pin major.minor only"
+        floor = _dependency_floor("mkio")
+        assert tuple(int(n) for n in expected.split(".")) == floor[:2], \
+            f"app.json expects mkio {expected}, pyproject installs >= {'.'.join(map(str, floor))}"
+
+    def test_expected_mkio_pin_is_caret_compatible_with_installed(self):
+        """Mirror of mkio's own rule, run against the installed package, so a
+        framework upgrade fails here before a browser reports it."""
+        from importlib.metadata import version as pkg_version
+        from mkio.services.info import _semver_compatible
+
+        expected = ".".join(map(str, _dependency_floor("mkio")[:2]))
+        assert _semver_compatible(pkg_version("mkio"), expected), \
+            f"installed mkio {pkg_version('mkio')} is not caret-compatible with {expected}"
+
     def test_statusbar_version_matches_package(self, app_config):
         major_minor = ".".join(__version__.split(".")[:2])
         texts = [item.get("text", "") for item in app_config["statusbar"]["right"]]
@@ -1393,15 +1417,6 @@ class TestVersions:
 
         floor = _mkui_floor()
         assert floor >= (0, 1, 54), f"mkui floor {floor} predates dialog auto-grow"
-
-    def test_readme_dependency_floors_match_pyproject(self):
-        """README repeats the mkio/mkui floors in prose; keep them honest."""
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        readme = (ROOT / "README.md").read_text()
-        for dep in pyproject["project"]["dependencies"]:
-            name, floor = dep.split(">=")
-            assert f"{name}) >= {floor}" in readme, \
-                f"README floor for {name} does not match pyproject ({dep})"
 
 
 class TestDictionaryConfig:

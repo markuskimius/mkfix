@@ -265,7 +265,7 @@ the built-in `mkfix.toml` for the full schema.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 0.7.0 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 0.8.0 -- async microservice
   framework (aiohttp + aiosqlite)
 - [mkui](https://github.com/markuskimius/mkui) >= 0.7.0 -- Web Components UI
   framework
