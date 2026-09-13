@@ -84,6 +84,8 @@ def serve(
     # probed up front because a bind failure inside app.start() happens after
     # the startup hooks have opened the database, whose aiosqlite threads then
     # keep the process alive; losing the race anyway leaves only a hard exit.
+    # Shutdown comes as SIGINT/SIGTERM through the loop's signal handlers, or
+    # on Windows as the cancellation asyncio.run() delivers on Ctrl+C.
     _check_port(cfg["host"], cfg["port"])
 
     async def run() -> None:
@@ -94,9 +96,21 @@ def serve(
             print(_bind_error(cfg, exc), file=sys.stderr, flush=True)
             os._exit(1)
         print(_banner(cfg, config, engine), flush=True)
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.ensure_future(app.stop()))
-        await app.wait()
+        try:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda: asyncio.ensure_future(app.stop()))
+        except NotImplementedError:
+            # ProactorEventLoop (Windows) has no signal handlers; there
+            # asyncio.run() turns Ctrl+C into a cancellation of this task,
+            # handled below.
+            pass
+        try:
+            await app.wait()
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is not None:
+                task.uncancel()
+            await app.stop()
 
     try:
         import uvloop
@@ -115,7 +129,12 @@ def _check_port(host: str, port: int) -> None:
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     try:
         with socket.socket(family, socket.SOCK_STREAM) as probe:
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # The probe binds the way asyncio's server will: SO_REUSEADDR on
+            # Unix, where it only frees TIME_WAIT ports, and nothing on
+            # Windows, where it would bind over a live listener and let a
+            # busy port pass.
+            if sys.platform != "win32":
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             probe.bind((host, port))
     except OSError as exc:
         print(_bind_error({"host": host, "port": port}, exc), file=sys.stderr)

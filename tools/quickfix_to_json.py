@@ -204,7 +204,7 @@ def apply_overlay(doc: dict[str, object], overlay_path: Path) -> None:
     wholesale when present. Overlays keep display names stable across
     regenerations where QuickFIX's descriptions differ from the official spec.
     """
-    overlay = json.loads(overlay_path.read_text())
+    overlay = json.loads(overlay_path.read_text(encoding="utf-8"))
     for key in ("fields", "messages", "groups"):
         for tag, entry in overlay.get(key, {}).items():
             doc[key][tag] = entry
@@ -248,7 +248,7 @@ def main() -> None:
             print(f"  applying overlay {overlay_path}")
             apply_overlay(doc, overlay_path)
         out_path = args.out / f"{VERSIONS[version]}.json"
-        with open(out_path, "w") as f:
+        with open(out_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(doc, f, indent=1)
             f.write("\n")
         print(f"  wrote {out_path} "

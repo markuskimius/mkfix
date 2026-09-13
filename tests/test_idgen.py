@@ -15,7 +15,7 @@ from mkio.writer import WriteBatcher
 from mkfix.fix.idgen import IdGenerator, _instance_code, validate_instance_code
 
 TABLES = tomllib.loads(
-    (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
+    (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text(encoding="utf-8")
 )["tables"]
 
 ID_RE = re.compile(r"^(RT|OR|EX|TR)(..)(\d{8})$")
@@ -40,6 +40,16 @@ class TestInstanceCode:
     def test_short_usernames_padded_with_x(self):
         assert _instance_code("m") == "MX"
         assert _instance_code("") == "XX"
+
+    @pytest.mark.parametrize("username, code", [
+        ("m.kim", "MK"), (" mark", "MA"), ("émile", "MI"), ("李四", "XX"), ("_x_", "XX"),
+    ])
+    def test_derived_code_skips_non_alphanumerics(self, username, code):
+        """An account name may start with a dot, a space or a non-ASCII letter
+        (Windows accounts can be display names); the derived code still has
+        to pass the explicit code's rule, since it rides in every ID sent."""
+        assert _instance_code(username) == code
+        validate_instance_code(_instance_code(username))
 
     def test_explicit_code_is_used_verbatim(self):
         assert validate_instance_code("Q7") == "Q7"

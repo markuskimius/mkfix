@@ -53,7 +53,7 @@ def retire_mirror_columns(db_path: str) -> dict[str, list[str]]:
 
 def mirror_columns_in_archive(archive_dir: str | Path) -> dict[str, list[str]]:
     """The mirror columns an archive's live-row CSVs carry, by table."""
-    manifest = json.loads((Path(archive_dir) / "manifest.json").read_text())
+    manifest = json.loads((Path(archive_dir) / "manifest.json").read_text(encoding="utf-8"))
     found: dict[str, list[str]] = {}
     for table, entry in manifest.get("tables", {}).items():
         stale = [c for c in MIRROR_COLUMNS.get(table, ()) if c in entry.get("columns", {})]
@@ -75,13 +75,13 @@ def strip_mirror_columns(archive_dir: str | Path) -> Path:
     copy = Path(tempfile.mkdtemp(prefix="mkfix-restore-")) / archive_dir.name
     shutil.copytree(archive_dir, copy)
     manifest_path = copy / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for table, columns in stale.items():
         entry = manifest["tables"][table]
         for column in columns:
             entry["columns"].pop(column, None)
         _drop_csv_columns(copy / entry["file"], set(columns))
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return copy
 
 

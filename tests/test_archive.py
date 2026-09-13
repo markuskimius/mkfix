@@ -34,7 +34,7 @@ from tests.test_engine import INSERT_SESSION, StubSession, _add_session, _fetch_
 
 ROOT = Path(__file__).parent.parent
 TOML = ROOT / "mkfix" / "mkfix.toml"
-TABLES = tomllib.loads(TOML.read_text())["tables"]
+TABLES = tomllib.loads(TOML.read_text(encoding="utf-8"))["tables"]
 CONFIG = load_config({"db_path": ":memory:", "tables": TABLES})
 FIX_STAMP = "%Y%m%d-%H:%M:%S.000"
 
@@ -353,11 +353,11 @@ class TestThroughTheServer:
             assert sorted(r["cl_ord_id"] for r in dropped) == sorted(r["cl_ord_id"] for r in before["fix_orders"])
 
             run_dir = next(out_dir.iterdir())
-            manifest = json.loads((run_dir / "manifest.json").read_text())
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
             assert manifest["mode"] == "online" and manifest["app"] == "mkfix"
             assert set(manifest["tables"]) == {
                 "fix_messages", "fix_orders", "fix_executions", "fix_iois", "fix_allocations"}
-            with open(run_dir / "fix_messages.csv", newline="") as f:
+            with open(run_dir / "fix_messages.csv", newline="", encoding="utf-8") as f:
                 msgs = list(csv.DictReader(f))
             assert len(msgs) == len(before["fix_messages"])
             assert all("\x01" in m["raw_message"] for m in msgs), "wire bytes kept SOH"

@@ -18,7 +18,7 @@ from mkfix.fix.engine import FixEngine
 from mkfix.fix.message import FixMessage, FixMessageFactory, parse_fix, SOH
 
 MKFIX_TOML = tomllib.loads(
-    (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text()
+    (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text(encoding="utf-8")
 )
 TABLES = MKFIX_TOML["tables"]
 QUERY_SERVICES = ("sessions_query", "orders_query", "executions_query")

@@ -20,7 +20,7 @@ from mkfix.upgrade import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-TABLES = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text())["tables"]
+TABLES = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8"))["tables"]
 
 
 def _current_db(path: Path) -> dict:
@@ -117,7 +117,7 @@ class TestRetireMirrorColumns:
     def test_runs_before_mkio_migration_at_startup(self):
         """mkio's safe auto_migrate refuses a column drop, so the step must
         come before create_app builds the migrating Database."""
-        main = (ROOT / "mkfix" / "__main__.py").read_text()
+        main = (ROOT / "mkfix" / "__main__.py").read_text(encoding="utf-8")
         assert main.index("retire_mirror_columns(cfg[\"db_path\"])") < main.index("app = create_app(cfg)")
 
 
@@ -159,7 +159,7 @@ def _legacy_archive(path: Path) -> Path:
             },
         },
     }
-    (path / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    (path / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     files = {
         "fix_orders.csv": [
             ["id", "cl_ord_id", "session_id", "symbol", "side", "session_status", "_mkio_ref", "_mkio_version"],
@@ -178,7 +178,7 @@ def _legacy_archive(path: Path) -> Path:
             ["session_id", "status", "tx_seq_num"], ["S1", "ACTIVE", "42"]],
     }
     for name, rows in files.items():
-        with open(path / name, "w", newline="") as f:
+        with open(path / name, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerows(rows)
     return path
 
@@ -200,27 +200,27 @@ class TestLegacyArchives:
 
     def test_strips_the_columns_from_a_copy(self, tmp_path):
         arc = _legacy_archive(tmp_path / "arc")
-        original = {p.name: p.read_text() for p in arc.iterdir()}
+        original = {p.name: p.read_text(encoding="utf-8") for p in arc.iterdir()}
 
         copy = strip_mirror_columns(arc)
 
         assert copy != arc and copy.name == arc.name
-        assert {p.name: p.read_text() for p in arc.iterdir()} == original, "the archive is untouched"
-        manifest = json.loads((copy / "manifest.json").read_text())
+        assert {p.name: p.read_text(encoding="utf-8") for p in arc.iterdir()} == original, "the archive is untouched"
+        manifest = json.loads((copy / "manifest.json").read_text(encoding="utf-8"))
         assert "session_status" not in manifest["tables"]["fix_orders"]["columns"]
         assert not {"status", "tx_seq_num", "rx_seq_num"} & set(manifest["tables"]["fix_sessions"]["columns"])
         assert manifest["tables"]["fix_sessions"]["companions"]["fix_session_state"]["columns"] == \
             {"session_id": "TEXT", "status": "TEXT", "tx_seq_num": "INTEGER"}, \
             "the state table's own status column is not a mirror"
-        with open(copy / "fix_orders.csv", newline="") as f:
+        with open(copy / "fix_orders.csv", newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
         assert rows == [["id", "cl_ord_id", "session_id", "symbol", "side", "_mkio_ref", "_mkio_version"],
                         ["1", "C1", "S1", "AAPL", "Buy", "r1", "1"]]
-        with open(copy / "fix_sessions.csv", newline="") as f:
+        with open(copy / "fix_sessions.csv", newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
         assert rows == [["session_id", "sender_comp_id", "target_comp_id", "_mkio_ref", "_mkio_version"],
                         ["S1", "A", "B", "r0", "1"]]
-        assert (copy / "fix_sessions__history.csv").read_text() == original["fix_sessions__history.csv"]
+        assert (copy / "fix_sessions__history.csv").read_text(encoding="utf-8") == original["fix_sessions__history.csv"]
 
     def test_mkio_refuses_the_old_archive_and_takes_the_stripped_copy(self, tmp_path):
         db = tmp_path / "m.db"
@@ -241,5 +241,5 @@ class TestLegacyArchives:
         conn.close()
 
     def test_restore_cli_goes_through_the_strip(self):
-        archive = (ROOT / "mkfix" / "archive.py").read_text()
+        archive = (ROOT / "mkfix" / "archive.py").read_text(encoding="utf-8")
         assert "restore_offline(cfg, strip_mirror_columns(args.archive_dir)" in archive

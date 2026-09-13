@@ -19,7 +19,7 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not i
 
 def parse_tree(tmp_path: Path, version_file: str, raw: str):
     module = tmp_path / "fix-dictionary.mjs"
-    module.write_text((STATIC / "fix-dictionary.js").read_text())
+    module.write_text((STATIC / "fix-dictionary.js").read_text(encoding="utf-8"), encoding="utf-8")
     script = tmp_path / "run.mjs"
     script.write_text(
         f"""
@@ -28,7 +28,8 @@ import fs from "node:fs";
 const doc = JSON.parse(fs.readFileSync({json.dumps(str(DATA / version_file))}, "utf8"));
 const dict = new FixDictionary(doc);
 console.log(JSON.stringify(parseMessageTree({json.dumps(raw)}, dict)));
-"""
+""",
+        encoding="utf-8",
     )
     out = subprocess.run(
         ["node", str(script)], capture_output=True, text=True, check=True
@@ -95,14 +96,15 @@ def test_soh_delimited_value_keeps_literal_pipe(tmp_path):
 def parse_raw(tmp_path: Path, raw: str):
     """Run fix-formatter's parseRawMessage under node with its real import."""
     for name in ("fix-dictionary.js", "fix-formatter.js"):
-        (tmp_path / name).write_text((STATIC / name).read_text())
-    (tmp_path / "package.json").write_text('{"type": "module"}')
+        (tmp_path / name).write_text((STATIC / name).read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
     script = tmp_path / "run.js"
     script.write_text(
         f"""
 import {{ parseRawMessage }} from "./fix-formatter.js";
 console.log(JSON.stringify(parseRawMessage({json.dumps(raw)})));
-"""
+""",
+        encoding="utf-8",
     )
     out = subprocess.run(["node", str(script)], capture_output=True, text=True, check=True)
     return json.loads(out.stdout.strip().splitlines()[-1])

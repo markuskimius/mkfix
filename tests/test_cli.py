@@ -236,3 +236,72 @@ def test_banner_lists_enabled_sessions():
     assert "2 enabled" in text
     assert "acc: ME -> THEM (FIX.4.2, acceptor on port 9876)" in text
     assert "ini: ME -> EXCH (FIX.4.4, initiator -> 10.0.0.5:9877)" in text
+
+
+def test_check_port_probes_like_the_server_on_windows(monkeypatch):
+    """SO_REUSEADDR means something else on Windows — bind over a live
+    listener — so there the probe must set nothing, as asyncio's server
+    does, or a busy port passes the check and fails only at start()."""
+    import socket
+    from mkfix.__main__ import _check_port
+
+    options: list[tuple] = []
+
+    class Spy(socket.socket):
+        def setsockopt(self, *args):
+            options.append(args)
+            super().setsockopt(*args)
+
+    monkeypatch.setattr(socket, "socket", Spy)
+    monkeypatch.setattr(sys, "platform", "win32")
+    _check_port("127.0.0.1", _free_port())
+    assert options == []
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    _check_port("127.0.0.1", _free_port())
+    assert options == [(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)]
+
+
+def test_serve_returns_on_cancellation_without_signal_handlers(monkeypatch, capsys):
+    """On Windows the ProactorEventLoop has no add_signal_handler, and
+    asyncio.run() delivers Ctrl+C as a cancellation of the main task; serve()
+    must then stop the server and return, instead of dying right after
+    binding the port — which is what the bare add_signal_handler did."""
+    import asyncio
+    import mkfix.__main__ as main_mod
+
+    monkeypatch.setitem(sys.modules, "uvloop", None)
+    loop = asyncio.new_event_loop()
+    loop_cls = type(loop)
+    loop.close()
+
+    def unsupported(self, sig, callback, *args):
+        raise NotImplementedError
+
+    monkeypatch.setattr(loop_cls, "add_signal_handler", unsupported)
+
+    apps = []
+    real_create_app = main_mod.create_app
+
+    def capturing_create_app(cfg):
+        apps.append(real_create_app(cfg))
+        return apps[-1]
+
+    real_banner = main_mod._banner
+
+    def banner_then_interrupt(*args):
+        # The banner is composed after start() and before the wait, so a
+        # cancel scheduled here lands in app.wait(), where Ctrl+C would.
+        task = asyncio.current_task()
+        asyncio.get_running_loop().call_later(0.05, task.cancel)
+        return real_banner(*args)
+
+    monkeypatch.setattr(main_mod, "create_app", capturing_create_app)
+    monkeypatch.setattr(main_mod, "_banner", banner_then_interrupt)
+
+    port = _free_port()
+    config = Path(main_mod.__file__).parent / "mkfix.toml"
+    main_mod.serve(config, host="127.0.0.1", port=port, db_path=":memory:")
+
+    assert len(apps) == 1 and apps[0].db is None
+    assert f"http://127.0.0.1:{port}/" in capsys.readouterr().out

@@ -25,24 +25,24 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="module")
 def app_config() -> dict:
-    return json.loads((STATIC / "app.json").read_text())
+    return json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
 def index_imports() -> list[str]:
-    html = (STATIC / "index.html").read_text()
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
     return re.findall(r'import\s+"([^"]+)"', html)
 
 
 @pytest.fixture(scope="module")
 def toml_config() -> dict:
-    return tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text())
+    return tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
 def known_services(toml_config) -> set[str]:
     """TOML-declared services plus the ones registered in code (fix_cmd)."""
-    main = (ROOT / "mkfix" / "__main__.py").read_text()
+    main = (ROOT / "mkfix" / "__main__.py").read_text(encoding="utf-8")
     return set(toml_config["services"]) | set(re.findall(r'add_service\(\s*"([^"]+)"', main))
 
 
@@ -78,7 +78,7 @@ def _schema_conn() -> sqlite3.Connection:
     from mkio.migration import migrate_schema
     conn = sqlite3.connect(":memory:")
     with contextlib.redirect_stdout(io.StringIO()):
-        migrate_schema(conn, tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text())["tables"])
+        migrate_schema(conn, tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8"))["tables"])
     return conn
 
 
@@ -216,7 +216,7 @@ class TestPaneModules:
 
 @pytest.fixture(scope="module")
 def pane_sources() -> dict[str, str]:
-    return {p.name: p.read_text() for p in sorted((STATIC / "panes").glob("*.js"))}
+    return {p.name: p.read_text(encoding="utf-8") for p in sorted((STATIC / "panes").glob("*.js"))}
 
 
 def _resolve_js_import(spec: str, js_file: Path) -> Path | None:
@@ -256,7 +256,7 @@ class TestPaneModuleIntegrity:
         """Catches importing a symbol the installed mkui (or a local module)
         no longer exports — e.g. openDialog from mkui-dialog.js."""
         for name, names, spec, target in self._imports(pane_sources):
-            source = target.read_text()
+            source = target.read_text(encoding="utf-8")
             for symbol in names:
                 exported = re.search(
                     rf'export\s+(?:async\s+)?(?:function|const|let|class)\s+{symbol}\b', source
@@ -293,7 +293,7 @@ class TestPaneModuleIntegrity:
         candidates are matched by their _replay suffix."""
         handled = set(re.findall(
             r'command == "([^"]+)"',
-            (ROOT / "mkfix" / "services" / "fix_command.py").read_text(),
+            (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8"),
         ))
         used = set()
         for name, source in pane_sources.items():
@@ -356,7 +356,7 @@ class TestPaneModuleIntegrity:
         assert dialog["submit"]["op"] == "reset_sequence"
         fields = _dialog_field_names(dialog)
         assert {"session_id", "tx_seq_num", "rx_seq_num"} <= fields
-        dispatch = (ROOT / "mkfix" / "services" / "fix_command.py").read_text()
+        dispatch = (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8")
         branch = dispatch.split('command == "reset_sequence"')[1].split("elif")[0]
         for field in fields:
             assert field in branch, f"change dialog field {field!r} not read by reset_sequence dispatch"
@@ -404,7 +404,7 @@ class TestServiceReferences:
     def test_fix_cmd_ops_have_dispatch_branches(self, app_config):
         """An op in app.json with no _dispatch branch fails only when the
         button is clicked, and only in the browser."""
-        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text()
+        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8")
         handled = set(re.findall(r'command == "([^"]+)"', source))
         used = {
             node["op"]
@@ -803,7 +803,7 @@ class TestSavedLayouts:
         with id. Read those shapes off the installed client so the TOML can't
         drift from what the client actually sends."""
         import mkui
-        src = (Path(mkui.static_dir) / "src" / "lib" / "layouts.js").read_text()
+        src = (Path(mkui.static_dir) / "src" / "lib" / "layouts.js").read_text(encoding="utf-8")
         save = re.search(r"\{\s*app:[^}]*owner,?\s*layout:[^}]*\}\s*,\s*\{\s*op:\s*\"save\"", src)
         assert save, "client save payload not found in mkui's layouts.js"
         assert re.search(r"\{\s*id\s*\},\s*\{\s*op:\s*\"delete\"", src)
@@ -1273,7 +1273,7 @@ class TestConfiguredFilters:
 
 def _dependency_floor(name: str) -> tuple[int, ...]:
     """The `>=` floor pyproject.toml declares for a framework dependency."""
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     floors = [d for d in pyproject["project"]["dependencies"] if d.startswith(name)]
     assert floors, f"{name} missing from dependencies"
     floor = re.search(r">=\s*(\d+(?:\.\d+)*)", floors[0])
@@ -1313,7 +1313,7 @@ class TestVersions:
         addition, a major may remove anything. The floors must sit on a 1.x
         line and cap the next major, since a 2.x server fails the `_mkio`
         handshake regardless of what pip installed."""
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         for name in ("mkio", "mkui"):
             floor = _dependency_floor(name)
             assert floor >= (1, 0, 0), f"{name} floor {floor} predates semver"
@@ -1420,7 +1420,7 @@ class TestVersions:
     def test_readme_dependency_floors_match_pyproject(self):
         """README's Dependencies section restates the floor and the
         next-major cap by hand."""
-        readme = (ROOT / "README.md").read_text()
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
         for name in ("mkio", "mkui"):
             match = re.search(
                 rf"\[{name}\]\([^)]*\) >= (\d+(?:\.\d+)*), < (\d+)", readme)
@@ -1456,7 +1456,7 @@ class TestVersions:
         from importlib.metadata import version as pkg_version
         from packaging.requirements import Requirement
 
-        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         for name in ("mkio", "mkui"):
             spec = next(d for d in pyproject["project"]["dependencies"] if d.startswith(name))
             req = Requirement(spec)
@@ -1477,8 +1477,8 @@ class TestVersions:
         """openDialog before 0.1.54 clips a body taller than the default
         frame; the session form is tall enough to need the auto-grow."""
         uses_dialog = any(
-            "mkui-dialog.js" in p.read_text() for p in (STATIC / "panes").glob("*.js")
-        ) or '"type": "dialog"' in (STATIC / "app.json").read_text()
+            "mkui-dialog.js" in p.read_text(encoding="utf-8") for p in (STATIC / "panes").glob("*.js")
+        ) or '"type": "dialog"' in (STATIC / "app.json").read_text(encoding="utf-8")
         if not uses_dialog:
             pytest.skip("no pane opens an mkui dialog")
 
@@ -1494,7 +1494,7 @@ class TestDictionaryConfig:
         copy surfaces only in the browser."""
         from mkfix.fix.dictionary import STANDARD_VERSIONS
 
-        js = (STATIC / "fix-dictionary.js").read_text()
+        js = (STATIC / "fix-dictionary.js").read_text(encoding="utf-8")
         js_block = js.split("export const STANDARD_VERSIONS")[1].split("]")[0]
         js_versions = re.findall(r'"(FIX\.[0-9.]+(?:SP\d)?)"', js_block)
         assert js_versions == list(STANDARD_VERSIONS)
@@ -1525,8 +1525,8 @@ class TestDictionaryConfig:
     def test_dictionaries_pane_commands_have_branches(self):
         """The dictionaries pane calls fix_cmd through its cmd() helper; a
         command with no dispatch branch fails only on click, in the browser."""
-        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text()
-        js = (STATIC / "panes" / "dictionaries.js").read_text()
+        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8")
+        js = (STATIC / "panes" / "dictionaries.js").read_text(encoding="utf-8")
         used = set(re.findall(r'cmd\("([a-z_]+)"', js))
         handled = set(re.findall(r'command == "([^"]+)"', source))
         assert used, "dictionaries pane calls no fix_cmd commands"
@@ -1536,9 +1536,9 @@ class TestDictionaryConfig:
     def test_curated_fix42_names_survive_regeneration(self):
         """The FIX42 overlay pins display names the engine writes into rows and
         the style rules test; the generated FIX42.json must keep them."""
-        overlay = json.loads((ROOT / "tools" / "overlays" / "FIX42.json").read_text())
+        overlay = json.loads((ROOT / "tools" / "overlays" / "FIX42.json").read_text(encoding="utf-8"))
         generated = json.loads(
-            (ROOT / "mkfix" / "fix" / "dictionary_data" / "FIX42.json").read_text())
+            (ROOT / "mkfix" / "fix" / "dictionary_data" / "FIX42.json").read_text(encoding="utf-8"))
         for tag, entry in overlay.get("fields", {}).items():
             assert generated["fields"].get(tag) == entry, f"field {tag} lost its curated name"
         for tag, values in overlay.get("enums", {}).items():
@@ -1794,9 +1794,9 @@ class TestRecordHistory:
             assert button["enable"] == {"connected": True}
 
     def test_engine_registers_the_undo_redo_hook(self):
-        main = (ROOT / "mkfix" / "__main__.py").read_text()
+        main = (ROOT / "mkfix" / "__main__.py").read_text(encoding="utf-8")
         assert "app.on_undo_redo(" in main
-        engine = (ROOT / "mkfix" / "fix" / "engine.py").read_text()
+        engine = (ROOT / "mkfix" / "fix" / "engine.py").read_text(encoding="utf-8")
         assert "async def handle_undo_redo" in engine
 
     def test_mkio_floor_supports_joined_queries_with_a_key(self, toml_config):

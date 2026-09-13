@@ -30,7 +30,13 @@ _INSTANCE_CODE_RE = re.compile(r"[A-Za-z0-9]{%d}" % _INSTANCE_CODE_LEN)
 
 
 def _instance_code(username: str) -> str:
-    return (username[:_INSTANCE_CODE_LEN].upper() + "X" * _INSTANCE_CODE_LEN)[:_INSTANCE_CODE_LEN]
+    """The derived code: the username's first two ASCII letters or digits,
+    uppercased, padded with X. Anything else is skipped first — an account
+    name can start with a dot, a space or a non-ASCII letter (Windows lets
+    it be a display name), and the code has to be a valid one, since it goes
+    out on the wire in every ID."""
+    usable = "".join(c for c in username if c.isascii() and c.isalnum())
+    return (usable[:_INSTANCE_CODE_LEN].upper() + "X" * _INSTANCE_CODE_LEN)[:_INSTANCE_CODE_LEN]
 
 
 def validate_instance_code(code: str) -> str:

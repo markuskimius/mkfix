@@ -170,6 +170,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
 pip install mkfix
 ```
 
+Runs on Linux, macOS and Windows with the standard CPython 3.11+
+interpreter. On Windows, Ctrl+C stops the server the same way as
+elsewhere: every session is logged out, then the process exits. The
+`-i` default there comes from the account name's first two ASCII letters
+or digits, so a name starting with a space or a non-ASCII letter still
+yields a valid code.
+
 Or from source:
 
 ```bash

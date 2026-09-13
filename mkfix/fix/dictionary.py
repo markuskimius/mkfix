@@ -27,7 +27,7 @@ def _load_data(version: str) -> dict[str, Any]:
     path = _DATA_DIR / filename
     if not path.exists():
         return {"fields": {}, "enums": {}, "messages": {}, "header": [], "trailer": []}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

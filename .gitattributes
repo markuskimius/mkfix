@@ -1,0 +1,6 @@
+# LF everywhere, on Windows checkouts too: the tests read the served files,
+# the config and the source verbatim, and a CRLF checkout must not change
+# what they compare.
+* text=auto eol=lf
+*.db binary
+*.png binary
