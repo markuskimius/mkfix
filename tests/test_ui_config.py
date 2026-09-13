@@ -1276,7 +1276,9 @@ def _dependency_floor(name: str) -> tuple[int, ...]:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
     floors = [d for d in pyproject["project"]["dependencies"] if d.startswith(name)]
     assert floors, f"{name} missing from dependencies"
-    return tuple(int(n) for n in floors[0].split(">=")[1].split("."))
+    floor = re.search(r">=\s*(\d+(?:\.\d+)*)", floors[0])
+    assert floor, f"{name} has no >= floor: {floors[0]!r}"
+    return tuple(int(n) for n in floor.group(1).split("."))
 
 
 def _mkui_floor() -> tuple[int, ...]:
@@ -1298,24 +1300,33 @@ class TestVersions:
         cfg = _load_config(ROOT / "mkfix" / "mkfix.toml")
         assert cfg["version"] == __version__
 
-    def test_expected_framework_versions_match_installed(self, app_config):
-        """`expect.mkio` is checked by 0.x minor and `expect.expr` by exact
-        match against the server, so a stale value makes every client report
-        an incompatible server after a framework upgrade."""
-        from importlib.metadata import version as pkg_version
+    def test_expected_expr_version_matches_installed(self, app_config):
+        """`expect.expr` is checked by exact match against the server, so a
+        stale value makes every client report an incompatible server after
+        an expression-language change."""
         from mkio.expr import LANGUAGE_VERSION
 
-        expect = app_config["mkio"]["expect"]
-        assert expect["mkio"] == ".".join(pkg_version("mkio").split(".")[:2])
-        assert expect["expr"] == str(LANGUAGE_VERSION)
+        assert app_config["mkio"]["expect"]["expr"] == str(LANGUAGE_VERSION)
+
+    def test_framework_floors_are_semver_majors(self):
+        """mkio and mkui follow Semantic Versioning from 1.0.0: a minor is an
+        addition, a major may remove anything. The floors must sit on a 1.x
+        line and cap the next major, since a 2.x server fails the `_mkio`
+        handshake regardless of what pip installed."""
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        for name in ("mkio", "mkui"):
+            floor = _dependency_floor(name)
+            assert floor >= (1, 0, 0), f"{name} floor {floor} predates semver"
+            spec = next(d for d in pyproject["project"]["dependencies"] if d.startswith(name))
+            assert f"<{floor[0] + 1}" in spec.replace(" ", ""), \
+                f"{name} spec {spec!r} does not cap the next major"
 
     def test_expected_mkio_matches_dependency_floor(self, app_config):
-        """The server checks `expect.mkio` by caret semver, where a 0.x minor
-        is a breaking number: an mkio server at any other minor answers
-        "not compatible" and the statusbar shows "Server version mismatch".
-        The floor pyproject installs must therefore be the minor app.json
-        expects, and the pin must say only major.minor so a patch release
-        on either side stays compatible."""
+        """The server checks `expect.mkio` by caret semver: same major, at
+        least the requested minor. The pin must therefore be the floor
+        pyproject installs, as major.minor only, so a patch release on
+        either side stays compatible and a later 1.x minor still answers
+        "compatible"."""
         expected = app_config["mkio"]["expect"]["mkio"]
         assert re.fullmatch(r"\d+\.\d+", expected), \
             f"expect.mkio {expected!r} should pin major.minor only"
@@ -1407,22 +1418,50 @@ class TestVersions:
         assert floor >= (0, 2, 8), f"mkui floor {floor} predates live re-gating"
 
     def test_readme_dependency_floors_match_pyproject(self):
-        """README's Dependencies section restates the floors by hand."""
+        """README's Dependencies section restates the floor and the
+        next-major cap by hand."""
         readme = (ROOT / "README.md").read_text()
         for name in ("mkio", "mkui"):
-            match = re.search(rf"\[{name}\]\([^)]*\) >= (\d+(?:\.\d+)*)", readme)
-            assert match, f"README does not state a {name} floor"
+            match = re.search(
+                rf"\[{name}\]\([^)]*\) >= (\d+(?:\.\d+)*), < (\d+)", readme)
+            assert match, f"README does not state a {name} floor and cap"
+            floor = _dependency_floor(name)
             stated = tuple(int(n) for n in match.group(1).split("."))
-            assert stated == _dependency_floor(name), \
-                f"README says {name} >= {match.group(1)}, pyproject says {_dependency_floor(name)}"
+            assert stated == floor, \
+                f"README says {name} >= {match.group(1)}, pyproject says {floor}"
+            assert int(match.group(2)) == floor[0] + 1, \
+                f"README caps {name} at < {match.group(2)}, pyproject at < {floor[0] + 1}"
 
-    def test_installed_mkui_meets_floor(self):
-        """The UI checks in this file run against the installed mkui; an older
-        one would pass the static checks while the app misbehaves."""
+    def test_mkio_caret_rule_tolerates_framework_minors(self):
+        """What the 1.x floors buy: mkio's handshake accepts any server on
+        the pinned major at or above the pinned minor, so a framework minor
+        release no longer forces an mkfix release, while a major does.
+        Pinned against mkio's own rule so a change there fails here."""
+        from mkio.services.info import _semver_compatible
+
+        major, minor = _dependency_floor("mkio")[:2]
+        pin = f"{major}.{minor}"
+        assert _semver_compatible(f"{major}.{minor}.0", pin)
+        assert _semver_compatible(f"{major}.{minor}.9", pin)
+        assert _semver_compatible(f"{major}.{minor + 7}.0", pin)
+        assert not _semver_compatible(f"{major + 1}.0.0", pin)
+        assert not _semver_compatible(f"{major - 1}.99.0", pin)
+        if minor:
+            assert not _semver_compatible(f"{major}.{minor - 1}.0", pin)
+
+    def test_installed_frameworks_satisfy_dependency_specs(self):
+        """The checks in this file run against the installed mkio and mkui;
+        a version outside pyproject's range (below the floor or on the next
+        major) would pass the static checks while the app misbehaves."""
         from importlib.metadata import version as pkg_version
-        installed = tuple(int(n) for n in pkg_version("mkui").split(".")[:3])
-        assert installed >= _mkui_floor(), \
-            f"installed mkui {installed} is below the declared floor {_mkui_floor()}"
+        from packaging.requirements import Requirement
+
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        for name in ("mkio", "mkui"):
+            spec = next(d for d in pyproject["project"]["dependencies"] if d.startswith(name))
+            req = Requirement(spec)
+            assert req.specifier.contains(pkg_version(name), prereleases=True), \
+                f"installed {name} {pkg_version(name)} is outside {spec!r}"
 
     def test_mkui_floor_supports_time_typed_columns(self, app_config):
         """The `types` pane key is mkui 0.2.1; earlier builds ignore it and
