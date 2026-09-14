@@ -305,3 +305,35 @@ def test_serve_returns_on_cancellation_without_signal_handlers(monkeypatch, caps
 
     assert len(apps) == 1 and apps[0].db is None
     assert f"http://127.0.0.1:{port}/" in capsys.readouterr().out
+
+
+def test_serve_runs_on_the_loop_mkio_picks(monkeypatch, capsys):
+    """serve() mirrors mkio's run() and so builds its loop the same way:
+    through loop_factory and the `event_loop` key. On Windows that is
+    asyncio's selector loop by default, whose transport teardown does not
+    log a traceback for every connection a browser opens and drops; here
+    the key names it outright, and the server must come up on it."""
+    import asyncio
+    import mkfix.__main__ as main_mod
+
+    seen = []
+    real_create_app = main_mod.create_app
+
+    def create_app_on_the_selector_loop(cfg):
+        cfg["event_loop"] = "selector"
+        app = real_create_app(cfg)
+
+        async def note_loop_and_stop():
+            seen.append(type(asyncio.get_running_loop()))
+            asyncio.get_running_loop().call_later(0.05, lambda: asyncio.ensure_future(app.stop()))
+
+        app.on_startup(note_loop_and_stop)
+        return app
+
+    monkeypatch.setattr(main_mod, "create_app", create_app_on_the_selector_loop)
+    port = _free_port()
+    config = Path(main_mod.__file__).parent / "mkfix.toml"
+    main_mod.serve(config, host="127.0.0.1", port=port, db_path=":memory:")
+
+    assert len(seen) == 1 and issubclass(seen[0], asyncio.SelectorEventLoop)
+    assert f"http://127.0.0.1:{port}/" in capsys.readouterr().out

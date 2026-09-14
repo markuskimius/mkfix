@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from mkio import ChangeEvent, create_app
+from mkio.app import loop_factory
 from mkio.config import load_config
 
 from mkfix import __version__
@@ -112,12 +113,11 @@ def serve(
                 task.uncancel()
             await app.stop()
 
-    try:
-        import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    except ImportError:
-        pass
-    asyncio.run(run())
+    # The loop is mkio's choice (uvloop where installed, asyncio's selector
+    # loop on Windows, `event_loop` in the config), built the way its run()
+    # builds it.
+    with asyncio.Runner(loop_factory=loop_factory(cfg.get("event_loop", "auto"))) as runner:
+        runner.run(run())
 
 
 def _bind_error(cfg: dict[str, Any], exc: OSError) -> str:

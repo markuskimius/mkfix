@@ -3043,7 +3043,7 @@
     "expect": {
       "name": "mkfix",
       "version": "0.36",
-      "mkio": "1.0",
+      "mkio": "1.1",
       "expr": "1"
     },
     "connected": {
