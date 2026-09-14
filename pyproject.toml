@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Office/Business :: Financial",
 ]
 dependencies = [
-    "mkio>=1.1.1,<2",  # 1.1.1: loop_factory, the selector loop on Windows with Ctrl+C reaching it
+    "mkio>=1.2.1,<2",  # 1.2.1: Database.stop() closes the reader before its checkpoint, so a stopped engine's state writes can't leave Ctrl+C waiting 5 s
     "mkui>=1.0.0,<2",
 ]
 
