@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Office/Business :: Financial",
 ]
 dependencies = [
-    "mkio>=1.1.0,<2",  # 1.1.0: loop_factory, the selector loop on Windows
+    "mkio>=1.1.1,<2",  # 1.1.1: loop_factory, the selector loop on Windows with Ctrl+C reaching it
     "mkui>=1.0.0,<2",
 ]
 

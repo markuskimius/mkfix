@@ -173,8 +173,9 @@ pip install mkfix
 Runs on Linux, macOS and Windows with the standard CPython 3.11+
 interpreter. On Windows, Ctrl+C stops the server the same way as
 elsewhere: every session is logged out, then the process exits. The
-server runs on asyncio's selector loop there, as mkio 1.1 does, so a
-browser's dropped connections print no tracebacks; mkio's `event_loop`
+server runs on mkio's selector loop there, as mkio 1.1.1 does, so a
+browser's dropped connections print no tracebacks and Ctrl+C is not
+kept waiting; mkio's `event_loop`
 config key overrides it. The
 `-i` default there comes from the account name's first two ASCII letters
 or digits, so a name starting with a space or a non-ASCII letter still
@@ -281,7 +282,7 @@ the built-in `mkfix.toml` for the full schema.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 1.1.0, < 2 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 1.1.1, < 2 -- async microservice
   framework (aiohttp + aiosqlite)
 - [mkui](https://github.com/markuskimius/mkui) >= 1.0.0, < 2 -- Web Components UI
   framework
