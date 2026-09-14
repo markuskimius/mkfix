@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.36"
+        "text": "mkfix v0.37"
       }
     ],
     "bindStyle": {
@@ -1210,27 +1210,34 @@
                   "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
                 },
                 {
-                  "row": [
-                    {
-                      "name": "expire_time",
-                      "label": "Expire (126/432; local, time optional)",
-                      "type": "datetime",
-                      "time": "optional",
-                      "step": 1
-                    }
-                  ]
-                },
-                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
                 },
                 {
-                  "name": "save_as",
-                  "label": "Save as template",
-                  "type": "text",
-                  "placeholder": "optional — a name keeps these terms for next time"
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "row": [
+                        {
+                          "name": "expire_time",
+                          "label": "Expire (126/432; local, time optional)",
+                          "type": "datetime",
+                          "time": "optional",
+                          "step": 1
+                        }
+                      ]
+                    },
+                    {
+                      "name": "save_as",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
                 },
                 {
                   "label": "Terms as tags",
@@ -1440,23 +1447,6 @@
                   "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
                 },
                 {
-                  "row": [
-                    {
-                      "name": "expire_time",
-                      "label": "Expire (126/432; local, time optional)",
-                      "type": "datetime",
-                      "time": "optional",
-                      "value": "${IF(row.expire_time != '', row.expire_time, row.expire_date)}",
-                      "parse": [
-                        "%Y%m%d-%H:%M:%S.%f",
-                        "%Y%m%d-%H:%M:%S",
-                        "%Y%m%d"
-                      ],
-                      "step": 1
-                    }
-                  ]
-                },
-                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
@@ -1464,10 +1454,34 @@
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
                 },
                 {
-                  "name": "save_as",
-                  "label": "Save as template",
-                  "type": "text",
-                  "placeholder": "optional — a name keeps these terms for next time"
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "row": [
+                        {
+                          "name": "expire_time",
+                          "label": "Expire (126/432; local, time optional)",
+                          "type": "datetime",
+                          "time": "optional",
+                          "value": "${IF(row.expire_time != '', row.expire_time, row.expire_date)}",
+                          "parse": [
+                            "%Y%m%d-%H:%M:%S.%f",
+                            "%Y%m%d-%H:%M:%S",
+                            "%Y%m%d"
+                          ],
+                          "step": 1
+                        }
+                      ]
+                    },
+                    {
+                      "name": "save_as",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
                 },
                 {
                   "label": "Terms as tags",
@@ -3042,7 +3056,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.36",
+      "version": "0.37",
       "mkio": "1.2",
       "expr": "1"
     },

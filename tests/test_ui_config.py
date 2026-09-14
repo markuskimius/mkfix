@@ -126,14 +126,24 @@ def _session_button(app_config: dict, label: str) -> dict:
     return button
 
 
+def _leaves(item: dict):
+    """The fields one dialog item stands for: itself, a `{ row }`'s, or a
+    bounded `{ group, fields }` section's (mkui 1.2.0)."""
+    if "row" in item:
+        for f in item["row"]:
+            yield from _leaves(f)
+    elif "fields" in item:
+        for f in item["fields"]:
+            yield from _leaves(f)
+    else:
+        yield item
+
+
 def _dialog_field_names(dialog: dict) -> set[str]:
-    """Named payload fields of a dialog spec, flattening row groups."""
-    names = set()
-    for item in dialog.get("fields", []):
-        for field in item.get("row", [item]):
-            if "name" in field:
-                names.add(field["name"])
-    return names
+    """Named payload fields of a dialog spec, flattening rows and sections."""
+    return {
+        f["name"] for item in dialog.get("fields", []) for f in _leaves(item) if "name" in f
+    }
 
 
 def _menubar_pane_ids(menubar: list) -> list[str]:
@@ -590,7 +600,7 @@ class TestServiceReferences:
         lists = {}
         for op in ("send_new_order", "send_cancel_replace"):
             for item in _find_dialog(app_config, op)["fields"]:
-                for f in (item["row"] if "row" in item else [item]):
+                for f in _leaves(item):
                     if f.get("name") in tags:
                         lists[(op, f["name"])] = [o["value"] for o in f["options"]]
         for (op, name), values in lists.items():
@@ -625,7 +635,7 @@ class TestServiceReferences:
             for item in _find_dialog(app_config, op)["fields"]:
                 if item.get("type") == "readonly" and "showWhen" in item:
                     notes.append(item["showWhen"])
-                for f in (item["row"] if "row" in item else [item]):
+                for f in _leaves(item):
                     if f.get("name") in ("ord_type", "tif"):
                         labels.update({(f["name"], o["value"]): o["label"] for o in f["options"]})
             assert labels[("ord_type", "5")].endswith("(<= FIX 4.3)")
@@ -653,7 +663,7 @@ class TestServiceReferences:
         columns = set(toml_config["tables"]["fix_orders"]["columns"])
         prefills = {}
         for item in replace["fields"]:
-            for f in (item["row"] if "row" in item else [item]):
+            for f in _leaves(item):
                 if f.get("name") in new_fields:
                     prefills[f["name"]] = f.get("value", "")
         expected = {
@@ -679,7 +689,7 @@ class TestServiceReferences:
         for op in ("send_new_order", "send_cancel_replace"):
             fields = {
                 f["name"]: f for item in _find_dialog(app_config, op)["fields"]
-                for f in (item["row"] if "row" in item else [item]) if f.get("name")
+                for f in _leaves(item) if f.get("name")
             }
             assert fields["expire_time"]["type"] == "datetime"
             assert fields["expire_time"].get("time") == "optional", \
@@ -691,6 +701,26 @@ class TestServiceReferences:
                     "${IF(row.expire_time != '', row.expire_time, row.expire_date)}"
                 assert fields["expire_time"]["parse"] == \
                     ["%Y%m%d-%H:%M:%S.%f", "%Y%m%d-%H:%M:%S", "%Y%m%d"]
+
+    def test_order_dialogs_fold_expiry_and_save_as_under_advanced(self, app_config):
+        """New and Replace fold the Expire picker and the Save-as name — the
+        two fields most orders leave blank — into a collapsible section,
+        closed by default, sitting right above the closing preview. The
+        section is bounded by its own `fields` (mkui 1.2.0; an unbounded
+        header would claim the preview too). It has no `remember`, so it
+        opens folded every time; mkui unfolds it on a validation error
+        under it, and a folded head counts the fields edited beneath it."""
+        for op in ("send_new_order", "send_cancel_replace"):
+            fields = _find_dialog(app_config, op)["fields"]
+            heads = [f for f in fields if "group" in f]
+            assert len(heads) == 1, f"{op}: one section"
+            head = heads[0]
+            assert {k: v for k, v in head.items() if k != "fields"} == \
+                {"group": "Advanced", "collapsible": True, "collapsed": True}, op
+            under = [f["name"] for item in head["fields"] for f in _leaves(item)]
+            assert under == ["expire_time", "save_as"], f"{op}: {under}"
+            assert fields[-2] is head and fields[-1].get("label") == "Terms as tags", \
+                f"{op}: the section sits right above the closing preview"
 
     def test_market_dialogs_echo_extra_tags(self, app_config, toml_config):
         """Accept/Reject prefill the pending request's custom tags and Fill the
@@ -706,7 +736,7 @@ class TestServiceReferences:
             dialog = _find_dialog(app_config, op)
             field = next(
                 f for item in dialog["fields"]
-                for f in (item["row"] if "row" in item else [item])
+                for f in _leaves(item)
                 if f.get("name") == "extra_tags"
             )
             assert field.get("value") == value, \
@@ -1363,6 +1393,18 @@ class TestVersions:
         floor = _mkui_floor()
         assert floor >= (0, 1, 52), f"mkui floor {floor} predates live/select support"
 
+    def test_mkui_floor_supports_bounded_sections(self, app_config):
+        """A dialog header's own `fields` bound its section in mkui 1.2.0;
+        an earlier build ignores the key and renders the header with nothing
+        under it, so Expire and Save-as would vanish from the order dialogs."""
+        bounded = [
+            node for node in _walk_dicts(app_config["panes"])
+            if "group" in node and "fields" in node
+        ]
+        assert bounded, "no dialog uses a bounded section"
+        floor = _mkui_floor()
+        assert floor >= (1, 2, 0), f"mkui floor {floor} predates bounded sections"
+
     def test_mkui_floor_supports_dialog_fill(self, app_config):
         """A select's `fill` is mkui 0.7.0; an earlier build ignores the key,
         so a Template pick would fill nothing and say nothing."""
@@ -1567,7 +1609,7 @@ class TestSessionDialogs:
     def _fields(self, dialog):
         out = {}
         for item in dialog.get("fields", []):
-            for f in item.get("row", [item]):
+            for f in _leaves(item):
                 if "name" in f:
                     out[f["name"]] = f
         return out
@@ -1835,7 +1877,7 @@ class TestTagPreviews:
     @staticmethod
     def _fields(dialog):
         for item in dialog["fields"]:
-            yield from (item["row"] if "row" in item else [item])
+            yield from _leaves(item)
 
     @staticmethod
     def _preview(dialog):
@@ -1843,7 +1885,7 @@ class TestTagPreviews:
         assert len(lines) == 1, "one Terms as tags line per dialog"
         line = lines[0]
         assert line["type"] == "readonly" and "compute" in line
-        assert dialog["fields"][-1] is line, "the preview closes the dialog, after Extra Tags"
+        assert dialog["fields"][-1] is line, "the preview closes the dialog"
         return line["compute"]
 
     def test_labels_name_the_tag(self, app_config):
@@ -1927,7 +1969,7 @@ class TestTemplates:
     @staticmethod
     def _fields(dialog):
         for item in dialog["fields"]:
-            yield from (item["row"] if "row" in item else [item])
+            yield from _leaves(item)
 
     def test_scopes_agree_everywhere(self):
         from mkfix.fix.engine import TEMPLATE_SCOPES as engine_scopes
@@ -1981,9 +2023,13 @@ class TestTemplates:
         assert len(keys) == len(self.SCOPES)
 
     def test_every_dialog_closes_on_an_optional_save_as(self, app_config):
+        """Save-as is the last named field of every dialog, right before the
+        closing preview — on New and Replace as the last field of the folded
+        Advanced section (`TestServiceReferences` pins that section)."""
         for op in self.SCOPES:
             fields = _find_dialog(app_config, op)["fields"]
-            save = fields[-2]
+            before = fields[-2]
+            save = before["fields"][-1] if "group" in before else before
             assert save.get("name") == "save_as" and save["type"] == "text", op
             assert "required" not in save and "value" not in save, f"{op}: saving is optional"
             assert fields[-1].get("label") == "Terms as tags", f"{op}: the preview still closes"

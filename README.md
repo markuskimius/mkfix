@@ -54,6 +54,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   drawn as the browser's own date and time pickers: pick a date alone and
   the order carries ExpireDate; add a time (entered in your local zone) and
   it goes out as ExpireTime in UTC at the session's timestamp precision.
+  Expire and "Save as template" sit in an Advanced section just above the
+  tag preview, folded until clicked open.
   Values that only some FIX versions define (Market/Limit on Close through
   4.3, At the Close from 4.2) say so in the dropdown, but every value can be
   sent on every session -- an invalid combination is a test scenario.
@@ -99,7 +101,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   down, the session's live status joined onto each row as it changes.
 - **Templates, in every dialog** -- Every order and trade dialog (New,
   Replace, Cancel, Accept, Reject, Fill, DK, Correct, Bust) opens on a
-  Template dropdown and closes on a "Save as template" name. Pick a template
+  Template dropdown and closes on a "Save as template" name (under New and
+  Replace's folded Advanced section). Pick a template
   and its terms fill the form -- a blank term leaves the field to the row (a
   fill's leaves, the order's price) -- edit what differs, and send; type a
   name and the terms you sent are kept under it for next time, replacing a
@@ -287,7 +290,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 1.2.1, < 2 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 1.0.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.2.0, < 2 -- Web Components UI
   framework
 
 ## License

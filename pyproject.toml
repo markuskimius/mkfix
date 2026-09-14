@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "mkio>=1.2.1,<2",  # 1.2.1: Database.stop() closes the reader before its checkpoint, so a stopped engine's state writes can't leave Ctrl+C waiting 5 s
-    "mkui>=1.0.0,<2",
+    "mkui>=1.2.0,<2",
 ]
 
 [project.optional-dependencies]
