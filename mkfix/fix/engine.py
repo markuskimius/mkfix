@@ -12,7 +12,8 @@ from mkfix.fix.dictionary import (FixDictionary, STANDARD_VERSIONS,
                                   unregister_custom)
 from mkfix.fix.idgen import IdGenerator
 from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
-                               extra_pairs_of, format_extra_tags, parse_fix)
+                               extra_pairs_of, format_extra_tags, parse_fix,
+                               ClientTag, client_of, parse_client_tags)
 from mkfix.fix.replay import ReplayTask, parse_log_file
 from mkfix.fix.session import FixSession
 
@@ -29,7 +30,7 @@ ORDER_COLS = [
     "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
     "pending_extra_tags",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
-    "expire_time", "expire_date",
+    "expire_time", "expire_date", "client",
 ]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
@@ -38,7 +39,7 @@ ORDER_COLS = [
 ENTERED_COLS = [
     "symbol", "side", "side_code", "ord_type", "ord_type_code",
     "time_in_force", "tif_code", "extra_tags", "entered_qty", "entered_price",
-    "expire_time", "expire_date",
+    "expire_time", "expire_date", "client",
 ]
 
 ORDER_UPDATE_COLS = [
@@ -52,7 +53,7 @@ EXEC_COLS = [
     "session_id", "exec_id", "exec_ref_id", "trade_id", "order_id", "cl_ord_id",
     "symbol", "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
-    "transact_time", "text", "timestamp", "direction",
+    "transact_time", "text", "timestamp", "direction", "client",
 ]
 
 # exec_type display names a bust records (ExecTransType Cancel through FIX
@@ -60,12 +61,13 @@ EXEC_COLS = [
 BUSTED_EXEC_TYPES = ("Cancel", "TradeCancel")
 
 # What a correction or bust rewrites on its trade's row: everything but the
-# identity (session, trade_id, direction).
+# identity (session, trade_id, direction). The DK columns go back to blank:
+# a DontKnowTrade answered the ExecID the row no longer carries.
 EXEC_UPDATE_COLS = [
     "exec_id", "exec_ref_id", "order_id", "cl_ord_id", "symbol", "side",
     "side_code", "last_qty", "last_price", "cum_qty", "avg_price",
     "exec_type", "exec_type_code", "leaves_qty", "transact_time", "text",
-    "timestamp",
+    "timestamp", "dk_reason", "dk_text",
 ]
 
 # Blotter action templates (fix_templates): the scopes a dialog can load and
@@ -75,7 +77,7 @@ EXEC_UPDATE_COLS = [
 TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
-    "dk_reason", "text", "extra_tags",
+    "dk_reason", "text", "extra_tags", "client",
 ]
 
 
@@ -106,6 +108,16 @@ def _sent_exec_kind(dictionary: FixDictionary, msg: FixMessage,
     return dictionary.enum_name("150", code), code
 
 
+def _client_specs_of(spec: str | None) -> list[ClientTag]:
+    """A session's client_tags, the default chain when blank or malformed —
+    the column is written by a plain mkio transaction, so a bad value must
+    not stop messages being recorded."""
+    try:
+        return parse_client_tags(spec or "")
+    except ValueError:
+        return parse_client_tags("")
+
+
 class FixEngine:
     """Manages all FIX sessions and bridges messages to mkio's database."""
 
@@ -123,6 +135,7 @@ class FixEngine:
         await self._ensure_indexes()
         await self._backfill_entered_terms()
         await self._backfill_rx_extra_tags()
+        await self._backfill_client()
         await self.ids.start()
         await self._load_custom_dictionaries()
         await self._load_sessions()
@@ -165,7 +178,7 @@ class FixEngine:
             "session_id", "timestamp", "direction", "seq_num", "msg_type",
             "msg_type_name", "category", "raw_message", "sender_comp",
             "target_comp", "cl_ord_id", "order_id", "exec_id", "symbol",
-            "side", "body_length", "checksum",
+            "side", "body_length", "checksum", "client",
         ]
         msg_placeholders = ", ".join(["?"] * (len(msg_cols) + 1))
         msg_col_str = ", ".join(msg_cols + ["_mkio_ref"])
@@ -269,6 +282,15 @@ class FixEngine:
             op_type="update",
             sql=f"UPDATE fix_executions SET {exec_set} WHERE id = ? RETURNING *",
             param_names=tuple(EXEC_UPDATE_COLS + ["_mkio_ref", "id"]),
+        ),)
+        # An inbound DontKnowTrade marks the sent trade it names; the trade's
+        # own terms stay, so the DK is a new version of the row, not a report.
+        self._compiled_ops["dk_execution"] = (CompiledOp(
+            table="fix_executions",
+            op_type="update",
+            sql="UPDATE fix_executions SET dk_reason = ?, dk_text = ?, _mkio_ref = ? "
+                "WHERE id = ? RETURNING *",
+            param_names=("dk_reason", "dk_text", "_mkio_ref", "id"),
         ),)
 
         ioi_cols = [
@@ -420,6 +442,90 @@ class FixEngine:
         if changed:
             await self.db.write_conn.commit()
 
+    async def _backfill_client(self) -> None:
+        """Seed the client column of rows recorded before it existed, once
+        (fix_settings `client_backfill`): messages from their wire bytes
+        through the owning session's client tags, orders from their earliest
+        recorded message naming one (the NewOrderSingle, or the ER that
+        created the row), trades from their order (live, or through history
+        after a rename) else their ExecutionReport. Raw-connection writes,
+        like _backfill_entered_terms, so the touched rows show the
+        pre-backfill value at version 1."""
+        conn = self.db.write_conn
+        cur = await conn.execute(
+            "SELECT value FROM fix_settings WHERE key = 'client_backfill'")
+        done = await cur.fetchone()
+        await cur.close()
+        if done:
+            return
+
+        cur = await conn.execute("SELECT session_id, client_tags FROM fix_sessions")
+        specs = {r["session_id"]: _client_specs_of(r["client_tags"])
+                 for r in await cur.fetchall()}
+        await cur.close()
+        default = _client_specs_of("")
+
+        cur = await conn.execute(
+            "SELECT id, session_id, raw_message FROM fix_messages WHERE client = ''")
+        messages = [(client_of(parse_fix(r["raw_message"]), specs.get(r["session_id"], default)),
+                     r["id"]) for r in await cur.fetchall()]
+        await cur.close()
+        await (await conn.executemany(
+            "UPDATE fix_messages SET client = ? WHERE id = ?",
+            [m for m in messages if m[0]])).close()
+
+        await (await conn.execute(
+            "UPDATE fix_orders SET client = COALESCE((SELECT m.client FROM fix_messages m "
+            "WHERE m.session_id = fix_orders.session_id "
+            "AND m.cl_ord_id IN (fix_orders.cl_ord_id, fix_orders.orig_cl_ord_id) "
+            "AND m.client != '' ORDER BY m.id LIMIT 1), '') WHERE client = ''")).close()
+
+        await (await conn.execute(
+            "UPDATE fix_executions SET client = COALESCE("
+            "(SELECT o.client FROM fix_orders o WHERE o.session_id = fix_executions.session_id "
+            "AND o.cl_ord_id = fix_executions.cl_ord_id AND o.client != ''), "
+            "(SELECT o.client FROM fix_orders o JOIN fix_orders__history h ON h.id = o.id "
+            "WHERE h.session_id = fix_executions.session_id "
+            "AND h.cl_ord_id = fix_executions.cl_ord_id AND o.client != '' LIMIT 1), "
+            "(SELECT m.client FROM fix_messages m WHERE m.session_id = fix_executions.session_id "
+            "AND m.exec_id = fix_executions.exec_id AND m.client != '' ORDER BY m.id LIMIT 1), "
+            "'') WHERE client = ''")).close()
+
+        await (await conn.execute(
+            "INSERT OR REPLACE INTO fix_settings (key, value) VALUES ('client_backfill', '1')"
+        )).close()
+        await conn.commit()
+
+    @staticmethod
+    def _client_specs(session: FixSession) -> list[ClientTag]:
+        """The session's client tag specs (fix_sessions.client_tags)."""
+        config = getattr(session, "config", None) or {}
+        return _client_specs_of(config.get("client_tags"))
+
+    def _stamp_client(self, session: FixSession, msg: FixMessage, client: str) -> None:
+        """Put `client` on an outgoing message, unless its extra tags already
+        name one — extras win, and an echoed Parties group must not go out
+        twice. Call after `msg.extra` is set."""
+        specs = self._client_specs(session)
+        if client_of(FixMessage(dict(msg.extra), pairs=msg.extra), specs):
+            return
+        session.factory.stamp_client(msg, client or "", specs)
+
+    def _client_as_sent(self, session: FixSession, msg: FixMessage) -> str:
+        """The client a message will carry once sent — extras applied, as
+        sendprep will apply them — for the row written before the send."""
+        preview = FixMessage(dict(msg.fields))
+        preview.extra = list(msg.extra)
+        preview.sendprep(session.dictionary, session.factory.sender, session.factory.target, 0)
+        return client_of(preview, self._client_specs(session))
+
+    async def _client_of_order(self, session_id: str, cl_ord_id: str) -> str:
+        try:
+            order = await self._load_order(session_id, cl_ord_id)
+        except ValueError:
+            return ""
+        return order.get("client") or ""
+
     async def _load_sessions(self) -> None:
         """Load session configurations from the database."""
         conn = self.db.read_conn
@@ -511,6 +617,7 @@ class FixEngine:
             msg.get("54", ""),
             msg.get_int("9", 0),
             msg.get("10", ""),
+            client_of(msg, self._client_specs(session) if session else _client_specs_of("")),
             None,  # _mkio_ref placeholder
         )
 
@@ -556,6 +663,8 @@ class FixEngine:
             await self._handle_cancel_request(session, msg, "Cancel")
         elif msg_type == "G":
             await self._handle_cancel_request(session, msg, "Replace")
+        elif msg_type == "Q":
+            await self._handle_dont_know_trade(session, msg)
         elif msg_type == "6":
             await self._handle_ioi(session, msg, "RX")
         elif msg_type == "J":
@@ -618,6 +727,7 @@ class FixEngine:
             "entered_price": msg.get_float("44", 0.0) or None,
             "expire_time": msg.get("126", ""),
             "expire_date": msg.get("432", ""),
+            "client": client_of(msg, self._client_specs(session)),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -663,8 +773,29 @@ class FixEngine:
             "text": msg.get("58", ""),
             "timestamp": now,
             "direction": "RX",
+            "dk_reason": "",
+            "dk_text": "",
+            "client": order_row["client"] or await self._client_of_order(session_id, cl_ord_id),
         }
         await self._submit_execution(exec_row, referenced["id"] if referenced else None)
+
+    async def _handle_dont_know_trade(self, session: FixSession, msg: FixMessage) -> None:
+        """Process a DontKnowTrade (35=Q): mark the sent trade whose ExecID(17)
+        it names with the counterparty's DKReason(127) and Text(58).
+
+        The ExecID resolves like a correction's ExecRefID — live row, then
+        history — so a DK of the original fill after a correction lands on
+        the corrected trade. Only a trade this engine sent can be DK'd; a
+        reference to nothing, or to a received trade, is left as the recorded
+        message.
+        """
+        execution = await self._find_execution(session.session_id, msg.get("17", ""))
+        if not execution or execution["direction"] != "TX":
+            return
+        reason = session.dictionary.enum_name("127", msg.get("127", ""))
+        params = (reason, msg.get("58", ""), None, execution["id"])
+        ops = self._compiled_ops["dk_execution"]
+        await self.writer.submit(ops, (params,), {"exec_id": execution["exec_id"]})
 
     async def _handle_new_order(self, session: FixSession, msg: FixMessage) -> None:
         """Record an inbound NewOrderSingle (35=D) as a received order awaiting action."""
@@ -712,6 +843,7 @@ class FixEngine:
             "entered_price": msg.get_float("44", 0.0) or None,
             "expire_time": msg.get("126", ""),
             "expire_date": msg.get("432", ""),
+            "client": client_of(msg, self._client_specs(session)),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
@@ -759,9 +891,11 @@ class FixEngine:
         expire_time: str = "",
         expire_date: str = "",
         expire_precision: str = "",
+        client: str = "",
         **extra: str,
     ) -> str:
-        """Send a NewOrderSingle and return the ClOrdID."""
+        """Send a NewOrderSingle and return the ClOrdID. `client` goes out on
+        the session's client tag; an extra tag naming that tag overrides it."""
         session = self.sessions.get(session_id)
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
@@ -782,6 +916,7 @@ class FixEngine:
             **extra,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, client)
         expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
 
         # Pre-populate the order row as PendingNew *before* the message goes on
@@ -828,6 +963,7 @@ class FixEngine:
             "entered_price": price,
             "expire_time": expire_time,
             "expire_date": expire_date,
+            "client": self._client_as_sent(session, msg),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
@@ -849,6 +985,7 @@ class FixEngine:
         side: str,
         qty: float = 0,
         extra_tags: str = "",
+        client: str = "",
     ) -> str:
         """Send an OrderCancelRequest and return the new ClOrdID."""
         session = self.sessions.get(session_id)
@@ -865,6 +1002,7 @@ class FixEngine:
             qty=qty,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, client)
         await session.send_message(msg)
         return cl_ord_id
 
@@ -882,6 +1020,7 @@ class FixEngine:
         expire_time: str = "",
         expire_date: str = "",
         expire_precision: str = "",
+        client: str = "",
         **extra: str,
     ) -> str:
         """Send an OrderCancelReplaceRequest and return the new ClOrdID.
@@ -910,10 +1049,12 @@ class FixEngine:
             **extra,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, client)
         expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
 
         dictionary = session.dictionary
         entered = {
+            "client": self._client_as_sent(session, msg),
             "symbol": symbol,
             "side": dictionary.enum_name("54", side),
             "side_code": side,
@@ -1086,6 +1227,9 @@ class FixEngine:
             "text": "",
             "timestamp": now,
             "direction": "TX",
+            "dk_reason": "",
+            "dk_text": "",
+            "client": order.get("client") or "",
         }
         await self._submit_execution(exec_row, row_id)
 
@@ -1109,6 +1253,7 @@ class FixEngine:
             leaves_qty=order["order_qty"],
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         await self._write_order(order, order_id=order_id, status="New",
                                 pending_action="", pending_extra_tags="")
@@ -1137,6 +1282,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         await self._write_order(order, status="Rejected", leaves_qty=0.0, text=text,
                                 pending_action="", pending_extra_tags="")
@@ -1179,6 +1325,7 @@ class FixEngine:
             leaves_qty=leaves_qty,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         # A fill on a not-yet-accepted order implicitly acknowledges it, so the
         # pending New is consumed; a pending Cancel/Replace stays parked.
@@ -1252,6 +1399,7 @@ class FixEngine:
             **{"41": cl_ord_id},
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
@@ -1305,6 +1453,7 @@ class FixEngine:
             **{"41": cl_ord_id, "44": str(new_price)},
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
@@ -1346,6 +1495,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         await self._write_order(
             order, pending_action="", pending_cl_ord_id="",
@@ -1394,6 +1544,7 @@ class FixEngine:
             exec_ref_id=exec_id,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         await self._write_order(
             order, status=dictionary.enum_name("39", status_code),
@@ -1444,6 +1595,7 @@ class FixEngine:
             exec_ref_id=exec_id,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
 
         await self._write_order(
             order, status=dictionary.enum_name("39", status_code),
@@ -1486,6 +1638,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
+        self._stamp_client(session, msg, execution.get("client"))
         await session.send_message(msg)
 
     async def _order_qty_of(self, execution: dict[str, Any]) -> float:

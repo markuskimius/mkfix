@@ -2096,3 +2096,39 @@ class TestTemplates:
         for op in ("add", "update"):
             required = set(ops[op][0]["fields"]) - set(ops[op][0]["defaults"])
             assert required == ({"scope", "name"} if op == "add" else {"name"})
+
+
+class TestClientColumn:
+    """The client rides on a per-session tag list (fix_sessions.client_tags,
+    asked for in the session dialogs) and lands as `client` on orders,
+    trades and messages: every blotter shows and can filter it, the order
+    dialogs carry a Client field the engine stamps on the session's tag,
+    and Cancel passes the row's client along as rowData."""
+
+    BLOTTERS = ("order-blotter", "market-order-blotter", "trade-blotter",
+                "market-trade-blotter", "raw-messages")
+
+    def test_blotters_show_and_filter_client(self, app_config, toml_config):
+        for pane_id in self.BLOTTERS:
+            pane = app_config["panes"][pane_id]
+            assert "client" in pane["columns"], pane_id
+            assert "client" in toml_config["services"][pane["service"]]["filterable"], pane_id
+        sessions = app_config["panes"]["session-blotter"]
+        assert "client_tags" in sessions["columns"]
+
+    def test_session_dialogs_ask_for_client_tags(self, app_config, toml_config):
+        ops = toml_config["services"]["session_mgmt"]["ops"]
+        for label, op in (("New", "add"), ("Edit", "update")):
+            dialog = _session_button(app_config, label)["action"]["dialog"]
+            assert "client_tags" in _dialog_field_names(dialog), label
+            step = next(s for s in ops[op] if s["table"] == "fix_sessions")
+            assert "client_tags" in step["fields"] and step["defaults"]["client_tags"] == ""
+
+    def test_order_dialogs_carry_the_client(self, app_config):
+        from mkfix.services.fix_command import ORDER_TERMS
+        assert "client" in ORDER_TERMS
+        for op in ("send_new_order", "send_cancel_replace"):
+            assert "client" in _dialog_field_names(_find_dialog(app_config, op)), op
+        cancel = _find_dialog(app_config, "send_cancel")
+        assert cancel["rowData"]["client"] == "${row.client}"
+        assert "client" in app_config["panes"]["templates"]["columns"]

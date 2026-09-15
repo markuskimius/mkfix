@@ -158,7 +158,7 @@ class TestDispatch:
         engine.send_new_order.assert_awaited_once_with(
             session_id="S1", symbol="AAPL", side="1", qty=100.0,
             ord_type="2", price=150.25, tif="0", extra_tags="",
-            expire_time="", expire_date="", expire_precision="",
+            expire_time="", expire_date="", expire_precision="", client="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -176,6 +176,24 @@ class TestDispatch:
         })
         kwargs = engine.send_new_order.await_args.kwargs
         assert kwargs["extra_tags"] == "5001=X|382=2|375=A|375=B"
+
+    @pytest.mark.asyncio
+    async def test_client_reaches_every_order_send(self):
+        """The New and Replace dialogs' Client field, and the client Cancel
+        passes as rowData, reach the engine verbatim; the engine stamps it
+        on the session's client tag."""
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        base = {"session_id": "S1", "symbol": "AAPL", "side": "1", "qty": "100", "client": "ACME"}
+        await svc.on_message(ws, {"ref": "r", "op": "send_new_order", "data": base})
+        assert engine.send_new_order.await_args.kwargs["client"] == "ACME"
+        await svc.on_message(ws, {"ref": "r", "op": "send_cancel_replace",
+                                  "data": {**base, "orig_cl_ord_id": "C1"}})
+        assert engine.send_cancel_replace.await_args.kwargs["client"] == "ACME"
+        await svc.on_message(ws, {"ref": "r", "op": "send_cancel",
+                                  "data": {**base, "orig_cl_ord_id": "C1"}})
+        assert engine.send_cancel.await_args.kwargs["client"] == "ACME"
 
     @pytest.mark.asyncio
     async def test_send_new_order_market_has_no_price(self):
@@ -203,7 +221,7 @@ class TestDispatch:
         })
         engine.send_cancel.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL", side="1", qty=100.0,
-            extra_tags="",
+            extra_tags="", client="",
         )
 
     @pytest.mark.asyncio
@@ -219,7 +237,7 @@ class TestDispatch:
         engine.send_cancel_replace.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
             side="1", qty=200.0, ord_type="2", price=151.0, tif=None, extra_tags="",
-            expire_time="", expire_date="", expire_precision="",
+            expire_time="", expire_date="", expire_precision="", client="",
         )
 
     @pytest.mark.asyncio
@@ -238,7 +256,7 @@ class TestDispatch:
         engine.send_cancel_replace.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
             side="1", qty=200.0, ord_type="1", price=None, tif="3", extra_tags="5001=X",
-            expire_time="", expire_date="", expire_precision="",
+            expire_time="", expire_date="", expire_precision="", client="",
         )
 
     @pytest.mark.asyncio
@@ -468,12 +486,12 @@ class TestSaveAsTemplate:
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "qty": "100", "ord_type": "2",
           "price": "150.25", "tif": "0"},
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "100",
-          "price": "150.25", "tif": "0", "extra_tags": ""}),
+          "price": "150.25", "tif": "0", "extra_tags": "", "client": ""}),
         ("send_cancel_replace", "order",
          {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "120",
           "ord_type": "2", "price": "151", "tif": "0"},
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "120",
-          "price": "151", "tif": "0", "extra_tags": ""}),
+          "price": "151", "tif": "0", "extra_tags": "", "client": ""}),
         ("send_cancel", "cancel",
          {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "100",
           "extra_tags": "58=bye"},

@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.37"
+        "text": "mkfix v0.38"
       }
     ],
     "bindStyle": {
@@ -209,6 +209,7 @@
         "session_id",
         "fix_version",
         "dictionary",
+        "client_tags",
         "sender_comp_id",
         "target_comp_id",
         "host",
@@ -249,7 +250,8 @@
         "rx_seq_num": "RX Seq",
         "dictionary": "Dictionary",
         "_mkio_version": "Ver",
-        "error_text": "Error"
+        "error_text": "Error",
+        "client_tags": "Client Tags"
       },
       "styles": {
         "status": [
@@ -383,6 +385,13 @@
                       "label": "Picosecond"
                     }
                   ]
+                },
+                {
+                  "name": "client_tags",
+                  "label": "Client Tag(s)",
+                  "type": "text",
+                  "value": "",
+                  "placeholder": "blank = 448[452=3],109,115,1 — first present wins"
                 },
                 {
                   "row": [
@@ -608,6 +617,13 @@
                       "label": "Picosecond"
                     }
                   ]
+                },
+                {
+                  "name": "client_tags",
+                  "label": "Client Tag(s)",
+                  "type": "text",
+                  "value": "${row.client_tags}",
+                  "placeholder": "blank = 448[452=3],109,115,1 — first present wins"
                 },
                 {
                   "row": [
@@ -867,6 +883,7 @@
         "seq_num",
         "session_id",
         "msg_type_name",
+        "client",
         "raw_message"
       ],
       "labels": {
@@ -875,7 +892,8 @@
         "seq_num": "Seq",
         "session_id": "Session",
         "msg_type_name": "Type",
-        "raw_message": "Message"
+        "raw_message": "Message",
+        "client": "Client"
       },
       "display": {
         "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
@@ -931,6 +949,7 @@
         "order_id",
         "cl_ord_id",
         "session_id",
+        "client",
         "symbol",
         "side",
         "ord_type",
@@ -965,7 +984,8 @@
         "cum_qty": "Cum Qty",
         "avg_price": "Avg Px",
         "leaves_qty": "Leaves",
-        "updated_at": "Updated"
+        "updated_at": "Updated",
+        "client": "Client"
       },
       "types": {
         "updated_at": {
@@ -1052,7 +1072,8 @@
                     "ord_type": "ord_type",
                     "price": "price",
                     "tif": "tif",
-                    "extra_tags": "extra_tags"
+                    "extra_tags": "extra_tags",
+                    "client": "client"
                   },
                   "remember": {
                     "key": "mkfix.template.send_new_order",
@@ -1069,6 +1090,12 @@
                     "label": "session_id"
                   },
                   "required": true
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional"
                 },
                 {
                   "row": [
@@ -1291,7 +1318,8 @@
                     "ord_type": "ord_type",
                     "price": "price",
                     "tif": "tif",
-                    "extra_tags": "extra_tags"
+                    "extra_tags": "extra_tags",
+                    "client": "client"
                   },
                   "remember": {
                     "key": "mkfix.template.send_cancel_replace",
@@ -1302,6 +1330,13 @@
                   "label": "Session",
                   "type": "readonly",
                   "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "value": "${row.client}",
+                  "placeholder": "optional"
                 },
                 {
                   "row": [
@@ -1516,7 +1551,8 @@
                 "orig_cl_ord_id": "${row.cl_ord_id}",
                 "symbol": "${row.symbol}",
                 "side": "${row.side_code}",
-                "qty": "${row.order_qty}"
+                "qty": "${row.order_qty}",
+                "client": "${row.client}"
               },
               "fields": [
                 {
@@ -1592,6 +1628,7 @@
         "exec_id",
         "exec_ref_id",
         "session_id",
+        "client",
         "symbol",
         "side",
         "last_qty",
@@ -1622,7 +1659,8 @@
           "cl_ord_id",
           "order_id",
           "transact_time",
-          "text"
+          "text",
+          "client"
         ]
       },
       "labels": {
@@ -1638,7 +1676,8 @@
         "exec_type": "Exec Type",
         "transact_time": "Time",
         "exec_ref_id": "ExecRefID",
-        "_mkio_version": "Ver"
+        "_mkio_version": "Ver",
+        "client": "Client"
       },
       "types": {
         "transact_time": {
@@ -1844,6 +1883,7 @@
         "order_id",
         "cl_ord_id",
         "session_id",
+        "client",
         "symbol",
         "side",
         "ord_type",
@@ -1884,7 +1924,8 @@
         "cum_qty": "Cum Qty",
         "avg_price": "Avg Px",
         "leaves_qty": "Leaves",
-        "updated_at": "Updated"
+        "updated_at": "Updated",
+        "client": "Client"
       },
       "types": {
         "updated_at": {
@@ -2206,6 +2247,7 @@
         "exec_id",
         "exec_ref_id",
         "session_id",
+        "client",
         "symbol",
         "side",
         "last_qty",
@@ -2213,6 +2255,7 @@
         "cum_qty",
         "avg_price",
         "exec_type",
+        "dk_reason",
         "transact_time"
       ],
       "history": {
@@ -2228,6 +2271,8 @@
           "exec_id",
           "exec_ref_id",
           "exec_type",
+          "dk_reason",
+          "dk_text",
           "last_qty",
           "last_price",
           "cum_qty",
@@ -2236,7 +2281,8 @@
           "cl_ord_id",
           "order_id",
           "transact_time",
-          "text"
+          "text",
+          "client"
         ]
       },
       "labels": {
@@ -2252,7 +2298,10 @@
         "exec_type": "Exec Type",
         "transact_time": "Time",
         "exec_ref_id": "ExecRefID",
-        "_mkio_version": "Ver"
+        "_mkio_version": "Ver",
+        "dk_reason": "DK",
+        "dk_text": "DK Text",
+        "client": "Client"
       },
       "types": {
         "transact_time": {
@@ -2308,6 +2357,13 @@
             "when": "value == 'TradeCancel'",
             "color": "#f44747",
             "strike": true
+          }
+        ],
+        "dk_reason": [
+          {
+            "when": "value != ''",
+            "color": "#ce9178",
+            "bold": true
           }
         ]
       },
@@ -2637,6 +2693,7 @@
         "name",
         "scope",
         "session_id",
+        "client",
         "symbol",
         "side",
         "ord_type",
@@ -2659,7 +2716,8 @@
         "tif": "TIF (59)",
         "dk_reason": "DK Reason (127)",
         "text": "Text (58)",
-        "extra_tags": "Extra Tags"
+        "extra_tags": "Extra Tags",
+        "client": "Client"
       },
       "sort": [
         "scope",
@@ -2721,6 +2779,13 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
+                  "showWhen": "row.scope == 'order'"
+                },
+                {
+                  "name": "client",
+                  "label": "Client",
+                  "type": "text",
+                  "value": "${row.client}",
                   "showWhen": "row.scope == 'order'"
                 },
                 {
@@ -3056,7 +3121,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.37",
+      "version": "0.38",
       "mkio": "1.2",
       "expr": "1"
     },

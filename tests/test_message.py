@@ -7,6 +7,7 @@ from mkfix.fix.message import (
     format_extra_tags,
     FixMessage, FixMessageFactory, parse_fix, parse_extra_tags, _checksum, SOH,
     _fix_timestamp, standard_precision,
+    ClientTag, DEFAULT_CLIENT_TAGS, client_of, parse_client_tags,
 )
 from mkfix.fix.dictionary import FixDictionary
 
@@ -716,3 +717,73 @@ class TestSocketRecordsWireBytes:
         await sock.write_prepared(msg)
 
         assert writer.write.call_args.args[0] == raw
+
+
+class TestClientTags:
+    """Where the client rides is a per-counterparty setting: an ordered list
+    of tag specs, the first present naming the client. A group member is
+    qualified by a sibling (`448[452=3]`); the default chain covers the
+    Parties group, ClientID(109), OnBehalfOfCompID(115) and Account(1)."""
+
+    def test_parse_specs_blank_means_the_default_chain(self):
+        assert parse_client_tags("") == parse_client_tags(DEFAULT_CLIENT_TAGS)
+        assert parse_client_tags("  ") == [
+            ClientTag("448", ("452", "3")), ClientTag("109"), ClientTag("115"), ClientTag("1")]
+        assert parse_client_tags(" 109 , 5001 ") == [ClientTag("109"), ClientTag("5001")]
+        assert parse_client_tags("448[452=3]") == [ClientTag("448", ("452", "3"))]
+
+    @pytest.mark.parametrize("bad", ["109;115", "abc", "448[452]", "448[=3]", "109,,x"])
+    def test_parse_rejects_malformed_specs(self, bad):
+        with pytest.raises(ValueError):
+            parse_client_tags(bad)
+
+    def test_first_present_spec_wins(self):
+        specs = parse_client_tags("109,115,1")
+        assert client_of(parse_fix("8=FIX.4.2|35=D|115=HUB|109=ACME|1=ACCT"), specs) == "ACME"
+        assert client_of(parse_fix("8=FIX.4.2|35=D|115=HUB|1=ACCT"), specs) == "HUB"
+        assert client_of(parse_fix("8=FIX.4.2|35=D|1=ACCT"), specs) == "ACCT"
+        assert client_of(parse_fix("8=FIX.4.2|35=D|109="), specs) == ""
+        assert client_of(parse_fix("8=FIX.4.2|35=D"), specs) == ""
+
+    def test_group_spec_reads_the_instance_whose_qualifier_matches(self):
+        specs = parse_client_tags("")
+        msg = parse_fix("8=FIX.4.4|35=D|11=C1|453=2|448=BROKER|447=D|452=1|"
+                        "448=ACME|447=D|452=3|109=LEGACY")
+        assert client_of(msg, specs) == "ACME"
+        no_client_role = parse_fix("8=FIX.4.4|35=D|453=1|448=BROKER|447=D|452=1|109=LEGACY")
+        assert client_of(no_client_role, specs) == "LEGACY", "falls through to the next spec"
+        assert client_of(parse_fix("8=FIX.4.4|35=D|452=3|448=LATE"), specs) == "", \
+            "the qualifier must follow its member, as a group instance lies on the wire"
+
+    def test_stamp_uses_the_first_spec_the_dictionary_defines(self):
+        specs = parse_client_tags("")
+        fix42 = FixMessageFactory(FixDictionary("FIX.4.2"), "US", "THEM")
+        assert fix42.client_fields("ACME", specs) == {"109": "ACME"}, "448 is not a 4.2 tag"
+        fix44 = FixMessageFactory(FixDictionary("FIX.4.4"), "US", "THEM")
+        assert fix44.client_fields("ACME", specs) == {
+            "453": "1", "448": "ACME", "447": "D", "452": "3"}
+        assert fix44.client_fields("", specs) == {}
+
+    def test_stamp_falls_back_to_the_first_spec_as_written(self):
+        fix42 = FixMessageFactory(FixDictionary("FIX.4.2"), "US", "THEM")
+        assert fix42.client_fields("ACME", parse_client_tags("5001,5002")) == {"5001": "ACME"}
+        assert fix42.client_fields("ACME", parse_client_tags("5001,109")) == {"109": "ACME"}
+
+    def test_stamped_header_tag_lands_in_the_header(self):
+        factory = FixMessageFactory(FixDictionary("FIX.4.2"), "US", "THEM")
+        msg = factory.new_order_single("C1", "AAPL", "1", 100)
+        factory.stamp_client(msg, "HUB", parse_client_tags("115"))
+        msg.sendprep(factory.dictionary, "US", "THEM", 1)
+        tags = [t for t, _ in msg._pairs]
+        assert tags.index("115") < tags.index("35") or tags.index("115") < tags.index("11")
+        assert tags.index("115") < tags.index("34")
+        assert client_of(msg, parse_client_tags("115")) == "HUB"
+
+    def test_extra_tag_overrides_the_stamped_client(self):
+        factory = FixMessageFactory(FixDictionary("FIX.4.2"), "US", "THEM")
+        msg = factory.new_order_single("C1", "AAPL", "1", 100)
+        factory.stamp_client(msg, "ACME", parse_client_tags("109"))
+        msg.extra = [("109", "OTHER")]
+        msg.sendprep(factory.dictionary, "US", "THEM", 1)
+        assert [v for t, v in msg._pairs if t == "109"] == ["OTHER"]
+        assert client_of(msg, parse_client_tags("109")) == "OTHER"

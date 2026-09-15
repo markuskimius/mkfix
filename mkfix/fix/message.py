@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 from mkfix.fix.dictionary import FixDictionary
 
@@ -282,6 +282,36 @@ class FixMessageFactory:
             msg["8"] = self.dictionary.begin_string()
         return msg
 
+    def client_fields(self, client: str, specs: list[ClientTag]) -> dict[str, str]:
+        """The pairs that put `client` where this counterparty reads it: the
+        first spec the dictionary defines, else the first spec as written (a
+        custom tag). A group spec goes out as a one-instance group — the
+        counter where the dictionary knows it, the member, PartyIDSource(447)
+        as D (proprietary) where defined since the Parties group requires it,
+        then the qualifier. Header tags (115) land in the header at sendprep."""
+        if not client:
+            return {}
+        spec = next((s for s in specs if self.dictionary.defines(s.tag)), specs[0])
+        if spec.qualifier is None:
+            return {spec.tag: client}
+        qualifier_tag, qualifier_value = spec.qualifier
+        fields: dict[str, str] = {}
+        counter = next((c for c, g in self.dictionary.groups.items()
+                        if g.get("delim") == spec.tag), None)
+        if counter:
+            fields[counter] = "1"
+        fields[spec.tag] = client
+        if spec.tag == "448" and self.dictionary.defines("447"):
+            fields["447"] = "D"
+        fields[qualifier_tag] = qualifier_value
+        return fields
+
+    def stamp_client(self, msg: FixMessage, client: str, specs: list[ClientTag]) -> None:
+        """Put `client` on an outgoing message. Applied before `extra`, so an
+        extra tag naming the same tag overrides it at sendprep."""
+        for tag, value in self.client_fields(client, specs).items():
+            msg[tag] = value
+
     def heartbeat(self, test_req_id: str | None = None) -> FixMessage:
         fields: dict[str, str] = {"35": "0"}
         if test_req_id:
@@ -531,6 +561,63 @@ class FixMessageFactory:
         if text:
             fields["58"] = text
         return self.create(fields)
+
+
+# Where the client rides, per counterparty: an ordered list of tag specs, the
+# first one present on a message naming the client. A spec is a tag, or a
+# repeating-group member qualified by a sibling — `448[452=3]` is the PartyID
+# whose PartyRole is 3 (ClientID, the FIX 4.3+ form). The default chain covers
+# the standard places in order: the Parties group, ClientID(109) through 4.2,
+# OnBehalfOfCompID(115) in the header, Account(1).
+DEFAULT_CLIENT_TAGS = "448[452=3],109,115,1"
+
+_CLIENT_SPEC_RE = re.compile(r"^(\d+)(?:\[(\d+)=([^\]]*)\])?$")
+
+
+class ClientTag(NamedTuple):
+    tag: str
+    qualifier: tuple[str, str] | None = None
+
+
+def parse_client_tags(spec: str) -> list[ClientTag]:
+    """Parse a session's client_tags: comma-separated `tag` or
+    `tag[qualifier=value]` specs, blank meaning DEFAULT_CLIENT_TAGS."""
+    text = (spec or "").strip() or DEFAULT_CLIENT_TAGS
+    specs: list[ClientTag] = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        match = _CLIENT_SPEC_RE.match(part)
+        if not match:
+            raise ValueError(
+                f"Invalid client tag {part!r} (expected a tag, or tag[qualifier=value])")
+        tag, qualifier_tag, qualifier_value = match.groups()
+        specs.append(ClientTag(tag, (qualifier_tag, qualifier_value) if qualifier_tag else None))
+    if not specs:
+        raise ValueError("Client tags name no tag")
+    return specs
+
+
+def client_of(msg: FixMessage, specs: list[ClientTag]) -> str:
+    """The client a message names: the first spec present. A qualified spec
+    reads the ordered wire pairs — the member's value stands until its
+    qualifier is met, which is how a group instance lies on the wire."""
+    items = msg._items()
+    for spec in specs:
+        if spec.qualifier is None:
+            value = msg.get(spec.tag, "")
+            if value:
+                return value
+            continue
+        qualifier_tag, qualifier_value = spec.qualifier
+        current = ""
+        for tag, value in items:
+            if tag == spec.tag:
+                current = value
+            elif tag == qualifier_tag and value == qualifier_value and current:
+                return current
+    return ""
 
 
 def parse_extra_tags(text: str) -> list[tuple[str, str]]:

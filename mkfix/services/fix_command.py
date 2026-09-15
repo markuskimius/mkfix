@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 # names the template to keep them under — written before the send. Only an
 # order template records a session: the New dialog's own field, which a
 # pick fills; every other dialog acts on its row's session.
-ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "extra_tags")
+ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "extra_tags", "client")
 TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_new_order": ("order", ORDER_TERMS),
     "send_cancel_replace": ("order", ORDER_TERMS),
@@ -94,6 +94,7 @@ class FixCommandService(Service):
                 expire_time=data.get("expire_time", ""),
                 expire_date=data.get("expire_date", ""),
                 expire_precision=data.get("expire_precision", ""),
+                client=data.get("client", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -105,6 +106,7 @@ class FixCommandService(Service):
                 side=data["side"],
                 qty=float(data.get("qty", 0)),
                 extra_tags=data.get("extra_tags", ""),
+                client=data.get("client", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -122,6 +124,7 @@ class FixCommandService(Service):
                 expire_time=data.get("expire_time", ""),
                 expire_date=data.get("expire_date", ""),
                 expire_precision=data.get("expire_precision", ""),
+                client=data.get("client", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 

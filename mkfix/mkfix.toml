@@ -22,7 +22,7 @@ batch_max_wait_ms = 2.0
 # and the History pane, undo and redo read that chain. Its live state (status,
 # sequence numbers) is fix_session_state, joined in by sessions_query.
 [tables.fix_sessions]
-columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", dictionary = "TEXT DEFAULT ''", timestamp_precision = "TEXT DEFAULT ''", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", logout_timeout = "INTEGER DEFAULT 0", logout_test_request = "INTEGER DEFAULT 1", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''" }
+columns = { session_id = "TEXT PRIMARY KEY", fix_version = "TEXT NOT NULL DEFAULT 'FIX.4.2'", dictionary = "TEXT DEFAULT ''", timestamp_precision = "TEXT DEFAULT ''", sender_comp_id = "TEXT NOT NULL", target_comp_id = "TEXT NOT NULL", host = "TEXT DEFAULT ''", port = "INTEGER NOT NULL DEFAULT 9876", heartbeat_interval = "INTEGER DEFAULT 30", logout_timeout = "INTEGER DEFAULT 0", logout_test_request = "INTEGER DEFAULT 1", reset_on_logon = "INTEGER DEFAULT 0", enabled = "INTEGER DEFAULT 1", description = "TEXT DEFAULT ''", client_tags = "TEXT DEFAULT ''" }
 versioned = true
 archive = { group = "config", with = ["fix_session_state"] }
 
@@ -30,18 +30,18 @@ archive = { group = "config", with = ["fix_session_state"] }
 columns = { session_id = "TEXT PRIMARY KEY", status = "TEXT DEFAULT 'DOWN'", tx_seq_num = "INTEGER DEFAULT 1", rx_seq_num = "INTEGER DEFAULT 1", last_tx_time = "TEXT DEFAULT ''", last_rx_time = "TEXT DEFAULT ''", session_start = "TEXT DEFAULT ''", error_text = "TEXT DEFAULT ''", seq_epoch = "INTEGER DEFAULT 0" }
 
 [tables.fix_messages]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", timestamp = "TEXT NOT NULL", direction = "TEXT NOT NULL", seq_num = "INTEGER DEFAULT 0", msg_type = "TEXT DEFAULT ''", msg_type_name = "TEXT DEFAULT ''", category = "TEXT DEFAULT 'APP'", raw_message = "TEXT NOT NULL", sender_comp = "TEXT DEFAULT ''", target_comp = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", exec_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", body_length = "INTEGER DEFAULT 0", checksum = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", timestamp = "TEXT NOT NULL", direction = "TEXT NOT NULL", seq_num = "INTEGER DEFAULT 0", msg_type = "TEXT DEFAULT ''", msg_type_name = "TEXT DEFAULT ''", category = "TEXT DEFAULT 'APP'", raw_message = "TEXT NOT NULL", sender_comp = "TEXT DEFAULT ''", target_comp = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", exec_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", body_length = "INTEGER DEFAULT 0", checksum = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''" }
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 # orders_query/executions_query join the owning session's live status onto
 # these rows as session_status, which the blotters' action buttons gate on.
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_executions]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", dk_reason = "TEXT DEFAULT ''", dk_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -97,7 +97,7 @@ archive = { cutoff = "saved", group = "config" }
 # pane edits and deletes through the `templates` service. Shared by everyone
 # on the server, like layouts.
 [tables.fix_templates]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
 archive = { group = "config" }
 
 # ─��─ Transaction Services ───────────────────────────────────────────
@@ -107,11 +107,11 @@ protocol = "transaction"
 
 [services.session_mgmt.ops]
 add = [
-    { table = "fix_sessions", op_type = "insert", fields = ["session_id", "fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon", "description"], defaults = { fix_version = "FIX.4.2", dictionary = "", timestamp_precision = "", host = "", port = 9876, heartbeat_interval = 30, logout_timeout = 0, logout_test_request = 1, reset_on_logon = 0, description = "" } },
+    { table = "fix_sessions", op_type = "insert", fields = ["session_id", "fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon", "description", "client_tags"], defaults = { fix_version = "FIX.4.2", dictionary = "", timestamp_precision = "", host = "", port = 9876, heartbeat_interval = 30, logout_timeout = 0, logout_test_request = 1, reset_on_logon = 0, description = "", client_tags = "" } },
     { table = "fix_session_state", op_type = "insert", fields = ["session_id"], defaults = { status = "DOWN" } },
 ]
 update = [
-    { table = "fix_sessions", op_type = "update", key = ["session_id"], fields = ["fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon", "enabled", "description"] },
+    { table = "fix_sessions", op_type = "update", key = ["session_id"], fields = ["fix_version", "dictionary", "timestamp_precision", "sender_comp_id", "target_comp_id", "host", "port", "heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon", "enabled", "description", "client_tags"], defaults = { client_tags = "" } },
 ]
 delete = [
     { table = "fix_session_state", op_type = "delete", key = ["session_id"] },
@@ -163,10 +163,10 @@ description = "Save, edit and delete blotter action templates"
 
 [services.templates.ops]
 add = [
-    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "" } },
+    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "" } },
 ]
 update = [
-    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "" } },
+    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "" } },
 ]
 delete = [
     { table = "fix_templates", op_type = "delete", key = ["id"] },
@@ -222,7 +222,7 @@ watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
 sql = """SELECT o.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_orders o LEFT JOIN fix_session_state t ON t.session_id = o.session_id"""
-filterable = ["session_id", "status", "symbol", "side", "direction", "session_status"]
+filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client"]
 
 [services.executions_query]
 protocol = "query"
@@ -232,12 +232,12 @@ watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
 sql = """SELECT e.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_executions e LEFT JOIN fix_session_state t ON t.session_id = e.session_id"""
-filterable = ["session_id", "symbol", "side", "direction", "session_status"]
+filterable = ["session_id", "symbol", "side", "direction", "session_status", "client"]
 
 [services.messages_query]
 protocol = "query"
 primary_table = "fix_messages"
-filterable = ["session_id", "direction", "msg_type", "category", "symbol"]
+filterable = ["session_id", "direction", "msg_type", "category", "symbol", "client"]
 
 [services.iois_query]
 protocol = "query"
@@ -258,7 +258,7 @@ filterable = ["scope"]
 # along so the pick fills the form (mkui's `fill`).
 [services.templates_list]
 protocol = "reqrep"
-sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, text, extra_tags FROM fix_templates WHERE scope = :scope ORDER BY name"
+sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, text, extra_tags, client FROM fix_templates WHERE scope = :scope ORDER BY name"
 
 [services.replay_jobs]
 protocol = "query"
@@ -407,7 +407,7 @@ SELECT h.* FROM fix_executions__history h
 protocol = "stream"
 primary_table = "fix_messages"
 buffer_size = 50000
-filterable = ["session_id", "direction", "msg_type", "category"]
+filterable = ["session_id", "direction", "msg_type", "category", "client"]
 
 [services.executions_stream]
 protocol = "stream"

@@ -90,7 +90,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   including trades filled before a replace renamed the order's ClOrdID chain.
   On the client side, a received trade can be DK'd from the Received Trades
   blotter (DontKnowTrade with the counterparty's OrderID/ExecID, a DKReason
-  and optional Text); the trade row stays as received.
+  and optional Text); the trade row stays as received. On the market side an
+  inbound DK marks the sent trade it names -- the reason and text show in the
+  Sent Trades blotter's DK column, and the trade can still be corrected or
+  busted, which clears the mark.
   Every message goes out version-correct: fills report ExecType F from FIX
   4.3, tags a version does not define are withheld, FIX 4.0 cancels carry
   CxlType, and FIXT.1.1 Logons carry DefaultApplVerID.
@@ -109,12 +112,24 @@ A FIX protocol testing engine for capital markets connectivity, built on
   template of that name. Each dialog reopens on the template last picked
   or saved in it (the saved one when both happened), remembered per
   browser. Each dialog keeps its own kind of template (an
-  order template holds symbol, side, quantity, type, price, TIF, extra tags
-  and optionally the session; a fill template quantity and price; a DK
+  order template holds symbol, side, quantity, type, price, TIF, client,
+  extra tags and optionally the session; a fill template quantity and price; a DK
   template its reason and text; Cancel, Accept and Bust their extra tags),
   and the dialog's pin keeps it open for a run. The Templates pane under the
   Trading menu lists every kind for editing and deleting. Templates live in
   the database and are shared by everyone on the server, like layouts.
+- **Client Column** -- Orders, trades and messages carry the client they
+  name, but the tag that carries it differs by counterparty: ClientID (109)
+  through FIX 4.2, a PartyID with PartyRole 3 from 4.3, OnBehalfOfCompID
+  (115) stamped by a hub, Account (1), or something custom. Each session
+  therefore names where its client rides -- a comma-separated list such as
+  `109,115` or `5001`, a group member qualified by a sibling as in
+  `448[452=3]`, first present wins, blank meaning the default chain
+  `448[452=3],109,115,1`. The New and Replace dialogs take a Client the
+  engine stamps on the session's tag (an Extra Tag naming it wins), a
+  received order's client rides back on every answer, trades inherit their
+  order's client, and every blotter and the Messages pane show and filter
+  the column. Rows recorded before the column are seeded once at startup.
 - **Extra Tags on Anything** -- Every send action (New, Replace, Cancel,
   Accept, Reject, Fill, Correct, Bust, DK) takes an optional Extra Tags field in
   pipe-delimited FIX format (`528=A|382=2|375=BRK1|375=BRK2`). Custom tags on
