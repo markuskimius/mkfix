@@ -304,94 +304,106 @@
                   "required": true
                 },
                 {
-                  "name": "fix_version",
-                  "label": "FIX Version",
-                  "type": "select",
-                  "value": "FIX.4.2",
-                  "options": [
+                  "row": [
                     {
-                      "value": "FIX.4.0",
-                      "label": "FIX.4.0"
-                    },
-                    {
-                      "value": "FIX.4.1",
-                      "label": "FIX.4.1"
-                    },
-                    {
+                      "name": "fix_version",
+                      "label": "FIX Version",
+                      "type": "select",
                       "value": "FIX.4.2",
-                      "label": "FIX.4.2"
+                      "options": [
+                        {
+                          "value": "FIX.4.0",
+                          "label": "FIX.4.0"
+                        },
+                        {
+                          "value": "FIX.4.1",
+                          "label": "FIX.4.1"
+                        },
+                        {
+                          "value": "FIX.4.2",
+                          "label": "FIX.4.2"
+                        },
+                        {
+                          "value": "FIX.4.3",
+                          "label": "FIX.4.3"
+                        },
+                        {
+                          "value": "FIX.4.4",
+                          "label": "FIX.4.4"
+                        },
+                        {
+                          "value": "FIX.5.0",
+                          "label": "FIX.5.0"
+                        },
+                        {
+                          "value": "FIX.5.0SP1",
+                          "label": "FIX.5.0SP1"
+                        },
+                        {
+                          "value": "FIX.5.0SP2",
+                          "label": "FIX.5.0SP2"
+                        }
+                      ],
+                      "width": 0.5
                     },
                     {
-                      "value": "FIX.4.3",
-                      "label": "FIX.4.3"
-                    },
-                    {
-                      "value": "FIX.4.4",
-                      "label": "FIX.4.4"
-                    },
-                    {
-                      "value": "FIX.5.0",
-                      "label": "FIX.5.0"
-                    },
-                    {
-                      "value": "FIX.5.0SP1",
-                      "label": "FIX.5.0SP1"
-                    },
-                    {
-                      "value": "FIX.5.0SP2",
-                      "label": "FIX.5.0SP2"
-                    }
-                  ]
-                },
-                {
-                  "name": "dictionary",
-                  "label": "Dictionary",
-                  "type": "select",
-                  "value": "",
-                  "optionsFrom": {
-                    "service": "dictionaries_list",
-                    "value": "name",
-                    "label": "label"
-                  }
-                },
-                {
-                  "name": "timestamp_precision",
-                  "label": "Timestamps",
-                  "type": "select",
-                  "value": "",
-                  "options": [
-                    {
+                      "name": "dictionary",
+                      "label": "Dictionary",
+                      "type": "select",
                       "value": "",
-                      "label": "Protocol standard"
-                    },
-                    {
-                      "value": "second",
-                      "label": "Second"
-                    },
-                    {
-                      "value": "millisecond",
-                      "label": "Millisecond"
-                    },
-                    {
-                      "value": "microsecond",
-                      "label": "Microsecond"
-                    },
-                    {
-                      "value": "nanosecond",
-                      "label": "Nanosecond"
-                    },
-                    {
-                      "value": "picosecond",
-                      "label": "Picosecond"
+                      "optionsFrom": {
+                        "service": "dictionaries_list",
+                        "value": "name",
+                        "label": "label"
+                      },
+                      "width": 0.5
                     }
                   ]
                 },
                 {
-                  "name": "client_tags",
-                  "label": "Client Tag(s)",
-                  "type": "text",
-                  "value": "",
-                  "placeholder": "blank = 448[452=3],109,115,1 — first present wins"
+                  "row": [
+                    {
+                      "name": "client_tags",
+                      "label": "Client Tag(s)",
+                      "type": "text",
+                      "value": "",
+                      "placeholder": "blank = 448[452=3],109,115,1 — first present wins",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "timestamp_precision",
+                      "label": "Timestamps",
+                      "type": "select",
+                      "value": "",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "Protocol standard"
+                        },
+                        {
+                          "value": "second",
+                          "label": "Second"
+                        },
+                        {
+                          "value": "millisecond",
+                          "label": "Millisecond"
+                        },
+                        {
+                          "value": "microsecond",
+                          "label": "Microsecond"
+                        },
+                        {
+                          "value": "nanosecond",
+                          "label": "Nanosecond"
+                        },
+                        {
+                          "value": "picosecond",
+                          "label": "Picosecond"
+                        }
+                      ],
+                      "width": 0.5
+                    }
+                  ]
                 },
                 {
                   "row": [
@@ -536,94 +548,106 @@
                   "value": "${row.enabled}"
                 },
                 {
-                  "name": "fix_version",
-                  "label": "FIX Version",
-                  "type": "select",
-                  "value": "${row.fix_version}",
-                  "options": [
+                  "row": [
                     {
-                      "value": "FIX.4.0",
-                      "label": "FIX.4.0"
+                      "name": "fix_version",
+                      "label": "FIX Version",
+                      "type": "select",
+                      "value": "${row.fix_version}",
+                      "options": [
+                        {
+                          "value": "FIX.4.0",
+                          "label": "FIX.4.0"
+                        },
+                        {
+                          "value": "FIX.4.1",
+                          "label": "FIX.4.1"
+                        },
+                        {
+                          "value": "FIX.4.2",
+                          "label": "FIX.4.2"
+                        },
+                        {
+                          "value": "FIX.4.3",
+                          "label": "FIX.4.3"
+                        },
+                        {
+                          "value": "FIX.4.4",
+                          "label": "FIX.4.4"
+                        },
+                        {
+                          "value": "FIX.5.0",
+                          "label": "FIX.5.0"
+                        },
+                        {
+                          "value": "FIX.5.0SP1",
+                          "label": "FIX.5.0SP1"
+                        },
+                        {
+                          "value": "FIX.5.0SP2",
+                          "label": "FIX.5.0SP2"
+                        }
+                      ],
+                      "width": 0.5
                     },
                     {
-                      "value": "FIX.4.1",
-                      "label": "FIX.4.1"
-                    },
-                    {
-                      "value": "FIX.4.2",
-                      "label": "FIX.4.2"
-                    },
-                    {
-                      "value": "FIX.4.3",
-                      "label": "FIX.4.3"
-                    },
-                    {
-                      "value": "FIX.4.4",
-                      "label": "FIX.4.4"
-                    },
-                    {
-                      "value": "FIX.5.0",
-                      "label": "FIX.5.0"
-                    },
-                    {
-                      "value": "FIX.5.0SP1",
-                      "label": "FIX.5.0SP1"
-                    },
-                    {
-                      "value": "FIX.5.0SP2",
-                      "label": "FIX.5.0SP2"
+                      "name": "dictionary",
+                      "label": "Dictionary",
+                      "type": "select",
+                      "value": "${row.dictionary}",
+                      "optionsFrom": {
+                        "service": "dictionaries_list",
+                        "value": "name",
+                        "label": "label"
+                      },
+                      "width": 0.5
                     }
                   ]
                 },
                 {
-                  "name": "dictionary",
-                  "label": "Dictionary",
-                  "type": "select",
-                  "value": "${row.dictionary}",
-                  "optionsFrom": {
-                    "service": "dictionaries_list",
-                    "value": "name",
-                    "label": "label"
-                  }
-                },
-                {
-                  "name": "timestamp_precision",
-                  "label": "Timestamps",
-                  "type": "select",
-                  "value": "${row.timestamp_precision}",
-                  "options": [
+                  "row": [
                     {
-                      "value": "",
-                      "label": "Protocol standard"
+                      "name": "client_tags",
+                      "label": "Client Tag(s)",
+                      "type": "text",
+                      "value": "${row.client_tags}",
+                      "placeholder": "blank = 448[452=3],109,115,1 — first present wins",
+                      "width": 0.5
                     },
                     {
-                      "value": "second",
-                      "label": "Second"
-                    },
-                    {
-                      "value": "millisecond",
-                      "label": "Millisecond"
-                    },
-                    {
-                      "value": "microsecond",
-                      "label": "Microsecond"
-                    },
-                    {
-                      "value": "nanosecond",
-                      "label": "Nanosecond"
-                    },
-                    {
-                      "value": "picosecond",
-                      "label": "Picosecond"
+                      "name": "timestamp_precision",
+                      "label": "Timestamps",
+                      "type": "select",
+                      "value": "${row.timestamp_precision}",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "Protocol standard"
+                        },
+                        {
+                          "value": "second",
+                          "label": "Second"
+                        },
+                        {
+                          "value": "millisecond",
+                          "label": "Millisecond"
+                        },
+                        {
+                          "value": "microsecond",
+                          "label": "Microsecond"
+                        },
+                        {
+                          "value": "nanosecond",
+                          "label": "Nanosecond"
+                        },
+                        {
+                          "value": "picosecond",
+                          "label": "Picosecond"
+                        }
+                      ],
+                      "width": 0.5
                     }
                   ]
-                },
-                {
-                  "name": "client_tags",
-                  "label": "Client Tag(s)",
-                  "type": "text",
-                  "value": "${row.client_tags}",
-                  "placeholder": "blank = 448[452=3],109,115,1 — first present wins"
                 },
                 {
                   "row": [
