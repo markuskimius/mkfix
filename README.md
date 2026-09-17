@@ -115,8 +115,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   order template holds symbol, side, quantity, type, price, TIF, client,
   extra tags and optionally the session; a fill template quantity and price; a DK
   template its reason and text; Cancel, Accept and Bust their extra tags),
-  and the dialog's pin keeps it open for a run. The Templates pane under the
-  Trading menu lists every kind for editing and deleting. Templates live in
+  and the dialog's pin keeps it open for a run: after each send the form
+  keeps the terms as entered (only the Save-as name clears, so a template
+  is saved once), ready for the next order to vary one of them. The
+  Templates pane under the Trading menu lists every kind for editing and
+  deleting. Templates live in
   the database and are shared by everyone on the server, like layouts.
 - **Client Column** -- Orders, trades and messages carry the client they
   name, but the tag that carries it differs by counterparty: ClientID (109)
@@ -305,7 +308,7 @@ the built-in `mkfix.toml` for the full schema.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 1.2.1, < 2 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 1.2.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.4.0, < 2 -- Web Components UI
   framework
 
 ## License

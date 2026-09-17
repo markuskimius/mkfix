@@ -1515,6 +1515,21 @@ class TestVersions:
         floor = _mkui_floor()
         assert floor >= (0, 2, 1), f"mkui floor {floor} predates the types pane key"
 
+    def test_mkui_floor_supports_pin_keep(self, app_config):
+        """`pin: "keep"` arrived in mkui 1.4.0; an earlier build ignores it
+        and a pinned submit resets the order dialogs to their template."""
+        uses_keep = any(
+            spec.get("pin") == "keep"
+            for pane in app_config["panes"].values()
+            for button in pane.get("buttons", [])
+            for spec in [button.get("action", {}).get("dialog", {})]
+        )
+        if not uses_keep:
+            pytest.skip("no dialog keeps its values when pinned")
+
+        floor = _mkui_floor()
+        assert floor >= (1, 4, 0), f"mkui floor {floor} predates pin keep"
+
     def test_mkui_floor_supports_session_dialog(self):
         """openDialog before 0.1.54 clips a body taller than the default
         frame; the session form is tall enough to need the auto-grow."""
@@ -2033,6 +2048,19 @@ class TestTemplates:
             assert save.get("name") == "save_as" and save["type"] == "text", op
             assert "required" not in save and "value" not in save, f"{op}: saving is optional"
             assert fields[-1].get("label") == "Terms as tags", f"{op}: the preview still closes"
+
+    def test_pinned_dialogs_keep_their_terms_but_not_save_as(self, app_config):
+        """A pinned dialog is a run of sends varying a term or two, so the
+        form keeps what was entered rather than resetting to the template
+        (mkui 1.4.0 `pin: "keep"`); the Save-as name alone resets, or every
+        later submit would re-save the template under it — silently
+        overwriting it once a term is edited."""
+        for op in self.SCOPES:
+            dialog = _find_dialog(app_config, op)
+            assert dialog.get("pin") == "keep", op
+            for field in self._fields(dialog):
+                expected = "reset" if field.get("name") == "save_as" else None
+                assert field.get("pin") == expected, f"{op}: {field.get('name')!r} pin={field.get('pin')!r}"
 
     def test_templates_list_serves_every_term_of_one_scope(self, toml_config):
         svc = toml_config["services"]["templates_list"]

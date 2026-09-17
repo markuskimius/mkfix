@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.38"
+        "text": "mkfix v0.39"
       }
     ],
     "bindStyle": {
@@ -1074,6 +1074,7 @@
             "dialog": {
               "title": "New Order",
               "modal": true,
+              "pin": "keep",
               "width": 420,
               "fields": [
                 {
@@ -1284,6 +1285,7 @@
                     },
                     {
                       "name": "save_as",
+                      "pin": "reset",
                       "label": "Save as template",
                       "type": "text",
                       "placeholder": "optional — a name keeps these terms for next time"
@@ -1316,6 +1318,7 @@
             "dialog": {
               "title": "Cancel/Replace ${row.cl_ord_id}",
               "modal": true,
+              "pin": "keep",
               "width": 420,
               "submitPerRow": true,
               "rowData": {
@@ -1536,6 +1539,7 @@
                     },
                     {
                       "name": "save_as",
+                      "pin": "reset",
                       "label": "Save as template",
                       "type": "text",
                       "placeholder": "optional — a name keeps these terms for next time"
@@ -1568,6 +1572,7 @@
             "dialog": {
               "title": "Cancel ${row.cl_ord_id}",
               "modal": true,
+              "pin": "keep",
               "width": 380,
               "submitPerRow": true,
               "rowData": {
@@ -1607,6 +1612,7 @@
                 },
                 {
                   "name": "save_as",
+                  "pin": "reset",
                   "label": "Save as template",
                   "type": "text",
                   "placeholder": "optional — a name keeps these terms for next time"
@@ -1779,6 +1785,7 @@
             "dialog": {
               "title": "DK ${row.exec_id}",
               "modal": true,
+              "pin": "keep",
               "width": 380,
               "submitPerRow": true,
               "rowData": {
@@ -1863,6 +1870,7 @@
                 },
                 {
                   "name": "save_as",
+                  "pin": "reset",
                   "label": "Save as template",
                   "type": "text",
                   "placeholder": "optional — a name keeps these terms for next time"
@@ -2024,6 +2032,7 @@
             "dialog": {
               "title": "Accept ${row.pending_action} ${row.cl_ord_id}",
               "modal": true,
+              "pin": "keep",
               "width": 380,
               "submitPerRow": true,
               "rowData": {
@@ -2060,6 +2069,7 @@
                 },
                 {
                   "name": "save_as",
+                  "pin": "reset",
                   "label": "Save as template",
                   "type": "text",
                   "placeholder": "optional — a name keeps these terms for next time"
@@ -2090,6 +2100,7 @@
             "dialog": {
               "title": "Reject ${row.pending_action} ${row.cl_ord_id}",
               "modal": true,
+              "pin": "keep",
               "width": 380,
               "submitPerRow": true,
               "rowData": {
@@ -2138,6 +2149,7 @@
                 },
                 {
                   "name": "save_as",
+                  "pin": "reset",
                   "label": "Save as template",
                   "type": "text",
                   "placeholder": "optional — a name keeps these terms for next time"
@@ -2168,6 +2180,7 @@
             "dialog": {
               "title": "Fill ${row.cl_ord_id}",
               "modal": true,
+              "pin": "keep",
               "width": 380,
               "submitPerRow": true,
               "rowData": {
@@ -2226,6 +2239,7 @@
                 },
                 {
                   "name": "save_as",
+                  "pin": "reset",
                   "label": "Save as template",
                   "type": "text",
                   "placeholder": "optional — a name keeps these terms for next time"
@@ -2410,6 +2424,7 @@
             "dialog": {
               "title": "Correct ${row.exec_id}",
               "modal": true,
+              "pin": "keep",
               "width": 380,
               "submitPerRow": true,
               "rowData": {
@@ -2467,6 +2482,7 @@
                 },
                 {
                   "name": "save_as",
+                  "pin": "reset",
                   "label": "Save as template",
                   "type": "text",
                   "placeholder": "optional — a name keeps these terms for next time"
@@ -2497,6 +2513,7 @@
             "dialog": {
               "title": "Bust ${row.exec_id}",
               "modal": true,
+              "pin": "keep",
               "width": 380,
               "submitPerRow": true,
               "rowData": {
@@ -2532,6 +2549,7 @@
                 },
                 {
                   "name": "save_as",
+                  "pin": "reset",
                   "label": "Save as template",
                   "type": "text",
                   "placeholder": "optional — a name keeps these terms for next time"
@@ -3145,7 +3163,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.38",
+      "version": "0.39",
       "mkio": "1.2",
       "expr": "1"
     },
