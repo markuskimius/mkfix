@@ -1229,6 +1229,174 @@ class TestInboundDk:
         assert await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id") == before
 
 
+class TestRenotify:
+    """Re-notify answers a DontKnowTrade: the trade's current report — fill,
+    correction or bust — goes out again under a fresh ExecID, the trade's
+    terms as the row holds them and the order's state as it stands now. The
+    row becomes a new version under the new ExecID with the DK cleared."""
+
+    _fill = TestInboundDk._fill
+    _dk = TestInboundDk._dk
+
+    @pytest.mark.asyncio
+    async def test_a_dked_fill_goes_out_again_under_a_new_exec_id(self, stack):
+        db, writer, engine = stack
+        stub, fill_id = await self._fill(engine)
+        await self._dk(engine, stub, fill_id)
+        before = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        order_before = await _fetch_all(db, "SELECT * FROM fix_orders")
+        new_id = await engine.renotify_trade("S1", fill_id)
+        assert new_id not in ("", fill_id)
+
+        fill, sent = stub.sent[-2], stub.sent[-1]
+        assert sent["17"] == new_id
+        assert "19" not in sent.fields and "97" not in sent.fields
+        for tag in ("35", "37", "11", "20", "150", "39", "55", "54", "38", "32", "31", "14", "6", "151"):
+            assert sent[tag] == fill[tag], tag
+
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert len(rows) == 1
+        row = rows[0]
+        assert (row["id"], row["trade_id"]) == (before["id"], before["trade_id"])
+        assert (row["exec_id"], row["exec_ref_id"], row["exec_type"]) == (new_id, "", "PartialFill")
+        assert (row["last_qty"], row["last_price"], row["cum_qty"]) == (40, 150.0, 40)
+        assert (row["dk_reason"], row["dk_text"]) == ("", "")
+        chain = await _versions(db, "fix_executions")
+        assert [(v["exec_id"], v["dk_reason"]) for v in chain] == [
+            (fill_id, ""), (fill_id, "WrongSide"), (new_id, "")]
+        assert await _fetch_all(db, "SELECT * FROM fix_orders") == order_before, \
+            "the DK never moved our book, so neither does the re-notification"
+
+    @pytest.mark.asyncio
+    async def test_the_order_is_reported_as_it_stands_now(self, stack):
+        """A fill that landed after the DK'd one must not be reported backwards."""
+        db, writer, engine = stack
+        stub, fill_id = await self._fill(engine)
+        await self._dk(engine, stub, fill_id)
+        await engine.fill_order("S1", "C100", qty=60, price=151.0)
+        await engine.renotify_trade("S1", fill_id)
+        sent = stub.sent[-1]
+        assert (sent["32"], sent["31"]) == ("40", "150.0")
+        assert (sent["14"], sent["151"], sent["39"], sent["150"]) == ("100", "0", "2", "2")
+        assert float(sent["6"]) == pytest.approx(150.6)
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [(r["last_qty"], r["cum_qty"], r["exec_type"]) for r in rows] == [
+            (40, 100, "Fill"), (60, 100, "Fill")]
+
+    @pytest.mark.asyncio
+    async def test_a_dked_correction_is_restated_with_its_original_reference(self, stack):
+        db, writer, engine = stack
+        stub, fill_id = await self._fill(engine)
+        correct_id = await engine.correct_trade("S1", fill_id, qty=50, price=151.0)
+        await self._dk(engine, stub, correct_id, reason="C")
+        new_id = await engine.renotify_trade("S1", correct_id)
+        sent = stub.sent[-1]
+        assert (sent["17"], sent["19"], sent["20"]) == (new_id, fill_id, "2")
+        assert (sent["32"], sent["31"], sent["14"]) == ("50", "151.0", "50")
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["exec_id"], row["exec_ref_id"], row["exec_type"], row["dk_reason"]) == (
+            new_id, fill_id, "Correct", "")
+
+    @pytest.mark.asyncio
+    async def test_a_dked_bust_is_restated_and_the_trade_stays_busted(self, stack):
+        db, writer, engine = stack
+        stub, fill_id = await self._fill(engine)
+        bust_id = await engine.bust_trade("S1", fill_id)
+        await self._dk(engine, stub, bust_id, reason="Z")
+        new_id = await engine.renotify_trade("S1", bust_id)
+        sent = stub.sent[-1]
+        assert (sent["17"], sent["19"], sent["20"]) == (new_id, fill_id, "1")
+        assert (sent["32"], sent["14"], sent["151"], sent["39"]) == ("40", "0", "100", "0")
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["exec_id"], row["exec_type"], row["dk_reason"]) == (new_id, "Cancel", "")
+        with pytest.raises(ValueError, match="busted"):
+            await engine.correct_trade("S1", new_id, qty=10, price=150.0)
+
+    @pytest.mark.asyncio
+    async def test_fix44_restates_by_exec_type(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX.replace("FIX.4.2", "FIX.4.4")))
+        await engine.accept_order("S1", "C100")
+        fill_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        await self._dk(engine, stub, fill_id)
+        refill_id = await engine.renotify_trade("S1", fill_id)
+        assert "20" not in stub.sent[-1].fields
+        assert (stub.sent[-1]["150"], stub.sent[-1]["39"]) == ("F", "1")
+        bust_id = await engine.bust_trade("S1", refill_id)
+        await self._dk(engine, stub, bust_id)
+        await engine.renotify_trade("S1", bust_id)
+        assert (stub.sent[-1]["150"], stub.sent[-1]["19"]) == ("H", refill_id)
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert row["exec_type"] == "TradeCancel"
+
+    @pytest.mark.asyncio
+    async def test_a_second_dk_rearms_and_an_old_exec_id_still_finds_the_trade(self, stack):
+        db, writer, engine = stack
+        stub, fill_id = await self._fill(engine)
+        await self._dk(engine, stub, fill_id)
+        second = await engine.renotify_trade("S1", fill_id)
+        with pytest.raises(ValueError, match="has not been DK'ed"):
+            await engine.renotify_trade("S1", second)
+        await self._dk(engine, stub, second, reason="D")
+        third = await engine.renotify_trade("S1", fill_id)
+        assert len({fill_id, second, third}) == 3
+        await engine.bust_trade("S1", fill_id)
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert len(rows) == 1
+        assert (rows[0]["exec_type"], rows[0]["exec_ref_id"]) == ("Cancel", fill_id)
+
+    @pytest.mark.asyncio
+    async def test_refused_without_a_dk_an_execution_or_an_active_session(self, stack):
+        db, writer, engine = stack
+        stub, fill_id = await self._fill(engine)
+        with pytest.raises(ValueError, match="has not been DK'ed"):
+            await engine.renotify_trade("S1", fill_id)
+        with pytest.raises(ValueError, match="Unknown execution"):
+            await engine.renotify_trade("S1", "NOPE")
+        await self._dk(engine, stub, fill_id)
+        sent = len(stub.sent)
+        stub.is_active = False
+        with pytest.raises(ValueError):
+            await engine.renotify_trade("S1", fill_id)
+        assert len(stub.sent) == sent
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["exec_id"], row["dk_reason"]) == (fill_id, "WrongSide")
+
+    @pytest.mark.asyncio
+    async def test_after_a_replace_it_goes_out_under_the_current_cl_ord_id(self, stack):
+        db, writer, engine = stack
+        stub, fill_id = await self._fill(engine)
+        await self._dk(engine, stub, fill_id)
+        replace_req = "8=FIX.4.2|35=G|11=C200|41=C100|55=AAPL|54=1|38=200|40=2|44=151.0"
+        await engine.on_app_message(stub, "G", parse_fix(replace_req))
+        await engine.accept_replace("S1", "C100")
+        await engine.renotify_trade("S1", fill_id)
+        sent = stub.sent[-1]
+        assert (sent["11"], sent["38"], sent["151"]) == ("C200", "200", "160")
+
+    @pytest.mark.asyncio
+    async def test_extras_can_recast_a_dked_correction_as_a_fill(self, stack):
+        """20=0|19= restates the corrected terms as a plain fill, for a
+        counterparty that never knew the fill the correction referenced; the
+        row records the kind and reference as sent."""
+        db, writer, engine = stack
+        stub = RecordingStub(engine)
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.accept_order("S1", "C100")
+        fill_id = await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        correct_id = await engine.correct_trade("S1", fill_id, qty=50, price=151.0)
+        await self._dk(engine, stub, fill_id, reason="D")
+        new_id = await engine.renotify_trade("S1", correct_id, extra_tags="20=0|19=")
+        wire = parse_fix(stub.sent[-1].to_wire_string())
+        assert (wire["17"], wire["20"], wire["32"]) == (new_id, "0", "50")
+        assert "19" not in wire.fields
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["exec_id"], row["exec_ref_id"], row["exec_type"]) == (new_id, "", "PartialFill")
+
+
 class RecordingStub(StubSession):
     """A StubSession that sends the way FixSession does — sendprep (so
     extras apply and the wire pairs exist) and record the message — and
@@ -1731,7 +1899,10 @@ class TestRequestDuringMarketSend:
                               engine.fill_order("S1", "C100", qty=40, price=150.25))
         corrected = await traced("correct_trade",
                                  engine.correct_trade("S1", filled, qty=50, price=150.5))
-        await traced("bust_trade", engine.bust_trade("S1", corrected))
+        busted = await traced("bust_trade", engine.bust_trade("S1", corrected))
+        dk = f"8=FIX.4.2|35=Q|37=OR1|17={busted}|127=Z|55=AAPL|54=1|38=100|32=50|31=150.5"
+        await engine.on_app_message(stub, "Q", parse_fix(dk))
+        await traced("renotify_trade", engine.renotify_trade("S1", busted))
 
         replace_req = "8=FIX.4.2|35=G|11=C200|41=C100|55=AAPL|54=1|38=200|40=2|44=151.0"
         await engine.on_app_message(stub, "G", parse_fix(replace_req))

@@ -33,6 +33,7 @@ def _make_engine():
     engine.fill_order = AsyncMock(return_value="EXXX00000001")
     engine.correct_trade = AsyncMock(return_value="EXXX00000002")
     engine.bust_trade = AsyncMock(return_value="EXXX00000003")
+    engine.renotify_trade = AsyncMock(return_value="EXXX00000007")
     engine.dk_trade = AsyncMock()
     engine.accept_cancel = AsyncMock(return_value="EXXX00000004")
     engine.accept_replace = AsyncMock(return_value="EXXX00000005")
@@ -350,6 +351,20 @@ class TestDispatch:
         assert _sent(ws)["exec_id"] == "EXXX00000003"
 
     @pytest.mark.asyncio
+    async def test_renotify_trade(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "renotify_trade",
+            "data": {"session_id": "S1", "exec_id": "E1", "extra_tags": "20=0|19="},
+        })
+        engine.renotify_trade.assert_awaited_once_with(
+            session_id="S1", exec_id="E1", extra_tags="20=0|19=",
+        )
+        assert _sent(ws)["exec_id"] == "EXXX00000007"
+
+    @pytest.mark.asyncio
     async def test_dk_trade(self):
         engine = _make_engine()
         svc = _make_service(engine)
@@ -506,6 +521,8 @@ class TestSaveAsTemplate:
          {"qty": "40", "price": "149", "extra_tags": ""}),
         ("bust_trade", "bust", {"session_id": "S1", "exec_id": "E1", "extra_tags": "58=oops"},
          {"extra_tags": "58=oops"}),
+        ("renotify_trade", "renotify", {"session_id": "S1", "exec_id": "E1", "extra_tags": "20=0|19="},
+         {"extra_tags": "20=0|19="}),
     ])
     async def test_each_dialog_op_saves_its_own_terms(self, op, scope, data, terms):
         engine = _make_engine()

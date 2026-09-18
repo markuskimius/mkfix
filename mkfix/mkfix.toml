@@ -86,16 +86,16 @@ archive = { group = "config" }
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", app = "TEXT NOT NULL DEFAULT ''", owner = "TEXT NOT NULL DEFAULT ''", saved = "TEXT DEFAULT CURRENT_TIMESTAMP", layout = "TEXT NOT NULL" }
 archive = { cutoff = "saved", group = "config" }
 
-# Blotter action templates: the terms a dialog would otherwise ask for again
-# — an order to send, the fill or reject to answer with, a DK — kept by name
+# Blotter action templates: the terms a dialog would otherwise ask for again —
+# an order to send, the fill or reject to answer with, a DK — kept by name
 # under the dialog they belong to (`scope`: order, cancel, accept, reject,
-# fill, dk, correct, bust; unique per scope, an engine index). One superset
-# of columns, each scope reading its own; qty/price are kept as typed, since
-# a blank one means "ask the row" (a fill's leaves, say). Every such dialog
-# opens on a Template dropdown (`templates_list`) and closes on a Save-as
-# name (the engine's `save_template`, through the fix_cmd op); the Templates
-# pane edits and deletes through the `templates` service. Shared by everyone
-# on the server, like layouts.
+# fill, dk, correct, bust, renotify; unique per scope, an engine index). One
+# superset of columns, each scope reading its own; qty/price are kept as
+# typed, since a blank one means "ask the row" (a fill's leaves, say). Every
+# such dialog opens on a Template dropdown (`templates_list`) and closes on a
+# Save-as name (the engine's `save_template`, through the fix_cmd op); the
+# Templates pane edits and deletes through the `templates` service. Shared by
+# everyone on the server, like layouts.
 [tables.fix_templates]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
 archive = { group = "config" }

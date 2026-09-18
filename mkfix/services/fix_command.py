@@ -28,6 +28,7 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "dk_trade": ("dk", ("dk_reason", "text", "extra_tags")),
     "correct_trade": ("correct", ("qty", "price", "extra_tags")),
     "bust_trade": ("bust", ("extra_tags",)),
+    "renotify_trade": ("renotify", ("extra_tags",)),
 }
 
 
@@ -209,6 +210,14 @@ class FixCommandService(Service):
 
         elif command == "bust_trade":
             exec_id = await engine.bust_trade(
+                session_id=data["session_id"],
+                exec_id=data["exec_id"],
+                extra_tags=data.get("extra_tags", ""),
+            )
+            return {"ok": True, "exec_id": exec_id}
+
+        elif command == "renotify_trade":
+            exec_id = await engine.renotify_trade(
                 session_id=data["session_id"],
                 exec_id=data["exec_id"],
                 extra_tags=data.get("extra_tags", ""),

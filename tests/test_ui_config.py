@@ -19,7 +19,7 @@ import pytest
 from mkfix import __version__
 
 STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
-TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust"}
+TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust", "renotify"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -523,7 +523,7 @@ class TestServiceReferences:
         gated = {
             "order-blotter": ["Replace", "Cancel"],
             "market-order-blotter": ["Accept", "Reject", "Fill"],
-            "market-trade-blotter": ["Correct", "Bust"],
+            "market-trade-blotter": ["Correct", "Bust", "Re-notify"],
             "trade-blotter": ["DK"],
         }
         for pane_id, labels in gated.items():
@@ -570,6 +570,29 @@ class TestServiceReferences:
                 ), "extra_tags must stay optional"
                 checked += 1
         assert checked >= 8
+
+    def test_renotify_gates_on_the_dk_alone(self, app_config):
+        """Re-notify answers a DontKnowTrade, so it opens on a DK'd row
+        whatever the trade's state — a DK'd bust is restated like a DK'd fill,
+        the one action a busted row takes — and on nothing else; the preview
+        shows the ExecRefID(19) a correction or bust will carry again."""
+        from mkio import expr
+        buttons = app_config["panes"]["market-trade-blotter"]["buttons"]
+        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "History"]
+        when = next(b for b in buttons if b["label"] == "Re-notify")["enable"]["when"]
+        def enabled(*rows):
+            return expr.evaluate(when, {"rows": [
+                {"session_status": "ACTIVE", "exec_type": "Fill", "dk_reason": "", **r} for r in rows]})
+        assert enabled({"dk_reason": "WrongSide"})
+        assert enabled({"dk_reason": "Other", "exec_type": "Cancel"})
+        assert enabled({"dk_reason": "Other", "exec_type": "TradeCancel"})
+        assert not enabled({})
+        assert not enabled({"dk_reason": "WrongSide"}, {})
+        assert not enabled({"dk_reason": "WrongSide", "session_status": "DOWN"})
+        dialog = _find_dialog(app_config, "renotify_trade")
+        preview = dialog["fields"][-1]["compute"]
+        row = {"exec_ref_id": "EX1", "last_qty": 40.0, "last_price": 150.5}
+        assert expr.evaluate(preview, {"extra_tags": "", "row": row}) == "17=(new)|19=EX1|32=40|31=150.5"
 
     def test_dk_reason_options_cover_every_shipped_dictionary(self, app_config):
         """The DK dialog lists DKReason(127) codes by hand; a regenerated
@@ -1880,7 +1903,8 @@ class TestTagPreviews:
     must be a column of the table behind the blotter."""
 
     OPS = ("send_new_order", "send_cancel_replace", "send_cancel", "dk_trade",
-           "accept_request", "reject_request", "fill_order", "correct_trade", "bust_trade")
+           "accept_request", "reject_request", "fill_order", "correct_trade", "bust_trade",
+           "renotify_trade")
     ORDER_OPS = {"send_new_order", "send_cancel_replace", "send_cancel",
                  "accept_request", "reject_request", "fill_order"}
     LABELS = {
@@ -1936,6 +1960,7 @@ class TestTagPreviews:
             "cl_ord_id": "C2", "pending_cl_ord_id": "C3", "pending_action": "Replace",
             "pending_qty": 200.0, "pending_price": 151.5, "symbol": "AAPL", "side_code": "1",
             "order_qty": 100.0, "order_id": "OR1", "exec_id": "EX1",
+            "exec_ref_id": "", "last_qty": 40.0, "last_price": 150.5,
         }
         cases = {
             "send_new_order": (
@@ -1951,6 +1976,7 @@ class TestTagPreviews:
             "fill_order": ({"qty": "50", "price": "150.5", "extra_tags": ""}, "11=C2|32=50|31=150.5"),
             "correct_trade": ({"qty": "40", "price": "149", "extra_tags": ""}, "19=EX1|32=40|31=149"),
             "bust_trade": ({"extra_tags": "58=oops"}, "19=EX1|58=oops"),
+            "renotify_trade": ({"extra_tags": "58=again"}, "17=(new)|32=40|31=150.5|58=again"),
         }
         assert set(cases) == set(self.OPS)
         for op, (fields, expected) in cases.items():
@@ -1979,6 +2005,7 @@ class TestTemplates:
         "send_new_order": "order", "send_cancel_replace": "order", "send_cancel": "cancel",
         "accept_request": "accept", "reject_request": "reject", "fill_order": "fill",
         "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
+        "renotify_trade": "renotify",
     }
 
     @staticmethod

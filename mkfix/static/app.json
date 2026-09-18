@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.39"
+        "text": "mkfix v0.40"
       }
     ],
     "bindStyle": {
@@ -2569,6 +2569,73 @@
           }
         },
         {
+          "label": "Re-notify",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.dk_reason != '' && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Re-notify ${row.exec_id}",
+              "modal": true,
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "exec_id": "${row.exec_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "renotify"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.renotify_trade",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('17=(new)', IF(COALESCE(row.exec_ref_id, '') != '', CONCAT('|19=', row.exec_ref_id), ''), '|32=', row.last_qty, '|31=', row.last_price, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Re-notify",
+                "service": "fix_cmd",
+                "op": "renotify_trade"
+              }
+            }
+          }
+        },
+        {
           "label": "History",
           "unit": "row",
           "enable": {
@@ -2780,7 +2847,7 @@
             "color": "#f44747"
           },
           {
-            "when": "CONTAINS(['dk', 'correct'], value)",
+            "when": "CONTAINS(['dk', 'correct', 'renotify'], value)",
             "color": "#dcdcaa"
           }
         ]
@@ -3163,7 +3230,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.39",
+      "version": "0.40",
       "mkio": "1.2",
       "expr": "1"
     },

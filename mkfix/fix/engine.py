@@ -59,6 +59,7 @@ EXEC_COLS = [
 # exec_type display names a bust records (ExecTransType Cancel through FIX
 # 4.2, ExecType TradeCancel from 4.3); the trade blotters' gates test the same.
 BUSTED_EXEC_TYPES = ("Cancel", "TradeCancel")
+CORRECTED_EXEC_TYPES = ("Correct", "TradeCorrect")
 
 # What a correction or bust rewrites on its trade's row: everything but the
 # identity (session, trade_id, direction). The DK columns go back to blank:
@@ -74,7 +75,7 @@ EXEC_UPDATE_COLS = [
 # save one under, and the term columns kept as typed (text; blank means
 # "ask the row" when loaded). A name is unique within its scope, so a
 # dialog's Save-as overwrites the template it names.
-TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust")
+TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust", "renotify")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "text", "extra_tags", "client",
@@ -514,10 +515,15 @@ class FixEngine:
     def _client_as_sent(self, session: FixSession, msg: FixMessage) -> str:
         """The client a message will carry once sent — extras applied, as
         sendprep will apply them — for the row written before the send."""
+        return client_of(self._as_sent(session, msg), self._client_specs(session))
+
+    @staticmethod
+    def _as_sent(session: FixSession, msg: FixMessage) -> FixMessage:
+        """A sendprepped copy of a message about to go out, extras applied."""
         preview = FixMessage(dict(msg.fields))
         preview.extra = list(msg.extra)
         preview.sendprep(session.dictionary, session.factory.sender, session.factory.target, 0)
-        return client_of(preview, self._client_specs(session))
+        return preview
 
     async def _client_of_order(self, session_id: str, cl_ord_id: str) -> str:
         try:
@@ -1607,6 +1613,70 @@ class FixEngine:
             execution["last_qty"], execution["last_price"],
             cum_qty, avg_price, leaves_qty,
             exec_ref_id=exec_id, row_id=execution["id"],
+        )
+        await session.send_message(msg)
+        return new_exec_id
+
+    async def renotify_trade(self, session_id: str, exec_id: str, extra_tags: str = "") -> str:
+        """Re-notify a sent trade the counterparty DK'd and return the new ExecID.
+
+        The trade's current report — its fill, correction or bust, by the
+        row's exec_type — goes out again under a fresh ExecID: the trade's own
+        terms and ExecRefID(19) as the row holds them, the order's state as it
+        stands now (the DK never moved our book, and fills since then must not
+        be reported backwards). The row becomes a new version under the new
+        ExecID with the DK cleared, so a DK of the re-notification shows; the
+        order row is not written. Extras can recast the report (20=0|19= sends
+        a DK'd correction as a plain fill), so the row records the kind and
+        reference as sent.
+        """
+        session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
+        dictionary = session.dictionary
+        execution = await self._load_execution(session_id, exec_id)
+        if not execution["dk_reason"]:
+            raise ValueError(
+                f"Cannot re-notify {execution['exec_id']}: trade "
+                f"{execution['trade_id']} has not been DK'ed")
+        order = await self._load_order_for_execution(execution)
+
+        if execution["exec_type"] in BUSTED_EXEC_TYPES:
+            trans_type = "1"
+        elif execution["exec_type"] in CORRECTED_EXEC_TYPES:
+            trans_type = "2"
+        else:
+            trans_type = "0"
+        cum_qty, leaves_qty = order["cum_qty"], order["leaves_qty"]
+        status_code = "0" if cum_qty == 0 else ("2" if leaves_qty == 0 else "1")
+        new_exec_id = await self.ids.next_id("EX")
+
+        msg = session.factory.execution_report(
+            order_id=order["order_id"],
+            cl_ord_id=order["cl_ord_id"],
+            exec_id=new_exec_id,
+            exec_trans_type=trans_type,
+            exec_type=status_code,
+            ord_status=status_code,
+            symbol=execution["symbol"],
+            side=execution["side_code"],
+            qty=order["order_qty"],
+            last_qty=execution["last_qty"],
+            last_price=execution["last_price"],
+            cum_qty=cum_qty,
+            avg_price=order["avg_price"],
+            leaves_qty=leaves_qty,
+            exec_ref_id=execution["exec_ref_id"] or None,
+        )
+        msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
+
+        sent = self._as_sent(session, msg)
+        await self._write_sent_execution(
+            order, new_exec_id, execution["trade_id"],
+            *_sent_exec_kind(dictionary, sent, trans_type if trans_type != "0" else status_code),
+            execution["last_qty"], execution["last_price"],
+            cum_qty, order["avg_price"], leaves_qty,
+            exec_ref_id=sent.get("19", ""), row_id=execution["id"],
         )
         await session.send_message(msg)
         return new_exec_id

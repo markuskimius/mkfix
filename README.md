@@ -93,7 +93,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
   and optional Text); the trade row stays as received. On the market side an
   inbound DK marks the sent trade it names -- the reason and text show in the
   Sent Trades blotter's DK column, and the trade can still be corrected or
-  busted, which clears the mark.
+  busted, which clears the mark. Re-notify answers the DK: the trade's
+  current report (its fill, correction or bust) goes out again under a new
+  ExecID, with the trade's terms, the order's state as it stands now, and
+  the same ExecRefID a correction or bust carried; the row moves to the new
+  ExecID with the mark cleared, so a DK of the re-notification shows again.
+  Extra tags can recast it (`20=0|19=` restates a DK'd correction as a plain
+  fill).
   Every message goes out version-correct: fills report ExecType F from FIX
   4.3, tags a version does not define are withheld, FIX 4.0 cancels carry
   CxlType, and FIXT.1.1 Logons carry DefaultApplVerID.
