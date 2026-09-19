@@ -107,7 +107,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   renamed the order's ClOrdID chain.
   On the client side, a received trade can be DK'd from the Received Trades
   blotter (DontKnowTrade with the counterparty's OrderID/ExecID, a DKReason
-  and optional Text); the trade row stays as received. On the market side an
+  and optional Text); the trade's terms stay as received, and the blotter's
+  DK and DK Text columns record the dispute as sent until the counterparty's
+  correction or bust answers it (a re-notified fill arrives under a new
+  ExecID without ExecRefID, so it is a new trade and the disputed one keeps
+  its mark). Both trade blotters show each trade's Order ID. On the market side an
   inbound DK marks the sent trade it names -- the reason and text show in the
   Sent Trades blotter's DK column, and the trade can still be corrected or
   busted, which clears the mark. Re-notify answers the DK: the trade's

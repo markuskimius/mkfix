@@ -624,6 +624,26 @@ class TestServiceReferences:
         row = {"exec_ref_id": "EX1", "last_qty": 40.0, "last_price": 150.5}
         assert expr.evaluate(preview, {"text": "", "extra_tags": "", "row": row}) == "17=(new)|19=EX1|32=40|31=150.5"
 
+    def test_trade_blotters_show_the_dispute_and_the_order(self, app_config, toml_config):
+        """Both sides of a DK are visible where they happened: the
+        counterparty's on Sent Trades, our own on Received Trades — reason
+        and text, highlighted alike — and every trade names its OrderID(37)."""
+        table = toml_config["tables"]["fix_executions"]["columns"]
+        sent, received = (app_config["panes"][p] for p in ("market-trade-blotter", "trade-blotter"))
+        for pane in (sent, received):
+            for col in ("order_id", "dk_reason", "dk_text"):
+                assert col in pane["columns"] and col in pane["labels"] and col in table, (pane["title"], col)
+            assert pane["columns"].index("dk_text") == pane["columns"].index("dk_reason") + 1
+        assert received["styles"]["dk_reason"] == sent["styles"]["dk_reason"]
+
+    def test_a_dk_does_not_end_the_received_trade(self, app_config):
+        """A DK'd trade can be DK'd again (another reason, a lost message),
+        so the DK button never tests the mark; Re-notify, which does, is the
+        market side's alone."""
+        received = {b["label"]: b for b in app_config["panes"]["trade-blotter"]["buttons"]}
+        assert "dk_reason" not in _conditions(received["DK"]["enable"]["when"])
+        assert "Re-notify" not in received
+
     def test_dk_reason_options_cover_every_shipped_dictionary(self, app_config):
         """The DK dialog lists DKReason(127) codes by hand; a regenerated
         dictionary that adds one would otherwise leave it unreachable."""
@@ -2120,6 +2140,8 @@ class TestRecordHistory:
             cols = history_panes[pid]["history"]["columns"]
             assert set(cols) <= set(table["columns"]), pid
             assert {"exec_id", "exec_ref_id", "exec_type", "last_qty", "last_price"} <= set(cols), pid
+            assert {"dk_reason", "dk_text"} <= set(cols), \
+                f"{pid}: a DK is a row version on either side — theirs on a sent trade, ours on a received one"
             assert "exec_ref_id" in history_panes[pid]["columns"], pid
 
     def test_live_columns_come_from_the_state_join(self, history_panes, toml_config):

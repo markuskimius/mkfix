@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.45",
+    "version": "0.46",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -251,7 +251,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.45"
+        "text": "mkfix v0.46"
       }
     ],
     "bindStyle": {
@@ -1812,6 +1812,7 @@
         "trade_id",
         "exec_id",
         "exec_ref_id",
+        "order_id",
         "session_id",
         "client",
         "symbol",
@@ -1821,6 +1822,8 @@
         "cum_qty",
         "avg_price",
         "exec_type",
+        "dk_reason",
+        "dk_text",
         "text",
         "extra_tags",
         "transact_time"
@@ -1838,6 +1841,8 @@
           "exec_id",
           "exec_ref_id",
           "exec_type",
+          "dk_reason",
+          "dk_text",
           "last_qty",
           "last_price",
           "cum_qty",
@@ -1863,6 +1868,9 @@
         "exec_type": "Exec Type",
         "transact_time": "Time",
         "exec_ref_id": "ExecRefID",
+        "order_id": "Order ID",
+        "dk_reason": "DK",
+        "dk_text": "DK Text",
         "_mkio_version": "Ver",
         "client": "Client",
         "text": "Text",
@@ -1922,6 +1930,13 @@
             "when": "value == 'TradeCancel'",
             "color": "#f44747",
             "strike": true
+          }
+        ],
+        "dk_reason": [
+          {
+            "when": "value != ''",
+            "color": "#ce9178",
+            "bold": true
           }
         ]
       },
@@ -2740,6 +2755,7 @@
         "trade_id",
         "exec_id",
         "exec_ref_id",
+        "order_id",
         "session_id",
         "client",
         "symbol",
@@ -2750,6 +2766,7 @@
         "avg_price",
         "exec_type",
         "dk_reason",
+        "dk_text",
         "text",
         "extra_tags",
         "transact_time"
@@ -2794,6 +2811,7 @@
         "exec_type": "Exec Type",
         "transact_time": "Time",
         "exec_ref_id": "ExecRefID",
+        "order_id": "Order ID",
         "_mkio_version": "Ver",
         "dk_reason": "DK",
         "dk_text": "DK Text",
@@ -3839,7 +3857,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.45",
+      "version": "0.46",
       "mkio": "1.3",
       "expr": "1"
     },

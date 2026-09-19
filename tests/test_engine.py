@@ -1410,7 +1410,8 @@ class TestRestatement:
 
 class TestDkTrade:
     """DK answers a received trade with DontKnowTrade (35=Q) naming the
-    counterparty's identifiers; the trade row stays as received."""
+    counterparty's identifiers; the trade's terms stay as received and the
+    row records the dispute — DKReason and Text as sent."""
 
     async def _fill(self, engine):
         stub = StubSession()
@@ -1437,14 +1438,107 @@ class TestDkTrade:
         assert msg.extra == [("5001", "X")]
 
     @pytest.mark.asyncio
-    async def test_dk_writes_nothing(self, stack):
+    async def test_dk_marks_the_trade_and_nothing_else(self, stack):
         db, writer, engine = stack
         await self._fill(engine)
-        before = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        before = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
         orders_before = await _fetch_all(db, "SELECT * FROM fix_orders")
-        await engine.dk_trade("S1", "E1", "D")
-        assert await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id") == before
+        await engine.dk_trade("S1", "E1", "D", text="not ours")
+        after = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (after["dk_reason"], after["dk_text"]) == ("NoMatchingOrder", "not ours")
+        changed = {c for c in after if after[c] != before[c]} - {"_mkio_ref", "_mkio_version"}
+        assert changed == {"dk_reason", "dk_text"}, "the trade's terms stay as received"
         assert await _fetch_all(db, "SELECT * FROM fix_orders") == orders_before
+        chain = await _versions(db, "fix_executions")
+        assert [v["dk_reason"] for v in chain] == ["", "NoMatchingOrder"], "the dispute is a row version"
+
+    @pytest.mark.asyncio
+    async def test_dk_is_recorded_as_sent(self, stack):
+        # Extras win on the wire, so they win on the row.
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+        await engine.dk_trade("S1", "E1", "D", text="typed", extra_tags="127=B|58=")
+        msg = engine._as_sent(stub, stub.sent[-1])
+        assert msg["127"] == "B" and "58" not in msg.fields
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["dk_reason"], row["dk_text"]) == ("WrongSide", "")
+
+    @pytest.mark.asyncio
+    async def test_second_dk_overwrites_the_first(self, stack):
+        db, writer, engine = stack
+        await self._fill(engine)
+        await engine.dk_trade("S1", "E1", "D", text="first")
+        await engine.dk_trade("S1", "E1", "C", text="")
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["dk_reason"], row["dk_text"]) == ("QuantityExceedsOrder", "")
+
+    @pytest.mark.asyncio
+    async def test_their_correction_clears_our_dk(self, stack):
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+        await engine.dk_trade("S1", "E1", "E", text="bad px")
+        correct = ("8=FIX.4.2|35=8|11=C1|37=O1|17=E2|19=E1|20=2|150=2|39=2|55=AAPL|54=1|"
+                   "38=100|32=100|31=149|14=100|6=149|151=0")
+        await engine.on_app_message(stub, "8", parse_fix(correct))
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["exec_id"], row["last_price"]) == ("E2", 149.0)
+        assert (row["dk_reason"], row["dk_text"]) == ("", ""), \
+            "the DK answered an ExecID the row no longer carries"
+
+    @pytest.mark.asyncio
+    async def test_renotified_fill_is_a_new_trade(self, stack):
+        # A fresh ExecID and no ExecRefID name no trade of ours, and nothing
+        # is inferred: the disputed ExecID stays disputed beside the new report.
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+        await engine.dk_trade("S1", "E1", "E")
+        await engine.on_app_message(stub, "8", parse_fix(CLIENT_FILL_RX.replace("17=E1", "17=E3")))
+        rows = await _fetch_all(db, "SELECT * FROM fix_executions ORDER BY id")
+        assert [(r["exec_id"], r["dk_reason"]) for r in rows] == [("E1", "PriceExceedsLimit"), ("E3", "")]
+        assert rows[0]["trade_id"] != rows[1]["trade_id"]
+
+    @pytest.mark.asyncio
+    async def test_failed_dk_leaves_no_mark(self, stack):
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+
+        async def refuse(msg):
+            raise ConnectionError("socket closed")
+        stub.send_message = refuse
+        with pytest.raises(ConnectionError):
+            await engine.dk_trade("S1", "E1", "D", text="never sent")
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (row["dk_reason"], row["dk_text"]) == ("", "")
+
+    @pytest.mark.asyncio
+    async def test_mark_is_written_before_the_send(self, stack):
+        # Their correction can arrive inside send_message; written after it,
+        # our mark would land on the corrected row the DK never answered.
+        db, writer, engine = stack
+        stub = await self._fill(engine)
+        seen = []
+        plain_send = stub.send_message
+
+        async def spy(msg):
+            seen.append((await _fetch_all(db, "SELECT dk_reason FROM fix_executions"))[0]["dk_reason"])
+            return await plain_send(msg)
+        stub.send_message = spy
+        await engine.dk_trade("S1", "E1", "D")
+        assert seen == ["NoMatchingOrder"]
+
+    @pytest.mark.asyncio
+    async def test_dk_of_a_sent_trade_never_arms_renotify(self, stack):
+        # On a sent trade dk_reason is the counterparty's DK and gates Re-notify.
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.accept_order("S1", "C100")
+        exec_id = await engine.fill_order("S1", "C100", 100, 150.25)
+        await engine.dk_trade("S1", exec_id, "D")
+        assert stub.sent[-1]["35"] == "Q"
+        row = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert row["direction"] == "TX" and row["dk_reason"] == ""
 
     @pytest.mark.asyncio
     async def test_dk_order_qty_survives_a_renamed_chain(self, stack):
@@ -4261,3 +4355,4 @@ class TestReplaceTermsWaitForAccept:
             await engine.send_cancel_replace("S1", c1, symbol="AAPL", side="1", qty=500, price=155.0)
         row = await _order(db)
         assert row["pending_entered"] == "" and row["entered_qty"] == 100.0
+

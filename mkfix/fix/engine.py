@@ -2192,8 +2192,11 @@ class FixEngine:
     ) -> None:
         """Answer a received trade with DontKnowTrade (35=Q).
 
-        Nothing is written: the trade row is the counterparty's report and stays
-        as received; the DK is a message, recorded like any other send.
+        The trade's terms are the counterparty's report and stay as received;
+        the row only records that we disputed it — DKReason(127) and Text(58)
+        as sent, extras applied — as a new version, which their correction or
+        bust blanks again (EXEC_UPDATE_COLS). On a sent trade those columns
+        are the counterparty's DK and arm Re-notify, so nothing is written there.
         """
         if not reason:
             raise ValueError("DK reason is required")
@@ -2214,7 +2217,20 @@ class FixEngine:
         )
         msg.extra = extra_pairs
         self._stamp_client(session, msg, execution.get("client"))
-        await session.send_message(msg)
+        if execution["direction"] != "RX":
+            await session.send_message(msg)
+            return
+
+        sent = self._as_sent(session, msg)
+        ops = self._compiled_ops["dk_execution"]
+        mark = (session.dictionary.enum_name("127", sent.get("127", "")), sent.get("58", ""))
+        await self.writer.submit(ops, ((*mark, None, execution["id"]),), {"exec_id": exec_id})
+        try:
+            await session.send_message(msg)
+        except Exception:
+            unmark = (execution["dk_reason"], execution["dk_text"], None, execution["id"])
+            await self.writer.submit(ops, (unmark,), {"exec_id": exec_id})
+            raise
 
     async def _order_qty_of(self, execution: dict[str, Any]) -> float:
         """OrderQty for a received execution. Its order_id is the counterparty's
