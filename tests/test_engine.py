@@ -1053,6 +1053,168 @@ CLIENT_BUST_RX = (
 )
 
 
+class TestUnsolicitedCancel:
+    """The market side cancels a received order nobody asked to cancel: an
+    ExecutionReport(Canceled) under the order's own ClOrdID, no OrigClOrdID."""
+
+    async def _seed(self, engine, stub=None, order=NEW_ORDER_RX, accept=True):
+        stub = stub or StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(order))
+        if accept:
+            await engine.accept_order("S1", "C100")
+        return stub
+
+    async def _order(self, db):
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert len(rows) == 1
+        return rows[0]
+
+    @pytest.mark.asyncio
+    async def test_cancels_under_the_orders_own_id(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        before = await self._order(db)
+        exec_id = await engine.unsolicited_cancel("S1", "C100", text="halted")
+        msg = stub.sent[-1]
+        assert (msg["35"], msg["150"], msg["39"], msg["20"]) == ("8", "4", "4", "0")
+        assert msg["17"] == exec_id and exec_id.startswith("EX")
+        assert msg["11"] == "C100"
+        assert msg["41"] is None, "no request is being answered"
+        assert msg["37"] == before["order_id"]
+        assert float(msg["14"]) == 40.0 and float(msg["6"]) == 150.0
+        assert float(msg["151"]) == 0.0
+        assert msg["58"] == "halted"
+        row = await self._order(db)
+        assert row["cl_ord_id"] == "C100", "nothing re-identifies the chain"
+        assert row["order_id"] == before["order_id"]
+        assert row["status"] == "Canceled"
+        assert row["leaves_qty"] == 0.0
+        assert row["cum_qty"] == 40.0
+        assert row["sent_text"] == "halted"
+        execs = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert len(execs) == 1, "a cancel is no trade"
+
+    @pytest.mark.asyncio
+    async def test_fix44_withholds_exec_trans_type(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine, stub=_stub44(), order=NEW_ORDER_44_RX)
+        await engine.unsolicited_cancel("S1", "C100")
+        msg = stub.sent[-1]
+        assert (msg["150"], msg["39"]) == ("4", "4")
+        assert msg["20"] is None
+        assert msg["41"] is None
+
+    @pytest.mark.asyncio
+    async def test_consumes_a_pending_new(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine, accept=False)
+        assert (await self._order(db))["pending_action"] == "New"
+        await engine.unsolicited_cancel("S1", "C100")
+        row = await self._order(db)
+        assert row["status"] == "Canceled"
+        assert row["pending_action"] == "", "the report implicitly acknowledges the order"
+        assert row["pending_extra_tags"] == ""
+        assert row["order_id"].startswith("OR")
+
+    @pytest.mark.asyncio
+    async def test_pending_request_stays_parked_and_can_be_rejected(self, stack):
+        """Too late to cancel: the client's request is still there to answer
+        with an OrderCancelReject after the order went away."""
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.on_app_message(stub, "F", parse_fix(CANCEL_REQ_RX))
+        await engine.unsolicited_cancel("S1", "C100")
+        row = await self._order(db)
+        assert row["status"] == "Canceled"
+        assert row["pending_action"] == "Cancel"
+        assert row["pending_cl_ord_id"] == "C101"
+        assert row["cl_ord_id"] == "C100"
+
+        await engine.reject_request("S1", "C100", text="too late")
+        reject = stub.sent[-1]
+        assert reject["35"] == "9"
+        assert (reject["11"], reject["41"]) == ("C101", "C100")
+        row = await self._order(db)
+        assert row["pending_action"] == ""
+        assert row["status"] == "Canceled"
+
+    @pytest.mark.asyncio
+    async def test_extra_tags_and_client_ride_on_the_report(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine, order=NEW_ORDER_RX + "|109=ACME")
+        await engine.unsolicited_cancel("S1", "C100", extra_tags="378=4|5001=X")
+        msg = stub.sent[-1]
+        assert msg.extra == [("378", "4"), ("5001", "X")]
+        assert msg["109"] == "ACME"
+
+    @pytest.mark.asyncio
+    async def test_requires_an_active_session_and_a_known_order(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        with pytest.raises(ValueError):
+            await engine.unsolicited_cancel("S1", "NOPE")
+        stub.is_active = False
+        stub.status = "DOWN"
+        with pytest.raises(ValueError):
+            await engine.unsolicited_cancel("S1", "C100")
+
+    @pytest.mark.asyncio
+    async def test_extra_58_overrides_the_text_recorded(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        await engine.unsolicited_cancel("S1", "C100", text="typed", extra_tags="58=from extras")
+        assert (await self._order(db))["sent_text"] == "from extras"
+
+    @pytest.mark.asyncio
+    async def test_fix40_withholds_exec_type_and_leaves(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        stub.dictionary = FixDictionary("FIX.4.0")
+        stub.factory = FixMessageFactory(stub.dictionary, "MKT", "CLIENT")
+        await self._seed(engine, stub=stub, order=NEW_ORDER_RX.replace("FIX.4.2", "FIX.4.0"))
+        await engine.unsolicited_cancel("S1", "C100")
+        msg = stub.sent[-1]
+        assert msg["39"] == "4" and msg["20"] == "0"
+        assert msg["150"] is None and msg["151"] is None
+        assert (await self._order(db))["status"] == "Canceled"
+
+    @pytest.mark.asyncio
+    async def test_is_one_version_of_the_order(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        before = len(await _versions(db, "fix_orders"))
+        await engine.unsolicited_cancel("S1", "C100")
+        chain = await _versions(db, "fix_orders")
+        assert len(chain) == before + 1
+        assert chain[-1]["status"] == "Canceled"
+        assert len({v["id"] for v in chain}) == 1, "same row throughout"
+
+    @pytest.mark.asyncio
+    async def test_terms_save_as_an_unsolicited_template(self, stack):
+        db, writer, engine = stack
+        await engine.save_template("unsolicited", "halt", text="halted", extra_tags="378=4")
+        rows = await _fetch_all(db, "SELECT * FROM fix_templates")
+        assert [(r["scope"], r["name"], r["text"], r["extra_tags"]) for r in rows] == \
+            [("unsolicited", "halt", "halted", "378=4")]
+
+    @pytest.mark.asyncio
+    async def test_client_side_takes_it_without_a_rename(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        er = (f"8=FIX.4.2|35=8|11={cl_ord_id}|37=MKT1|17=E9|20=0|150=4|39=4|"
+              "55=AAPL|54=1|38=100|14=0|6=0|151=0|58=halted")
+        await engine.on_app_message(stub, "8", parse_fix(er))
+        row = await self._order(db)
+        assert row["cl_ord_id"] == cl_ord_id
+        assert row["status"] == "Canceled"
+        assert row["leaves_qty"] == 0.0
+        assert row["text"] == "halted"
+
+
 class TestDkTrade:
     """DK answers a received trade with DontKnowTrade (35=Q) naming the
     counterparty's identifiers; the trade row stays as received."""
@@ -1903,6 +2065,10 @@ class TestRequestDuringMarketSend:
         second = "8=FIX.4.2|35=D|11=C500|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
         await engine.on_app_message(stub, "D", parse_fix(second))
         await traced("reject_order", engine.reject_order("S1", "C500", text="no"))
+
+        third = "8=FIX.4.2|35=D|11=C600|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
+        await engine.on_app_message(stub, "D", parse_fix(third))
+        await traced("unsolicited_cancel", engine.unsolicited_cancel("S1", "C600"))
 
 
 class TestAnswerBeforeOwnWrite:

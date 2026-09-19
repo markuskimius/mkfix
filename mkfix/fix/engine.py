@@ -80,7 +80,8 @@ EXEC_UPDATE_COLS = [
 # save one under, and the term columns kept as typed (text; blank means
 # "ask the row" when loaded). A name is unique within its scope, so a
 # dialog's Save-as overwrites the template it names.
-TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust", "renotify")
+TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "dk", "correct", "bust",
+                   "renotify")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "text", "extra_tags", "client", "handl_inst",
@@ -1480,6 +1481,48 @@ class FixEngine:
             *_sent_exec_kind(dictionary, msg, status_code),
             qty, price, cum_qty, avg_price, leaves_qty,
             text=sent_text, extra_tags=extra_tags,
+        )
+        await session.send_message(msg)
+        return exec_id
+
+    async def unsolicited_cancel(self, session_id: str, cl_ord_id: str, extra_tags: str = "",
+                                 text: str = "") -> str:
+        """Cancel a received order nobody asked to cancel: send
+        ExecutionReport(Canceled) under the order's own ClOrdID, without
+        OrigClOrdID(41), and return the ExecID."""
+        session = self._active_session(session_id)
+        extra_pairs = parse_extra_tags(extra_tags)
+        order = await self._load_order(session_id, cl_ord_id)
+
+        order_id = order["order_id"] or await self.ids.next_id("OR")
+        exec_id = await self.ids.next_id("EX")
+        msg = session.factory.execution_report(
+            order_id=order_id,
+            cl_ord_id=cl_ord_id,
+            exec_id=exec_id,
+            exec_trans_type="0",
+            exec_type="4",
+            ord_status="4",
+            symbol=order["symbol"],
+            side=order["side_code"],
+            qty=order["order_qty"],
+            cum_qty=order["cum_qty"],
+            avg_price=order["avg_price"],
+            leaves_qty=0.0,
+            text=text or None,
+        )
+        msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
+
+        # As with a fill, the report implicitly acknowledges a not-yet-accepted
+        # order, so the pending New is consumed; a pending Cancel/Replace stays
+        # parked — rejecting it afterwards is the "too late to cancel" scenario.
+        consumed = order["pending_action"] == "New"
+        await self._write_order(
+            order, order_id=order_id, status="Canceled", leaves_qty=0.0,
+            sent_text=self._text_as_sent(session, msg),
+            pending_action="" if consumed else order["pending_action"],
+            pending_extra_tags="" if consumed else order["pending_extra_tags"],
         )
         await session.send_message(msg)
         return exec_id

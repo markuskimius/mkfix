@@ -84,10 +84,14 @@ A FIX protocol testing engine for capital markets connectivity, built on
   acts on whatever is pending (ExecutionReport New/Canceled/Replaced on accept;
   ExecutionReport Rejected or OrderCancelReject on reject); orders stay
   fillable while a request is pending and even after a full fill (overfills
-  are a scenario worth testing), and sent trades can be corrected and busted
-  from the Sent Trades blotter (ExecTransType Correct/Cancel through FIX 4.2,
-  ExecType TradeCorrect/TradeCancel from 4.3 on, always with ExecRefID) --
-  including trades filled before a replace renamed the order's ClOrdID chain.
+  are a scenario worth testing). Unsol Cxl cancels a working order nobody
+  asked to cancel -- ExecutionReport Canceled under the order's own ClOrdID,
+  without OrigClOrdID -- and leaves a pending cancel or replace request
+  parked, so it can still be rejected as too late. Sent trades can be
+  corrected and busted from the Sent Trades blotter (ExecTransType
+  Correct/Cancel through FIX 4.2, ExecType TradeCorrect/TradeCancel from 4.3
+  on, always with ExecRefID) -- including trades filled before a replace
+  renamed the order's ClOrdID chain.
   On the client side, a received trade can be DK'd from the Received Trades
   blotter (DontKnowTrade with the counterparty's OrderID/ExecID, a DKReason
   and optional Text); the trade row stays as received. On the market side an
@@ -159,11 +163,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   field; an Extra Tag naming 21 or 58 still wins. The order blotters show
   Handl Inst, Extra Tags, and the text in both directions: Sent Text is the
   58 of the last message this side sent on the order (a New, Replace or
-  Cancel on Sent Orders; an Accept, Reject or Fill on Received Orders) and
-  Rcvd Text the counterparty's last -- their ExecutionReports, or their New
-  and each cancel or replace request. The trade blotters show each report's
-  Text. Older orders and trades are seeded once at startup from their
-  recorded messages (HandlInst and trade tags; not Sent Text).
+  Cancel on Sent Orders; an Accept, Reject, Fill or Unsol Cxl on Received
+  Orders) and Rcvd Text the counterparty's last -- their ExecutionReports, or
+  their New and each cancel or replace request. The trade blotters show each
+  report's Text. Older orders and trades are seeded once at startup from
+  their recorded messages (HandlInst and trade tags; not Sent Text).
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **Saved Layouts** -- The Layout menu saves the window arrangement (frame
@@ -307,7 +311,8 @@ with an error instead of starting.
 3. **Send an order** with the New button on the Sent Orders blotter -- see
    it in the Messages pane and the blotter itself; click any message row to
    break it out field by field in the Detail pane. On the acceptor side it
-   appears in Received Orders, where it can be accepted, rejected, or filled;
+   appears in Received Orders, where it can be accepted, rejected, filled, or
+   canceled unsolicited;
    fills land in Sent Trades, where they can be corrected or busted, and on
    the client side in Received Trades, where they can be DK'd.
 4. **Replay a log** from Tools > Replay Control -- load a production FIX log and

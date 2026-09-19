@@ -89,7 +89,7 @@ archive = { cutoff = "saved", group = "config" }
 # Blotter action templates: the terms a dialog would otherwise ask for again —
 # an order to send, the fill or reject to answer with, a DK — kept by name
 # under the dialog they belong to (`scope`: order, cancel, accept, reject,
-# fill, dk, correct, bust, renotify; unique per scope, an engine index). One
+# fill, unsolicited, dk, correct, bust, renotify; unique per scope, an engine index). One
 # superset of columns, each scope reading its own; qty/price are kept as
 # typed, since a blank one means "ask the row" (a fill's leaves, say). Every
 # such dialog opens on a Template dropdown (`templates_list`) and closes on a

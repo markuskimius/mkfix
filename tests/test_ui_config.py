@@ -19,7 +19,7 @@ import pytest
 from mkfix import __version__
 
 STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
-TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "dk", "correct", "bust", "renotify"}
+TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "dk", "correct", "bust", "renotify"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -502,11 +502,11 @@ class TestServiceReferences:
     def test_received_orders_buttons_gate_on_pending_action(self, app_config):
         """One Accept/Reject pair handles new orders and cancel/replace
         requests alike: both gate on pending_action (a new order arrives as
-        pending "New") and dispatch via the request ops, while Fill gates on
-        status only — a pending request must not block fills on the
-        still-working order."""
+        pending "New") and dispatch via the request ops, while Fill and the
+        unsolicited cancel gate on status only — a pending request must not
+        block either on the still-working order."""
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill", "History"]
+        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill", "Unsol Cxl", "History"]
         by = {b["label"]: b for b in buttons}
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
         assert _conditions(by["Accept"]["enable"]["when"]) == pending
@@ -514,6 +514,9 @@ class TestServiceReferences:
         assert by["Accept"]["action"]["dialog"]["submit"]["op"] == "accept_request"
         assert by["Reject"]["action"]["dialog"]["submit"]["op"] == "reject_request"
         assert "pending_action" not in _conditions(by["Fill"]["enable"].get("when"))
+        assert by["Unsol Cxl"]["action"]["dialog"]["submit"]["op"] == "unsolicited_cancel"
+        assert _conditions(by["Unsol Cxl"]["enable"]["when"]) == _conditions(by["Fill"]["enable"]["when"])
+
     def test_order_and_trade_actions_gate_on_live_session(self, app_config):
         """Every button that acts on an existing order or trade requires the
         row's session to be up (session_status is the owning session's live
@@ -522,7 +525,7 @@ class TestServiceReferences:
         dialog picks the session itself, and the server rejects a dead one."""
         gated = {
             "order-blotter": ["Replace", "Cancel"],
-            "market-order-blotter": ["Accept", "Reject", "Fill"],
+            "market-order-blotter": ["Accept", "Reject", "Fill", "Unsol Cxl"],
             "market-trade-blotter": ["Correct", "Bust", "Re-notify"],
             "trade-blotter": ["DK"],
         }
@@ -2071,7 +2074,7 @@ class TestTemplates:
     SCOPES = {
         "send_new_order": "order", "send_cancel_replace": "order", "send_cancel": "cancel",
         "accept_request": "accept", "reject_request": "reject", "fill_order": "fill",
-        "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
+        "unsolicited_cancel": "unsolicited", "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
         "renotify_trade": "renotify",
     }
 

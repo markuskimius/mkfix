@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.41"
+        "text": "mkfix v0.42"
       }
     ],
     "bindStyle": {
@@ -2356,6 +2356,81 @@
           }
         },
         {
+          "label": "Unsol Cxl",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['PendingNew', 'New', 'PartiallyFilled', 'Replaced', 'Filled'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Unsolicited Cancel ${row.cl_ord_id}",
+              "modal": true,
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "cl_ord_id": "${row.cl_ord_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "unsolicited"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.unsolicited_cancel",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('11=', row.cl_ord_id, '|150=4|39=4', IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Unsol Cxl",
+                "service": "fix_cmd",
+                "op": "unsolicited_cancel"
+              }
+            }
+          }
+        },
+        {
           "label": "History",
           "unit": "row",
           "enable": {
@@ -2970,7 +3045,7 @@
             "color": "#4ec9b0"
           },
           {
-            "when": "CONTAINS(['reject', 'bust'], value)",
+            "when": "CONTAINS(['reject', 'unsolicited', 'bust'], value)",
             "color": "#f44747"
           },
           {
@@ -3377,7 +3452,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.41",
+      "version": "0.42",
       "mkio": "1.3",
       "expr": "1"
     },

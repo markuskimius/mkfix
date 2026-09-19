@@ -26,6 +26,7 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "accept_request": ("accept", ("text", "extra_tags")),
     "reject_request": ("reject", ("text", "extra_tags")),
     "fill_order": ("fill", ("qty", "price", "text", "extra_tags")),
+    "unsolicited_cancel": ("unsolicited", ("text", "extra_tags")),
     "dk_trade": ("dk", ("dk_reason", "text", "extra_tags")),
     "correct_trade": ("correct", ("qty", "price", "text", "extra_tags")),
     "bust_trade": ("bust", ("text", "extra_tags")),
@@ -159,6 +160,15 @@ class FixCommandService(Service):
                 cl_ord_id=data["cl_ord_id"],
                 qty=float(data["qty"]),
                 price=float(data["price"]),
+                extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
+            )
+            return {"ok": True, "exec_id": exec_id}
+
+        elif command == "unsolicited_cancel":
+            exec_id = await engine.unsolicited_cancel(
+                session_id=data["session_id"],
+                cl_ord_id=data["cl_ord_id"],
                 extra_tags=data.get("extra_tags", ""),
                 text=data.get("text", ""),
             )

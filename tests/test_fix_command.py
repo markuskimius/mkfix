@@ -36,6 +36,7 @@ def _make_engine():
     engine.renotify_trade = AsyncMock(return_value="EXXX00000007")
     engine.dk_trade = AsyncMock()
     engine.accept_cancel = AsyncMock(return_value="EXXX00000004")
+    engine.unsolicited_cancel = AsyncMock(return_value="EXXX00000008")
     engine.accept_replace = AsyncMock(return_value="EXXX00000005")
     engine.reject_cancel = AsyncMock()
     engine.accept_request = AsyncMock(return_value="EXXX00000006")
@@ -425,6 +426,20 @@ class TestDispatch:
         assert _sent(ws)["exec_id"] == "EXXX00000004"
 
     @pytest.mark.asyncio
+    async def test_unsolicited_cancel(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "unsolicited_cancel",
+            "data": {"session_id": "S1", "cl_ord_id": "C1", "extra_tags": "378=4"},
+        })
+        engine.unsolicited_cancel.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C1", extra_tags="378=4", text="",
+        )
+        assert _sent(ws)["exec_id"] == "EXXX00000008"
+
+    @pytest.mark.asyncio
     async def test_accept_replace(self):
         engine = _make_engine()
         svc = _make_service(engine)
@@ -519,6 +534,8 @@ class TestSaveAsTemplate:
          {"text": "", "extra_tags": "5001=A"}),
         ("reject_request", "reject", {"session_id": "S1", "cl_ord_id": "C1", "text": "busy"},
          {"text": "busy", "extra_tags": ""}),
+        ("unsolicited_cancel", "unsolicited", {"session_id": "S1", "cl_ord_id": "C1", "text": "halted"},
+         {"text": "halted", "extra_tags": ""}),
         ("dk_trade", "dk", {"session_id": "S1", "exec_id": "E1", "dk_reason": "B", "text": "?"},
          {"dk_reason": "B", "text": "?", "extra_tags": ""}),
         ("correct_trade", "correct", {"session_id": "S1", "exec_id": "E1", "qty": "40", "price": "149"},
@@ -663,6 +680,7 @@ class TestHandlingAndTextDispatch:
         ("accept_replace", {"session_id": "S1", "cl_ord_id": "C1"}),
         ("reject_request", {"session_id": "S1", "cl_ord_id": "C1"}),
         ("fill_order", {"session_id": "S1", "cl_ord_id": "C1", "qty": "1", "price": "1"}),
+        ("unsolicited_cancel", {"session_id": "S1", "cl_ord_id": "C1"}),
         ("correct_trade", {"session_id": "S1", "exec_id": "E1", "qty": "1", "price": "1"}),
         ("bust_trade", {"session_id": "S1", "exec_id": "E1"}),
         ("renotify_trade", {"session_id": "S1", "exec_id": "E1"}),
