@@ -181,6 +181,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   restorable from the Restore Layout submenu, and Reset to Default returns to
   the shipped arrangement. mkfix has no login, so the history is shared by
   everyone using the same server.
+- **Help** -- Help → Keyboard Shortcuts lists the keys the tables and dialogs
+  answer; Help → About mkfix shows the client's version beside the server's
+  and the mkui and mkio versions, the GPL-2.0 no-warranty notice, and links to
+  the repository, the issue tracker, the license and the FIX dictionary
+  notice, with a Copy details button for bug reports.
 - **Record History** -- Sessions, orders and trades are versioned: every
   change to a row is recorded, and each blotter's History button opens a
   History pane showing the selected record's versions with a Diff and Blame
@@ -355,7 +360,7 @@ its toolbar instead of sitting still with old rows.
 
 - [mkio](https://github.com/markuskimius/mkio) >= 1.3.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 1.6.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.8.0, < 2 -- Web Components UI
   framework
 
 ## License

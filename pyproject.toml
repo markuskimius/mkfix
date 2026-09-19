@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "mkio>=1.3.0,<2",  # 1.3.0: a page that stops reading can no longer freeze, then end, every blotter's live updates
-    "mkui>=1.6.0,<2",  # 1.6.0: a blotter whose subscription ended says so; a loading snapshot keeps live changes
+    "mkui>=1.8.0,<2",  # 1.8.0: message boxes (`dialog.about`, `dialog.open`) behind the Help menu
 ]
 
 [project.optional-dependencies]

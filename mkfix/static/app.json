@@ -1,7 +1,32 @@
 {
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
-    "theme": "dark"
+    "theme": "dark",
+    "version": "0.44",
+    "description": "FIX protocol testing engine built on mkio and mkui",
+    "copyright": "© Mark Kim · GPL-2.0-only",
+    "links": [
+      { "label": "GitHub", "href": "https://github.com/markuskimius/mkfix" },
+      { "label": "Report an issue", "href": "https://github.com/markuskimius/mkfix/issues" },
+      { "label": "License", "href": "https://github.com/markuskimius/mkfix/blob/main/LICENSE" },
+      { "label": "FIX dictionary notice", "href": "https://github.com/markuskimius/mkfix/blob/main/mkfix/fix/dictionary_data/NOTICE" }
+    ],
+    "about": {
+      "title": "About mkfix",
+      "width": 470,
+      "heading": "mkfix ${app.version}",
+      "message": [
+        "${app.description}",
+        "${app.copyright}",
+        "Free software under the GNU GPL version 2, with no warranty."
+      ],
+      "builtins": false,
+      "facts": [
+        { "label": "Server", "value": "${state.mkio.server.name} ${state.mkio.server.version}" },
+        { "label": "mkui", "value": "${app.mkui}" },
+        { "label": "mkio", "value": "${state.mkio.server.mkio}" }
+      ]
+    }
   },
   "state": {
     "status": {
@@ -174,8 +199,43 @@
           "windows": true
         }
       ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        {
+          "label": "Keyboard Shortcuts",
+          "action": "dialog.open",
+          "args": "shortcuts"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "About mkfix",
+          "action": "dialog.about"
+        }
+      ]
     }
   ],
+  "dialogs": {
+    "shortcuts": {
+      "title": "Keyboard Shortcuts",
+      "width": 460,
+      "facts": [
+        { "label": "Ctrl/Cmd+C", "value": "Copy the selected rows" },
+        { "label": "Ctrl/Cmd+A", "value": "Select every row" },
+        { "label": "Ctrl/Cmd+F", "value": "Find in the focused table" },
+        { "label": "Ctrl/Cmd+G", "value": "Next match (Shift for the previous one)" },
+        { "label": "Escape", "value": "Clear the selection, then close find; in a dialog, cancel it unless it is pinned" },
+        { "label": "Enter", "value": "Submit a dialog from a single-line field" },
+        { "label": "Ctrl/Cmd+Enter", "value": "Submit a dialog from anywhere in it" }
+      ],
+      "buttons": [
+        { "id": "ok", "label": "OK", "kind": "primary", "cancel": true, "default": true }
+      ]
+    }
+  },
   "layouts": {
     "key": "mkfix",
     "keep": 10,
@@ -191,7 +251,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.43"
+        "text": "mkfix v0.44"
       }
     ],
     "bindStyle": {
@@ -3753,7 +3813,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.43",
+      "version": "0.44",
       "mkio": "1.3",
       "expr": "1"
     },

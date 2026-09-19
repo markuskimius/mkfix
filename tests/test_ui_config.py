@@ -1241,11 +1241,12 @@ class TestMenubar:
     most a console warning, and the order of the menus is a layout the eye
     learns, so both are pinned here."""
 
-    MENUS = ["Sessions", "Messages", "Edit", "Trading", "Tools", "Layout", "Window"]
+    MENUS = ["Sessions", "Messages", "Edit", "Trading", "Tools", "Layout", "Window", "Help"]
     BUILTIN_ACTIONS = {
         "pane.show", "edit.copy", "edit.selectAll", "edit.undo", "edit.redo",
         "layout.save", "layout.reset",
         "window.tileH", "window.tileV", "window.grid", "window.cascade",
+        "dialog.open", "dialog.about",
     }
 
     def test_menu_order(self, app_config):
@@ -1260,6 +1261,15 @@ class TestMenubar:
                     assert item["label"], f"{menu['label']}: action without a label"
                     assert item["action"] in self.BUILTIN_ACTIONS, \
                         f"{menu['label']}: {item['action']!r} is not an mkui built-in"
+
+    def test_dialog_open_items_name_a_declared_dialog(self, app_config):
+        """`dialog.open` with a name mkui cannot find under `dialogs` opens
+        nothing and warns only in the console."""
+        for menu in app_config["menubar"]:
+            for item in menu["items"]:
+                if item.get("action") == "dialog.open":
+                    assert item["args"] in app_config.get("dialogs", {}), \
+                        f"{menu['label']}: no dialog named {item['args']!r}"
 
     def test_pane_show_items_carry_a_pane_id(self, app_config):
         for menu in app_config["menubar"]:
@@ -1430,6 +1440,184 @@ def _mkui_floor() -> tuple[int, ...]:
     return _dependency_floor("mkui")
 
 
+class TestHelpMenu:
+    """The Help menu is two mkui message boxes built from config alone. mkui
+    ignores what it does not know — an `app.about` key, a dialog name, a
+    template that comes out blank — so every half is pinned here, against
+    the installed mkui where the contract is its to keep."""
+
+    ABOUT_KEYS = {"title", "heading", "message", "width", "builtins", "facts"}
+
+    @staticmethod
+    def _mkui_source(*parts: str) -> str:
+        import mkui
+        return Path(mkui.static_dir).joinpath("src", *parts).read_text(encoding="utf-8")
+
+    def test_menu_shape(self, app_config):
+        menu = app_config["menubar"][-1]
+        assert menu["label"] == "Help"
+        assert menu["items"] == [
+            {"label": "Keyboard Shortcuts", "action": "dialog.open", "args": "shortcuts"},
+            {"sep": True},
+            {"label": "About mkfix", "action": "dialog.about"},
+        ]
+
+    def test_every_menu_action_is_registered_by_the_installed_mkui(self, app_config):
+        """TestMenubar's list is hand-kept; this reads the registrations."""
+        registered = set(re.findall(
+            r'registerAction\(\s*"([^"]+)"',
+            self._mkui_source("components", "app.js") + self._mkui_source("layouts.js")))
+        used = {item["action"] for menu in app_config["menubar"]
+                for item in menu["items"] if "action" in item}
+        assert {"dialog.open", "dialog.about"} <= used
+        assert used <= registered, f"not registered by mkui: {sorted(used - registered)}"
+
+    def test_every_declared_dialog_is_opened_by_a_menu_item(self, app_config):
+        opened = {item["args"] for menu in app_config["menubar"]
+                  for item in menu["items"] if item.get("action") == "dialog.open"}
+        assert set(app_config["dialogs"]) == opened
+
+    def test_shortcuts_box_is_a_message_box_with_one_way_out(self, app_config):
+        """No `fields`, so it is not a form; its one button is `cancel` (what
+        Escape and × press) and `default` (what Enter presses)."""
+        spec = app_config["dialogs"]["shortcuts"]
+        assert spec["title"] == "Keyboard Shortcuts"
+        assert "fields" not in spec and "submit" not in spec
+        assert spec["buttons"] == [
+            {"id": "ok", "label": "OK", "kind": "primary", "cancel": True, "default": True}]
+        labels = [f["label"] for f in spec["facts"]]
+        assert len(labels) == len(set(labels)), "a key is listed twice"
+        for fact in spec["facts"]:
+            assert set(fact) == {"label", "value"}
+            assert fact["label"].strip() and fact["value"].strip()
+            assert "${" not in fact["value"], "a shortcut line is plain text"
+
+    def test_shortcuts_box_covers_the_menu_hints(self, app_config):
+        """A key the Edit menu advertises must be in the list too."""
+        hints = {item["shortcut"] for menu in app_config["menubar"]
+                 for item in menu["items"] if "shortcut" in item}
+        assert hints, "the Edit menu lost its shortcut hints"
+        labels = {f["label"] for f in app_config["dialogs"]["shortcuts"]["facts"]}
+        for hint in hints:
+            assert hint.replace("mod+", "Ctrl/Cmd+") in labels, f"{hint} is not listed"
+
+    def test_shortcuts_are_keys_the_installed_mkui_binds(self, app_config):
+        """The list is hand-written; each key is looked up where mkui handles
+        it — the workspace's window keydown, the dialog's `onKey`."""
+        workspace = self._mkui_source("components", "workspace.js")
+        dialog = self._mkui_source("widgets", "mkui-dialog.js")
+        for fact in app_config["dialogs"]["shortcuts"]["facts"]:
+            label = fact["label"]
+            if label == "Escape":
+                assert 'e.key === "Escape"' in workspace and 'e.key === "Escape"' in dialog
+            elif label.endswith("Enter"):
+                assert 'e.key !== "Enter"' in dialog
+                if label.startswith("Ctrl/Cmd+"):
+                    assert re.search(r"ctrlKey\s*\|\|\s*e\.metaKey", dialog)
+            else:
+                key = re.fullmatch(r"Ctrl/Cmd\+([A-Z])", label)
+                assert key, f"unrecognised shortcut label {label!r}"
+                assert f'k === "{key.group(1).lower()}"' in workspace, f"mkui does not bind {label}"
+        assert 'this.editAction(e.shiftKey ? "findPrev" : "findNext")' in workspace
+
+    def test_tables_answer_the_find_keys(self):
+        """Ctrl/Cmd+F and +G only do something over a pane whose edit hook
+        has find; the blotters are `mkio-table`s."""
+        table = self._mkui_source("widgets", "mkio-table.js")
+        for action in ("copy", "selectAll", "clearSelection", "find", "findNext", "findPrev"):
+            assert re.search(rf"\b{action}:\s*\(", table), f"mkio-table has no {action}"
+
+    def test_about_keys_are_ones_the_installed_mkui_reads(self, app_config):
+        about = app_config["app"]["about"]
+        assert set(about) == self.ABOUT_KEYS
+        source = self._mkui_source("lib", "dialogs.js")
+        for key in about:
+            assert f"about.{key}" in source, f"mkui's aboutSpec does not read about.{key}"
+        for key in ("title", "version", "description", "copyright", "links"):
+            assert key in app_config["app"]
+        assert "a.links" in source
+
+    def test_about_templates_compile_and_render(self, app_config):
+        """The box as a connected client renders it, and with the server
+        gone: mkui drops a line whose value is blank, so Server and mkio go
+        and the rest stays."""
+        from mkio import expr
+
+        env = expr.Env(strict=False)
+        app = {**app_config["app"], "mkui": "1.8.0"}
+        about = app["about"]
+
+        def render(src, state):
+            return expr.compile_template(src, env).evaluate(expr.Scope({"app": app, "state": state}))
+
+        up = {"mkio": {"server": {"name": "mkfix", "version": __version__, "mkio": "1.4.0"}}}
+        assert render(about["heading"], up) == f"mkfix {app['version']}"
+        assert [render(m, up) for m in about["message"]] == [
+            app["description"], app["copyright"],
+            "Free software under the GNU GPL version 2, with no warranty."]
+        assert [(f["label"], render(f["value"], up)) for f in about["facts"]] == [
+            ("Server", f"mkfix {__version__}"), ("mkui", "1.8.0"), ("mkio", "1.4.0")]
+
+        down = {"mkio": {"server": {}}}
+        # A pure `${x}` template yields NULL, which mkui's resolveExpr blanks.
+        values = {f["label"]: (render(f["value"], down) or "").strip() for f in about["facts"]}
+        assert values == {"Server": "", "mkui": "1.8.0", "mkio": ""}
+
+    def test_about_reads_state_the_installed_mkui_sets(self, app_config):
+        source = self._mkui_source("components", "app.js")
+        paths = set()
+        for fact in app_config["app"]["about"]["facts"]:
+            paths.update(re.findall(r"state\.(mkio\.server\.\w+)", fact["value"]))
+        assert paths == {"mkio.server.name", "mkio.server.version", "mkio.server.mkio"}
+        for path in paths:
+            assert f'st.set("{path}"' in source, f"mkui never sets {path}"
+
+    def test_index_sets_the_mkui_version_before_the_config_is_handed_over(self):
+        index = (STATIC / "index.html").read_text(encoding="utf-8")
+        assert index.index("config.app.mkui = window.Mkui.VERSION") < index.index(".setConfig(config)")
+        assert re.search(r"window\.mkui = window\.Mkui = \{\s*\.\.\.Mkui", self._mkui_source("index.js"))
+        assert re.search(r"^\s*VERSION,", self._mkui_source("index.js"), re.M)
+
+    def test_about_box_is_wide_enough_for_the_notice(self, app_config):
+        """At mkui's default 420 the no-warranty line wraps its last word."""
+        assert app_config["app"]["about"]["width"] >= 470
+
+    def test_about_box_carries_the_gpl_notice(self, app_config):
+        """What the GPL asks an interactive program to announce: the
+        copyright, that there is no warranty, and where the terms are."""
+        app = app_config["app"]
+        message = app["about"]["message"]
+        assert "${app.description}" in message and "${app.copyright}" in message
+        assert any("no warranty" in line for line in message)
+        hrefs = [link["href"] for link in app["links"]]
+        assert any(h.endswith("/blob/main/LICENSE") for h in hrefs)
+
+    def test_about_facts_are_mkfix_own(self, app_config):
+        """mkui's built-in lines are off so the box can order its own, without
+        a Connection line. mkui drops a line whose value comes out blank, so
+        `${app.mkui}` needs index.html to set it or the line silently goes."""
+        about = app_config["app"]["about"]
+        assert about["builtins"] is False
+        assert [f["label"] for f in about["facts"]] == ["Server", "mkui", "mkio"]
+        values = {f["label"]: f["value"] for f in about["facts"]}
+        assert values["mkui"] == "${app.mkui}"
+        index = (STATIC / "index.html").read_text(encoding="utf-8")
+        assert "config.app.mkui = window.Mkui.VERSION" in index
+
+    def test_about_links_resolve(self, app_config):
+        """Links must be the project's own, and one into the repository must
+        name a file that exists: mkio serves NOTICE as a download, so the
+        About box links to its GitHub page instead."""
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        repo = project["urls"]["Repository"]
+        for link in app_config["app"]["links"]:
+            href = link["href"]
+            assert href.startswith(repo), href
+            if "/blob/main/" in href:
+                path = href.split("/blob/main/", 1)[1]
+                assert (ROOT / path).is_file(), f"{href} names no file"
+
+
 class TestVersions:
     def test_expected_version_matches_package(self, app_config):
         """A stale `expect` makes every client report a version mismatch."""
@@ -1494,6 +1682,31 @@ class TestVersions:
         texts = [item.get("text", "") for item in app_config["statusbar"]["right"]]
         assert any(t == f"mkfix v{major_minor}" for t in texts), \
             f"statusbar shows {texts}, expected 'mkfix v{major_minor}'"
+
+    def test_about_box_matches_package(self, app_config):
+        """The About box is built from the `app` block: its version is the
+        third baked client stamp, and the description and licence repeat
+        pyproject.toml's."""
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        app = app_config["app"]
+        assert app["version"] == ".".join(__version__.split(".")[:2])
+        assert app["description"] == project["description"]
+        assert project["license"] in app["copyright"]
+        assert project["authors"][0]["name"] in app["copyright"]
+        assert "${app.version}" in app["about"]["heading"]
+
+    def test_mkui_floor_supports_message_boxes(self, app_config):
+        """`dialog.*` actions and the `dialogs` block are mkui 1.8.0; an
+        earlier build leaves the Help menu dead with a console warning."""
+        uses_dialogs = any(
+            item.get("action", "").startswith("dialog.")
+            for menu in app_config["menubar"] for item in menu.get("items", [])
+        )
+        if not uses_dialogs:
+            pytest.skip("no menu item opens a dialog")
+
+        floor = _mkui_floor()
+        assert floor >= (1, 8, 0), f"mkui floor {floor} predates message boxes"
 
     def test_mkui_floor_supports_configured_table_options(self, app_config):
         """`live` and `select` on mkio-table need mkui 0.1.52+."""

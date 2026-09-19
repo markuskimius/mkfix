@@ -18,6 +18,9 @@
     const config = await res.json();
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     config.mkio.url = `${wsProto}//${location.host}/ws`;
+    // The About box lists its own lines, and a template cannot reach mkui's
+    // version: it is in neither app state nor the config.
+    config.app.mkui = window.Mkui.VERSION;
     document.querySelector("mkui-app").setConfig(config);
   </script>
 </head>

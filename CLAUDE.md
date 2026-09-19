@@ -1,6 +1,6 @@
 # mkfix
 
-FIX protocol testing engine built on [mkio](https://github.com/markuskimius/mkio) (async microservices) and [mkui](https://github.com/markuskimius/mkui) (Web Components UI).
+FIX protocol testing engine built on [mkio](../mkio) (async microservices) and [mkui](../mkui) (Web Components UI).
 
 ## Quick start
 
@@ -44,9 +44,9 @@ tools/
 
 ## Architecture
 
-mkfix builds its server with mkio's programmatic API: `create_app(cfg)` in `__main__.py` returns an `MkioApp`, which runs schema migration and service preflight before the event loop starts. The FIX TCP engine runs in the same asyncio event loop and writes FIX messages to SQLite via mkio's `WriteBatcher.submit(ops, params_list, data)` with pre-compiled `CompiledOp` objects. The UI is an mkui app with custom pane types; its commands flow through `FixCommandService`, a custom mkio `Service` subclass.
+`create_app(cfg)` in `__main__.py` returns an `MkioApp`, which runs schema migration and service preflight before the event loop starts. The FIX TCP engine runs in the same asyncio event loop and writes FIX messages to SQLite via mkio's `WriteBatcher.submit(ops, params_list, data)` with pre-compiled `CompiledOp` objects. The UI is an mkui app with custom pane types; its commands flow through `FixCommandService`, a custom mkio `Service` subclass.
 
-`serve()` does not call `app.run()`: it probes the web port first (`_check_port`), then mirrors `MkioApp.run` so the startup banner (`_banner`) prints only after the port is bound. The probe exists because mkio's `start()` opens the database before binding, and a bind failure there leaves aiosqlite's non-daemon threads alive and the process hung; losing the probe's race falls back on `os._exit(1)`. The loop is mkio's `loop_factory` (uvloop, or the selector loop on Windows). Windows' loop has no `add_signal_handler`; there Ctrl+C cancels `run()`, which calls `app.stop()`.
+`serve()` does not call `app.run()`: it probes the web port first (`_check_port`), then mirrors `MkioApp.run` so the startup banner (`_banner`) prints only after the port is bound. The probe exists because mkio's `start()` opens the database before binding, and a bind failure there leaves aiosqlite's non-daemon threads alive and the process hung; a lost probe race falls back on `os._exit(1)`. The loop is mkio's `loop_factory` (uvloop; the selector loop on Windows, which has no `add_signal_handler`: there Ctrl+C cancels `run()`, which calls `app.stop()`).
 
 Key integration points:
 - `create_app` / `MkioApp` — server bootstrap; `app.db`/`app.writer`/`app.change_bus`/`app.services` expose internals to the engine
@@ -87,7 +87,9 @@ Blotter action templates: `fix_templates` (`scope` in `TEMPLATE_SCOPES`, `name`,
 
 ## Saved layouts
 
-The Layout menu is mkui's saved-layouts feature, opt-in per app: nothing appears unless the config carries a `layouts` block (constructs mkui's `LayoutManager`, registers the `layout.*` actions) *and* the menubar declares the entries (`layout.save`, a `{"layouts": true}` submenu for Restore, `layout.reset`). app.json has both, with `key: "mkfix"` so the store key doesn't ride on the app title. With `mkio.url` set the store is the server: mkfix.toml declares the `mkui_layouts` table, the `mkui_layouts` transaction service (`save`/`delete`) and the `mkui_layouts_list`/`mkui_layouts_get` reqreps — what `mkui init` scaffolds, minus the `access` pre-checks binding `:user` to a login mkfix lacks (mkio skips access checks without `_mkio_users`), so every save lands under owner `''`, one history shared by everyone. `test_ui_config.py` checks that the menu actions, the `layouts` block and the three services stay together, since a missing half fails silently in the browser.
+The Layout menu is mkui's saved-layouts feature, opt-in per app: it needs a `layouts` block (constructs mkui's `LayoutManager`, registers the `layout.*` actions) *and* the menubar entries (`layout.save`, a `{"layouts": true}` submenu for Restore, `layout.reset`). app.json has both, with `key: "mkfix"` so the store key doesn't ride on the app title. With `mkio.url` set the store is the server: mkfix.toml declares the `mkui_layouts` table, the `mkui_layouts` transaction service (`save`/`delete`) and the `mkui_layouts_list`/`mkui_layouts_get` reqreps — what `mkui init` scaffolds, minus the `access` pre-checks binding `:user` to a login mkfix lacks, so every save lands under owner `''`, one history shared by everyone. `test_ui_config.py` keeps the menu actions, the `layouts` block and the three services together: a missing half fails silently.
+
+The Help menu is mkui 1.8.0 message boxes: Shortcuts is `dialog.open` on `dialogs.shortcuts`, About is `dialog.about`, built from the `app` block (`app.about`: short title, GPL no-warranty `message`, own `facts` with `builtins` off; index.html sets `app.mkui`). `TestHelpMenu` checks both against the installed mkui.
 
 ## Record history
 
@@ -131,21 +133,21 @@ Identity rules the engine enforces:
 
 `raw-messages` sets `live: true` so it opens streaming, not parked on today's first page; the start page still loads first, so `start: "today"` holds. Stream panes page backward with `before: true` + `maxcount`; `ref` is optional.
 
-A blotter that stopped updating, even reloaded, was mkio < 1.3.0: a non-reading page blocked a service's listener (`TestStalledBlotter`). 1.3.0 queues sends per connection (`ws_heartbeat_s`, `ws_send_buffer_mb`); mkui 1.6.0 stamps a table whose subscription ended.
+A blotter that stopped updating, even reloaded, was mkio < 1.3.0: a non-reading page blocked a service's listener (`TestStalledBlotter`); 1.3.0 queues sends per connection, and mkui 1.6.0 stamps a table whose subscription ended.
 
-`tests/test_ui_config.py` guards app.json against silent browser failures: dangling pane references, `index.html` imports of deleted modules, unknown service names, a stale `mkio.expect.version`, and pane-module JS naming imports, services, ops or `fix_cmd` commands that don't exist.
+`tests/test_ui_config.py` guards app.json against silent browser failures: dangling pane references, `index.html` imports of deleted modules, unknown service names, a stale version stamp, and pane-module JS naming imports, services, ops or `fix_cmd` commands that don't exist.
 
 ## mkio transaction defaults
 
-Transaction ops need explicit TOML `defaults` for any field the client may omit; one without is required.
+Transaction ops need TOML `defaults` for any field the client may omit; one without is required.
 
 ## Versioning
 
-`mkfix/__init__.py` `__version__` is the single source of truth: pyproject.toml reads it via hatch dynamic version, and `_load_config` injects it as the server's version (mkfix.toml carries no `version` key). The one deliberate copy is in `static/app.json` (`mkio.expect.version` and the statusbar text), the client's baked stamp, so a stale cached client fails the handshake after an upgrade. A release bump updates `__version__` and the two app.json spots; `test_ui_config.py` fails on drift. The framework floors are pinned in `pyproject.toml`'s `dependencies`, the README's Dependencies list, and `mkio.expect.mkio` in app.json, which must equal the pyproject mkio floor's major.minor: the server compares it by caret semver (same major, at least that minor), so a 1.x minor upgrade stays compatible, while a 2.x server paints the statusbar red until floor, cap (`<2`) and pin move. The floors name the lowest version mkfix actually uses. `expect.expr` pins `mkio.expr`'s `LANGUAGE_VERSION` exactly and moves only when the expression language does.
+`mkfix/__init__.py` `__version__` is the single source of truth: pyproject.toml reads it via hatch dynamic version, and `_load_config` injects it as the server's version (mkfix.toml carries no `version` key). The one deliberate copy is in `static/app.json` (`mkio.expect.version`, the statusbar text, the About box's `app.version`), the client's baked stamp, so a stale cached client fails the handshake after an upgrade. A release bump updates `__version__` and the three app.json spots; `test_ui_config.py` fails on drift. The framework floors are pinned in `pyproject.toml`'s `dependencies`, the README's Dependencies list, and `mkio.expect.mkio` in app.json, which must equal the pyproject mkio floor's major.minor: the server compares it by caret semver (same major, at least that minor), so a 1.x minor stays compatible and a 2.x server paints the statusbar red until floor, cap (`<2`) and pin move. The floors name the lowest version mkfix uses. `expect.expr` pins `mkio.expr`'s `LANGUAGE_VERSION` exactly and moves only when the expression language does.
 
 ## Security notes
 
-Message Replay loads production FIX logs into test sessions, so files and hosts named `prod`/`production` may legitimately appear here — treat them with care: replayed production data stays on this machine: never commit, push or send it to external services.
+Message Replay loads production FIX logs into test sessions, so files and hosts named `prod`/`production` may legitimately appear here. Replayed production data stays on this machine: never commit, push or send it to external services.
 
 ## Running tests
 
