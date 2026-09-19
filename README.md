@@ -46,8 +46,16 @@ A FIX protocol testing engine for capital markets connectivity, built on
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
   the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
   directly from the blotter -- the Replace dialog opens on the order's full
-  form, prefilled with the terms last entered (the New dialog's or the previous
-  replace's) -- and a fully filled order can still be replaced up to revive it.
+  form, prefilled with the terms last accepted (the New dialog's or the last
+  accepted replace's -- a rejected replace leaves them alone) -- and a fully filled order can still be replaced up to revive it.
+  A Replace or Cancel stays on the row as Pending -- with the request's
+  ClOrdID and terms under Pending ID, New Qty and New Px -- until the
+  counterparty answers it: an accepting ExecutionReport moves the order to the request's
+  ClOrdID, while an OrderCancelReject leaves the ClOrdID alone, puts the
+  order back to the status the reject reports, and notes what was refused
+  and why under Rej Reason (`Replace RTMA00000042: TooLateToCancel`). A
+  PendingCancel/PendingReplace report only changes the status. The row
+  tracks the latest request; fills keep arriving while one is pending.
   The form offers Market / Limit / Market on Close / Limit on Close / Funari
   orders, Buy / Sell / Sell Short / Sell Short Exempt, and Day / GTC / At the
   Opening / IOC / FOK / GTX / GTD / At the Close, plus an Expire field

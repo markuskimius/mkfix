@@ -500,6 +500,30 @@ class TestServiceReferences:
         assert ops == {"New": "send_new_order", "Replace": "send_cancel_replace",
                        "Cancel": "send_cancel"}
 
+    def test_order_blotters_show_the_request_slot(self, app_config, toml_config):
+        """Both sides show what is pending and under which ClOrdID — the
+        counterparty's request on Received Orders, our own on Sent Orders,
+        which alone can be refused and so alone carries Rej Reason. The
+        parked replace terms are engine bookkeeping, not a column."""
+        slot = ["pending_action", "pending_cl_ord_id", "pending_qty", "pending_price"]
+        table = toml_config["tables"]["fix_orders"]["columns"]
+        for pane_id in ("order-blotter", "market-order-blotter"):
+            pane = app_config["panes"][pane_id]
+            assert [c for c in pane["columns"] if c in slot] == slot, pane_id
+            assert all(c in pane["labels"] and c in table for c in slot), pane_id
+            assert "pending_entered" not in pane["columns"], pane_id
+        sent, received = (app_config["panes"][p] for p in ("order-blotter", "market-order-blotter"))
+        assert "cxl_rej_reason" in sent["columns"] and "cxl_rej_reason" in sent["labels"]
+        assert "cxl_rej_reason" not in received["columns"]
+        assert {"cxl_rej_reason", "pending_entered"} <= set(table)
+
+    def test_sent_requests_do_not_gate_on_the_slot(self, app_config):
+        """A cancel on top of a pending replace is a scenario worth sending:
+        Sent Orders' Replace and Cancel never test pending_action."""
+        by = {b["label"]: b for b in app_config["panes"]["order-blotter"]["buttons"]}
+        for label in ("Replace", "Cancel"):
+            assert "pending_action" not in _conditions(by[label]["enable"]["when"]), label
+
     def test_received_orders_buttons_gate_on_pending_action(self, app_config):
         """One Accept/Reject pair handles new orders and cancel/replace
         requests alike: both gate on pending_action (a new order arrives as

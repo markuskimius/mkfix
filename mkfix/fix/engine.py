@@ -54,6 +54,22 @@ ORDER_UPDATE_COLS = [
     "pending_extra_tags",
 ]
 
+# The request slot. On a received order it parks the counterparty's
+# cancel/replace (or the New) until Accept/Reject; on a sent order it holds
+# the latest request this engine sent, until the ER or OrderCancelReject
+# answering its ClOrdID. One slot: a later request overwrites an earlier one,
+# whose answer then matches nothing and leaves the slot alone.
+PENDING_COLS = [
+    "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
+    "pending_extra_tags",
+]
+# pending_entered rides in a sent order's slot only: a replace request's
+# ENTERED_COLS as JSON, which become the row's entered terms when the request
+# is accepted — a refused replace must not be what the next Replace dialog
+# opens on.
+_PENDING_BLANKS = {"pending_action": "''", "pending_cl_ord_id": "''", "pending_qty": "0",
+                   "pending_price": "0", "pending_extra_tags": "''", "pending_entered": "''"}
+
 EXEC_COLS = [
     "session_id", "exec_id", "exec_ref_id", "trade_id", "order_id", "cl_ord_id",
     "symbol", "side", "side_code", "last_qty", "last_price", "cum_qty",
@@ -88,11 +104,15 @@ TEMPLATE_TERM_COLS = [
 ]
 
 
-def _order_params(row: dict[str, Any], keep_sent_text: bool = False) -> tuple[Any, ...]:
+def _order_params(row: dict[str, Any], keep_sent_text: bool = False,
+                  keep_pending: bool = False) -> tuple[Any, ...]:
     """Upsert parameters. sent_text is ours alone: an inbound ExecutionReport
-    passes `keep_sent_text` so the update leaves the column as it stands."""
+    passes `keep_sent_text` so the update leaves the column as it stands, and
+    `keep_pending` likewise — on a sent order pending_* is the request still
+    outstanding, which only its answer clears (rename_order, resolve_request)."""
     insert = tuple(row[c] for c in ORDER_COLS)
-    update = tuple(row[c] for c in ORDER_UPDATE_COLS)
+    update = tuple(None if keep_pending and c in PENDING_COLS else row[c]
+                   for c in ORDER_UPDATE_COLS)
     return insert + (None,) + update + (None if keep_sent_text else row["sent_text"],)
 
 
@@ -224,7 +244,9 @@ class FixEngine:
             param_names=tuple(state_cols + ["_mkio_ref"] + state_cols[1:]),
         ),)
 
-        order_set = ", ".join(f"{c} = ?" for c in ORDER_UPDATE_COLS)
+        order_set = ", ".join(
+            f"{c} = coalesce(?, fix_orders.{c})" if c in PENDING_COLS else f"{c} = ?"
+            for c in ORDER_UPDATE_COLS)
         # order_qty/price update from the insert values, guarded so an
         # ExecutionReport without tag 38/44 can't zero them out. order_id is
         # write-once: the immutable Order ID assigned when the order is created
@@ -260,19 +282,74 @@ class FixEngine:
             param_names=tuple(ENTERED_COLS + ["updated_at", "_mkio_ref", "session_id", "cl_ord_id"]),
         ),)
 
+        # record_entered for a request this engine sends: the same terms plus
+        # the request slot, in one write so the request is one row version.
+        # A new request also retires the previous one's reject note.
+        self._compiled_ops["record_request"] = (CompiledOp(
+            table="fix_orders",
+            op_type="update",
+            sql=(
+                f"UPDATE fix_orders SET {', '.join(c + ' = ?' for c in ENTERED_COLS)}, "
+                "pending_action = ?, pending_cl_ord_id = ?, pending_qty = ?, pending_price = ?, "
+                "pending_entered = ?, cxl_rej_reason = '', updated_at = ?, _mkio_ref = ? "
+                "WHERE session_id = ? AND cl_ord_id = ? RETURNING *"
+            ),
+            param_names=tuple(ENTERED_COLS + [
+                "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
+                "pending_entered", "updated_at", "_mkio_ref", "session_id", "cl_ord_id"]),
+        ),)
+
+        slot_clear = ", ".join(f"{c} = {blank}" for c, blank in _PENDING_BLANKS.items())
+        # A request that never reached the wire is not outstanding.
+        self._compiled_ops["clear_request"] = (CompiledOp(
+            table="fix_orders",
+            op_type="update",
+            sql=(
+                f"UPDATE fix_orders SET {slot_clear}, updated_at = ?, _mkio_ref = ? "
+                "WHERE session_id = ? AND direction = 'TX' AND pending_cl_ord_id = ? "
+                "AND pending_cl_ord_id != '' RETURNING *"
+            ),
+            param_names=("updated_at", "_mkio_ref", "session_id", "pending_cl_ord_id"),
+        ),)
+
+        # An answer clears the slot only when it answers the request the slot
+        # holds; SQLite evaluates every right-hand side against the old row.
+        slot_answered = ", ".join(
+            f"{c} = iif(pending_cl_ord_id = ?, {blank}, {c})" for c, blank in _PENDING_BLANKS.items())
+        # An inbound OrderCancelReject: the counterparty's view of the order
+        # (OrdStatus, kept when the reject carries none), its Text, and which
+        # request it refused.
+        self._compiled_ops["resolve_request"] = (CompiledOp(
+            table="fix_orders",
+            op_type="update",
+            sql=(
+                "UPDATE fix_orders SET status = iif(? = '', status, ?), text = ?, "
+                f"cxl_rej_reason = ?, {slot_answered}, updated_at = ?, _mkio_ref = ? "
+                "WHERE id = ? RETURNING *"
+            ),
+            param_names=("status", "status", "text", "cxl_rej_reason",
+                         *(["pending_cl_ord_id"] * len(_PENDING_BLANKS)),
+                         "updated_at", "_mkio_ref", "id"),
+        ),)
+
         # Moves an order chain to its next ClOrdID when a cancel/replace is
-        # accepted. Guarded so a duplicate ER can't collide with an existing row.
+        # accepted — which answers the request of that ClOrdID, so the slot
+        # holding it clears in the same write. Guarded so a duplicate ER can't
+        # collide with an existing row.
         self._compiled_ops["rename_order"] = (CompiledOp(
             table="fix_orders",
             op_type="update",
             sql=(
-                "UPDATE fix_orders SET cl_ord_id = ?, orig_cl_ord_id = ?, updated_at = ?, _mkio_ref = ? "
+                f"UPDATE fix_orders SET cl_ord_id = ?, orig_cl_ord_id = ?, {slot_answered}, "
+                "updated_at = ?, _mkio_ref = ? "
                 "WHERE session_id = ? AND cl_ord_id = ? "
                 "AND NOT EXISTS (SELECT 1 FROM fix_orders x "
                 "WHERE x.session_id = fix_orders.session_id AND x.cl_ord_id = ?) "
                 "RETURNING *"
             ),
-            param_names=("cl_ord_id", "orig_cl_ord_id", "updated_at", "_mkio_ref",
+            param_names=("cl_ord_id", "orig_cl_ord_id",
+                         *(["pending_cl_ord_id"] * len(_PENDING_BLANKS)),
+                         "updated_at", "_mkio_ref",
                          "session_id", "old_cl_ord_id", "new_cl_ord_id"),
         ),)
 
@@ -363,6 +440,11 @@ class FixEngine:
         await (await conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_orders_clord_session "
             "ON fix_orders(cl_ord_id, session_id)"
+        )).close()
+        # _find_requested runs for every ER naming a ClOrdID no row holds.
+        await (await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fix_orders_pending ON fix_orders(session_id, pending_cl_ord_id) "
+            "WHERE pending_cl_ord_id != ''"
         )).close()
         # orders_query/executions_query join fix_session_state by session_id
         # and re-run on every state write.
@@ -769,6 +851,8 @@ class FixEngine:
             await self._handle_cancel_request(session, msg, "Cancel")
         elif msg_type == "G":
             await self._handle_cancel_request(session, msg, "Replace")
+        elif msg_type == "9":
+            await self._handle_cancel_reject(session, msg)
         elif msg_type == "Q":
             await self._handle_dont_know_trade(session, msg)
         elif msg_type == "6":
@@ -784,18 +868,39 @@ class FixEngine:
         orig_cl_ord_id = msg.get("41", "")
         session_id = session.session_id
 
-        # An accepted cancel/replace re-identifies the chain: tag 11 carries the
-        # request's ClOrdID and tag 41 the one it supersedes. Move our order row
-        # to the new ClOrdID before upserting under it.
-        if orig_cl_ord_id and orig_cl_ord_id != cl_ord_id:
-            await self._rename_order(session_id, orig_cl_ord_id, cl_ord_id)
-
         side_code = msg.get("54", "")
         status_code = msg.get("39", "")
         ord_type_code = msg.get("40", "")
         tif_code = msg.get("59", "")
         exec_type_code = msg.get("150", "")
         trans_type_code = msg.get("20", "0")
+
+        # An accepted cancel/replace re-identifies the chain: tag 11 carries the
+        # request's ClOrdID and tag 41 the one it supersedes, so our order row
+        # moves to the new ClOrdID before the upsert under it. Only an accept
+        # does: a PendingCancel/PendingReplace ER names the request the same
+        # way, and renaming on it would leave the row on an ID the counterparty
+        # never adopted once an OrderCancelReject follows. Any other ER lands
+        # on the row the chain currently lives on.
+        accepted = (exec_type_code or status_code) in ("4", "5")
+        order = await self._find_order_for_report(session_id, cl_ord_id, orig_cl_ord_id)
+        if order and order["cl_ord_id"] != cl_ord_id:
+            if accepted:
+                await self._rename_order(session_id, order["cl_ord_id"], cl_ord_id)
+                # The accepted replace's terms become the order's entered
+                # terms. One whose terms the slot no longer holds (a later
+                # request took it) still moves the quantity and price the
+                # Replace dialog opens on, from the ER's own 38/44.
+                if order["pending_cl_ord_id"] == cl_ord_id and order["pending_entered"]:
+                    await self._promote_entered(session_id, cl_ord_id, order["pending_entered"])
+                elif (exec_type_code or status_code) == "5":
+                    echoed = {"entered_qty": msg.get_float("38", 0.0),
+                              "entered_price": msg.get_float("44", 0.0)}
+                    echoed = {c: v for c, v in echoed.items() if v}
+                    if echoed:
+                        await self._promote_entered(session_id, cl_ord_id, json.dumps(echoed))
+            else:
+                cl_ord_id = order["cl_ord_id"]
 
         order_row = {
             "cl_ord_id": cl_ord_id,
@@ -839,8 +944,9 @@ class FixEngine:
             "sent_text": "",
         }
         ops = self._compiled_ops["upsert_order"]
-        await self.writer.submit(ops, (_order_params(order_row, keep_sent_text=True),),
-                                 {"cl_ord_id": cl_ord_id})
+        await self.writer.submit(
+            ops, (_order_params(order_row, keep_sent_text=True, keep_pending=True),),
+            {"cl_ord_id": cl_ord_id})
 
         # Record fills — and trade corrections/busts, which arrive via
         # ExecTransType(20) on FIX 4.2 and as ExecType(150) G/H from 4.3 on
@@ -889,6 +995,41 @@ class FixEngine:
             "extra_tags": format_extra_tags(extra_pairs_of(msg, dictionary, CONSUMED_EXEC_TAGS)),
         }
         await self._submit_execution(exec_row, referenced["id"] if referenced else None)
+
+    async def _handle_cancel_reject(self, session: FixSession, msg: FixMessage) -> None:
+        """Process an OrderCancelReject (35=9): the request of its ClOrdID(11)
+        was refused, so the sent order keeps its ClOrdID, its request slot
+        clears when it held that request, and the row records what was refused
+        and why. A reject resolving to no sent order stays a recorded message.
+        """
+        session_id = session.session_id
+        request_id = msg.get("11", "")
+        order = (await self._find_requested(session_id, request_id)
+                 or await self._find_order(session_id, msg.get("41", "")))
+        if not order or order["direction"] != "TX":
+            return
+
+        dictionary = session.dictionary
+        kind = {"1": "Cancel", "2": "Replace"}.get(msg.get("434", ""))
+        if not kind and order["pending_cl_ord_id"] == request_id:
+            kind = order["pending_action"]
+        if not kind:
+            kind = await self._sent_request_kind(session_id, request_id)
+        reason_code = msg.get("102", "")
+        note = f"{kind} {request_id}".strip()
+        if reason_code:
+            note += f": {dictionary.enum_name('102', reason_code)}"
+
+        # OrdStatus(39) is the order as the counterparty holds it — what undoes
+        # a PendingCancel/PendingReplace. Under UnknownOrder it describes no
+        # order of theirs, so ours keeps its status.
+        status_code = "" if reason_code == "1" else msg.get("39", "")
+        status = dictionary.enum_name("39", status_code) if status_code else ""
+        params = (status, status, msg.get("58", ""), note,
+                  *([request_id] * len(_PENDING_BLANKS)),
+                  _fix_timestamp(), None, order["id"])
+        ops = self._compiled_ops["resolve_request"]
+        await self.writer.submit(ops, (params,), {"cl_ord_id": order["cl_ord_id"]})
 
     async def _handle_dont_know_trade(self, session: FixSession, msg: FixMessage) -> None:
         """Process a DontKnowTrade (35=Q): mark the sent trade whose ExecID(17)
@@ -1128,8 +1269,9 @@ class FixEngine:
         msg.extra = extra_pairs
         self._stamp_client(session, msg, client)
         await self._record_entered(session_id, orig_cl_ord_id,
-                                   {"sent_text": self._text_as_sent(session, msg)})
-        await session.send_message(msg)
+                                   {"sent_text": self._text_as_sent(session, msg)},
+                                   request=("Cancel", cl_ord_id, 0.0, 0.0))
+        await self._send_request(session, msg, cl_ord_id)
         return cl_ord_id
 
     async def send_cancel_replace(
@@ -1203,20 +1345,63 @@ class FixEngine:
         # Recorded before the send for the same reason send_new_order writes
         # first: an ExecutionReport accepting the replace renames the chain to
         # the new ClOrdID, and this lookup by the superseded one would miss.
-        await self._record_entered(session_id, orig_cl_ord_id, entered)
-        await session.send_message(msg)
+        await self._record_entered(session_id, orig_cl_ord_id, entered,
+                                   request=("Replace", cl_ord_id, qty, price or 0.0))
+        await self._send_request(session, msg, cl_ord_id)
         return cl_ord_id
 
-    async def _record_entered(self, session_id: str, cl_ord_id: str, entered: dict[str, Any]) -> None:
-        """Write submitted terms onto the order row; a no-op for unknown orders."""
+    async def _record_entered(self, session_id: str, cl_ord_id: str, entered: dict[str, Any],
+                              request: tuple[str, str, float, float] | None = None) -> None:
+        """Write submitted terms onto the order row; a no-op for unknown orders.
+
+        `request` — (action, ClOrdID, qty, price) of the cancel/replace about
+        to go out — also fills the sent order's request slot, and the terms
+        wait there (pending_entered) until the request is accepted: only
+        sent_text, which went out whatever the answer, is written now. A
+        received order is left without a slot of ours: its slot is the
+        counterparty's request, so the terms are written as before.
+        """
         try:
             order = await self._load_order(session_id, cl_ord_id)
         except ValueError:
             return
-        row = {**order, **entered}
-        params = tuple(row[c] for c in ENTERED_COLS) + (_fix_timestamp(), None, session_id, cl_ord_id)
-        ops = self._compiled_ops["record_entered"]
+        if request and order["direction"] == "TX":
+            deferred = {c: v for c, v in entered.items() if c != "sent_text"}
+            row = {**order, "sent_text": entered.get("sent_text", order["sent_text"])}
+            params = tuple(row[c] for c in ENTERED_COLS) + request + (
+                json.dumps(deferred) if deferred else "",)
+            ops = self._compiled_ops["record_request"]
+        else:
+            row = {**order, **entered}
+            params = tuple(row[c] for c in ENTERED_COLS)
+            ops = self._compiled_ops["record_entered"]
+        params += (_fix_timestamp(), None, session_id, cl_ord_id)
         await self.writer.submit(ops, (params,), {"cl_ord_id": cl_ord_id})
+
+    async def _promote_entered(self, session_id: str, cl_ord_id: str, pending_entered: str) -> None:
+        """An accepted replace's terms become the order's entered terms. The
+        row is read again so the write carries its other columns as they
+        stand now, not as the ExecutionReport handler first found them."""
+        try:
+            terms = json.loads(pending_entered)
+            order = await self._load_order(session_id, cl_ord_id)
+        except ValueError:
+            return
+        row = {**order, **{c: v for c, v in terms.items() if c in ENTERED_COLS}}
+        params = tuple(row[c] for c in ENTERED_COLS) + (_fix_timestamp(), None, session_id, cl_ord_id)
+        await self.writer.submit(self._compiled_ops["record_entered"], (params,),
+                                 {"cl_ord_id": cl_ord_id})
+
+    async def _send_request(self, session: FixSession, msg: FixMessage, request_id: str) -> None:
+        """Send a cancel/replace whose request slot is already written; one
+        that fails to go out is not outstanding, so its slot clears."""
+        try:
+            await session.send_message(msg)
+        except Exception:
+            params = (_fix_timestamp(), None, session.session_id, request_id)
+            await self.writer.submit(self._compiled_ops["clear_request"], (params,),
+                                     {"cl_ord_id": request_id})
+            raise
 
     # ── Market-side actions (received orders, sent trades) ───────────
 
@@ -1237,6 +1422,73 @@ class FixEngine:
         if not row:
             raise ValueError(f"Unknown order: {cl_ord_id} on {session_id}")
         return dict(row)
+
+    async def _find_order(self, session_id: str, cl_ord_id: str) -> dict[str, Any] | None:
+        """The live order row a ClOrdID belongs to, or None: the row holding
+        it now, else the one that held it earlier in its chain (through the
+        row's recorded versions, as `_find_execution` resolves an ExecID)."""
+        if not cl_ord_id:
+            return None
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT * FROM fix_orders WHERE session_id = ? AND cl_ord_id = ?",
+            (session_id, cl_ord_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row:
+            return dict(row)
+        cursor = await conn.execute(
+            "SELECT o.* FROM fix_orders o JOIN fix_orders__history h ON h.id = o.id "
+            "WHERE h.session_id = ? AND h.cl_ord_id = ? ORDER BY o.id DESC LIMIT 1",
+            (session_id, cl_ord_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
+
+    async def _find_requested(self, session_id: str, request_id: str) -> dict[str, Any] | None:
+        """The sent order whose request slot holds `request_id`, or None."""
+        if not request_id:
+            return None
+        cursor = await self.db.read_conn.execute(
+            "SELECT * FROM fix_orders WHERE session_id = ? AND direction = 'TX' "
+            "AND pending_cl_ord_id = ? AND pending_cl_ord_id != ''",
+            (session_id, request_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
+
+    async def _find_order_for_report(self, session_id: str, cl_ord_id: str,
+                                     orig_cl_ord_id: str) -> dict[str, Any] | None:
+        """The order an ExecutionReport is about: the row under its ClOrdID(11),
+        else the one that sent the request of that ID (an answer lacking tag
+        41 still lands), else the chain OrigClOrdID(41) names."""
+        conn = self.db.read_conn
+        cursor = await conn.execute(
+            "SELECT * FROM fix_orders WHERE session_id = ? AND cl_ord_id = ?",
+            (session_id, cl_ord_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row:
+            return dict(row)
+        return (await self._find_requested(session_id, cl_ord_id)
+                or await self._find_order(session_id, orig_cl_ord_id))
+
+    async def _sent_request_kind(self, session_id: str, request_id: str) -> str:
+        """Cancel or Replace, from the request as recorded on its way out: what
+        an OrderCancelReject without CxlRejResponseTo(434) — FIX 4.0/4.1 —
+        leaves unsaid. Blank when this engine never sent it."""
+        cursor = await self.db.read_conn.execute(
+            "SELECT msg_type FROM fix_messages WHERE session_id = ? AND direction = 'TX' "
+            "AND cl_ord_id = ? AND msg_type IN ('F', 'G') ORDER BY id DESC LIMIT 1",
+            (session_id, request_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return {"F": "Cancel", "G": "Replace"}.get(row[0], "") if row else ""
 
     async def _load_order_for_execution(self, execution: dict[str, Any]) -> dict[str, Any]:
         """Resolve an execution's order by its immutable order_id: the row's
@@ -1288,8 +1540,8 @@ class FixEngine:
         """Move an order row to its next ClOrdID after an accepted cancel/replace."""
         if not old_cl_ord_id or old_cl_ord_id == new_cl_ord_id:
             return
-        params = (new_cl_ord_id, old_cl_ord_id, _fix_timestamp(), None,
-                  session_id, old_cl_ord_id, new_cl_ord_id)
+        params = (new_cl_ord_id, old_cl_ord_id, *([new_cl_ord_id] * len(_PENDING_BLANKS)),
+                  _fix_timestamp(), None, session_id, old_cl_ord_id, new_cl_ord_id)
         ops = self._compiled_ops["rename_order"]
         await self.writer.submit(ops, (params,), {"cl_ord_id": new_cl_ord_id})
 
