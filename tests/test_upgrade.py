@@ -243,3 +243,35 @@ class TestLegacyArchives:
     def test_restore_cli_goes_through_the_strip(self):
         archive = (ROOT / "mkfix" / "archive.py").read_text(encoding="utf-8")
         assert "restore_offline(cfg, strip_mirror_columns(args.archive_dir)" in archive
+
+
+class TestTemplateColumnsAdded:
+    """A template term added in a later release (`restate_reason`, 0.43) is a
+    new column on `fix_templates`; mkio's auto-migration must add it to an
+    older file and leave the saved templates alone."""
+
+    def test_older_file_gains_restate_reason(self, tmp_path):
+        path = tmp_path / "m.db"
+        older = json.loads(json.dumps(TABLES))
+        del older["fix_templates"]["columns"]["restate_reason"]
+        cfg = load_config({"db_path": str(path), "tables": older, "auto_migrate": True})
+
+        async def build(config):
+            db = Database(path=str(path), tables=config["tables"], config=config)
+            await db.start()
+            await db.stop()
+
+        asyncio.run(build(cfg))
+        conn = sqlite3.connect(path)
+        assert "restate_reason" not in {r[1] for r in conn.execute("PRAGMA table_info(fix_templates)")}
+        conn.execute("INSERT INTO fix_templates (scope, name, text) VALUES ('fill', 'half', 'clip')")
+        conn.commit()
+        conn.close()
+
+        _current_db(path)
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        rows = [dict(r) for r in conn.execute("SELECT * FROM fix_templates")]
+        conn.close()
+        assert [(r["scope"], r["name"], r["text"], r["restate_reason"]) for r in rows] == \
+            [("fill", "half", "clip", "")]

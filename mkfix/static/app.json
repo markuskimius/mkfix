@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.42"
+        "text": "mkfix v0.43"
       }
     ],
     "bindStyle": {
@@ -2431,6 +2431,204 @@
           }
         },
         {
+          "label": "Restate",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['PendingNew', 'New', 'PartiallyFilled', 'Replaced', 'Filled'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Restate ${row.cl_ord_id}",
+              "modal": true,
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "cl_ord_id": "${row.cl_ord_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "restate"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "qty": "qty",
+                    "price": "price",
+                    "restate_reason": "restate_reason",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.restate_order",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "restate_reason",
+                  "label": "Restatement Reason (378)",
+                  "type": "select",
+                  "value": "3",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": " - (none: withhold 378)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - GT corporate action"
+                    },
+                    {
+                      "value": "1",
+                      "label": "1 - GT renewal / restatement"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Verbal change"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Repricing of order"
+                    },
+                    {
+                      "value": "4",
+                      "label": "4 - Broker option"
+                    },
+                    {
+                      "value": "5",
+                      "label": "5 - Partial decline of OrderQty"
+                    },
+                    {
+                      "value": "6",
+                      "label": "6 - Cancel on trading halt (FIX 4.3+)"
+                    },
+                    {
+                      "value": "7",
+                      "label": "7 - Cancel on system failure (FIX 4.3+)"
+                    },
+                    {
+                      "value": "8",
+                      "label": "8 - Market (exchange) option (FIX 4.3+)"
+                    },
+                    {
+                      "value": "9",
+                      "label": "9 - Canceled, not best (FIX 4.4+)"
+                    },
+                    {
+                      "value": "10",
+                      "label": "10 - Warehouse recap (FIX 4.4+)"
+                    },
+                    {
+                      "value": "11",
+                      "label": "11 - Peg refresh (FIX 5.0+)"
+                    },
+                    {
+                      "value": "12",
+                      "label": "12 - Cancel on connection loss (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "13",
+                      "label": "13 - Cancel on logout (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "14",
+                      "label": "14 - Assign time priority (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "15",
+                      "label": "15 - Cancelled for trade price violation (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "16",
+                      "label": "16 - Cancelled for cross imbalance (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "17",
+                      "label": "17 - Cancelled, SMP (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "18",
+                      "label": "18 - Cancelled, SMP aggressive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "19",
+                      "label": "19 - Cancelled, SMP passive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "20",
+                      "label": "20 - Cancelled, SMP aggressive and passive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "99",
+                      "label": "99 - Other (FIX 4.4+)"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Order Qty (38)",
+                      "type": "text",
+                      "value": "${row.order_qty}",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "text",
+                      "value": "${IF(row.price > 0, row.price, '')}",
+                      "width": 0.5,
+                      "placeholder": "blank = withhold"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('11=', row.cl_ord_id, '|150=D|38=', COALESCE(qty, ''), IF(COALESCE(price, '') != '', CONCAT('|44=', price), ''), IF(COALESCE(restate_reason, '') != '', CONCAT('|378=', restate_reason), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Restate",
+                "service": "fix_cmd",
+                "op": "restate_order"
+              }
+            }
+          }
+        },
+        {
           "label": "History",
           "unit": "row",
           "enable": {
@@ -3011,6 +3209,7 @@
         "tif",
         "handl_inst",
         "dk_reason",
+        "restate_reason",
         "text",
         "extra_tags"
       ],
@@ -3025,6 +3224,7 @@
         "price": "Px (44/31)",
         "tif": "TIF (59)",
         "dk_reason": "DK Reason (127)",
+        "restate_reason": "Restate Reason (378)",
         "text": "Text (58)",
         "extra_tags": "Extra Tags",
         "client": "Client",
@@ -3049,7 +3249,7 @@
             "color": "#f44747"
           },
           {
-            "when": "CONTAINS(['dk', 'correct', 'renotify'], value)",
+            "when": "CONTAINS(['restate', 'dk', 'correct', 'renotify'], value)",
             "color": "#dcdcaa"
           }
         ]
@@ -3141,19 +3341,19 @@
                   "row": [
                     {
                       "name": "qty",
-                      "label": "${IF(row.scope == 'order', 'Quantity (38)', 'Last Qty (32; blank = ask)')}",
+                      "label": "${IF(row.scope == 'order', 'Quantity (38)', IF(row.scope == 'restate', 'Order Qty (38; blank = ask)', 'Last Qty (32; blank = ask)'))}",
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.qty}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate'], row.scope)"
                     },
                     {
                       "name": "price",
-                      "label": "${IF(row.scope == 'order', 'Price (44)', 'Last Px (31; blank = ask)')}",
+                      "label": "${IF(row.scope == 'order', 'Price (44)', IF(row.scope == 'restate', 'Price (44; blank = ask)', 'Last Px (31; blank = ask)'))}",
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.price}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate'], row.scope)"
                     }
                   ]
                 },
@@ -3273,6 +3473,107 @@
                   ],
                   "value": "${row.dk_reason}",
                   "showWhen": "row.scope == 'dk'"
+                },
+                {
+                  "name": "restate_reason",
+                  "label": "Restatement Reason (378)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": " - (none: withhold 378)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - GT corporate action"
+                    },
+                    {
+                      "value": "1",
+                      "label": "1 - GT renewal / restatement"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Verbal change"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Repricing of order"
+                    },
+                    {
+                      "value": "4",
+                      "label": "4 - Broker option"
+                    },
+                    {
+                      "value": "5",
+                      "label": "5 - Partial decline of OrderQty"
+                    },
+                    {
+                      "value": "6",
+                      "label": "6 - Cancel on trading halt (FIX 4.3+)"
+                    },
+                    {
+                      "value": "7",
+                      "label": "7 - Cancel on system failure (FIX 4.3+)"
+                    },
+                    {
+                      "value": "8",
+                      "label": "8 - Market (exchange) option (FIX 4.3+)"
+                    },
+                    {
+                      "value": "9",
+                      "label": "9 - Canceled, not best (FIX 4.4+)"
+                    },
+                    {
+                      "value": "10",
+                      "label": "10 - Warehouse recap (FIX 4.4+)"
+                    },
+                    {
+                      "value": "11",
+                      "label": "11 - Peg refresh (FIX 5.0+)"
+                    },
+                    {
+                      "value": "12",
+                      "label": "12 - Cancel on connection loss (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "13",
+                      "label": "13 - Cancel on logout (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "14",
+                      "label": "14 - Assign time priority (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "15",
+                      "label": "15 - Cancelled for trade price violation (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "16",
+                      "label": "16 - Cancelled for cross imbalance (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "17",
+                      "label": "17 - Cancelled, SMP (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "18",
+                      "label": "18 - Cancelled, SMP aggressive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "19",
+                      "label": "19 - Cancelled, SMP passive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "20",
+                      "label": "20 - Cancelled, SMP aggressive and passive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "99",
+                      "label": "99 - Other (FIX 4.4+)"
+                    }
+                  ],
+                  "value": "${row.restate_reason}",
+                  "showWhen": "row.scope == 'restate'"
                 },
                 {
                   "name": "handl_inst",
@@ -3452,7 +3753,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.42",
+      "version": "0.43",
       "mkio": "1.3",
       "expr": "1"
     },

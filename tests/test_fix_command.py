@@ -37,6 +37,7 @@ def _make_engine():
     engine.dk_trade = AsyncMock()
     engine.accept_cancel = AsyncMock(return_value="EXXX00000004")
     engine.unsolicited_cancel = AsyncMock(return_value="EXXX00000008")
+    engine.restate_order = AsyncMock(return_value="EXXX00000009")
     engine.accept_replace = AsyncMock(return_value="EXXX00000005")
     engine.reject_cancel = AsyncMock()
     engine.accept_request = AsyncMock(return_value="EXXX00000006")
@@ -440,6 +441,34 @@ class TestDispatch:
         assert _sent(ws)["exec_id"] == "EXXX00000008"
 
     @pytest.mark.asyncio
+    async def test_restate_order_coerces_and_returns_execid(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {
+            "ref": "r", "op": "restate_order",
+            "data": {"session_id": "S1", "cl_ord_id": "C1", "qty": "80", "price": "149.5",
+                     "restate_reason": "3"},
+        })
+        engine.restate_order.assert_awaited_once_with(
+            session_id="S1", cl_ord_id="C1", qty=80.0, price=149.5, reason="3",
+            extra_tags="", text="",
+        )
+        assert _sent(ws)["exec_id"] == "EXXX00000009"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("price", ["", None])
+    async def test_restate_order_blank_price_means_none(self, price):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        data = {"session_id": "S1", "cl_ord_id": "C1", "qty": "80", "price": price}
+        await svc.on_message(ws, {"ref": "r", "op": "restate_order", "data": data})
+        kwargs = engine.restate_order.await_args.kwargs
+        assert (kwargs["price"], kwargs["reason"]) == (0.0, "")
+        assert _sent(ws)["ok"] is True
+
+    @pytest.mark.asyncio
     async def test_accept_replace(self):
         engine = _make_engine()
         svc = _make_service(engine)
@@ -536,6 +565,9 @@ class TestSaveAsTemplate:
          {"text": "busy", "extra_tags": ""}),
         ("unsolicited_cancel", "unsolicited", {"session_id": "S1", "cl_ord_id": "C1", "text": "halted"},
          {"text": "halted", "extra_tags": ""}),
+        ("restate_order", "restate",
+         {"session_id": "S1", "cl_ord_id": "C1", "qty": "80", "price": "149.5", "restate_reason": "3"},
+         {"qty": "80", "price": "149.5", "restate_reason": "3", "text": "", "extra_tags": ""}),
         ("dk_trade", "dk", {"session_id": "S1", "exec_id": "E1", "dk_reason": "B", "text": "?"},
          {"dk_reason": "B", "text": "?", "extra_tags": ""}),
         ("correct_trade", "correct", {"session_id": "S1", "exec_id": "E1", "qty": "40", "price": "149"},
@@ -681,6 +713,7 @@ class TestHandlingAndTextDispatch:
         ("reject_request", {"session_id": "S1", "cl_ord_id": "C1"}),
         ("fill_order", {"session_id": "S1", "cl_ord_id": "C1", "qty": "1", "price": "1"}),
         ("unsolicited_cancel", {"session_id": "S1", "cl_ord_id": "C1"}),
+        ("restate_order", {"session_id": "S1", "cl_ord_id": "C1", "qty": "1", "price": "1"}),
         ("correct_trade", {"session_id": "S1", "exec_id": "E1", "qty": "1", "price": "1"}),
         ("bust_trade", {"session_id": "S1", "exec_id": "E1"}),
         ("renotify_trade", {"session_id": "S1", "exec_id": "E1"}),

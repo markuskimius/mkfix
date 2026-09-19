@@ -87,7 +87,12 @@ A FIX protocol testing engine for capital markets connectivity, built on
   are a scenario worth testing). Unsol Cxl cancels a working order nobody
   asked to cancel -- ExecutionReport Canceled under the order's own ClOrdID,
   without OrigClOrdID -- and leaves a pending cancel or replace request
-  parked, so it can still be rejected as too late. Sent trades can be
+  parked, so it can still be rejected as too late. Restate changes a working
+  order's terms unasked -- ExecutionReport Restated (150=D) under the order's
+  own ClOrdID with the new OrderQty and Price (a blank price is withheld), an
+  ExecRestatementReason (378) picked from a list and the order's working
+  status; both sides' rows take the new terms, and a session whose
+  dictionary lacks 150=D (FIX 4.0/4.1) refuses it. Sent trades can be
   corrected and busted from the Sent Trades blotter (ExecTransType
   Correct/Cancel through FIX 4.2, ExecType TradeCorrect/TradeCancel from 4.3
   on, always with ExecRefID) -- including trades filled before a replace
@@ -163,8 +168,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   field; an Extra Tag naming 21 or 58 still wins. The order blotters show
   Handl Inst, Extra Tags, and the text in both directions: Sent Text is the
   58 of the last message this side sent on the order (a New, Replace or
-  Cancel on Sent Orders; an Accept, Reject, Fill or Unsol Cxl on Received
-  Orders) and Rcvd Text the counterparty's last -- their ExecutionReports, or
+  Cancel on Sent Orders; an Accept, Reject, Fill, Unsol Cxl or Restate on
+  Received Orders) and Rcvd Text the counterparty's last -- their ExecutionReports, or
   their New and each cancel or replace request. The trade blotters show each
   report's Text. Older orders and trades are seeded once at startup from
   their recorded messages (HandlInst and trade tags; not Sent Text).
@@ -311,8 +316,8 @@ with an error instead of starting.
 3. **Send an order** with the New button on the Sent Orders blotter -- see
    it in the Messages pane and the blotter itself; click any message row to
    break it out field by field in the Detail pane. On the acceptor side it
-   appears in Received Orders, where it can be accepted, rejected, filled, or
-   canceled unsolicited;
+   appears in Received Orders, where it can be accepted, rejected, filled,
+   restated, or canceled unsolicited;
    fills land in Sent Trades, where they can be corrected or busted, and on
    the client side in Received Trades, where they can be DK'd.
 4. **Replay a log** from Tools > Replay Control -- load a production FIX log and

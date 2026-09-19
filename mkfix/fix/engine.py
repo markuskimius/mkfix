@@ -80,11 +80,11 @@ EXEC_UPDATE_COLS = [
 # save one under, and the term columns kept as typed (text; blank means
 # "ask the row" when loaded). A name is unique within its scope, so a
 # dialog's Save-as overwrites the template it names.
-TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "dk", "correct", "bust",
-                   "renotify")
+TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct",
+                   "bust", "renotify")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
-    "dk_reason", "text", "extra_tags", "client", "handl_inst",
+    "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
 ]
 
 
@@ -1520,6 +1520,67 @@ class FixEngine:
         consumed = order["pending_action"] == "New"
         await self._write_order(
             order, order_id=order_id, status="Canceled", leaves_qty=0.0,
+            sent_text=self._text_as_sent(session, msg),
+            pending_action="" if consumed else order["pending_action"],
+            pending_extra_tags="" if consumed else order["pending_extra_tags"],
+        )
+        await session.send_message(msg)
+        return exec_id
+
+    async def restate_order(
+        self, session_id: str, cl_ord_id: str, qty: float, price: float = 0.0,
+        reason: str = "", extra_tags: str = "", text: str = "",
+    ) -> str:
+        """Restate a received order's terms unasked: send ExecutionReport
+        (Restated) under the order's own ClOrdID, without OrigClOrdID(41),
+        carrying the new OrderQty(38)/Price(44) and ExecRestatementReason
+        (378), and return the ExecID. No price (a market order's 0) sends no
+        44 and leaves the row's alone."""
+        session = self._active_session(session_id)
+        dictionary = session.dictionary
+        if not dictionary.has_enum("150", "D"):
+            raise ValueError(f"ExecType Restated (150=D) is not defined by {dictionary.version}")
+        extra_pairs = parse_extra_tags(extra_tags)
+        order = await self._load_order(session_id, cl_ord_id)
+        if qty <= 0:
+            raise ValueError("Restated quantity must be positive")
+        if qty < order["cum_qty"]:
+            raise ValueError("Restated quantity is below executed quantity")
+
+        order_id = order["order_id"] or await self.ids.next_id("OR")
+        exec_id = await self.ids.next_id("EX")
+        leaves_qty = qty - order["cum_qty"]
+        # A restatement carries the order's working status, as an accepted
+        # replace does on FIX 4.4.
+        status_code = "0" if order["cum_qty"] <= 0 else ("2" if leaves_qty <= 0 else "1")
+        terms = {"44": str(price)} if price else {}
+        if reason and dictionary.defines("378"):
+            terms["378"] = reason
+        msg = session.factory.execution_report(
+            order_id=order_id,
+            cl_ord_id=cl_ord_id,
+            exec_id=exec_id,
+            exec_trans_type="0",
+            exec_type="D",
+            ord_status=status_code,
+            symbol=order["symbol"],
+            side=order["side_code"],
+            qty=qty,
+            cum_qty=order["cum_qty"],
+            avg_price=order["avg_price"],
+            leaves_qty=leaves_qty,
+            text=text or None,
+            **terms,
+        )
+        msg.extra = extra_pairs
+        self._stamp_client(session, msg, order.get("client"))
+
+        # As with a fill, the report implicitly acknowledges a not-yet-accepted
+        # order; a pending Cancel/Replace stays parked on the restated order.
+        consumed = order["pending_action"] == "New"
+        await self._write_order(
+            order, order_id=order_id, status=dictionary.enum_name("39", status_code),
+            order_qty=qty, price=price or order["price"], leaves_qty=leaves_qty,
             sent_text=self._text_as_sent(session, msg),
             pending_action="" if consumed else order["pending_action"],
             pending_extra_tags="" if consumed else order["pending_extra_tags"],

@@ -89,7 +89,7 @@ archive = { cutoff = "saved", group = "config" }
 # Blotter action templates: the terms a dialog would otherwise ask for again —
 # an order to send, the fill or reject to answer with, a DK — kept by name
 # under the dialog they belong to (`scope`: order, cancel, accept, reject,
-# fill, unsolicited, dk, correct, bust, renotify; unique per scope, an engine index). One
+# fill, unsolicited, restate, dk, correct, bust, renotify; unique per scope, an engine index). One
 # superset of columns, each scope reading its own; qty/price are kept as
 # typed, since a blank one means "ask the row" (a fill's leaves, say). Every
 # such dialog opens on a Template dropdown (`templates_list`) and closes on a
@@ -97,7 +97,7 @@ archive = { cutoff = "saved", group = "config" }
 # Templates pane edits and deletes through the `templates` service. Shared by
 # everyone on the server, like layouts.
 [tables.fix_templates]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", restate_reason = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
 archive = { group = "config" }
 
 # ─��─ Transaction Services ───────────────────────────────────────────
@@ -163,10 +163,10 @@ description = "Save, edit and delete blotter action templates"
 
 [services.templates.ops]
 add = [
-    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client", "handl_inst"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "", handl_inst = "" } },
+    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "" } },
 ]
 update = [
-    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client", "handl_inst"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "", handl_inst = "" } },
+    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "" } },
 ]
 delete = [
     { table = "fix_templates", op_type = "delete", key = ["id"] },
@@ -258,7 +258,7 @@ filterable = ["scope"]
 # along so the pick fills the form (mkui's `fill`).
 [services.templates_list]
 protocol = "reqrep"
-sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, text, extra_tags, client, handl_inst FROM fix_templates WHERE scope = :scope ORDER BY name"
+sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst FROM fix_templates WHERE scope = :scope ORDER BY name"
 
 [services.replay_jobs]
 protocol = "query"

@@ -19,7 +19,8 @@ import pytest
 from mkfix import __version__
 
 STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
-TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "dk", "correct", "bust", "renotify"}
+TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct", "bust",
+                   "renotify"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -502,11 +503,11 @@ class TestServiceReferences:
     def test_received_orders_buttons_gate_on_pending_action(self, app_config):
         """One Accept/Reject pair handles new orders and cancel/replace
         requests alike: both gate on pending_action (a new order arrives as
-        pending "New") and dispatch via the request ops, while Fill and the
-        unsolicited cancel gate on status only — a pending request must not
-        block either on the still-working order."""
+        pending "New") and dispatch via the request ops, while Fill, the
+        unsolicited cancel and the restatement gate on status only — a
+        pending request must not block them on the still-working order."""
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill", "Unsol Cxl", "History"]
+        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "History"]
         by = {b["label"]: b for b in buttons}
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
         assert _conditions(by["Accept"]["enable"]["when"]) == pending
@@ -516,6 +517,8 @@ class TestServiceReferences:
         assert "pending_action" not in _conditions(by["Fill"]["enable"].get("when"))
         assert by["Unsol Cxl"]["action"]["dialog"]["submit"]["op"] == "unsolicited_cancel"
         assert _conditions(by["Unsol Cxl"]["enable"]["when"]) == _conditions(by["Fill"]["enable"]["when"])
+        assert by["Restate"]["action"]["dialog"]["submit"]["op"] == "restate_order"
+        assert _conditions(by["Restate"]["enable"]["when"]) == _conditions(by["Fill"]["enable"]["when"])
 
     def test_order_and_trade_actions_gate_on_live_session(self, app_config):
         """Every button that acts on an existing order or trade requires the
@@ -525,7 +528,7 @@ class TestServiceReferences:
         dialog picks the session itself, and the server rejects a dead one."""
         gated = {
             "order-blotter": ["Replace", "Cancel"],
-            "market-order-blotter": ["Accept", "Reject", "Fill", "Unsol Cxl"],
+            "market-order-blotter": ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate"],
             "market-trade-blotter": ["Correct", "Bust", "Re-notify"],
             "trade-blotter": ["DK"],
         }
@@ -610,6 +613,29 @@ class TestServiceReferences:
         for version in STANDARD_VERSIONS:
             defined |= set(FixDictionary(version).enums["127"])
         assert set(offered) == defined
+
+    def test_restatement_reason_options_cover_every_shipped_dictionary(self, app_config):
+        """The Restate dialog and the template editor list
+        ExecRestatementReason(378) codes by hand, plus a blank that withholds
+        the tag; a regenerated dictionary that adds a code would otherwise
+        leave it unreachable."""
+        from mkfix.fix.dictionary import FixDictionary, STANDARD_VERSIONS
+        defined = set()
+        for version in STANDARD_VERSIONS:
+            defined |= set(FixDictionary(version).enums.get("378", {}))
+        dialog = _find_dialog(app_config, "restate_order")
+        field = next(f for f in dialog["fields"] if f.get("name") == "restate_reason")
+        offered = [o["value"] for o in field["options"]]
+        assert len(offered) == len(set(offered))
+        assert field["value"] in offered
+        assert set(offered) == defined | {""}
+        assert not field.get("required"), "a blank reason withholds 378"
+        edit = next(b for b in app_config["panes"]["templates"]["buttons"]
+                    if b["label"] == "Edit")["action"]["dialog"]
+        editor = next(f for item in edit["fields"] for f in _leaves(item)
+                      if f.get("name") == "restate_reason")
+        assert editor["options"] == field["options"]
+        assert editor["showWhen"] == "row.scope == 'restate'"
 
     def test_order_dialog_codes_are_dictionary_values(self, app_config):
         """Side, Order Type and Time in Force offer FIX codes by hand; each
@@ -1969,13 +1995,14 @@ class TestTagPreviews:
     must be a column of the table behind the blotter."""
 
     OPS = ("send_new_order", "send_cancel_replace", "send_cancel", "dk_trade",
-           "accept_request", "reject_request", "fill_order", "correct_trade", "bust_trade",
-           "renotify_trade")
+           "accept_request", "reject_request", "fill_order", "unsolicited_cancel", "restate_order",
+           "correct_trade", "bust_trade", "renotify_trade")
     ORDER_OPS = {"send_new_order", "send_cancel_replace", "send_cancel",
-                 "accept_request", "reject_request", "fill_order"}
+                 "accept_request", "reject_request", "fill_order", "unsolicited_cancel", "restate_order"}
     LABELS = {
         "symbol": "(55)", "side": "(54)", "qty": "(38)", "ord_type": "(40)", "price": "(44)",
         "tif": "(59)", "expire_time": "(126/432", "dk_reason": "(127)", "text": "(58)",
+        "restate_reason": "(378)",
     }
     TRADE_LABELS = {"qty": "(32)", "price": "(31)"}
 
@@ -2004,6 +2031,8 @@ class TestTagPreviews:
         for op in self.OPS:
             for f in self._fields(_find_dialog(app_config, op)):
                 for o in f.get("options", []):
+                    if o["value"] == "":
+                        continue  # "send no such tag" has no code to lead with
                     assert o["label"].startswith(o["value"] + " - "), f"{op} {f['name']}: {o!r}"
 
     def test_previews_read_real_columns(self, app_config, toml_config):
@@ -2042,6 +2071,9 @@ class TestTagPreviews:
             "accept_request": ({"text": "ok", "extra_tags": ""}, "11=C3|41=C2|38=200|44=151.5|58=ok"),
             "reject_request": ({"text": "no", "extra_tags": ""}, "11=C3|41=C2|434=2|58=no"),
             "fill_order": ({"qty": "50", "price": "150.5", "text": None, "extra_tags": ""}, "11=C2|32=50|31=150.5"),
+            "unsolicited_cancel": ({"text": "halted", "extra_tags": "378=6"}, "11=C2|150=4|39=4|58=halted|378=6"),
+            "restate_order": ({"qty": "80", "price": "149.5", "restate_reason": "3", "text": "", "extra_tags": ""},
+                              "11=C2|150=D|38=80|44=149.5|378=3"),
             "correct_trade": ({"qty": "40", "price": "149", "text": "fat finger", "extra_tags": ""},
                               "19=EX1|32=40|31=149|58=fat finger"),
             "bust_trade": ({"text": "oops", "extra_tags": "5001=X"}, "19=EX1|58=oops|5001=X"),
@@ -2055,6 +2087,10 @@ class TestTagPreviews:
         for op, expected in (("accept_request", "11=C2"), ("reject_request", "11=C2")):
             source = self._preview(_find_dialog(app_config, op))
             assert expr.evaluate(source, {"text": "", "extra_tags": "", "row": pending_new}) == expected, op
+        source = self._preview(_find_dialog(app_config, "restate_order"))
+        bare = {"qty": "80", "price": None, "restate_reason": "", "text": None, "extra_tags": None}
+        assert expr.evaluate(source, {**bare, "row": row}) == "11=C2|150=D|38=80", \
+            "a blank price and reason are withheld"
         blank = {"symbol": None, "side": "1", "qty": None, "ord_type": "2", "price": None, "tif": "0",
                  "handl_inst": "1", "text": None, "extra_tags": None}
         source = self._preview(_find_dialog(app_config, "send_new_order"))
@@ -2074,7 +2110,8 @@ class TestTemplates:
     SCOPES = {
         "send_new_order": "order", "send_cancel_replace": "order", "send_cancel": "cancel",
         "accept_request": "accept", "reject_request": "reject", "fill_order": "fill",
-        "unsolicited_cancel": "unsolicited", "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
+        "unsolicited_cancel": "unsolicited", "restate_order": "restate",
+        "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
         "renotify_trade": "renotify",
     }
 

@@ -1215,6 +1215,199 @@ class TestUnsolicitedCancel:
         assert row["text"] == "halted"
 
 
+class TestRestatement:
+    """The market side restates a received order's terms unasked: an
+    ExecutionReport(Restated, 150=D) under the order's own ClOrdID with the
+    new OrderQty/Price and ExecRestatementReason(378)."""
+
+    async def _seed(self, engine, stub=None, order=NEW_ORDER_RX, accept=True):
+        stub = stub or StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(order))
+        if accept:
+            await engine.accept_order("S1", "C100")
+        return stub
+
+    async def _order(self, db):
+        rows = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert len(rows) == 1
+        return rows[0]
+
+    @pytest.mark.asyncio
+    async def test_restates_terms_under_the_orders_own_id(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        before = await self._order(db)
+        exec_id = await engine.restate_order("S1", "C100", qty=80, price=149.5, reason="3",
+                                             text="repriced")
+        msg = stub.sent[-1]
+        assert (msg["35"], msg["150"], msg["20"], msg["39"]) == ("8", "D", "0", "0")
+        assert msg["17"] == exec_id and exec_id.startswith("EX")
+        assert msg["11"] == "C100"
+        assert msg["41"] is None, "no request is being answered"
+        assert msg["37"] == before["order_id"]
+        assert (msg["38"], msg["44"], msg["378"]) == ("80", "149.5", "3")
+        assert float(msg["151"]) == 80.0 and float(msg["14"]) == 0.0
+        assert float(msg["32"]) == 0.0, "a restatement is no fill"
+        assert msg["58"] == "repriced"
+        row = await self._order(db)
+        assert row["cl_ord_id"] == "C100", "nothing re-identifies the chain"
+        assert row["order_id"] == before["order_id"]
+        assert (row["order_qty"], row["price"], row["leaves_qty"]) == (80.0, 149.5, 80.0)
+        assert row["status"] == "New"
+        assert row["sent_text"] == "repriced"
+        assert await _fetch_all(db, "SELECT * FROM fix_executions") == [], "and no trade"
+
+    @pytest.mark.asyncio
+    async def test_status_is_the_working_status(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        await engine.restate_order("S1", "C100", qty=60, price=150.25, reason="5")
+        msg = stub.sent[-1]
+        assert (msg["39"], msg["38"], msg["14"], msg["151"]) == ("1", "60", "40", "20")
+        assert float(msg["6"]) == 150.0
+        row = await self._order(db)
+        assert (row["status"], row["cum_qty"], row["leaves_qty"]) == ("PartiallyFilled", 40.0, 20.0)
+
+        await engine.restate_order("S1", "C100", qty=40, price=150.25, reason="5")
+        assert stub.sent[-1]["39"] == "2", "restated down to what is done"
+        row = await self._order(db)
+        assert (row["status"], row["leaves_qty"]) == ("Filled", 0.0)
+
+    @pytest.mark.asyncio
+    async def test_quantity_must_be_positive_and_cover_what_is_done(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.fill_order("S1", "C100", qty=40, price=150.0)
+        sent = len(stub.sent)
+        with pytest.raises(ValueError, match="below executed"):
+            await engine.restate_order("S1", "C100", qty=30, price=150.0)
+        with pytest.raises(ValueError, match="positive"):
+            await engine.restate_order("S1", "C100", qty=0, price=150.0)
+        assert len(stub.sent) == sent
+        assert (await self._order(db))["order_qty"] == 100.0
+
+    @pytest.mark.asyncio
+    async def test_blank_reason_and_price_are_withheld(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.restate_order("S1", "C100", qty=80)
+        msg = stub.sent[-1]
+        assert msg["378"] is None and msg["44"] is None
+        row = await self._order(db)
+        assert (row["order_qty"], row["price"]) == (80.0, 150.25), "the row keeps its price"
+
+    @pytest.mark.asyncio
+    async def test_fix44_withholds_exec_trans_type(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine, stub=_stub44(), order=NEW_ORDER_44_RX)
+        await engine.restate_order("S1", "C100", qty=80, price=149.5, reason="99")
+        msg = stub.sent[-1]
+        assert (msg["150"], msg["39"], msg["378"]) == ("D", "0", "99")
+        assert msg["20"] is None and msg["41"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("version", ["FIX.4.0", "FIX.4.1"])
+    async def test_refused_where_restated_is_undefined(self, stack, version):
+        db, writer, engine = stack
+        stub = StubSession()
+        stub.dictionary = FixDictionary(version)
+        stub.factory = FixMessageFactory(stub.dictionary, "MKT", "CLIENT")
+        await self._seed(engine, stub=stub, order=NEW_ORDER_RX.replace("FIX.4.2", version))
+        sent = len(stub.sent)
+        with pytest.raises(ValueError, match="150=D"):
+            await engine.restate_order("S1", "C100", qty=80, price=149.5, reason="3")
+        assert len(stub.sent) == sent
+        assert (await self._order(db))["order_qty"] == 100.0
+
+    @pytest.mark.asyncio
+    async def test_consumes_a_pending_new(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine, accept=False)
+        await engine.restate_order("S1", "C100", qty=80, price=149.5, reason="5")
+        row = await self._order(db)
+        assert row["pending_action"] == "", "the report implicitly acknowledges the order"
+        assert row["status"] == "New"
+        assert row["order_id"].startswith("OR")
+
+    @pytest.mark.asyncio
+    async def test_pending_request_stays_parked(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        await engine.on_app_message(stub, "G", parse_fix(REPLACE_REQ_RX))
+        await engine.restate_order("S1", "C100", qty=80, price=149.5, reason="3")
+        row = await self._order(db)
+        assert (row["pending_action"], row["pending_cl_ord_id"]) == ("Replace", "C102")
+        assert (row["pending_qty"], row["pending_price"]) == (200.0, 151.5)
+        assert row["order_qty"] == 80.0
+
+        await engine.accept_request("S1", "C100")
+        row = await self._order(db)
+        assert (row["cl_ord_id"], row["order_qty"], row["price"]) == ("C102", 200.0, 151.5)
+
+    @pytest.mark.asyncio
+    async def test_extras_client_and_text_override(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine, order=NEW_ORDER_RX + "|109=ACME")
+        await engine.restate_order("S1", "C100", qty=80, price=149.5, reason="3",
+                                   text="typed", extra_tags="58=from extras|5001=X|378=4")
+        msg = stub.sent[-1]
+        assert msg.extra == [("58", "from extras"), ("5001", "X"), ("378", "4")]
+        assert msg["109"] == "ACME"
+        assert (await self._order(db))["sent_text"] == "from extras"
+
+    @pytest.mark.asyncio
+    async def test_is_one_version_of_the_order(self, stack):
+        db, writer, engine = stack
+        await self._seed(engine)
+        before = len(await _versions(db, "fix_orders"))
+        await engine.restate_order("S1", "C100", qty=80, price=149.5, reason="3")
+        chain = await _versions(db, "fix_orders")
+        assert len(chain) == before + 1
+        assert (chain[-1]["order_qty"], chain[-1]["price"]) == (80.0, 149.5)
+        assert (chain[-2]["order_qty"], chain[-2]["price"]) == (100.0, 150.25)
+        assert len({v["id"] for v in chain}) == 1, "same row throughout"
+
+    @pytest.mark.asyncio
+    async def test_requires_an_active_session_and_a_known_order(self, stack):
+        db, writer, engine = stack
+        stub = await self._seed(engine)
+        with pytest.raises(ValueError):
+            await engine.restate_order("S1", "NOPE", qty=80, price=149.5)
+        stub.is_active = False
+        stub.status = "DOWN"
+        with pytest.raises(ValueError):
+            await engine.restate_order("S1", "C100", qty=80, price=149.5)
+
+    @pytest.mark.asyncio
+    async def test_terms_save_as_a_restate_template(self, stack):
+        db, writer, engine = stack
+        await engine.save_template("restate", "reprice", qty="", price="149.5", restate_reason="3",
+                                   text="repriced", extra_tags="5001=X")
+        rows = await _fetch_all(db, "SELECT * FROM fix_templates")
+        assert [(r["scope"], r["name"], r["qty"], r["price"], r["restate_reason"], r["text"])
+                for r in rows] == [("restate", "reprice", "", "149.5", "3", "repriced")]
+
+    @pytest.mark.asyncio
+    async def test_client_side_takes_the_new_terms(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        er = (f"8=FIX.4.2|35=8|11={cl_ord_id}|37=MKT1|17=E9|20=0|150=D|39=0|378=3|"
+              "55=AAPL|54=1|38=80|44=149.5|32=0|31=0|14=0|6=0|151=80|58=repriced")
+        await engine.on_app_message(stub, "8", parse_fix(er))
+        row = await self._order(db)
+        assert row["cl_ord_id"] == cl_ord_id
+        assert (row["status"], row["order_qty"], row["price"], row["leaves_qty"]) == \
+            ("New", 80.0, 149.5, 80.0)
+        assert (row["entered_qty"], row["entered_price"]) == (100.0, 150.0), \
+            "the as-submitted terms are the client's own"
+        assert row["text"] == "repriced"
+        assert await _fetch_all(db, "SELECT * FROM fix_executions") == [], "a restatement is no trade"
+
+
 class TestDkTrade:
     """DK answers a received trade with DontKnowTrade (35=Q) naming the
     counterparty's identifiers; the trade row stays as received."""
@@ -2069,6 +2262,11 @@ class TestRequestDuringMarketSend:
         third = "8=FIX.4.2|35=D|11=C600|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
         await engine.on_app_message(stub, "D", parse_fix(third))
         await traced("unsolicited_cancel", engine.unsolicited_cancel("S1", "C600"))
+
+        fourth = "8=FIX.4.2|35=D|11=C700|55=AAPL|54=1|38=100|40=2|44=150.25|59=0"
+        await engine.on_app_message(stub, "D", parse_fix(fourth))
+        await traced("restate_order",
+                     engine.restate_order("S1", "C700", qty=80, price=149.5, reason="3"))
 
 
 class TestAnswerBeforeOwnWrite:
