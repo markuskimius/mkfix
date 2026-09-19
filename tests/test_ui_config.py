@@ -592,7 +592,7 @@ class TestServiceReferences:
         dialog = _find_dialog(app_config, "renotify_trade")
         preview = dialog["fields"][-1]["compute"]
         row = {"exec_ref_id": "EX1", "last_qty": 40.0, "last_price": 150.5}
-        assert expr.evaluate(preview, {"extra_tags": "", "row": row}) == "17=(new)|19=EX1|32=40|31=150.5"
+        assert expr.evaluate(preview, {"text": "", "extra_tags": "", "row": row}) == "17=(new)|19=EX1|32=40|31=150.5"
 
     def test_dk_reason_options_cover_every_shipped_dictionary(self, app_config):
         """The DK dialog lists DKReason(127) codes by hand; a regenerated
@@ -764,6 +764,69 @@ class TestServiceReferences:
             )
             assert field.get("value") == value, \
                 f"{op} dialog must prefill extra_tags from {value}"
+
+    def test_trade_dialogs_open_on_the_trades_extra_tags(self, app_config, toml_config):
+        """Correct, Bust and Re-notify restate a trade, so they open on the
+        tags its latest report went out with (fix_executions.extra_tags)."""
+        assert "extra_tags" in toml_config["tables"]["fix_executions"]["columns"]
+        for op in ("correct_trade", "bust_trade", "renotify_trade"):
+            dialog = _find_dialog(app_config, op)
+            field = next(f for item in dialog["fields"] for f in _leaves(item)
+                         if f.get("name") == "extra_tags")
+            assert field.get("value") == "${row.extra_tags}", op
+
+    def test_handl_inst_options_are_the_dictionaries_codes(self, app_config):
+        """HandlInst(21) is listed by hand on New, Replace and the template
+        editor; every shipped dictionary defines the same three codes."""
+        from mkfix.fix.dictionary import FixDictionary, STANDARD_VERSIONS
+        defined = {frozenset(FixDictionary(v).enums["21"]) for v in STANDARD_VERSIONS}
+        assert len(defined) == 1
+        edit = next(b for b in app_config["panes"]["templates"]["buttons"]
+                    if b["label"] == "Edit")["action"]["dialog"]
+        dialogs = {op: _find_dialog(app_config, op) for op in ("send_new_order", "send_cancel_replace")}
+        dialogs["templates"] = edit
+        for op, dialog in dialogs.items():
+            field = next(f for item in dialog["fields"] for f in _leaves(item)
+                         if f.get("name") == "handl_inst")
+            assert field["label"] == "Handling Inst (21)" and field["type"] == "select", op
+            assert {o["value"] for o in field["options"]} == set(next(iter(defined))), op
+            assert all(o["label"].startswith(o["value"] + " - ") for o in field["options"]), op
+        new = next(f for f in dialogs["send_new_order"]["fields"] if f.get("name") == "handl_inst")
+        assert new["value"] == "1", "the engine's default, shown"
+        replace = next(f for f in dialogs["send_cancel_replace"]["fields"] if f.get("name") == "handl_inst")
+        assert "row.handl_inst_code" in replace["value"], "Replace opens on the order's as-sent code"
+        for op in ("send_cancel", "accept_request", "fill_order"):
+            assert "handl_inst" not in _dialog_field_names(_find_dialog(app_config, op)), \
+                f"{op}: only an order or replace request carries HandlInst"
+
+    def test_every_send_dialog_offers_text(self, app_config):
+        """Text(58) is typed in every order and trade dialog, right above
+        Extra Tags (which can still override it), and never prefilled."""
+        ops = ("send_new_order", "send_cancel_replace", "send_cancel", "accept_request",
+               "reject_request", "fill_order", "dk_trade", "correct_trade", "bust_trade",
+               "renotify_trade")
+        for op in ops:
+            names = [f.get("name") for item in _find_dialog(app_config, op)["fields"]
+                     for f in _leaves(item)]
+            assert "text" in names, op
+            assert names.index("text") == names.index("extra_tags") - 1, op
+            field = next(f for item in _find_dialog(app_config, op)["fields"]
+                         for f in _leaves(item) if f.get("name") == "text")
+            assert field.get("value", "") == "", f"{op}: text belongs to one message"
+
+    def test_blotters_show_handling_text_and_extra_tags(self, app_config, toml_config):
+        orders = set(toml_config["tables"]["fix_orders"]["columns"])
+        trades = set(toml_config["tables"]["fix_executions"]["columns"])
+        for pane_id in ("order-blotter", "market-order-blotter"):
+            pane = app_config["panes"][pane_id]
+            shown = {"handl_inst", "sent_text", "text", "extra_tags"}
+            assert shown <= set(pane["columns"]) and shown <= orders, pane_id
+            assert pane["labels"]["sent_text"] == "Sent Text", pane_id
+            assert pane["labels"]["text"] == "Rcvd Text", pane_id
+        for pane_id in ("trade-blotter", "market-trade-blotter"):
+            pane = app_config["panes"][pane_id]
+            assert {"text", "extra_tags"} <= set(pane["columns"]) and "extra_tags" in trades, pane_id
+            assert "handl_inst" not in pane["columns"], pane_id
 
     def test_pane_columns_exist_in_service_rows(self, app_config, toml_config):
         """A misspelled column renders as a permanently empty blotter column."""
@@ -1964,19 +2027,22 @@ class TestTagPreviews:
         }
         cases = {
             "send_new_order": (
-                {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "2", "price": 150.25, "tif": "0", "extra_tags": "5001=X"},
-                "55=AAPL|54=1|38=100|40=2|44=150.25|59=0|5001=X"),
+                {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "2", "price": 150.25, "tif": "0",
+                 "handl_inst": "3", "text": "work it", "extra_tags": "5001=X"},
+                "55=AAPL|54=1|38=100|40=2|44=150.25|59=0|21=3|58=work it|5001=X"),
             "send_cancel_replace": (
-                {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "1", "price": None, "tif": "7", "extra_tags": ""},
-                "41=C2|55=AAPL|54=1|38=100|40=1|59=7"),
-            "send_cancel": ({"extra_tags": ""}, "41=C2|55=AAPL|54=1|38=100"),
+                {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "1", "price": None, "tif": "7",
+                 "handl_inst": "1", "text": "", "extra_tags": ""},
+                "41=C2|55=AAPL|54=1|38=100|40=1|59=7|21=1"),
+            "send_cancel": ({"text": "pull", "extra_tags": ""}, "41=C2|55=AAPL|54=1|38=100|58=pull"),
             "dk_trade": ({"dk_reason": "D", "text": "", "extra_tags": ""}, "37=OR1|17=EX1|127=D"),
-            "accept_request": ({"extra_tags": ""}, "11=C3|41=C2|38=200|44=151.5"),
+            "accept_request": ({"text": "ok", "extra_tags": ""}, "11=C3|41=C2|38=200|44=151.5|58=ok"),
             "reject_request": ({"text": "no", "extra_tags": ""}, "11=C3|41=C2|434=2|58=no"),
-            "fill_order": ({"qty": "50", "price": "150.5", "extra_tags": ""}, "11=C2|32=50|31=150.5"),
-            "correct_trade": ({"qty": "40", "price": "149", "extra_tags": ""}, "19=EX1|32=40|31=149"),
-            "bust_trade": ({"extra_tags": "58=oops"}, "19=EX1|58=oops"),
-            "renotify_trade": ({"extra_tags": "58=again"}, "17=(new)|32=40|31=150.5|58=again"),
+            "fill_order": ({"qty": "50", "price": "150.5", "text": None, "extra_tags": ""}, "11=C2|32=50|31=150.5"),
+            "correct_trade": ({"qty": "40", "price": "149", "text": "fat finger", "extra_tags": ""},
+                              "19=EX1|32=40|31=149|58=fat finger"),
+            "bust_trade": ({"text": "oops", "extra_tags": "5001=X"}, "19=EX1|58=oops|5001=X"),
+            "renotify_trade": ({"text": "", "extra_tags": "5001=X"}, "17=(new)|32=40|31=150.5|5001=X"),
         }
         assert set(cases) == set(self.OPS)
         for op, (fields, expected) in cases.items():
@@ -1986,9 +2052,10 @@ class TestTagPreviews:
         for op, expected in (("accept_request", "11=C2"), ("reject_request", "11=C2")):
             source = self._preview(_find_dialog(app_config, op))
             assert expr.evaluate(source, {"text": "", "extra_tags": "", "row": pending_new}) == expected, op
-        blank = {"symbol": None, "side": "1", "qty": None, "ord_type": "2", "price": None, "tif": "0", "extra_tags": None}
+        blank = {"symbol": None, "side": "1", "qty": None, "ord_type": "2", "price": None, "tif": "0",
+                 "handl_inst": "1", "text": None, "extra_tags": None}
         source = self._preview(_find_dialog(app_config, "send_new_order"))
-        assert expr.evaluate(source, {**blank, "row": row}) == "55=|54=1|38=|40=2|59=0", "an empty form must not error"
+        assert expr.evaluate(source, {**blank, "row": row}) == "55=|54=1|38=|40=2|59=0|21=1", "an empty form must not error"
 
 
 class TestTemplates:

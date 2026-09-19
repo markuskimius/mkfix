@@ -160,6 +160,7 @@ class TestDispatch:
             session_id="S1", symbol="AAPL", side="1", qty=100.0,
             ord_type="2", price=150.25, tif="0", extra_tags="",
             expire_time="", expire_date="", expire_precision="", client="",
+            handl_inst="1", text="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -222,7 +223,7 @@ class TestDispatch:
         })
         engine.send_cancel.assert_awaited_once_with(
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL", side="1", qty=100.0,
-            extra_tags="", client="",
+            extra_tags="", client="", text="",
         )
 
     @pytest.mark.asyncio
@@ -239,6 +240,7 @@ class TestDispatch:
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
             side="1", qty=200.0, ord_type="2", price=151.0, tif=None, extra_tags="",
             expire_time="", expire_date="", expire_precision="", client="",
+            handl_inst="1", text="",
         )
 
     @pytest.mark.asyncio
@@ -258,6 +260,7 @@ class TestDispatch:
             session_id="S1", orig_cl_ord_id="C1", symbol="AAPL",
             side="1", qty=200.0, ord_type="1", price=None, tif="3", extra_tags="5001=X",
             expire_time="", expire_date="", expire_precision="", client="",
+            handl_inst="1", text="",
         )
 
     @pytest.mark.asyncio
@@ -285,7 +288,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C100"},
         })
         engine.accept_order.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C100", extra_tags="",
+            session_id="S1", cl_ord_id="C100", extra_tags="", text="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -315,7 +318,7 @@ class TestDispatch:
                      "qty": "40", "price": "150.25"},
         })
         engine.fill_order.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C100", qty=40.0, price=150.25, extra_tags="",
+            session_id="S1", cl_ord_id="C100", qty=40.0, price=150.25, extra_tags="", text="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -332,7 +335,7 @@ class TestDispatch:
                      "qty": "50", "price": "151.00"},
         })
         engine.correct_trade.assert_awaited_once_with(
-            session_id="S1", exec_id="E1", qty=50.0, price=151.0, extra_tags="",
+            session_id="S1", exec_id="E1", qty=50.0, price=151.0, extra_tags="", text="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000002"
 
@@ -346,7 +349,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "exec_id": "E1"},
         })
         engine.bust_trade.assert_awaited_once_with(
-            session_id="S1", exec_id="E1", extra_tags="",
+            session_id="S1", exec_id="E1", extra_tags="", text="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000003"
 
@@ -360,7 +363,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "exec_id": "E1", "extra_tags": "20=0|19="},
         })
         engine.renotify_trade.assert_awaited_once_with(
-            session_id="S1", exec_id="E1", extra_tags="20=0|19=",
+            session_id="S1", exec_id="E1", extra_tags="20=0|19=", text="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000007"
 
@@ -389,7 +392,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.accept_request.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C1", extra_tags="",
+            session_id="S1", cl_ord_id="C1", extra_tags="", text="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000006"
 
@@ -417,7 +420,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.accept_cancel.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C1", extra_tags="",
+            session_id="S1", cl_ord_id="C1", extra_tags="", text="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000004"
 
@@ -431,7 +434,7 @@ class TestDispatch:
             "data": {"session_id": "S1", "cl_ord_id": "C1"},
         })
         engine.accept_replace.assert_awaited_once_with(
-            session_id="S1", cl_ord_id="C1", extra_tags="",
+            session_id="S1", cl_ord_id="C1", extra_tags="", text="",
         )
         assert _sent(ws)["exec_id"] == "EXXX00000005"
 
@@ -491,7 +494,7 @@ class TestSaveAsTemplate:
                      "extra_tags": "5001=X", "save_as": "half", "_template": "3"},
         })
         engine.save_template.assert_awaited_once_with(
-            "fill", "half", qty="50", price="150.5", extra_tags="5001=X")
+            "fill", "half", qty="50", price="150.5", text="", extra_tags="5001=X")
         assert order == ["save", "send"]
         assert _sent(ws)["ok"] is True
 
@@ -499,30 +502,31 @@ class TestSaveAsTemplate:
     @pytest.mark.parametrize("op,scope,data,terms", [
         ("send_new_order", "order",
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "qty": "100", "ord_type": "2",
-          "price": "150.25", "tif": "0"},
+          "price": "150.25", "tif": "0", "handl_inst": "3", "text": "work it"},
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "100",
-          "price": "150.25", "tif": "0", "extra_tags": "", "client": ""}),
+          "price": "150.25", "tif": "0", "extra_tags": "", "client": "",
+          "handl_inst": "3", "text": "work it"}),
         ("send_cancel_replace", "order",
          {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "120",
           "ord_type": "2", "price": "151", "tif": "0"},
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "120",
-          "price": "151", "tif": "0", "extra_tags": "", "client": ""}),
+          "price": "151", "tif": "0", "extra_tags": "", "client": "", "handl_inst": "", "text": ""}),
         ("send_cancel", "cancel",
          {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "100",
-          "extra_tags": "58=bye"},
-         {"extra_tags": "58=bye"}),
+          "text": "bye", "extra_tags": "5001=X"},
+         {"text": "bye", "extra_tags": "5001=X"}),
         ("accept_request", "accept", {"session_id": "S1", "cl_ord_id": "C1", "extra_tags": "5001=A"},
-         {"extra_tags": "5001=A"}),
+         {"text": "", "extra_tags": "5001=A"}),
         ("reject_request", "reject", {"session_id": "S1", "cl_ord_id": "C1", "text": "busy"},
          {"text": "busy", "extra_tags": ""}),
         ("dk_trade", "dk", {"session_id": "S1", "exec_id": "E1", "dk_reason": "B", "text": "?"},
          {"dk_reason": "B", "text": "?", "extra_tags": ""}),
         ("correct_trade", "correct", {"session_id": "S1", "exec_id": "E1", "qty": "40", "price": "149"},
-         {"qty": "40", "price": "149", "extra_tags": ""}),
-        ("bust_trade", "bust", {"session_id": "S1", "exec_id": "E1", "extra_tags": "58=oops"},
-         {"extra_tags": "58=oops"}),
+         {"qty": "40", "price": "149", "text": "", "extra_tags": ""}),
+        ("bust_trade", "bust", {"session_id": "S1", "exec_id": "E1", "text": "oops"},
+         {"text": "oops", "extra_tags": ""}),
         ("renotify_trade", "renotify", {"session_id": "S1", "exec_id": "E1", "extra_tags": "20=0|19="},
-         {"extra_tags": "20=0|19="}),
+         {"text": "", "extra_tags": "20=0|19="}),
     ])
     async def test_each_dialog_op_saves_its_own_terms(self, op, scope, data, terms):
         engine = _make_engine()
@@ -624,3 +628,50 @@ class TestDictionaryCommands:
         resp = _sent(ws)
         assert resp["type"] == "result"
         assert resp["dictionaries"][0]["name"] == "FIX.4.2"
+
+
+class TestHandlingAndTextDispatch:
+    """Every dialog's Text(58), and New/Replace's HandlInst(21), reach the
+    engine as typed; a blank HandlInst (an old template's fill, a scripted
+    call) falls back to the engine's 1."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("op,data", [
+        ("send_new_order", {"session_id": "S1", "symbol": "AAPL", "side": "1", "qty": "100"}),
+        ("send_cancel_replace", {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL",
+                                 "side": "1", "qty": "100"}),
+    ])
+    async def test_order_ops_pass_handl_inst_and_text(self, op, data):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        await svc.on_message(_make_ws(), {"ref": "r", "op": op,
+                                          "data": {**data, "handl_inst": "3", "text": "work it"}})
+        kwargs = getattr(engine, op).await_args.kwargs
+        assert (kwargs["handl_inst"], kwargs["text"]) == ("3", "work it")
+        engine = _make_engine()
+        svc = _make_service(engine)
+        await svc.on_message(_make_ws(), {"ref": "r", "op": op, "data": {**data, "handl_inst": ""}})
+        kwargs = getattr(engine, op).await_args.kwargs
+        assert (kwargs["handl_inst"], kwargs["text"]) == ("1", "")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("op,data", [
+        ("send_cancel", {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1"}),
+        ("accept_request", {"session_id": "S1", "cl_ord_id": "C1"}),
+        ("accept_order", {"session_id": "S1", "cl_ord_id": "C1"}),
+        ("accept_cancel", {"session_id": "S1", "cl_ord_id": "C1"}),
+        ("accept_replace", {"session_id": "S1", "cl_ord_id": "C1"}),
+        ("reject_request", {"session_id": "S1", "cl_ord_id": "C1"}),
+        ("fill_order", {"session_id": "S1", "cl_ord_id": "C1", "qty": "1", "price": "1"}),
+        ("correct_trade", {"session_id": "S1", "exec_id": "E1", "qty": "1", "price": "1"}),
+        ("bust_trade", {"session_id": "S1", "exec_id": "E1"}),
+        ("renotify_trade", {"session_id": "S1", "exec_id": "E1"}),
+    ])
+    async def test_every_send_op_passes_text(self, op, data):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r", "op": op, "data": {**data, "text": "note"}})
+        assert _sent(ws).get("ok") is True
+        assert getattr(engine, op).await_args.kwargs["text"] == "note"
+        assert "handl_inst" not in getattr(engine, op).await_args.kwargs

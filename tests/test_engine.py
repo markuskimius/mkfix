@@ -57,24 +57,7 @@ async def _fetch_all(db, sql):
     return rows
 
 
-ORDER_COLS = [
-    "cl_ord_id", "session_id", "order_id", "orig_cl_ord_id", "symbol",
-    "side", "side_code", "ord_type", "ord_type_code", "price", "stop_price",
-    "order_qty", "time_in_force", "status", "cum_qty", "avg_price",
-    "leaves_qty", "last_qty", "last_price", "text", "transact_time",
-    "created_at", "updated_at", "direction",
-    "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "pending_extra_tags",
-    "tif_code", "extra_tags", "entered_qty", "entered_price",
-    "expire_time", "expire_date", "client",
-]
-
-ORDER_UPDATE_COLS = [
-    "status", "cum_qty", "avg_price", "leaves_qty",
-    "last_qty", "last_price", "text", "transact_time", "updated_at",
-    "pending_action", "pending_cl_ord_id", "pending_qty", "pending_price",
-    "pending_extra_tags",
-]
+from mkfix.fix.engine import ORDER_COLS, ORDER_UPDATE_COLS  # noqa: E402
 
 
 def _order_params(**overrides):
@@ -90,11 +73,12 @@ def _order_params(**overrides):
         "pending_qty": 0.0, "pending_price": 0.0, "pending_extra_tags": "",
         "tif_code": "0", "extra_tags": "", "entered_qty": 100.0, "entered_price": 150.25,
         "expire_time": "", "expire_date": "", "client": "",
+        "handl_inst": "", "handl_inst_code": "", "sent_text": "",
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
     update = tuple(base[c] for c in ORDER_UPDATE_COLS)
-    return insert + (None,) + update
+    return insert + (None,) + update + (base["sent_text"],)
 
 
 class TestInstanceCode:
@@ -3014,3 +2998,450 @@ class TestTemplates:
         rows = await _fetch_all(db, "SELECT * FROM fix_templates")
         assert [r["qty"] for r in rows] == ["2"]
 
+
+
+NEW_ORDER_RX_HANDLING = ("8=FIX.4.2|35=D|11=C300|55=AAPL|54=1|38=100|40=2|44=150.25|59=0|"
+                         "21=3|58=work it|5001=X")
+
+
+async def _order(db, where="1=1"):
+    return (await _fetch_all(db, f"SELECT * FROM fix_orders WHERE {where}"))[0]
+
+
+class TestSentOrderHandling:
+    """HandlInst(21) and Text(58) on the client side: typed in the New,
+    Replace and Cancel dialogs, recorded as sent — sent_text is ours alone,
+    the counterparty's 58 lands in `text`."""
+
+    @pytest.mark.asyncio
+    async def test_new_order_sends_and_records_21_and_58(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0,
+                                    handl_inst="3", text="work it")
+        msg = stub.sent[-1]
+        assert msg["21"] == "3" and msg["58"] == "work it"
+        row = await _order(db)
+        assert (row["handl_inst"], row["handl_inst_code"]) == ("Manual", "3")
+        assert row["sent_text"] == "work it" and row["text"] == ""
+
+    @pytest.mark.asyncio
+    async def test_handl_inst_defaults_to_1(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        assert stub.sent[-1]["21"] == "1" and "58" not in stub.sent[-1].fields
+        assert (await _order(db))["handl_inst_code"] == "1"
+
+    @pytest.mark.asyncio
+    async def test_execution_report_never_touches_sent_text(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100,
+                                                price=150.0, handl_inst="2", text="mine")
+        er = (f"8=FIX.4.2|35=8|11={cl_ord_id}|37=O1|17=E1|20=0|150=0|39=0|55=AAPL|54=1|"
+              "38=100|14=0|6=0|151=100|58=theirs")
+        await engine.on_app_message(stub, "8", parse_fix(er))
+        row = await _order(db)
+        assert row["status"] == "New"
+        assert row["sent_text"] == "mine" and row["text"] == "theirs"
+        assert row["handl_inst_code"] == "2"
+
+    @pytest.mark.asyncio
+    async def test_replace_then_cancel_rewrite_sent_text(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100,
+                                            price=150.0, text="new")
+        await engine.send_cancel_replace("S1", orig_cl_ord_id=first, symbol="AAPL", side="1",
+                                         qty=200, price=151.0, handl_inst="3", text="more")
+        assert stub.sent[-1]["21"] == "3" and stub.sent[-1]["58"] == "more"
+        row = await _order(db)
+        assert row["sent_text"] == "more" and row["handl_inst"] == "Manual"
+
+        await engine.send_cancel("S1", orig_cl_ord_id=first, symbol="AAPL", side="1",
+                                 qty=200, text="pull it")
+        assert stub.sent[-1]["35"] == "F" and stub.sent[-1]["58"] == "pull it"
+        assert "21" not in stub.sent[-1].fields, "OrderCancelRequest carries no HandlInst"
+        row = await _order(db)
+        assert row["sent_text"] == "pull it"
+        assert row["handl_inst_code"] == "3" and row["entered_qty"] == 200, \
+            "a cancel rewrites the text alone"
+
+        await engine.send_cancel("S1", orig_cl_ord_id=first, symbol="AAPL", side="1", qty=200)
+        assert (await _order(db))["sent_text"] == "", "the last message sent carried no text"
+
+    @pytest.mark.asyncio
+    async def test_cancel_of_unknown_order_still_goes_out(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_cancel("S1", orig_cl_ord_id="NOPE", symbol="AAPL", side="1", text="x")
+        assert stub.sent[-1]["41"] == "NOPE"
+        assert await _fetch_all(db, "SELECT * FROM fix_orders") == []
+
+    @pytest.mark.asyncio
+    async def test_columns_record_what_extras_actually_sent(self, stack):
+        """A 58 or 21 among the extra tags overrides the dialog's field on
+        the wire (sendprep), so the row records that value."""
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0,
+                                    text="typed", extra_tags="58=from extras|21=2")
+        row = await _order(db)
+        assert row["sent_text"] == "from extras" and row["handl_inst_code"] == "2"
+        await engine.send_new_order("S1", symbol="MSFT", side="1", qty=100, price=150.0,
+                                    text="typed", extra_tags="58=|21=")
+        row = await _order(db, "symbol = 'MSFT'")
+        assert row["sent_text"] == "" and row["handl_inst"] == "" and row["handl_inst_code"] == ""
+
+    @pytest.mark.asyncio
+    async def test_dictionary_without_21_withholds_it(self, stack):
+        from mkfix.fix.dictionary import register_custom, unregister_custom
+        db, writer, engine = stack
+        register_custom("NO21", "FIX.4.2", {"fields": {"21": None}})
+        try:
+            stub = StubSession()
+            stub.dictionary = FixDictionary("NO21")
+            stub.factory = FixMessageFactory(stub.dictionary, "MKT", "CLIENT")
+            engine.sessions["S1"] = stub
+            first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+            assert "21" not in stub.sent[-1].fields
+            await engine.send_cancel_replace("S1", orig_cl_ord_id=first, symbol="AAPL",
+                                             side="1", qty=200, price=151.0)
+            assert "21" not in stub.sent[-1].fields
+            assert (await _order(db))["handl_inst_code"] == ""
+        finally:
+            unregister_custom("NO21")
+
+
+class TestReceivedOrderHandling:
+    """The market side: `text` is what the counterparty last sent (the New,
+    then each request), sent_text what we last answered with."""
+
+    @pytest.mark.asyncio
+    async def test_inbound_order_records_21_and_58(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_HANDLING))
+        row = await _order(db)
+        assert (row["handl_inst"], row["handl_inst_code"]) == ("Manual", "3")
+        assert row["text"] == "work it" and row["sent_text"] == ""
+        assert row["extra_tags"] == "5001=X", "21 and 58 are columns, not extras"
+
+    @pytest.mark.asyncio
+    async def test_accept_and_fill_text_land_in_sent_text(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_HANDLING))
+        await engine.accept_request("S1", "C300", text="got it")
+        assert stub.sent[-1]["58"] == "got it"
+        row = await _order(db)
+        assert row["sent_text"] == "got it" and row["text"] == "work it"
+
+        await engine.fill_order("S1", "C300", qty=40, price=150.0, text="first clip",
+                                extra_tags="5001=X|9001=Y")
+        assert stub.sent[-1]["58"] == "first clip"
+        assert (await _order(db))["sent_text"] == "first clip"
+        trade = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert trade["text"] == "first clip" and trade["extra_tags"] == "5001=X|9001=Y"
+
+        await engine.fill_order("S1", "C300", qty=10, price=150.0)
+        assert (await _order(db))["sent_text"] == ""
+
+    @pytest.mark.asyncio
+    async def test_reject_reason_is_sent_text(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_HANDLING))
+        await engine.reject_request("S1", "C300", text="no thanks")
+        row = await _order(db)
+        assert row["status"] == "Rejected"
+        assert row["sent_text"] == "no thanks" and row["text"] == "work it"
+
+    @pytest.mark.asyncio
+    async def test_request_text_shows_until_answered_and_after(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_HANDLING))
+        await engine.accept_request("S1", "C300")
+        await engine.on_app_message(stub, "F", parse_fix(
+            "8=FIX.4.2|35=F|11=C301|41=C300|55=AAPL|54=1|38=100|58=changed my mind"))
+        row = await _order(db)
+        assert row["pending_action"] == "Cancel" and row["text"] == "changed my mind"
+        await engine.reject_request("S1", "C300", text="too late")
+        assert stub.sent[-1]["35"] == "9" and stub.sent[-1]["58"] == "too late"
+        row = await _order(db)
+        assert row["sent_text"] == "too late" and row["text"] == "changed my mind"
+
+        await engine.on_app_message(stub, "G", parse_fix(
+            "8=FIX.4.2|35=G|11=C302|41=C300|55=AAPL|54=1|38=200|40=2|44=151.5|7001=R"))
+        assert (await _order(db))["text"] == "", "the latest request carried none"
+
+    @pytest.mark.asyncio
+    async def test_accepted_replace_keeps_its_answer_text(self, stack):
+        """accept_replace promotes the request's tags through record_entered,
+        whose snapshot must not put sent_text back."""
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX_HANDLING))
+        await engine.accept_request("S1", "C300", text="ack")
+        await engine.on_app_message(stub, "G", parse_fix(
+            "8=FIX.4.2|35=G|11=C302|41=C300|55=AAPL|54=1|38=200|40=2|44=151.5|7001=R"))
+        await engine.accept_request("S1", "C300", text="replaced")
+        row = await _order(db)
+        assert row["cl_ord_id"] == "C302" and row["extra_tags"] == "7001=R"
+        assert row["sent_text"] == "replaced"
+        await engine.on_app_message(stub, "F", parse_fix(
+            "8=FIX.4.2|35=F|11=C303|41=C302|55=AAPL|54=1|38=200"))
+        await engine.accept_request("S1", "C302", text="out")
+        row = await _order(db)
+        assert row["status"] == "Canceled" and row["sent_text"] == "out"
+
+
+class TestTradeTextAndTags:
+    async def _filled(self, engine, stub, **fill):
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        return await engine.fill_order("S1", "C100", qty=40, price=150.0, **fill)
+
+    @pytest.mark.asyncio
+    async def test_correction_and_bust_are_versions_with_their_own_text_and_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        fill_id = await self._filled(engine, stub, text="clip", extra_tags="5001=X")
+        corrected = await engine.correct_trade("S1", fill_id, qty=30, price=149.0,
+                                               text="fat finger", extra_tags="5001=Y")
+        assert stub.sent[-1]["58"] == "fat finger"
+        live = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert len(live) == 1
+        assert live[0]["text"] == "fat finger" and live[0]["extra_tags"] == "5001=Y"
+        history = await _fetch_all(
+            db, "SELECT text, extra_tags FROM fix_executions__history ORDER BY _mkio_version")
+        assert (history[0]["text"], history[0]["extra_tags"]) == ("clip", "5001=X")
+
+        await engine.bust_trade("S1", corrected, text="void")
+        live = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert live["text"] == "void" and live["extra_tags"] == ""
+
+    @pytest.mark.asyncio
+    async def test_renotify_carries_text_and_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        fill_id = await self._filled(engine, stub, extra_tags="5001=X")
+        await engine.on_app_message(stub, "Q", parse_fix(
+            f"8=FIX.4.2|35=Q|37=O|17={fill_id}|127=D|55=AAPL|54=1|38=100"))
+        await engine.renotify_trade("S1", fill_id, text="again", extra_tags="5001=X|58=really")
+        live = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert live["text"] == "really", "extras override the field, and the row says so"
+        assert live["extra_tags"] == "5001=X|58=really" and live["dk_reason"] == ""
+
+    @pytest.mark.asyncio
+    async def test_received_trade_keeps_the_reports_custom_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        fill = (f"8=FIX.4.2|35=8|11={cl_ord_id}|37=O1|17=E9|20=0|150=2|39=2|55=AAPL|54=1|"
+                "38=100|32=100|31=150|14=100|6=150|151=0|58=done|30=XNYS|9001=A|9001=B")
+        await engine.on_app_message(stub, "8", parse_fix(fill))
+        trade = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert trade["text"] == "done" and trade["extra_tags"] == "30=XNYS|9001=A|9001=B"
+
+
+class TestHandlingBackfill:
+    @staticmethod
+    async def _record_raw(engine, writer, direction, msg_type, cl_ord_id, exec_id, raw):
+        params = ("S1", "20260823-00:00:00.000", direction, 1, msg_type, "", "APP",
+                  raw, "CLIENT", "MKT", cl_ord_id, "", exec_id, "AAPL", "1", len(raw), "000", "", None)
+        await writer.submit(engine._compiled_ops["insert_message"], (params,), {})
+
+    @pytest.mark.asyncio
+    async def test_seeds_handl_inst_and_trade_tags_once(self, stack):
+        db, writer, engine = stack
+        await _add_session(writer)
+        await writer.submit(engine._compiled_ops["upsert_order"],
+                            (_order_params(cl_ord_id="C2", orig_cl_ord_id="C1", direction="RX"),), {})
+        await self._record_raw(
+            engine, writer, "RX", "D", "C1", "",
+            "8=FIX.4.2|9=1|35=D|49=CLIENT|56=MKT|34=2|52=20260823-00:00:00|"
+            "11=C1|21=2|55=AAPL|54=1|38=100|40=2|44=150|10=000")
+        order = {**(await _order(db)), "order_id": "OR1"}
+        await engine._write_sent_execution(order, "EX1", "TR1", "Fill", "2",
+                                           40.0, 150.0, 40.0, 150.0, 60.0)
+        await self._record_raw(
+            engine, writer, "TX", "8", "C2", "EX1",
+            "8=FIX.4.2|9=1|35=8|49=MKT|56=CLIENT|34=3|52=20260823-00:00:01|37=OR1|11=C2|17=EX1|"
+            "20=0|150=1|39=1|55=AAPL|54=1|38=100|32=40|31=150|14=40|6=150|151=60|"
+            "60=20260823-00:00:01|5001=X|375=A|10=000")
+
+        await engine._backfill_handling_and_trade_tags()
+        row = await _order(db)
+        assert (row["handl_inst"], row["handl_inst_code"]) == ("AutoExecPublic", "2")
+        trade = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert trade["extra_tags"] == "5001=X|375=A"
+
+        await db.write_conn.execute("UPDATE fix_executions SET extra_tags = ''")
+        await db.write_conn.commit()
+        await engine._backfill_handling_and_trade_tags()
+        trade = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert trade["extra_tags"] == "", "the backfill runs once per database"
+
+
+class TestHandlingEdges:
+    @pytest.mark.asyncio
+    async def test_order_created_by_an_execution_report_has_blank_sent_text(self, stack):
+        """An ER for an order this engine never recorded takes the upsert's
+        INSERT branch: the columns are blank strings, never NULL, so the
+        blotter's Sent Text cell and the Replace prefill stay well-defined."""
+        db, writer, engine = stack
+        stub = StubSession()
+        er = ("8=FIX.4.2|35=8|11=CX|37=O1|17=E1|20=0|150=0|39=0|55=AAPL|54=1|"
+              "38=100|14=0|6=0|151=100|58=hello")
+        await engine.on_app_message(stub, "8", parse_fix(er))
+        row = await _order(db)
+        assert (row["sent_text"], row["handl_inst"], row["handl_inst_code"]) == ("", "", "")
+        assert row["text"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_cancel_text_survives_the_answer_arriving_mid_send(self, stack):
+        """send_cancel records its text before the send: the accepting ER
+        renames the chain, after which a lookup by the superseded ClOrdID
+        would miss and the text be lost."""
+        db, writer, engine = stack
+
+        class Canceling(StubSession):
+            async def send_message(inner, msg):
+                await StubSession.send_message(inner, msg)
+                if msg.get("35") == "F":
+                    er = (f"8=FIX.4.2|35=8|11={msg.get('11')}|41={msg.get('41')}|37=O1|17=E2|"
+                          "20=0|150=4|39=4|55=AAPL|54=1|38=100|14=0|6=0|151=0|58=done")
+                    await engine.on_app_message(inner, "8", parse_fix(er))
+                return msg
+
+        stub = Canceling()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        second = await engine.send_cancel("S1", orig_cl_ord_id=first, symbol="AAPL",
+                                          side="1", qty=100, text="pull it")
+        row = await _order(db)
+        assert row["cl_ord_id"] == second and row["status"] == "Canceled"
+        assert row["sent_text"] == "pull it" and row["text"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_history_keeps_each_text_the_order_carried(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100,
+                                            price=150.0, text="one")
+        await engine.send_cancel_replace("S1", orig_cl_ord_id=first, symbol="AAPL", side="1",
+                                         qty=200, price=151.0, text="two")
+        await engine.send_cancel("S1", orig_cl_ord_id=first, symbol="AAPL", side="1", text="three")
+        texts = [r["sent_text"] for r in await _fetch_all(
+            db, "SELECT sent_text FROM fix_orders__history ORDER BY _mkio_version")]
+        assert texts == ["one", "two", "three"]
+
+    @pytest.mark.asyncio
+    async def test_unchanged_text_records_no_version(self, stack):
+        """A cancel repeating the standing text changes nothing versioned
+        but updated_at — and the row must still be one chain."""
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        first = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100,
+                                            price=150.0, text="same")
+        await engine.send_cancel("S1", orig_cl_ord_id=first, symbol="AAPL", side="1", text="same")
+        rows = await _fetch_all(db, "SELECT DISTINCT id FROM fix_orders__history")
+        assert len(rows) == 1
+        assert (await _order(db))["sent_text"] == "same"
+
+    @pytest.mark.asyncio
+    async def test_fix44_handling_names_and_trade_text(self, stack):
+        db, writer, engine = stack
+        stub = _stub44()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(
+            "8=FIX.4.4|35=D|11=C400|55=AAPL|54=1|38=100|40=2|44=150|59=0|21=1|58=hi"))
+        row = await _order(db)
+        assert row["handl_inst"] == FixDictionary("FIX.4.4").enum_name("21", "1")
+        assert row["handl_inst"] != "1" and row["text"] == "hi"
+        fill_id = await engine.fill_order("S1", "C400", qty=40, price=150.0, text="clip")
+        await engine.correct_trade("S1", fill_id, qty=30, price=150.0, text="fix",
+                                   extra_tags="9001=Z")
+        msg = stub.sent[-1]
+        assert msg["150"] == "G" and msg["58"] == "fix" and "20" not in msg.fields
+        trade = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert (trade["exec_type"], trade["text"], trade["extra_tags"]) == ("TradeCorrect", "fix", "9001=Z")
+
+    @pytest.mark.asyncio
+    async def test_received_trade_correction_replaces_its_tags(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        base = f"8=FIX.4.2|35=8|11={cl}|37=O1|55=AAPL|54=1|38=100|14=100|6=150|151=0|"
+        await engine.on_app_message(stub, "8", parse_fix(
+            base + "17=E1|20=0|150=2|39=2|32=100|31=150|30=XNYS"))
+        await engine.on_app_message(stub, "8", parse_fix(
+            base + "17=E2|19=E1|20=2|150=2|39=2|32=100|31=149|58=px|30=XNAS"))
+        trades = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert len(trades) == 1
+        assert (trades[0]["text"], trades[0]["extra_tags"]) == ("px", "30=XNAS")
+
+    @pytest.mark.asyncio
+    async def test_templates_keep_handl_inst_and_text(self, stack):
+        db, writer, engine = stack
+        await engine.save_template("order", "manual", symbol="AAPL", handl_inst="3", text="work it")
+        await engine.save_template("bust", "void", text="void", extra_tags="")
+        rows = {r["scope"]: r for r in await _fetch_all(db, "SELECT * FROM fix_templates")}
+        assert (rows["order"]["handl_inst"], rows["order"]["text"]) == ("3", "work it")
+        assert (rows["bust"]["handl_inst"], rows["bust"]["text"]) == ("", "void")
+        listed = await _fetch_all(
+            db, MKFIX_TOML["services"]["templates_list"]["sql"].replace(":scope", "'order'"))
+        assert listed[0]["handl_inst"] == "3", "the dropdown's fill needs the column"
+
+
+class TestHandlingBackfillEdges:
+    @pytest.mark.asyncio
+    async def test_rows_without_a_recorded_message_or_session_are_left_blank(self, stack):
+        db, writer, engine = stack
+        await writer.submit(engine._compiled_ops["upsert_order"],
+                            (_order_params(cl_ord_id="LONE", session_id="GONE"),), {})
+        order = {**(await _order(db)), "order_id": "OR9"}
+        await engine._write_sent_execution(order, "EX9", "TR9", "Fill", "2",
+                                           1.0, 1.0, 1.0, 1.0, 0.0)
+        await engine._backfill_handling_and_trade_tags()
+        assert (await _order(db))["handl_inst_code"] == ""
+        assert (await _fetch_all(db, "SELECT extra_tags FROM fix_executions"))[0]["extra_tags"] == ""
+
+    @pytest.mark.asyncio
+    async def test_sent_order_reads_its_own_new_order_not_the_counterpartys(self, stack):
+        """ClOrdIDs are per direction: a received D sharing the ClOrdID must
+        not seed a sent order."""
+        db, writer, engine = stack
+        await writer.submit(engine._compiled_ops["upsert_order"],
+                            (_order_params(cl_ord_id="C1", direction="TX"),), {})
+        for direction, code in (("RX", "3"), ("TX", "2")):
+            raw = f"8=FIX.4.2|9=1|35=D|11=C1|21={code}|55=AAPL|54=1|38=100|40=2|10=000"
+            await TestHandlingBackfill._record_raw(engine, writer, direction, "D", "C1", "", raw)
+        await engine._backfill_handling_and_trade_tags()
+        assert (await _order(db))["handl_inst_code"] == "2"
+
+    @pytest.mark.asyncio
+    async def test_engine_start_runs_it(self, stack):
+        db, writer, _ = stack
+        engine = FixEngine(db=db, writer=writer)
+        await engine.start()
+        rows = await _fetch_all(db, "SELECT value FROM fix_settings WHERE key = 'handling_backfill'")
+        assert rows == [{"value": "1"}]
+        await engine.stop()

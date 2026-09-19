@@ -787,3 +787,32 @@ class TestClientTags:
         msg.sendprep(factory.dictionary, "US", "THEM", 1)
         assert [v for t, v in msg._pairs if t == "109"] == ["OTHER"]
         assert client_of(msg, parse_client_tags("109")) == "OTHER"
+
+
+class TestHandlingAndText:
+    """HandlInst(21) and Text(58) on the order messages."""
+
+    def _factory(self, version="FIX.4.2"):
+        return FixMessageFactory(FixDictionary(version), "US", "THEM")
+
+    def test_new_order_carries_handl_inst_and_text(self):
+        msg = self._factory().new_order_single("C1", "AAPL", "1", 100, handl_inst="3", text="work it")
+        assert msg["21"] == "3" and msg["58"] == "work it"
+
+    def test_new_order_defaults(self):
+        msg = self._factory().new_order_single("C1", "AAPL", "1", 100)
+        assert msg["21"] == "1" and "58" not in msg.fields
+
+    def test_blank_handl_inst_is_withheld(self):
+        msg = self._factory("FIX.4.4").cancel_replace_request("C2", "C1", "AAPL", "1", 100, handl_inst="")
+        assert "21" not in msg.fields
+
+    def test_replace_carries_handl_inst_and_text(self):
+        msg = self._factory().cancel_replace_request("C2", "C1", "AAPL", "1", 100,
+                                                     handl_inst="2", text="more")
+        assert msg["21"] == "2" and msg["58"] == "more"
+
+    def test_cancel_carries_text_but_never_handl_inst(self):
+        msg = self._factory().cancel_request("C2", "C1", "AAPL", "1", 100, text="pull")
+        assert msg["58"] == "pull" and "21" not in msg.fields
+        assert "58" not in self._factory().cancel_request("C2", "C1", "AAPL", "1").fields

@@ -238,6 +238,14 @@ class FixMessageFactory:
         if expire_date and self.dictionary.defines("432"):
             fields["432"] = expire_date
 
+    def _add_handling(self, fields: dict[str, str], text: str | None) -> None:
+        """HandlInst(21) rides only when given and defined (a custom
+        dictionary may remove it); Text(58) only when given."""
+        if not fields.get("21") or not self.dictionary.defines("21"):
+            fields.pop("21", None)
+        if text:
+            fields["58"] = text
+
     def expiry(self, expire_time: str, expire_date: str, precision: str = "") -> tuple[str, str]:
         """(ExpireTime, ExpireDate) as they would go out. The order dialog has
         one Expire field whose time is optional: a bare date arriving as
@@ -371,6 +379,7 @@ class FixMessageFactory:
         expire_time: str = "",
         expire_date: str = "",
         expire_precision: str = "",
+        text: str | None = None,
         **extra: str,
     ) -> FixMessage:
         fields: dict[str, str] = {
@@ -389,6 +398,7 @@ class FixMessageFactory:
         if account:
             fields["1"] = account
         self._add_expiry(fields, expire_time, expire_date, expire_precision)
+        self._add_handling(fields, text)
         fields.update(extra)
         self._strip_legacy_body_time(fields)
         return self.create(fields)
@@ -400,6 +410,7 @@ class FixMessageFactory:
         symbol: str,
         side: str,
         qty: float = 0,
+        text: str | None = None,
     ) -> FixMessage:
         fields: dict[str, str] = {
             "35": "F",
@@ -413,6 +424,8 @@ class FixMessageFactory:
             fields["38"] = str(int(qty))
         if self.dictionary.begin_string() == "FIX.4.0":
             fields["125"] = "F"  # CxlType, required on a 4.0 OrderCancelRequest
+        if text:
+            fields["58"] = text
         self._strip_legacy_body_time(fields)
         return self.create(fields)
 
@@ -481,6 +494,7 @@ class FixMessageFactory:
         expire_time: str = "",
         expire_date: str = "",
         expire_precision: str = "",
+        text: str | None = None,
         **extra: str,
     ) -> FixMessage:
         fields: dict[str, str] = {
@@ -499,6 +513,7 @@ class FixMessageFactory:
         if tif is not None:
             fields["59"] = tif
         self._add_expiry(fields, expire_time, expire_date, expire_precision)
+        self._add_handling(fields, text)
         fields.update(extra)
         self._strip_legacy_body_time(fields)
         return self.create(fields)
@@ -682,6 +697,14 @@ def parse_fix(data: bytes | str) -> FixMessage:
 # else on the message is a custom tag worth echoing back.
 CONSUMED_ORDER_TAGS = frozenset({
     "11", "21", "37", "38", "40", "41", "44", "54", "55", "58", "59", "60", "99",
+})
+
+
+# The same for an ExecutionReport: what the engine maps into order and trade
+# columns; the rest is what the trade row keeps as its extra tags.
+CONSUMED_EXEC_TAGS = frozenset({
+    "6", "11", "14", "17", "19", "20", "31", "32", "37", "38", "39", "40", "41",
+    "44", "54", "55", "58", "59", "60", "99", "126", "150", "151", "432",
 })
 
 

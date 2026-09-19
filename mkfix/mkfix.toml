@@ -36,12 +36,12 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # orders_query/executions_query join the owning session's live status onto
 # these rows as session_status, which the blotters' action buttons gate on.
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", handl_inst_code = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_executions]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", dk_reason = "TEXT DEFAULT ''", dk_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", dk_reason = "TEXT DEFAULT ''", dk_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -97,7 +97,7 @@ archive = { cutoff = "saved", group = "config" }
 # Templates pane edits and deletes through the `templates` service. Shared by
 # everyone on the server, like layouts.
 [tables.fix_templates]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
 archive = { group = "config" }
 
 # ─��─ Transaction Services ───────────────────────────────────────────
@@ -163,10 +163,10 @@ description = "Save, edit and delete blotter action templates"
 
 [services.templates.ops]
 add = [
-    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "" } },
+    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client", "handl_inst"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "", handl_inst = "" } },
 ]
 update = [
-    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "" } },
+    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "text", "extra_tags", "client", "handl_inst"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", text = "", extra_tags = "", client = "", handl_inst = "" } },
 ]
 delete = [
     { table = "fix_templates", op_type = "delete", key = ["id"] },
@@ -222,7 +222,7 @@ watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
 sql = """SELECT o.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_orders o LEFT JOIN fix_session_state t ON t.session_id = o.session_id"""
-filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client"]
+filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client", "handl_inst"]
 
 [services.executions_query]
 protocol = "query"
@@ -258,7 +258,7 @@ filterable = ["scope"]
 # along so the pick fills the form (mkui's `fill`).
 [services.templates_list]
 protocol = "reqrep"
-sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, text, extra_tags, client FROM fix_templates WHERE scope = :scope ORDER BY name"
+sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, text, extra_tags, client, handl_inst FROM fix_templates WHERE scope = :scope ORDER BY name"
 
 [services.replay_jobs]
 protocol = "query"

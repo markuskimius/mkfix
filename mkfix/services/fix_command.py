@@ -17,18 +17,19 @@ if TYPE_CHECKING:
 # names the template to keep them under — written before the send. Only an
 # order template records a session: the New dialog's own field, which a
 # pick fills; every other dialog acts on its row's session.
-ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "extra_tags", "client")
+ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "extra_tags", "client",
+               "handl_inst", "text")
 TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_new_order": ("order", ORDER_TERMS),
     "send_cancel_replace": ("order", ORDER_TERMS),
-    "send_cancel": ("cancel", ("extra_tags",)),
-    "accept_request": ("accept", ("extra_tags",)),
+    "send_cancel": ("cancel", ("text", "extra_tags")),
+    "accept_request": ("accept", ("text", "extra_tags")),
     "reject_request": ("reject", ("text", "extra_tags")),
-    "fill_order": ("fill", ("qty", "price", "extra_tags")),
+    "fill_order": ("fill", ("qty", "price", "text", "extra_tags")),
     "dk_trade": ("dk", ("dk_reason", "text", "extra_tags")),
-    "correct_trade": ("correct", ("qty", "price", "extra_tags")),
-    "bust_trade": ("bust", ("extra_tags",)),
-    "renotify_trade": ("renotify", ("extra_tags",)),
+    "correct_trade": ("correct", ("qty", "price", "text", "extra_tags")),
+    "bust_trade": ("bust", ("text", "extra_tags")),
+    "renotify_trade": ("renotify", ("text", "extra_tags")),
 }
 
 
@@ -96,6 +97,8 @@ class FixCommandService(Service):
                 expire_date=data.get("expire_date", ""),
                 expire_precision=data.get("expire_precision", ""),
                 client=data.get("client", ""),
+                handl_inst=data.get("handl_inst") or "1",
+                text=data.get("text", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -108,6 +111,7 @@ class FixCommandService(Service):
                 qty=float(data.get("qty", 0)),
                 extra_tags=data.get("extra_tags", ""),
                 client=data.get("client", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -126,6 +130,8 @@ class FixCommandService(Service):
                 expire_date=data.get("expire_date", ""),
                 expire_precision=data.get("expire_precision", ""),
                 client=data.get("client", ""),
+                handl_inst=data.get("handl_inst") or "1",
+                text=data.get("text", ""),
             )
             return {"ok": True, "cl_ord_id": cl_ord_id}
 
@@ -134,6 +140,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "order_id": order_id}
 
@@ -153,6 +160,7 @@ class FixCommandService(Service):
                 qty=float(data["qty"]),
                 price=float(data["price"]),
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -161,6 +169,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -178,6 +187,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -186,6 +196,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 cl_ord_id=data["cl_ord_id"],
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -205,6 +216,7 @@ class FixCommandService(Service):
                 qty=float(data["qty"]),
                 price=float(data["price"]),
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -213,6 +225,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 exec_id=data["exec_id"],
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 
@@ -221,6 +234,7 @@ class FixCommandService(Service):
                 session_id=data["session_id"],
                 exec_id=data["exec_id"],
                 extra_tags=data.get("extra_tags", ""),
+                text=data.get("text", ""),
             )
             return {"ok": True, "exec_id": exec_id}
 

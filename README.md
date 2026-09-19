@@ -150,7 +150,20 @@ A FIX protocol testing engine for capital markets connectivity, built on
   group, nested ones included), a tag the message already carries is
   overridden in place (even 34, 52, or 9/10 for deliberately corrupt
   messages), and an empty value (`21=`) deletes the tag for
-  missing-required-field tests.
+  missing-required-field tests. Trades keep their tags too: a sent trade's
+  Extra Tags as typed, a received trade's custom tags from its
+  ExecutionReport, shown in both trade blotters and prefilled into the
+  Correct, Bust and Re-notify dialogs.
+- **Handling Instructions & Text** -- The New and Replace dialogs carry
+  HandlInst (21; default 1), and every order and trade dialog a Text (58)
+  field; an Extra Tag naming 21 or 58 still wins. The order blotters show
+  Handl Inst, Extra Tags, and the text in both directions: Sent Text is the
+  58 of the last message this side sent on the order (a New, Replace or
+  Cancel on Sent Orders; an Accept, Reject or Fill on Received Orders) and
+  Rcvd Text the counterparty's last -- their ExecutionReports, or their New
+  and each cancel or replace request. The trade blotters show each report's
+  Text. Older orders and trades are seeded once at startup from their
+  recorded messages (HandlInst and trade tags; not Sent Text).
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **Saved Layouts** -- The Layout menu saves the window arrangement (frame

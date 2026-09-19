@@ -191,7 +191,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.40"
+        "text": "mkfix v0.41"
       }
     ],
     "bindStyle": {
@@ -977,12 +977,16 @@
         "symbol",
         "side",
         "ord_type",
+        "handl_inst",
         "price",
         "order_qty",
         "status",
         "cum_qty",
         "avg_price",
         "leaves_qty",
+        "sent_text",
+        "text",
+        "extra_tags",
         "updated_at"
       ],
       "history": {
@@ -1009,7 +1013,11 @@
         "avg_price": "Avg Px",
         "leaves_qty": "Leaves",
         "updated_at": "Updated",
-        "client": "Client"
+        "client": "Client",
+        "handl_inst": "Handl Inst",
+        "sent_text": "Sent Text",
+        "text": "Rcvd Text",
+        "extra_tags": "Extra Tags"
       },
       "types": {
         "updated_at": {
@@ -1097,6 +1105,8 @@
                     "ord_type": "ord_type",
                     "price": "price",
                     "tif": "tif",
+                    "handl_inst": "handl_inst",
+                    "text": "text",
                     "extra_tags": "extra_tags",
                     "client": "client"
                   },
@@ -1262,6 +1272,32 @@
                   "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
                 },
                 {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "value": "1",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
@@ -1295,7 +1331,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -1345,6 +1381,8 @@
                     "ord_type": "ord_type",
                     "price": "price",
                     "tif": "tif",
+                    "handl_inst": "handl_inst",
+                    "text": "text",
                     "extra_tags": "extra_tags",
                     "client": "client"
                   },
@@ -1509,6 +1547,32 @@
                   "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
                 },
                 {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "value": "${IF(row.handl_inst_code != '', row.handl_inst_code, '1')}",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
@@ -1549,7 +1613,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('41=', row.cl_ord_id, '|', CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), '')))"
+                  "compute": "CONCAT('41=', row.cl_ord_id, '|', CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), '')))"
                 }
               ],
               "submit": {
@@ -1597,12 +1661,19 @@
                     "label": "name"
                   },
                   "fill": {
+                    "text": "text",
                     "extra_tags": "extra_tags"
                   },
                   "remember": {
                     "key": "mkfix.template.send_cancel",
                     "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
                   }
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
                 },
                 {
                   "name": "extra_tags",
@@ -1620,7 +1691,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('41=', row.cl_ord_id, '|55=', row.symbol, '|54=', row.side_code, '|38=', STR(row.order_qty), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('41=', row.cl_ord_id, '|55=', row.symbol, '|54=', row.side_code, '|38=', STR(row.order_qty), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -1666,6 +1737,8 @@
         "cum_qty",
         "avg_price",
         "exec_type",
+        "text",
+        "extra_tags",
         "transact_time"
       ],
       "history": {
@@ -1707,7 +1780,9 @@
         "transact_time": "Time",
         "exec_ref_id": "ExecRefID",
         "_mkio_version": "Ver",
-        "client": "Client"
+        "client": "Client",
+        "text": "Text",
+        "extra_tags": "Extra Tags"
       },
       "types": {
         "transact_time": {
@@ -1919,6 +1994,7 @@
         "symbol",
         "side",
         "ord_type",
+        "handl_inst",
         "price",
         "order_qty",
         "status",
@@ -1928,6 +2004,9 @@
         "cum_qty",
         "avg_price",
         "leaves_qty",
+        "sent_text",
+        "text",
+        "extra_tags",
         "updated_at"
       ],
       "history": {
@@ -1957,7 +2036,11 @@
         "avg_price": "Avg Px",
         "leaves_qty": "Leaves",
         "updated_at": "Updated",
-        "client": "Client"
+        "client": "Client",
+        "handl_inst": "Handl Inst",
+        "sent_text": "Sent Text",
+        "text": "Rcvd Text",
+        "extra_tags": "Extra Tags"
       },
       "types": {
         "updated_at": {
@@ -2053,12 +2136,19 @@
                     "label": "name"
                   },
                   "fill": {
+                    "text": "text",
                     "extra_tags": "extra_tags"
                   },
                   "remember": {
                     "key": "mkfix.template.accept_request",
                     "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
                   }
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
                 },
                 {
                   "name": "extra_tags",
@@ -2077,7 +2167,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT(IF(row.pending_action == 'New', CONCAT('11=', row.cl_ord_id), CONCAT('11=', row.pending_cl_ord_id, '|41=', row.cl_ord_id)), IF(row.pending_action == 'Replace', CONCAT('|38=', STR(row.pending_qty), '|44=', STR(row.pending_price)), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT(IF(row.pending_action == 'New', CONCAT('11=', row.cl_ord_id), CONCAT('11=', row.pending_cl_ord_id, '|41=', row.cl_ord_id)), IF(row.pending_action == 'Replace', CONCAT('|38=', STR(row.pending_qty), '|44=', STR(row.pending_price)), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2203,6 +2293,7 @@
                   "fill": {
                     "qty": "qty",
                     "price": "price",
+                    "text": "text",
                     "extra_tags": "extra_tags"
                   },
                   "remember": {
@@ -2231,6 +2322,12 @@
                   ]
                 },
                 {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
@@ -2247,7 +2344,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('11=', row.cl_ord_id, '|32=', COALESCE(qty, ''), '|31=', COALESCE(price, ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('11=', row.cl_ord_id, '|32=', COALESCE(qty, ''), '|31=', COALESCE(price, ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2294,6 +2391,8 @@
         "avg_price",
         "exec_type",
         "dk_reason",
+        "text",
+        "extra_tags",
         "transact_time"
       ],
       "history": {
@@ -2339,7 +2438,9 @@
         "_mkio_version": "Ver",
         "dk_reason": "DK",
         "dk_text": "DK Text",
-        "client": "Client"
+        "client": "Client",
+        "text": "Text",
+        "extra_tags": "Extra Tags"
       },
       "types": {
         "transact_time": {
@@ -2447,6 +2548,7 @@
                   "fill": {
                     "qty": "qty",
                     "price": "price",
+                    "text": "text",
                     "extra_tags": "extra_tags"
                   },
                   "remember": {
@@ -2475,10 +2577,17 @@
                   ]
                 },
                 {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
-                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
                 },
                 {
                   "name": "save_as",
@@ -2490,7 +2599,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('19=', row.exec_id, '|32=', COALESCE(qty, ''), '|31=', COALESCE(price, ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('19=', row.exec_id, '|32=', COALESCE(qty, ''), '|31=', COALESCE(price, ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2534,6 +2643,7 @@
                     "label": "name"
                   },
                   "fill": {
+                    "text": "text",
                     "extra_tags": "extra_tags"
                   },
                   "remember": {
@@ -2542,10 +2652,17 @@
                   }
                 },
                 {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
-                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
                 },
                 {
                   "name": "save_as",
@@ -2557,7 +2674,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('19=', row.exec_id, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('19=', row.exec_id, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2601,6 +2718,7 @@
                     "label": "name"
                   },
                   "fill": {
+                    "text": "text",
                     "extra_tags": "extra_tags"
                   },
                   "remember": {
@@ -2609,10 +2727,17 @@
                   }
                 },
                 {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
-                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
                 },
                 {
                   "name": "save_as",
@@ -2624,7 +2749,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('17=(new)', IF(COALESCE(row.exec_ref_id, '') != '', CONCAT('|19=', row.exec_ref_id), ''), '|32=', row.last_qty, '|31=', row.last_price, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('17=(new)', IF(COALESCE(row.exec_ref_id, '') != '', CONCAT('|19=', row.exec_ref_id), ''), '|32=', row.last_qty, '|31=', row.last_price, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2809,6 +2934,7 @@
         "qty",
         "price",
         "tif",
+        "handl_inst",
         "dk_reason",
         "text",
         "extra_tags"
@@ -2826,7 +2952,8 @@
         "dk_reason": "DK Reason (127)",
         "text": "Text (58)",
         "extra_tags": "Extra Tags",
-        "client": "Client"
+        "client": "Client",
+        "handl_inst": "Handl Inst (21)"
       },
       "sort": [
         "scope",
@@ -3073,11 +3200,31 @@
                   "showWhen": "row.scope == 'dk'"
                 },
                 {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ],
+                  "value": "${row.handl_inst}",
+                  "showWhen": "row.scope == 'order'"
+                },
+                {
                   "name": "text",
                   "label": "${IF(row.scope == 'reject', 'Reason (58)', 'Text (58)')}",
                   "type": "text",
-                  "value": "${row.text}",
-                  "showWhen": "CONTAINS(['reject', 'dk'], row.scope)"
+                  "value": "${row.text}"
                 },
                 {
                   "name": "extra_tags",
@@ -3230,7 +3377,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.40",
+      "version": "0.41",
       "mkio": "1.2",
       "expr": "1"
     },
