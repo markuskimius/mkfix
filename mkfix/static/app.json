@@ -3378,7 +3378,7 @@
     "expect": {
       "name": "mkfix",
       "version": "0.41",
-      "mkio": "1.2",
+      "mkio": "1.3",
       "expr": "1"
     },
     "connected": {

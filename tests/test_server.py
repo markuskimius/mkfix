@@ -134,3 +134,99 @@ class TestWebSocket:
                 resp = await _recv_json(ws)
                 assert resp["type"] == "error"
                 assert resp["ref"] == "r2"
+
+
+class TestStalledBlotter:
+    """A page that stops reading — a laptop asleep, a tab frozen in the
+    background — must not freeze the blotters of every other page, and its
+    eventual disconnect must not end the service's live updates for good.
+    Both happened before mkio gave each connection its own send queue: the
+    symptom was a blotter that stopped updating and stayed stopped across
+    page reloads, until the server was restarted."""
+
+    @pytest.mark.asyncio
+    async def test_other_pages_keep_updating(self, server):
+        subscribe = {"service": "templates_query", "type": "subscribe",
+                     "protocol": "query", "subid": "mkui-table-1"}
+        rows = 250
+        async with aiohttp.ClientSession() as s:
+            async with s.ws_connect(server + "/ws", max_msg_size=0) as healthy, \
+                    s.ws_connect(server + "/ws", max_msg_size=0) as stalled, \
+                    s.ws_connect(server + "/ws") as tx:
+                for ws in (healthy, stalled):
+                    await ws.send_json(subscribe)
+                    assert (await _recv_json(ws))["type"] == "snapshot"
+                stalled._conn.transport.pause_reading()
+
+                names: list[str] = []
+
+                async def read() -> None:
+                    async for msg in healthy:
+                        names.append(json.loads(msg.data)["row"]["name"])
+
+                reader = asyncio.create_task(read())
+
+                async def add(name: str) -> None:
+                    await tx.send_json({
+                        "service": "templates", "type": "transaction", "op": "add", "ref": name,
+                        "data": {"scope": "order", "name": name, "text": "X" * 20000},
+                    })
+                    assert (await _recv_json(tx))["type"] == "result"
+
+                # ~5 MB to each subscriber: far past what a socket buffers.
+                for i in range(rows):
+                    await add(f"stall-{i}")
+                await asyncio.sleep(0.5)
+                assert len(names) == rows
+
+                # The stalled page goes away mid-stream; the feed must survive it.
+                stalled._conn.transport.abort()
+                await asyncio.sleep(0.3)
+                await add("after-the-drop")
+                await asyncio.sleep(0.5)
+                reader.cancel()
+        assert names[-1] == "after-the-drop"
+
+
+class TestDeliveryConfig:
+    """The blotters' protection against a page that stops reading lives in
+    mkio's connection settings; mkfix ships their defaults and the README
+    documents them, so both are pinned here."""
+
+    def test_shipped_config_carries_mkio_delivery_defaults(self):
+        from pathlib import Path
+
+        from mkfix.__main__ import _load_config
+        cfg = _load_config(Path(__file__).parent.parent / "mkfix" / "mkfix.toml")
+        assert cfg["ws_heartbeat_s"] == 30
+        assert cfg["ws_send_buffer_mb"] == 16
+
+    def test_readme_names_the_keys_with_their_defaults(self):
+        from pathlib import Path
+        readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
+        assert "ws_heartbeat_s = 30" in readme
+        assert "ws_send_buffer_mb = 16" in readme
+
+    def test_a_config_may_override_them(self, tmp_path):
+        from pathlib import Path
+
+        from mkfix.__main__ import _load_config
+        shipped = (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text(encoding="utf-8")
+        custom = tmp_path / "custom.toml"
+        custom.write_text("ws_heartbeat_s = 0\nws_send_buffer_mb = 64\n" + shipped, encoding="utf-8")
+        cfg = _load_config(custom)
+        assert cfg["ws_heartbeat_s"] == 0 and cfg["ws_send_buffer_mb"] == 64
+
+    @pytest.mark.asyncio
+    async def test_server_speaks_the_protocol_with_reset_nacks(self, server):
+        async with aiohttp.ClientSession() as s:
+            async with s.ws_connect(server + "/ws") as ws:
+                await ws.send_json({"service": "_mkio", "type": "request", "reqid": "p"})
+                row = (await _recv_json(ws))["row"]
+                major, minor = (int(x) for x in row["protocol"].split(".")[:2])
+                assert (major, minor) >= (1, 3)
+                # A getmore for a page sequence the server does not hold is a
+                # reset — subscribe again — not a refusal.
+                await ws.send_json({"service": "orders_query", "type": "getmore", "subid": "gone"})
+                nack = await _recv_json(ws)
+        assert nack["type"] == "nack" and nack["code"] == "reset"

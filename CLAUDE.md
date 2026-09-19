@@ -6,11 +6,11 @@ FIX protocol testing engine built on [mkio](https://github.com/markuskimius/mkio
 
 ```bash
 pip install -e .
-mkfix                    # starts on port 8080 with built-in config
-mkfix -p 9090            # override port
-mkfix -d mytest          # use mytest.db (auto-adds .db extension)
-mkfix -d :memory:        # in-memory database
-mkfix -i Q7              # instance code stamped into generated IDs, remembered per database
+mkfix              # port 8080, built-in config
+mkfix -p 9090      # port
+mkfix -d mytest    # mytest.db (.db added)
+mkfix -d :memory:  # in-memory
+mkfix -i Q7        # instance code in generated IDs, kept per database
 ```
 
 ## Project layout
@@ -132,21 +132,23 @@ Identity rules the engine enforces:
 
 ## mkio stream subscriptions
 
-`raw-messages` sets `live: true` so it opens streaming, not parked on today's first page; the start page still loads first, so `start: "today"` keeps its meaning. Stream panes page backward with `before: true` + `maxcount`; `ref` is optional.
+`raw-messages` sets `live: true` so it opens streaming, not parked on today's first page; the start page still loads first, so `start: "today"` holds. Stream panes page backward with `before: true` + `maxcount`; `ref` is optional.
 
-`tests/test_ui_config.py` guards app.json against what fails silently in the browser: dangling pane references, `index.html` imports of deleted modules, unknown service names, a `mkio.expect.version` left behind by a release, and pane-module JS whose imports, services, transaction ops or `fix_cmd` commands don't exist.
+A blotter that stopped updating, even reloaded, was mkio < 1.3.0: a page that stopped reading blocked a service's listener and its disconnect killed it (`TestStalledBlotter`). 1.3.0 queues sends per connection (`ws_heartbeat_s`, `ws_send_buffer_mb`); mkui 1.6.0 stamps a table whose subscription ended.
+
+`tests/test_ui_config.py` guards app.json against silent browser failures: dangling pane references, `index.html` imports of deleted modules, unknown service names, a stale `mkio.expect.version`, and pane-module JS naming imports, services, ops or `fix_cmd` commands that don't exist.
 
 ## mkio transaction defaults
 
-Transaction service ops need explicit `defaults` in TOML for any field the client may omit; a field without one is required.
+Transaction ops need explicit TOML `defaults` for any field the client may omit; one without is required.
 
 ## Versioning
 
-`mkfix/__init__.py` `__version__` is the single source of truth: pyproject.toml reads it via hatch dynamic version, and `_load_config` injects it as the server's version (mkfix.toml carries no `version` key). The one deliberate copy is in `static/app.json` (`mkio.expect.version` and the statusbar text), the client build's baked stamp, so a stale cached client fails the handshake against an upgraded server. A release bump updates `__version__` and the two app.json spots; `tests/test_ui_config.py` fails if they drift. The framework floors are pinned in `pyproject.toml`'s `dependencies`, the README's Dependencies list, and `mkio.expect.mkio` in app.json, which must equal the pyproject mkio floor's major.minor: the server compares it by caret semver (same major, at least the requested minor), so a 1.x minor upgrade of mkio stays compatible, while a 2.x server paints the statusbar red until floor, cap (`<2`) and pin all move. Both frameworks follow Semantic Versioning from 1.0.0, so the floors name the lowest version mkfix actually uses, not whatever is installed. `expect.expr` pins `mkio.expr`'s `LANGUAGE_VERSION` exactly and moves only when the expression language does.
+`mkfix/__init__.py` `__version__` is the single source of truth: pyproject.toml reads it via hatch dynamic version, and `_load_config` injects it as the server's version (mkfix.toml carries no `version` key). The one deliberate copy is in `static/app.json` (`mkio.expect.version` and the statusbar text), the client's baked stamp, so a stale cached client fails the handshake after an upgrade. A release bump updates `__version__` and the two app.json spots; `test_ui_config.py` fails on drift. The framework floors are pinned in `pyproject.toml`'s `dependencies`, the README's Dependencies list, and `mkio.expect.mkio` in app.json, which must equal the pyproject mkio floor's major.minor: the server compares it by caret semver (same major, at least that minor), so a 1.x minor upgrade stays compatible, while a 2.x server paints the statusbar red until floor, cap (`<2`) and pin move. Both frameworks are semver from 1.0.0, so the floors name the lowest version mkfix actually uses. `expect.expr` pins `mkio.expr`'s `LANGUAGE_VERSION` exactly and moves only when the expression language does.
 
 ## Security notes
 
-The Message Replay feature loads production FIX logs into test sessions, so files and hosts whose names carry `prod`/`production` may legitimately appear here — treat them with care: replayed production data stays on this machine and must never be committed, pushed or sent to external services.
+Message Replay loads production FIX logs into test sessions, so files and hosts named `prod`/`production` may legitimately appear here — treat them with care: replayed production data stays on this machine: never commit, push or send it to external services.
 
 ## Running tests
 

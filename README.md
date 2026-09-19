@@ -323,11 +323,25 @@ db_path = "mkfix.db"
 Tables, services, and static routes are also configured in the TOML file. See
 the built-in `mkfix.toml` for the full schema.
 
+Two mkio keys govern the browser connections (mkio >= 1.3.0). Each page has
+its own send queue, so one that stops reading -- a laptop asleep, a tab frozen
+in the background -- no longer holds up the blotters of every other page, as
+it did through mkfix 0.41.0, where its eventual disconnect could also end a
+blotter's live updates until the server was restarted:
+
+```toml
+ws_heartbeat_s = 30      # ping interval; a page that stops answering is dropped (0 = off)
+ws_send_buffer_mb = 16   # a page further behind than this is closed, and reconnects for a fresh snapshot
+```
+
+A blotter whose subscription the server ended shows `not updating -- retry` in
+its toolbar instead of sitting still with old rows.
+
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 1.2.1, < 2 -- async microservice
+- [mkio](https://github.com/markuskimius/mkio) >= 1.3.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 1.4.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.6.0, < 2 -- Web Components UI
   framework
 
 ## License
