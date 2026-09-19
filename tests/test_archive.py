@@ -86,6 +86,44 @@ class TestDeclarations:
         assert resolve_tables(None) is None and resolve_tables("") is None
 
 
+    def test_help_names_the_data_group_as_configured(self):
+        """--group's help lists the data tables by short name; a table
+        joining or leaving the group must move the text with it."""
+        from mkfix.archive import _parser
+        text = " ".join(_parser("archive").format_help().split())
+        data = [t for t, s in archive_specs(CONFIG).items() if s.group == "data"]
+        short = {table: alias for alias, table in reversed(ALIASES.items())}
+        assert f"data ({', '.join(short[t] for t in data)}; the default)" in text
+
+    def test_readme_names_a_short_name_for_every_table(self):
+        readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
+        for table in set(ALIASES.values()):
+            names = [a for a, t in ALIASES.items() if t == table]
+            assert any(f"`{a}`" in readme for a in names), table
+
+    @pytest.mark.parametrize("cmd", ["archive", "restore"])
+    def test_help_examples_parse(self, cmd):
+        """Every example in a subcommand's help is a command line its own
+        parser accepts, down to the mutually exclusive choices."""
+        import shlex
+        from mkfix.archive import _parser
+        parser = _parser(cmd)
+        lines = [l.strip() for l in parser.epilog.splitlines() if l.strip().startswith("mkfix ")]
+        assert lines
+        for line in lines:
+            argv = shlex.split(line.split("   ")[0])
+            assert argv[:2] == ["mkfix", cmd]
+            args = parser.parse_args(argv[2:])
+            if cmd == "archive":
+                assert not (args.all and (args.tables or args.group))
+                if args.cutoff:
+                    parse_cutoff(args.cutoff)
+                assert resolve_tables(args.tables) is None or all(
+                    t in archive_specs(CONFIG) for t in resolve_tables(args.tables))
+            else:
+                assert args.archive_dir.startswith("archive/")
+
+
 # ── Defaults ──────────────────────────────────────────────────────────
 
 

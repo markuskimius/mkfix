@@ -211,6 +211,22 @@ def _load_config(config: str | Path | dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
+_EPILOG = """\
+commands:
+  mkfix archive ...     move old rows out of the database into CSV files
+  mkfix restore DIR     put an archive back (server stopped)
+  Each has its own help: mkfix archive -h, mkfix restore -h
+
+examples:
+  mkfix                 port 8080, mkfix.db, built-in config
+  mkfix -p 9090         serve the UI on another port
+  mkfix -d mytest       use mytest.db
+  mkfix -d :memory:     in-memory database, nothing persists
+  mkfix -i Q7           stamp Q7 into generated IDs, remembered by this database
+  mkfix myconfig.toml   custom config file
+"""
+
+
 def main() -> None:
     """CLI entry point. ``mkfix archive`` and ``mkfix restore`` are
     subcommands; anything else is the server, whose optional positional is
@@ -221,23 +237,34 @@ def main() -> None:
         return
     parser = argparse.ArgumentParser(
         prog="mkfix",
-        description="FIX protocol testing engine built on mkio and mkui",
+        description=(
+            "FIX protocol testing engine built on mkio and mkui.\n\n"
+            "Starts the FIX engine and serves its web UI; the startup banner prints\n"
+            "the URL. FIX sessions, and the ports they connect to or listen on, are\n"
+            "set up in the UI."
+        ),
+        epilog=_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "config", nargs="?", default=None,
-        help="path to mkfix.toml config file (default: auto-detect)",
+        help="path to a mkfix.toml config file (default: ./mkfix.toml if "
+             "present, else the built-in config)",
     )
     parser.add_argument(
         "-p", "--port", type=int, default=None,
-        help="override listening port",
+        help="web UI port (default: the config's; 8080 built in)",
     )
     parser.add_argument(
         "--host", default=None,
-        help="override listening host",
+        help="web UI address to bind (default: the config's; 0.0.0.0, "
+             "all interfaces, built in)",
     )
     parser.add_argument(
         "-d", "--db", default=None, metavar="PATH",
-        help="database filename (.db added if no extension; use ':memory:' for in-memory)",
+        help="database filename (.db added if no extension; use ':memory:' "
+             "for in-memory; default: the config's, mkfix.db in the current "
+             "directory built in)",
     )
     parser.add_argument(
         "-i", "--instance-code", default=None, metavar="CODE",

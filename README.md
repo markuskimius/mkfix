@@ -249,6 +249,10 @@ mkfix -i ''                  # forget the saved code, back to the username defau
 mkfix myconfig.toml          # custom config file
 ```
 
+`mkfix -h` lists the options with their defaults and names the two
+subcommands below; `mkfix archive -h` and `mkfix restore -h` carry their own
+options and examples.
+
 ### Archiving old data
 
 ```bash
@@ -266,7 +270,7 @@ history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
 `--tables` takes the short names `messages`, `orders`, `trades`, `iois`,
 `allocations`, `sessions`, `dictionaries`, `settings`, `ids`, `replay_jobs`,
-`layouts`, and `--group config` or `--all` reaches the config tables, which
+`templates`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
 `--host` as the server: when a server answers on that port the archive runs
 through it, the engine refuses to archive a running session, a dictionary a

@@ -69,42 +69,98 @@ def default_cutoff() -> str:
     return midnight_today().isoformat(timespec="seconds")
 
 
+_ARCHIVE_EPILOG = """\
+examples:
+  mkfix archive --dry-run                what would go: the data tables, from before today
+  mkfix archive                          archive it (asks first; -y skips the question)
+  mkfix archive --cutoff 2026-09-01      everything from before that date (local time)
+  mkfix archive --cutoff 7d --tables orders,trades
+  mkfix archive --all --cutoff 0m        every table, config included, from before now
+"""
+
+_RESTORE_EPILOG = """\
+examples:
+  mkfix restore archive/mkfix_20260912-020000
+  mkfix restore --dry-run --tables orders,trades archive/mkfix_20260912-020000
+  mkfix restore -d mytest myconfig.toml archive/mkfix_20260912-020000
+"""
+
+
 def _parser(cmd: str) -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog=f"mkfix {cmd}")
+    p = argparse.ArgumentParser(prog=f"mkfix {cmd}",
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("config", nargs="?", default=None,
-                   help="path to mkfix.toml (default: auto-detect)")
+                   help="path to a mkfix.toml config file (default: ./mkfix.toml if "
+                        "present, else the built-in config)")
     p.add_argument("-d", "--db", default=None, metavar="PATH",
-                   help="database filename (.db added if no extension)")
-    p.add_argument("-p", "--port", type=int, default=None,
-                   help="the server's port, when it was started with -p")
-    p.add_argument("--host", default=None, help="the server's host, when it was started with --host")
+                   help="database filename, as given to the server (.db added if no "
+                        "extension; default: the config's, mkfix.db built in)")
     if cmd == "archive":
+        p.add_argument("-p", "--port", type=int, default=None,
+                       help="the server's web port, as given to the server (default: the "
+                            "config's, 8080 built in); where a running server is looked for")
+        p.add_argument("--host", default=None,
+                       help="the server's web address, as given to the server")
         p.description = (
-            "Archive rows to CSV and delete them from the database. Runs through "
-            "the server when one is up on the configured port, else on the file."
+            "Archive rows to CSV and delete them from the database: one directory per\n"
+            "run, holding a manifest and a CSV per table. Shows what would go, then\n"
+            "asks before deleting.\n\n"
+            "Give the same config, -d, -p and --host as the server. When a server\n"
+            "answers on that port the archive runs through it: the blotters drop the\n"
+            "rows live, and the engine refuses a running session, a dictionary a\n"
+            "remaining session uses, and the ID counters. Otherwise the database file\n"
+            "is archived directly, which is only safe with the server stopped."
         )
+        p.epilog = _ARCHIVE_EPILOG
         p.add_argument("--tables", default=None, metavar="A,B",
-                       help="tables to archive, short names allowed: "
-                            + ", ".join(ALIASES) + " (default: the data group)")
-        p.add_argument("--group", default=None, help="archive one group: data or config")
-        p.add_argument("--all", action="store_true", help="archive every archivable table")
+                       help="archive just these tables, short names allowed: "
+                            + ", ".join(ALIASES) + " (default: the data group; "
+                            "overrides --group)")
+        p.add_argument("--group", default=None, metavar="{data,config}",
+                       help="archive one group: data (messages, orders, trades, iois, "
+                            "allocations; the default) or config (the rest). Most config "
+                            "tables are archived whole, whatever the cutoff")
+        p.add_argument("--all", action="store_true",
+                       help="archive both groups; not with --tables or --group")
         p.add_argument("--cutoff", default=None, metavar="WHEN",
-                       help="Nd/Nh/Nm back from now, a date, or a date-time (local unless "
-                            "it carries a zone); default: midnight at the start of today")
+                       help="archive rows from before WHEN: Nd/Nh/Nm back from now, a date, "
+                            "or a date-time (local unless it carries a zone); default: "
+                            "midnight at the start of today")
         p.add_argument("--cutoff-literal", default=None, metavar="TEXT",
-                       help="compare the cutoff columns against this text as given")
+                       help="instead of --cutoff: archive rows whose time column sorts "
+                            "before TEXT, compared as text exactly as given, e.g. the FIX "
+                            "stamp 20260901-00:00:00.000 (UTC)")
         p.add_argument("--out", default=DEFAULT_OUT, metavar="DIR",
                        help=f"directory the run's folder is created in (default: ./{DEFAULT_OUT})")
-        p.add_argument("--url", default=None, help="archive through the server at this URL")
+        p.add_argument("--url", default=None, metavar="URL",
+                       help="archive through the server at this URL, e.g. "
+                            "http://localhost:8080, without looking for one; not with --offline")
         p.add_argument("--offline", action="store_true",
-                       help="archive the database file directly (server must be stopped)")
+                       help="archive the database file directly without looking for a "
+                            "server (it must be stopped)")
         p.add_argument("--dry-run", action="store_true", help="report what would go, change nothing")
-        p.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation")
+        p.add_argument("-y", "--yes", action="store_true",
+                       help="do not ask for confirmation (required when stdin is not a terminal)")
     else:
-        p.description = "Put an archive's rows back into the database. The server must be stopped."
-        p.add_argument("archive_dir", help="the run directory an archive wrote")
+        p.add_argument("-p", "--port", type=int, default=None,
+                       help="the server's web port, as given to the server; used only to "
+                            "check that no server is running")
+        p.add_argument("--host", default=None,
+                       help="the server's web address, as given to the server; same use")
+        p.description = (
+            "Put an archive's rows back into the database, version history included.\n"
+            "The server must be stopped: restore works on the database file and\n"
+            "refuses while a server answers on the configured port. A row that already\n"
+            "exists blocks the restore of a data table; a config table's row is\n"
+            "replaced."
+        )
+        p.epilog = _RESTORE_EPILOG
+        p.add_argument("archive_dir",
+                       help="the run directory mkfix archive wrote, e.g. "
+                            "archive/mkfix_20260912-020000; a lone argument is taken as this")
         p.add_argument("--tables", default=None, metavar="A,B",
-                       help="restore only these tables (short names allowed)")
+                       help="restore only these tables (short names as for mkfix archive; "
+                            "default: every table in the archive)")
         p.add_argument("--dry-run", action="store_true", help="report what would be restored, change nothing")
     return p
 

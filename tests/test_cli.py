@@ -19,6 +19,61 @@ def test_help():
     assert "--port" in result.stdout
     assert "--db" in result.stdout
     assert "--instance-code" in result.stdout
+    assert "mkfix archive -h" in result.stdout
+    assert "mkfix restore -h" in result.stdout
+
+
+def test_help_states_the_shipped_defaults():
+    """The defaults the help quotes live in mkfix.toml, not the parser."""
+    import tomllib
+    from mkfix.archive import _parser
+
+    cfg = tomllib.loads(
+        (Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text(encoding="utf-8"))
+    result = subprocess.run(
+        [sys.executable, "-m", "mkfix", "--help"],
+        capture_output=True, text=True,
+    )
+    text = " ".join(result.stdout.split())
+    assert f"{cfg['port']} built in" in text
+    assert f"{cfg['host']}, all interfaces, built in" in text
+    assert f"{cfg['db_path']} in the current directory built in" in text
+    archive = " ".join(_parser("archive").format_help().split())
+    assert f"{cfg['port']} built in" in archive
+    assert f"{cfg['db_path']} built in" in archive
+
+
+def test_help_examples_parse(monkeypatch):
+    """Each server example in the help epilog is a command line main()
+    accepts and hands to serve()."""
+    import shlex
+    import mkfix.__main__ as main_mod
+
+    lines = [l.strip() for l in main_mod._EPILOG.split("examples:")[1].splitlines() if l.strip()]
+    assert lines
+    calls = []
+    monkeypatch.setattr(main_mod, "serve", lambda *a, **kw: calls.append((a, kw)))
+    for line in lines:
+        monkeypatch.setattr(sys, "argv", shlex.split(line.split("   ")[0]))
+        main_mod.main()
+    assert len(calls) == len(lines)
+    assert any(kw["db_path"] == "mytest.db" for _, kw in calls)
+    assert any(kw["instance_code"] == "Q7" for _, kw in calls)
+    assert any(a[0] == "myconfig.toml" for a, _ in calls)
+
+
+@pytest.mark.parametrize("cmd", ["archive", "restore"])
+def test_subcommand_help(cmd):
+    """The subcommands are dispatched ahead of argparse, so their help is
+    the only place their options are listed."""
+    result = subprocess.run(
+        [sys.executable, "-m", "mkfix", cmd, "--help"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    assert f"usage: mkfix {cmd}" in result.stdout
+    assert "--tables" in result.stdout
+    assert "examples:" in result.stdout
 
 
 @pytest.mark.parametrize("bad", ["A", "ABC", "A-"])
