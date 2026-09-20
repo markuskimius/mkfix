@@ -12,7 +12,8 @@
 // scripts loaded on first use, no build step.
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
-import { aceRules, completionsAt, helpAt } from "/static/scenario-lang.js";
+import { aceRules, completionsAt, helpAt, hoverAt } from "/static/scenario-lang.js";
+import { diffMarks, splitLines } from "/static/line-diff.js";
 
 const { registerPaneType } = window.Mkui;
 
@@ -123,6 +124,8 @@ registerPaneType("scenarios", async (spec, app, host) => {
         <button class="mkui-btn" data-act="save" disabled>Save</button>
         <button class="mkui-btn" data-act="arm" disabled>${startWord}…</button>
         <button class="mkui-btn" data-act="stop" disabled>Stop all</button>
+        <button class="mkui-btn" data-act="record" title="Work orders by hand and get the script that would have done it">Record…</button>
+        <button class="mkui-btn" data-act="history" disabled title="Every Save of this script: look at one, compare it, bring it back">History</button>
         <span class="scn-gap"></span>
         <button class="mkui-btn" data-act="import">Import</button>
         <button class="mkui-btn" data-act="export" disabled>Export</button>
@@ -136,11 +139,13 @@ registerPaneType("scenarios", async (spec, app, host) => {
           <div class="scn-editor"></div>
           <div class="scn-status"></div>
         </div>
+        <div class="scn-history" hidden></div>
       </div>
       <input type="file" accept=".scenario,.txt,text/plain" hidden>
     </div>`;
   const $ = (sel) => host.querySelector(sel);
   const listEl = $(".scn-list"), statusEl = $(".scn-status"), fileEl = $("input[type=file]");
+  const historyEl = $(".scn-history");
   const button = (act) => $(`[data-act="${act}"]`);
 
   const { vocabulary: vocab } = await cmd("scenario_vocab");
@@ -169,7 +174,16 @@ registerPaneType("scenarios", async (spec, app, host) => {
   const sessions = new Map();
   const templates = new Map();
 
-  const dirty = () => current !== null && editor.getValue() !== saved;
+  // History: `versions` while the panel is open, `viewing` while the editor
+  // shows a saved version instead of the script — whose text, unsaved edits
+  // and all, waits in `draft`.
+  let versions = null;
+  let viewing = null;
+  let draft = "";
+  let diffMarkers = [];
+
+  const text = () => (viewing ? draft : editor.getValue());
+  const dirty = () => current !== null && text() !== saved;
   const liveRuns = (name) => [...runs.values()].filter((r) => r.scenario === name && LIVE.includes(r.status));
 
   function renderList() {
@@ -191,16 +205,17 @@ registerPaneType("scenarios", async (spec, app, host) => {
 
   function renderButtons() {
     const live = current ? liveRuns(current) : [];
-    button("save").disabled = !dirty();
+    button("save").disabled = !dirty() || !!viewing;
+    button("history").disabled = !current;
     // A live run is no bar to another: a client script runs as often as asked,
     // a market script is armed once per session (the server refuses a repeat).
-    button("arm").disabled = !current || dirty() || problems > 0;
+    button("arm").disabled = !current || dirty() || problems > 0 || !!viewing;
     button("stop").disabled = !live.length;
     button("stop").textContent = live.length > 1 ? `Stop all (${live.length})` : "Stop run";
     button("export").disabled = !current;
     button("delete").disabled = !current || live.length > 0;
     button("delete").title = live.length ? "Stop its runs first" : "";
-    button("arm").title = !current ? "" : dirty() ? "Save first" : problems ? "Fix the problems first"
+    button("arm").title = !current ? "" : viewing ? "Back to the script first" : dirty() ? "Save first" : problems ? "Fix the problems first"
       : side === "client" ? `Send this script's orders${live.length ? " — another run beside the " + live.length + " live" : ""}`
         : "Let this script take matching orders";
   }
@@ -218,7 +233,7 @@ registerPaneType("scenarios", async (spec, app, host) => {
     checkTimer = setTimeout(runCheck, 300);
   }
   async function runCheck() {
-    if (current === null) return;
+    if (current === null || viewing) return;
     const seq = ++checkSeq;
     let result;
     try {
@@ -246,7 +261,7 @@ registerPaneType("scenarios", async (spec, app, host) => {
     const session = editor.getSession();
     liveMarkers.forEach(({ id, row }) => { session.removeMarker(id); session.removeGutterDecoration(row, "scn-live-gutter"); });
     liveMarkers = [];
-    if (!current || dirty()) return;
+    if (!current || dirty() || viewing) return;
     // Every live run of this text: a run of an earlier version is on other lines.
     const version = scenarios.get(current)?._mkio_version;
     const mine = new Set(liveRuns(current).filter((r) => version == null || !r.version || r.version === version).map((r) => r.id));
@@ -290,7 +305,123 @@ registerPaneType("scenarios", async (spec, app, host) => {
     return app.confirm(`Discard the unsaved changes to ${current}?`, { title: "Unsaved changes", kind: "warning", ok: "Discard" });
   }
 
+  // -- history ---------------------------------------------------------------------------
+  // Every Save is a version of the row (the table is versioned). A version is
+  // looked at in the editor itself, read-only, against the script as it is
+  // saved now; Restore puts its text back as an unsaved edit, so bringing an
+  // old version back is one more Save and nothing is ever lost to it.
+  const stamp = (fix) => {
+    const m = /^(\d{4})(\d\d)(\d\d)-(\d\d):(\d\d):(\d\d)/.exec(fix ?? "");
+    if (!m) return fix ?? "";
+    const d = new Date(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  };
+
+  function clearDiff() {
+    const session = editor.getSession();
+    diffMarkers.forEach(({ id, row, cls }) => { if (id != null) session.removeMarker(id); session.removeGutterDecoration(row, cls); });
+    diffMarkers = [];
+  }
+
+  function renderHistory() {
+    historyEl.hidden = versions === null;
+    if (versions === null) return;
+    const latest = versions[0]?._mkio_version;
+    const usedBy = (v) => [...runs.values()].filter((r) => r.scenario === current && r.version === v).map((r) => `#${r.id}`);
+    historyEl.innerHTML = `<div class="scn-history-head"><b>History</b><span></span><button class="mkui-btn" data-act="history">Close</button></div>`
+      + (versions.length ? versions.map((v) => {
+        const by = usedBy(v._mkio_version);
+        return `<div class="scn-version${viewing?.version === v._mkio_version ? " scn-current" : ""}" data-version="${v._mkio_version}">
+          <div><b>v${v._mkio_version}</b>${v._mkio_version === latest ? ` <span class="scn-badge">saved now</span>` : ""}
+            ${v.problems ? `<span class="scn-badge scn-problems">${v.problems} problem${v.problems === 1 ? "" : "s"}</span>` : ""}</div>
+          <div class="scn-version-meta">${stamp(v.updated_at)}${by.length ? ` · run${by.length > 1 ? "s" : ""} ${by.join(" ")}` : ""}</div>
+        </div>`;
+      }).join("") : `<div class="scn-empty">No saved versions.</div>`)
+      + (viewing ? `<div class="scn-history-foot"><button class="mkui-btn" data-act="restore">Restore v${viewing.version}</button>
+          <button class="mkui-btn" data-act="back">Back to the script</button></div>` : "");
+    historyEl.querySelector(".scn-history-head span").textContent = current ?? "";
+  }
+
+  async function loadVersions() {
+    const id = scenarios.get(current)?.id;
+    if (id == null) { versions = []; return; }
+    const reply = await client.request("scenario_versions", { id });
+    if (reply.type === "error") throw new Error(reply.message ?? "could not read the history");
+    versions = reply.rows ?? [];
+  }
+
+  async function toggleHistory() {
+    if (versions !== null) { backToScript(); versions = null; renderHistory(); editor.resize(); return; }
+    try { await loadVersions(); } catch (err) { versions = null; return status(String(err.message ?? err), "error"); }
+    renderHistory();
+    editor.resize();
+  }
+
+  function view(version) {
+    const row = versions?.find((v) => v._mkio_version === version);
+    if (!row) return;
+    if (!viewing) draft = editor.getValue();
+    viewing = { version, source: row.source };
+    editor.setReadOnly(true);
+    editor.setValue(row.source, -1);
+    const session = editor.getSession();
+    markers.forEach((id) => session.removeMarker(id));
+    markers = [];
+    session.clearAnnotations();
+    clearDiff();
+    liveMarkers.forEach(({ id, row: r }) => { session.removeMarker(id); session.removeGutterDecoration(r, "scn-live-gutter"); });
+    liveMarkers = [];
+    // Against the script as saved now — what Restore would change.
+    const marks = diffMarks(splitLines(row.source), splitLines(saved));
+    for (const r of marks.only) {
+      session.addGutterDecoration(r, "scn-diff-only-gutter");
+      diffMarkers.push({ id: session.addMarker(new Range(r, 0, r, 1), "scn-diff-only", "fullLine"), row: r, cls: "scn-diff-only-gutter" });
+    }
+    const last = session.getLength() - 1;
+    for (const gap of marks.gaps) {
+      const r = Math.min(gap.row, last);
+      const cls = gap.row > last ? "scn-diff-gap-after" : "scn-diff-gap";
+      session.addGutterDecoration(r, cls);
+      diffMarkers.push({ id: null, row: r, cls });
+    }
+    const same = !marks.removed && !marks.added;
+    status(`v${version}, saved ${stamp(row.updated_at)} — ` + (same ? "the same as the script saved now"
+      : `${marks.removed} line${marks.removed === 1 ? "" : "s"} only in this version (marked), ${marks.added} only in the script saved now (▸ in the margin)`)
+      + (draft !== saved ? " — your unsaved edits are kept" : ""), "help");
+    renderHistory();
+    renderButtons();
+  }
+
+  function backToScript(replacement) {
+    if (!viewing) return;
+    clearDiff();
+    viewing = null;
+    editor.setReadOnly(false);
+    editor.setValue(replacement ?? draft, -1);
+    draft = "";
+    renderHistory();
+    renderButtons();
+    return runCheck().then(renderLive);
+  }
+
+  async function restore() {
+    if (!viewing) return;
+    const { version, source } = viewing;
+    if (draft !== saved && draft !== source
+      && !(await app.confirm(`Replace your unsaved edits to ${current} with v${version}?`, { title: "Restore", kind: "warning", ok: "Replace" }))) return;
+    await backToScript(source);           // its check writes the status line: ours goes after
+    clearTimeout(checkTimer);
+    status(source === saved ? `v${version} is the script as saved now: nothing to restore`
+      : `v${version} is in the editor, unsaved — Save keeps it as a new version`, source === saved ? "" : "ok");
+    editor.focus();
+  }
+
   function open(name, source) {
+    clearDiff();
+    viewing = null;
+    draft = "";
+    const hadHistory = versions !== null;
+    versions = null;
     current = name;
     saved = source;
     editor.setReadOnly(false);
@@ -299,9 +430,11 @@ registerPaneType("scenarios", async (spec, app, host) => {
     problems = 0;
     renderList();
     renderButtons();
-    runCheck().then(renderLive);
+    const settled = runCheck().then(renderLive);
     app.state.set("selected_scenario", name);
     editor.focus();
+    if (hadHistory) loadVersions().then(renderHistory, () => renderHistory()); else renderHistory();
+    return settled;                     // its check writes the status line: a caller with more to say waits for it
   }
 
   async function select(name) {
@@ -310,17 +443,94 @@ registerPaneType("scenarios", async (spec, app, host) => {
   }
 
   async function save() {
-    if (current === null) return;
+    if (current === null || viewing) return;
     const source = editor.getValue();
     try {
       await cmd("save_scenario", { name: current, source, side });
       saved = source;
+      if (versions !== null) loadVersions().then(renderHistory, () => {});
       status(problems ? `Saved as a draft: ${problems} problem(s) keep it from being ${side === "client" ? "run" : "armed"}` : "Saved", problems ? "error" : "ok");
     } catch (err) {
       status(String(err.message ?? err), "error");
     }
     renderButtons();
     renderLive();
+  }
+
+  // -- recording --------------------------------------------------------------------------
+  // The server listens while you work orders by hand on this side's blotters;
+  // Stop writes what you did as a script and opens it here. The recording
+  // lives in the server, so it survives this pane closing: the button asks.
+  let recording = null;                 // the server's status while one is under way
+  let recordTimer = null;
+
+  function renderRecord() {
+    const b = button("record");
+    b.classList.toggle("scn-recording", !!recording);
+    b.textContent = recording ? `Stop recording · ${recording.actions} action${recording.actions === 1 ? "" : "s"}` : "Record…";
+    clearInterval(recordTimer);
+    if (recording) recordTimer = setInterval(pollRecord, 1500);
+  }
+
+  async function pollRecord() {
+    try {
+      const s = await cmd("record_status", { side });
+      recording = s.recording ? s : null;
+    } catch { recording = null; }
+    renderRecord();
+  }
+
+  function askSession() {
+    return new Promise((resolve) => {
+      const bar = document.createElement("div");
+      bar.className = "scn-ask";
+      bar.innerHTML = `<span>Record what you do by hand on</span><select></select>
+        <button class="mkui-btn">Start</button><button class="mkui-btn">Cancel</button>`;
+      const select = bar.querySelector("select");
+      select.appendChild(new Option("every session", ""));
+      [...sessions.keys()].sort().forEach((s) => select.appendChild(new Option(s, s)));
+      const [start, cancel] = bar.querySelectorAll("button");
+      const done = (value) => { bar.remove(); resolve(value); };
+      start.onclick = () => done(select.value);
+      cancel.onclick = () => done(null);
+      $(".scn-main").prepend(bar);
+      select.focus();
+    });
+  }
+
+  async function toggleRecord() {
+    try {
+      if (!recording) {
+        const session = await askSession();
+        if (session === null) return;
+        recording = await cmd("record_start", { side, session });
+        renderRecord();
+        status(side === "client"
+          ? "Recording: send orders from Sent Orders and work them — Replace, Cancel, DK. Stop recording writes the script."
+          : "Recording: work the orders that arrive in Received Orders and Sent Trades. Stop recording writes the script.", "live");
+        return;
+      }
+      let suggested = "recorded";
+      for (let n = 2; scenarios.has(suggested); n++) suggested = `recorded-${n}`;
+      const name = await askName(suggested);
+      if (!name) return;                                   // still recording: nothing is lost by changing your mind
+      if (scenarios.has(name)) return status(`${name} already exists`, "error");
+      if (!(await leaveCurrent())) return;
+      const result = await cmd("record_stop", { side, name });
+      recording = null;
+      renderRecord();
+      if (!result.orders) {
+        return status(side === "client" ? "Nothing recorded: no order was sent by hand while recording"
+          : "Nothing recorded: no order arrived and was worked by hand while recording", "error");
+      }
+      await cmd("save_scenario", { name, source: result.source, side });
+      await open(name, result.source);
+      clearTimeout(checkTimer);
+      status(`Recorded ${result.orders} order${result.orders === 1 ? "" : "s"}, ${result.actions} action${result.actions === 1 ? "" : "s"} — a first draft: read it, and loosen what is too exact`, "ok");
+    } catch (err) {
+      status(String(err.message ?? err), "error");
+      pollRecord();
+    }
   }
 
   async function createNamed(suggested, source) {
@@ -381,7 +591,13 @@ registerPaneType("scenarios", async (spec, app, host) => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     const item = e.target.closest(".scn-item");
     if (item) return select(item.dataset.name);
+    const version = e.target.closest(".scn-version");
+    if (version) return view(Number(version.dataset.version));
     if (!act || e.target.disabled) return;
+    if (act === "history") return toggleHistory();
+    if (act === "record") return toggleRecord();
+    if (act === "restore") return restore();
+    if (act === "back") return backToScript();
     if (act === "new") return createNamed("my-scenario", null);
     if (act === "example") return fromExample();
     if (act === "save") return save();
@@ -407,7 +623,9 @@ registerPaneType("scenarios", async (spec, app, host) => {
       if (!(await app.confirm(`Delete ${current}? Its saved versions go with it.`, { title: "Delete scenario", kind: "danger", ok: "Delete" }))) return;
       try {
         await cmd("delete_scenario", { name: current });
-        current = null; saved = "";
+        clearDiff();
+        current = null; saved = ""; viewing = null; versions = null; draft = "";
+        renderHistory();
         editor.setValue("", -1);
         editor.setReadOnly(true);
         status("");
@@ -458,6 +676,30 @@ registerPaneType("scenarios", async (spec, app, host) => {
     },
   }]);
 
+  // Hover: what F1 says, where the mouse is — and a problem's message first,
+  // since that is the more urgent thing to read about a word.
+  const { HoverTooltip } = ace.require("ace/tooltip");
+  const hover = new HoverTooltip();
+  hover.setDataProvider((e, ed) => {
+    const pos = e.getDocumentPosition();
+    const session = ed.getSession();
+    const tip = hoverAt(vocab, session.getDocument().getAllLines(), pos.row, pos.column);
+    const problem = (session.getAnnotations() ?? []).find((a) => a.row === pos.row && !viewing);
+    if (!tip && !problem) return;
+    const node = document.createElement("div");
+    node.className = "scn-hover";
+    if (problem) node.appendChild(Object.assign(document.createElement("div"), { className: `scn-hover-${problem.type}`, textContent: problem.text }));
+    if (tip) {
+      node.appendChild(Object.assign(document.createElement("div"), { className: "scn-hover-title", textContent: tip.title }));
+      tip.lines.forEach((line) => node.appendChild(Object.assign(document.createElement("div"), { textContent: line.replace(/`/g, "") })));
+    }
+    const line = session.getLine(pos.row);
+    const range = tip ? new Range(pos.row, tip.start, pos.row, tip.end) : new Range(pos.row, line.search(/\S|$/), pos.row, line.length);
+    if (!tip && (pos.column < range.start.column || pos.column > range.end.column)) return;
+    hover.showForRange(ed, range, node, e);
+  });
+  hover.addToEditor(editor);
+
   editor.on("change", () => { if (current !== null) { scheduleCheck(); renderButtons(); } });
 
   // -- subscriptions ----------------------------------------------------------------------------
@@ -476,10 +718,15 @@ registerPaneType("scenarios", async (spec, app, host) => {
   function followAll() {
   const mine = `side == '${side}'`;
   follow("scenarios_query", scenarios, "name", () => {
-    if (current !== null && !scenarios.has(current)) { current = null; editor.setReadOnly(true); }
+    if (current !== null && !scenarios.has(current)) {
+      clearDiff();
+      current = null; viewing = null; versions = null; draft = "";
+      editor.setReadOnly(true);
+      renderHistory();
+    }
     renderList(); renderButtons();
   }, mine);
-  follow("scenario_runs_query", runs, "id", () => { renderList(); renderButtons(); renderLive(); announceRun(); }, mine);
+  follow("scenario_runs_query", runs, "id", () => { renderList(); renderButtons(); renderLive(); announceRun(); renderHistory(); }, mine);
   follow("scenario_instances_query", instances, "id", renderLive, mine);
   follow("sessions_query", sessions, "session_id", () => { extras.sessions = [...sessions.keys()]; });
   follow("templates_query", templates, "id", () => {
@@ -509,13 +756,15 @@ registerPaneType("scenarios", async (spec, app, host) => {
   resize.observe($(".scn-editor"));
   renderList();
   renderButtons();
+  pollRecord();
 
   // mkui keeps a closed pane's element; its subscriptions should not outlive the view.
   const paneEl = host.closest("mkui-pane") ?? host;
   paneEl.addEventListener("mkui-pane-close", () => {
     subs.splice(0).forEach((id) => client.unsubscribe(id));
     clearTimeout(checkTimer);
+    clearInterval(recordTimer);
   });
-  paneEl.addEventListener("mkui-pane-open", () => { if (!subs.length) followAll(); editor.resize(); });
+  paneEl.addEventListener("mkui-pane-open", () => { if (!subs.length) followAll(); editor.resize(); pollRecord(); });
   void unwatch; void unexample;
 });

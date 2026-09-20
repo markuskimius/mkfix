@@ -226,8 +226,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   versions of its row (`history`) and the event in hand. **Client
   Scenarios** and **Market Scenarios** are editors that check as you type -- a misspelt
   column or an action on the wrong side of an order is underlined before
-  anything runs -- completes words in context (Ctrl+Space), explains the one
-  under the cursor (F1), folds blocks, and has an optional vim mode. Each
+  anything runs -- completes words in context (Ctrl+Space), explains a word
+  under the mouse or the cursor (hover, F1), folds blocks, and has an optional vim mode. Each
   side's **Runs**, **Scripts** and **Log** panes show its runs and each
   order's script, the line it is on and what it is waiting for, with Pause,
   Stop and Detach, and the order blotters name the scenario that took an
@@ -247,8 +247,14 @@ A FIX protocol testing engine for capital markets connectivity, built on
   examples run over two loopback sessions, this server talking to itself:
   **Help › Scenario Language › Scenario Examples › Set up loopback sessions**
   creates and starts them, and **Run the loopback tour** also arms the venue
-  and runs the client, so the tour is one click on a fresh install. Scripts are versioned
-  like sessions, so every Save is kept. A script can do more than the blotter
+  and runs the client, so the tour is one click on a fresh install. **Record…** in either editor writes the
+  first draft for you: work orders by hand -- accept, fill, answer a cancel
+  on one side; send, replace, cancel, DK on the other -- and Stop recording
+  opens the script that would have done the same, delays and answers
+  included, ready to run and to loosen. Scripts are versioned
+  like sessions, so every Save is kept: **History** in an editor lists the
+  versions with the runs that used each, shows one against the script as
+  saved now, and **Restore** brings it back as an unsaved edit. A script can do more than the blotter
   offers -- the buttons
   hide Fill on a rejected order, the engine does not refuse it -- which is
   the point of a test venue. Scripts live in the server's memory: after a

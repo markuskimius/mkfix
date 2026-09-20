@@ -188,16 +188,56 @@ export function helpAt(vocab, lines, row, col) {
           const verbFirst = group === "verbs" && lower.trim().startsWith(name);
           const eventAfter = group === "events" && /^\s*(when|wait|expect)\b/.test(lower);
           if (group === "statements" || verbFirst || eventAfter) {
-            best = { name, group, doc: entry.doc ?? entry[1], form: entry.form ?? "" };
+            best = { name, group, doc: entry.doc ?? entry[1], form: entry.form ?? entry[0] ?? "", start: m.index, end: m.index + m[0].length };
           }
         }
       }
     }
   }
   if (best) return best;
-  const word = /[A-Za-z_]\w*$/.exec(line.slice(0, col))?.[0] + (/^\w*/.exec(line.slice(col))?.[0] ?? "");
-  if (word && vocab.context[word]) return { name: word, group: "context", doc: vocab.context[word], form: "" };
+  const before = /[A-Za-z_]\w*$/.exec(line.slice(0, col))?.[0] ?? "";
+  const word = before + (/^\w*/.exec(line.slice(col))?.[0] ?? "");
+  const span = { start: col - before.length, end: col - before.length + word.length };
+  if (word && vocab.context[word]) return { name: word, group: "context", doc: vocab.context[word], form: "", ...span };
   const fn = word && vocab.functions[word.toUpperCase()];
-  if (fn) return { name: word.toUpperCase(), group: "functions", doc: fn.doc, form: "" };
+  if (fn) return { name: word.toUpperCase(), group: "functions", doc: fn.doc, form: "", ...span };
+  return null;
+}
+
+// What a hover over (row, col) shows: { title, lines: [text…], start, end } or
+// null. More than `helpAt`'s one line — an action lists the terms it takes,
+// and a word given to a term (`side: buy`) says the FIX code it stands for.
+export function hoverAt(vocab, lines, row, col) {
+  const line = lines[row] ?? "";
+  if (col >= line.length) return null;
+  let quote = null;                                            // nothing to say inside a string or a comment
+  for (let i = 0; i <= col; i++) {
+    const ch = line[i];
+    if (quote) { if (ch === "\\") i++; else if (ch === quote) quote = i === col ? quote : null; }
+    else if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === "#") return null;
+  }
+  if (quote) return null;
+  const help = helpAt(vocab, lines, row, col);
+  if (help) {
+    const out = { title: help.form || help.name, lines: [help.doc], start: help.start, end: help.end };
+    const verb = help.group === "verbs" ? vocab.verbs[help.name] : null;
+    if (verb) {
+      out.lines.push(`Terms: ${verb.terms.join(", ")}${verb.trade ? " — and which trade: " + Object.keys(vocab.trade_targets).join(", ") : ""}`);
+      out.lines.push("`using 'TEMPLATE'` takes the terms from a saved template.");
+    }
+    return out;
+  }
+  // an enum word after its term: `side: buy`, `reason: no_match`
+  const verbName = Object.keys(vocab.verbs).sort((a, b) => b.length - a.length)
+    .find((v) => new RegExp(`^\\s*${esc(v).replace(/ /g, "\\s+")}\\b`, "i").test(line));
+  for (const m of line.matchAll(/\b([a-z_]+)\s*:\s*([A-Za-z_][\w]*)/gi)) {
+    const at = m.index + m[0].length - m[2].length;
+    if (col < at || col > at + m[2].length) continue;
+    const term = m[1].toLowerCase();
+    const key = term === "reason" ? { dk: "dk reason", restate: "restate reason" }[verbName] : term;
+    const code = vocab.enums[key]?.[m[2].toLowerCase()];
+    if (code !== undefined) return { title: `${m[2]} = ${code}`, lines: [`${term}: the FIX code ${code} goes on the wire. A quoted value is sent as written.`], start: at, end: at + m[2].length };
+  }
   return null;
 }

@@ -565,6 +565,32 @@
 .ace-mkfix .ace_variable.ace_language, .scn-variable-language { color: #4fc1ff; }
 .ace-mkfix .ace_support.ace_function, .scn-support-function { color: #dcdcaa; }
 .scn-support-constant { color: #4ec9b0; }
+.scn-history { width: 210px; flex: none; overflow-y: auto; border-left: 1px solid var(--mkui-border, #333); font-size: 12px; }
+.scn-history[hidden] { display: none; }
+.scn-history-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--mkui-border, #333); }
+.scn-history-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mkui-fg-mute, #858585); }
+.scn-version { padding: 4px 8px; cursor: pointer; }
+.scn-version:hover { background: var(--mkui-bg-hover, #2a2d2e); }
+.scn-version-meta { color: var(--mkui-fg-mute, #858585); font-size: 11px; }
+.scn-history-foot { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-top: 1px solid var(--mkui-border, #333); position: sticky; bottom: 0; background: var(--mkui-bg, #1e1e1e); }
+.scn-diff-only { position: absolute; background: rgba(244, 71, 71, 0.14); }
+.ace-mkfix .ace_gutter-cell.scn-diff-only-gutter { box-shadow: inset 3px 0 0 #f44747; }
+.ace-mkfix .ace_gutter-cell.scn-diff-gap::after,
+.ace-mkfix .ace_gutter-cell.scn-diff-gap-after::after { content: "▸"; position: absolute; left: 3px; color: #6a9955; line-height: 1; }
+.ace-mkfix .ace_gutter-cell.scn-diff-gap::after { top: -0.45em; }
+.ace-mkfix .ace_gutter-cell.scn-diff-gap-after::after { bottom: -0.45em; }
+/* Ace puts the hover and completion tooltips on <body> with the theme's
+   class on the tooltip itself; the gutter's sits inside the editor. */
+.ace_tooltip.ace-mkfix, .ace-mkfix .ace_tooltip, .ace_tooltip.ace_doc-tooltip { background: var(--mkui-bg-alt, #252526); color: var(--mkui-fg, #d4d4d4);
+  border: 1px solid var(--mkui-border, #454545); border-radius: 3px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  font-family: var(--mkui-font, system-ui, sans-serif); padding: 5px 8px; }
+.mkui-btn.scn-recording { color: #f44747; border-color: #f44747; }
+.mkui-btn.scn-recording::before { content: "● "; }
+.scn-ask select { background: var(--mkui-bg, #1e1e1e); color: var(--mkui-fg, #d4d4d4); border: 1px solid var(--mkui-border, #3c3c3c); padding: 2px 5px; font: inherit; }
+.scn-hover { max-width: 460px; font-size: 12px; line-height: 1.45; white-space: normal; }
+.scn-hover-title { font-family: var(--mkui-font-mono, monospace); color: #dcdcaa; margin-bottom: 2px; }
+.scn-hover-error { color: #f44747; margin-bottom: 4px; }
+.scn-hover-warning { color: #dcdcaa; margin-bottom: 4px; }
 .scn-mark-error { position: absolute; border-bottom: 2px dotted #f44747; }
 .scn-mark-warning { position: absolute; border-bottom: 2px dotted #dcdcaa; }
 .scn-live-line { position: absolute; background: rgba(78, 201, 176, 0.13); }

@@ -283,7 +283,10 @@ class TestPerform:
         sent, acted = seen
         assert sent.source == "scenario" and sent.detail == {"tag": "t7"} and sent.prev is None
         assert sent.order["cl_ord_id"] == result["cl_ord_id"] == sent.request and sent.order["status"] == "PendingNew"
-        assert acted.kinds == ("action",) and acted.detail == {"op": "send_new_order", "result": result}
+        # the terms as given, for whoever writes down what was done (the recorder); nothing internal
+        assert acted.kinds == ("action",) and acted.detail == {
+            "op": "send_new_order", "result": result, "trade_before": None,
+            "data": {"session_id": "S1", "symbol": "AAPL", "side": "1", "qty": "100", "price": "150"}}
         assert acted.order_key == sent.order_key
 
     @pytest.mark.asyncio

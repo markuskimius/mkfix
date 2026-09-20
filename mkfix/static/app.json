@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.49",
+    "version": "0.50",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -189,6 +189,21 @@
       ]
     },
     {
+      "label": "Config",
+      "items": [
+        {
+          "label": "Templates",
+          "action": "pane.show",
+          "args": "templates"
+        },
+        {
+          "label": "Dictionaries",
+          "action": "pane.show",
+          "args": "dictionaries"
+        }
+      ]
+    },
+    {
       "label": "To Do",
       "items": [
         {
@@ -205,21 +220,6 @@
           "label": "Replay Control",
           "action": "pane.show",
           "args": "replay-control"
-        }
-      ]
-    },
-    {
-      "label": "Config",
-      "items": [
-        {
-          "label": "Templates",
-          "action": "pane.show",
-          "args": "templates"
-        },
-        {
-          "label": "Dictionaries",
-          "action": "pane.show",
-          "args": "dictionaries"
         }
       ]
     },
@@ -461,6 +461,10 @@
           "value": "Complete: actions, terms, events, words for a term, templates, sessions, fields"
         },
         {
+          "label": "Mouse over a word",
+          "value": "What it means: an action's terms, the FIX code behind a word such as buy, the problem on an underlined line"
+        },
+        {
           "label": "F1",
           "value": "Explain the word under the cursor; an open Help pane follows"
         },
@@ -519,7 +523,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.49"
+        "text": "mkfix v0.50"
       }
     ],
     "bindStyle": {
@@ -4055,10 +4059,7 @@
         }
       },
       "sort": [
-        {
-          "column": "id",
-          "dir": "desc"
-        }
+        "-id"
       ],
       "styles": {
         "status": [
@@ -4236,10 +4237,7 @@
         }
       },
       "sort": [
-        {
-          "column": "updated_at",
-          "dir": "desc"
-        }
+        "-updated_at"
       ],
       "styles": {
         "status": [
@@ -4311,10 +4309,7 @@
         }
       },
       "sort": [
-        {
-          "column": "timestamp",
-          "dir": "desc"
-        }
+        "-timestamp"
       ]
     },
     "market-scenarios": {
@@ -4373,10 +4368,7 @@
         }
       },
       "sort": [
-        {
-          "column": "id",
-          "dir": "desc"
-        }
+        "-id"
       ],
       "styles": {
         "status": [
@@ -4554,10 +4546,7 @@
         }
       },
       "sort": [
-        {
-          "column": "updated_at",
-          "dir": "desc"
-        }
+        "-updated_at"
       ],
       "styles": {
         "status": [
@@ -4629,10 +4618,7 @@
         }
       },
       "sort": [
-        {
-          "column": "timestamp",
-          "dir": "desc"
-        }
+        "-timestamp"
       ]
     },
     "help-viewer": {
@@ -4753,7 +4739,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.49",
+      "version": "0.50",
       "mkio": "1.5",
       "expr": "2"
     },

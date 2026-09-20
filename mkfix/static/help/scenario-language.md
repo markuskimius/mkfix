@@ -15,7 +15,7 @@ There are two kinds, kept apart throughout — two menus, two editors, two sets 
 
 A script is one or the other: a block of the other kind is a problem the editor underlines. To play both sides of an order, write one of each — the loopback tour in [Scenario Examples](scenario-examples.md) does.
 
-The rest of the language — waiting, `when`, events, control, expressions — is the same on both sides. The editor checks as you type, completes words with Ctrl+Space, and explains the word under the cursor with F1. The **Scripts** pane of each side shows every order's script, the line it is on and what it is waiting for.
+The rest of the language — waiting, `when`, events, control, expressions — is the same on both sides. The editor checks as you type, completes words with Ctrl+Space, explains a word when the mouse rests on it — an action's terms, the FIX code behind `buy` or `day`, the problem on an underlined line — and opens this reference at the word under the cursor with F1. The **Scripts** pane of each side shows every order's script, the line it is on and what it is waiting for.
 
 ## A first script
 
@@ -233,11 +233,23 @@ Two functions exist only in scenarios:
 - Scripts live in the server's memory. After a restart the run is marked `interrupted` and its orders' scripts are gone. A scenario that only waits for orders is armed again as a new run, in the place in line it had; one that sends orders is not run again — a restart must not send anything.
 - A script can fail in its first instant — `new` refused because the session had just dropped. The run then ends at once: the editor says so in its status line, and that side's **Log** and **Scripts** panes say why. **Stop** on a run that is already over changes nothing.
 
+## Recording
+
+You do not have to start from an empty page: **Record…** in an editor watches you work orders by hand and writes the script that would have done the same.
+
+- In **Market Scenarios**, Record… follows the orders that arrive while it is on and what you do to them from Received Orders and Sent Trades — Accept, Reject, Fill, Unsol Cxl, Restate, Correct, Bust, Re-notify. In **Client Scenarios** it follows the orders you send from Sent Orders and your Replace, Cancel and DK. It asks for one session or every session; the button counts your actions while it records.
+- **Stop recording** asks for a name and opens the script. Each order is a block. An action taken after the counterparty did something is written as an answer to it — `wait cancel`, `after 300ms`, `accept` — and one taken unprompted as `after` and the action, with the delays you took. A client recording ends each order with `expect` for the last thing it heard, and `pass`.
+- Market orders worked the same way share one block (`where symbol in [...]`); a symbol worked two ways is told apart by quantity, the narrower block first. A client recording is one `run` block an order, each after the pause you left, and names no session — Run… asks.
+- Trades are named as a script names them: `last trade`, `first trade`, or `trade where` with the terms the trade had.
+- The result is a first draft, literal about what happened. It checks clean and runs as it stands; then loosen it — a `wait` into a `when`, a quantity into `order.leaves_qty / 2`, the `where` into the orders you mean.
+- Not recorded: orders already under way when recording began, orders a scenario owns, and an arrival you never touched. The recording lives in the server, so it goes on if you close the editor, and ends with nothing written if the server stops.
+
 ## Running
 
 - **Arm…** (Market Scenarios) and **Run…** (Client Scenarios) ask for a session, a speed (2 runs the script's waits twice as fast — mind that real answers do not get faster) and a seed (blank: the script's `seed`, or a random one, shown in the Runs pane so a run can be repeated).
 - Any number of runs may be live at once, on either side. The server stops taking orders into scripts at 20,000 live scripts, and a single run at 10,000 orders; the run's log says so.
 - **Runs** lists a side's runs. **Pause** parks every script of a run before its next line; **Stop** ends it; **Move Up**/**Move Down** change its Priority. **Scripts** lists the orders' scripts — **Detach** gives one order back to you — and selecting a row moves the editor to its line. **Log** holds what the scripts `log`, and why one failed.
+- **History** in an editor lists every Save of the open script, newest first, with the runs that used each version. Click a version to look at it in the editor, read-only, against the script as it is saved now: lines only in that version are marked red, and a green ▸ in the margin shows where the saved script has lines that version lacks. **Restore** puts the version back in the editor as an unsaved edit — Save keeps it as a new version, so nothing is lost by restoring — and **Back to the script** returns to your text, unsaved edits included. Deleting a scenario deletes its history.
 - A scenario cannot be deleted while it has a live run. Names are shared by the two sides: a client and a market scenario cannot have the same one.
 - The client examples run over two loopback sessions, `LOOP-CLI` facing `LOOP-MKT`: **Help › Scenario Examples › Set up loopback sessions** creates and starts them, and **Run the loopback tour** also arms the venue and runs the client.
 - Orders a script has taken carry its name and run in the **Scenario** column of the order blotters.

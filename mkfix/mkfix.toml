@@ -287,6 +287,14 @@ protocol = "query"
 primary_table = "fix_scenarios"
 filterable = ["side"]
 
+# The Scenarios editors' History: every Save is a version of the row. Keyed
+# by id, so a script deleted and written again under its old name starts a
+# fresh history.
+[services.scenario_versions]
+protocol = "reqrep"
+description = "One scenario's saved versions, newest first"
+sql = "SELECT _mkio_version, name, side, source, problems, updated_at FROM fix_scenarios__history WHERE id = :id ORDER BY _mkio_version DESC"
+
 [services.scenario_runs_query]
 protocol = "query"
 primary_table = "fix_scenario_runs"

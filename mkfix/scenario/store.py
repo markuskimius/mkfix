@@ -28,6 +28,7 @@ from . import vocab
 from .check import check, errors
 from .instance import LIVE, Instance
 from .nodes import Diagnostic
+from .recorder import Recorder
 from .runner import Run, ScenarioError, ScenarioRunner
 
 if TYPE_CHECKING:
@@ -79,6 +80,7 @@ class ScenarioManager:
         self._ops: dict[str, Any] = {}
         self._run_rows: dict[Run, int] = {}
         self._priorities: dict[int, int] = {}
+        self.recorders: dict[str, Recorder] = {}       # side -> the recording under way
         self._runs_by_row: dict[int, Run] = {}
         self._tagged: set[int] = set()
         self._queue: asyncio.Queue | None = None
@@ -120,6 +122,9 @@ class ScenarioManager:
         """Shut down without a word in the tables: the runs stay `armed`, so
         the next start re-arms them and marks what was live `interrupted`."""
         self._closing = True
+        for recorder in self.recorders.values():
+            await recorder.stop()
+        self.recorders.clear()
         self.runner.stop_all()
         await self.runner.settle()
         if self._worker is not None:
@@ -404,6 +409,32 @@ class ScenarioManager:
                  else await self.arm(TOUR["market"], side="market", session=LOOPBACK["market"]))
         run = await self.arm(TOUR["client"], side="client", session=LOOPBACK["client"])
         return {"sessions": sessions["sessions"], "venue_run": venue["run_id"], "client_run": run["run_id"]}
+
+    # -- recording ---------------------------------------------------------------------------
+
+    def record_start(self, side: str, session: str = "") -> dict[str, Any]:
+        """Begin recording what is done by hand on one side's orders — every
+        session's, or one's. One recording a side at a time."""
+        side = self._side(side)
+        if not side:
+            raise ValueError("Record the client side or the market side")
+        if side in self.recorders:
+            raise ValueError(f"A {side} recording is already under way: stop it first")
+        if session and session not in self.engine.sessions:
+            raise ValueError(f"No session named {session!r}")
+        self.recorders[side] = Recorder(self.engine, side, session)
+        return self.recorders[side].status()
+
+    async def record_stop(self, side: str, name: str = "recorded") -> dict[str, Any]:
+        recorder = self.recorders.pop(self._side(side), None)
+        if recorder is None:
+            raise ValueError(f"No {side} recording is under way")
+        return await recorder.stop(" ".join(str(name).split()) or "recorded")
+
+    def record_status(self, side: str) -> dict[str, Any]:
+        recorder = self.recorders.get(self._side(side))
+        return recorder.status() if recorder else {"recording": False, "side": side, "session": "", "orders": 0,
+                                                   "actions": 0, "since": ""}
 
     def live_runs(self, name: str | None = None) -> list[Run]:
         return [r for r in self.runner.runs

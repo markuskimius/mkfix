@@ -70,6 +70,37 @@ class TestScripts:
             await manager.load("slow")
 
     @pytest.mark.asyncio
+    async def test_every_save_is_a_version_the_history_service_returns(self, kit):
+        """The editors' History reads `scenario_versions`: its SQL, run here
+        against what saving really records."""
+        import tomllib
+        from pathlib import Path
+        import mkfix
+        db, engine, stub, manager, clock = kit
+        toml = tomllib.loads((Path(mkfix.__file__).parent / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
+        sql = toml["services"]["scenario_versions"]["sql"]
+        texts = [SLOW, SLOW + "# two\n", "scenario slow\non order\n    nonsense\n"]
+        for text in texts:
+            await manager.save("slow", text)
+        await manager.save("other", "scenario other\non order\n    accept\n")
+        row = await manager.load("slow")
+        cursor = await db.read_conn.execute(sql, {"id": row["id"]})
+        got = [dict(r) for r in await cursor.fetchall()]
+        await cursor.close()
+        assert [(v["_mkio_version"], v["source"], v["problems"], v["side"]) for v in got] == [
+            (3, texts[2], 1, "market"), (2, texts[1], 0, "market"), (1, texts[0], 0, "market")]
+        assert all(v["name"] == "slow" and v["updated_at"] for v in got)
+        assert row["_mkio_version"] == 3, "the run's `version` and the editor's live-line marks go by this"
+        # deleted and written again: a fresh history, not the old one under the same name
+        await manager.delete("slow")
+        await manager.save("slow", SLOW)
+        again = await manager.load("slow")
+        cursor = await db.read_conn.execute(sql, {"id": again["id"]})
+        fresh = [dict(r) for r in await cursor.fetchall()]
+        await cursor.close()
+        assert again["id"] != row["id"] and [v["_mkio_version"] for v in fresh] == [1]
+
+    @pytest.mark.asyncio
     async def test_a_draft_with_problems_is_kept_and_counted(self, kit):
         db, engine, stub, manager, clock = kit
         result = await manager.save("draft", "scenario draft\non order\n    acept\n    fill qty: 1\n")

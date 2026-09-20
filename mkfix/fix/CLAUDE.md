@@ -23,7 +23,7 @@ Every event is emitted **after its writes have committed** (`writer.submit` retu
 | `_handle_dont_know_trade` | `dk`, `message` — only when it names a trade we sent |
 | `update_session_state` | `session up` / `session down`, when a session's ACTIVE-ness flips; no order (`detail.status`) |
 | `send_new_order` | `sent order` — after the row is written and **before the send**, so whoever takes the order owns it before an acknowledgement can arrive; `source` and `detail.tag` say who sent it |
-| `perform` | `action` (`detail.op`, `detail.result`), `send_new_order` included. The subject is found before the action (an accepted replace renames it) and re-read after by row id. A refused action announces nothing |
+| `perform` | `action` (`detail.op`, `detail.result`, `detail.data` — the payload as given, minus `_` keys — and `detail.trade_before`, the trade row as the action found it: what the scenario recorder writes scripts from), `send_new_order` included. The subject is found before the action (an accepted replace renames it) and re-read after by row id. A refused action announces nothing |
 
 ## The order lock
 

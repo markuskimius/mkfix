@@ -1542,7 +1542,8 @@ class FixEngine:
             ("action",), session_id, source=source, order=order, prev=prev,
             trade=await self._load_execution_by_id(trade["id"] if trade else None),
             request=str(result.get("cl_ord_id", "")),
-            detail={"op": op, "result": result}))
+            detail={"op": op, "result": result, "trade_before": trade,
+                    "data": {k: v for k, v in data.items() if not k.startswith("_")}}))
         return result
 
     async def _action_subject(self, op: str, data: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:

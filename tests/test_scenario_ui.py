@@ -21,12 +21,13 @@ needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not i
 
 def run_js(tmp_path: Path, body: str):
     """Evaluate ``body`` (an expression) with the two modules imported as L and M."""
-    for name in ("scenario-lang", "markdown"):
+    for name in ("scenario-lang", "markdown", "line-diff"):
         (tmp_path / f"{name}.mjs").write_text((STATIC / f"{name}.js").read_text(encoding="utf-8"), encoding="utf-8")
     (tmp_path / "vocab.json").write_text(json.dumps(scenario.vocabulary()), encoding="utf-8")
     script = tmp_path / "run.mjs"
     script.write_text(
         'import * as L from "./scenario-lang.mjs";\nimport * as M from "./markdown.mjs";\n'
+        'import * as D from "./line-diff.mjs";\n'
         'import fs from "node:fs";\n'
         'const vocab = JSON.parse(fs.readFileSync(new URL("./vocab.json", import.meta.url), "utf8"));\n'
         f"console.log(JSON.stringify({body}));\n", encoding="utf-8")
@@ -129,6 +130,101 @@ class TestCompletion:
         assert "OrderCancelReject" in run_js(tmp_path, f"L.helpAt(vocab, {json.dumps(line)}, 0, 20).doc")
         assert run_js(tmp_path, 'L.helpAt(vocab, ["    fill qty: TICK(1, 2)"], 0, 16).name') == "TICK"
         assert run_js(tmp_path, 'L.helpAt(vocab, ["    # nothing here"], 0, 8)') is None
+
+
+@needs_node
+class TestHover:
+    LINES = ["    fill qty: 100, price: TICK(order.price, 0.01)  # a comment about fill",
+             "    new symbol: 'IBM', side: buy, tif: day",
+             "    expect cancel rejected within 2s",
+             "    dk last trade reason: other",
+             "    restate qty: 50, reason: gt_renewal",
+             "    log 'fill # accept'",
+             "# accept everything"]
+
+    def hover(self, tmp_path, row, word, nth=0):
+        col = [m.start() for m in re.finditer(re.escape(word), self.LINES[row])][nth] + 1
+        return run_js(tmp_path, f"L.hoverAt(vocab, {json.dumps(self.LINES)}, {row}, {col})")
+
+    def test_an_action_lists_its_terms(self, tmp_path):
+        tip = self.hover(tmp_path, 0, "fill")
+        assert tip["title"] == "fill" and (tip["start"], tip["end"]) == (4, 8)
+        assert tip["lines"][1] == "Terms: qty, price, text, extra" and "template" in tip["lines"][2]
+        assert "which trade: last trade, first trade, trade where" in self.hover(tmp_path, 3, "dk")["lines"][1]
+
+    def test_statements_events_names_and_functions(self, tmp_path):
+        assert self.hover(tmp_path, 2, "expect")["title"].startswith("expect EVENT")
+        rejected = self.hover(tmp_path, 2, "rejected")
+        assert rejected["title"] == "cancel rejected" and (rejected["start"], rejected["end"]) == (11, 26)
+        assert self.hover(tmp_path, 0, "TICK")["title"] == "TICK"
+        order = self.hover(tmp_path, 0, "order")
+        assert order["title"] == "order" and self.LINES[0][order["start"]:order["end"]] == "order"
+
+    def test_a_word_given_to_a_term_says_its_fix_code(self, tmp_path):
+        assert self.hover(tmp_path, 1, "buy")["title"] == "buy = 1"
+        assert self.hover(tmp_path, 1, "day")["title"] == "day = 0"
+        assert self.hover(tmp_path, 3, "other")["title"] == "other = Z", "dk's reason is DKReason(127)"
+        renew = self.hover(tmp_path, 4, "gt_renewal")
+        assert renew["title"] == "gt_renewal = 1" and self.LINES[4][renew["start"]:renew["end"]] == "gt_renewal"
+        assert run_js(tmp_path, "L.hoverAt(vocab, ['    restate reason: nonsense'], 0, 22)") is None
+        assert all(code == run_js(tmp_path, f"L.hoverAt(vocab, ['    new side: {word}'], 0, 15).title.split(' = ')[1]")
+                   for word, code in scenario.vocabulary()["enums"]["side"].items())
+
+    def test_nothing_in_comments_strings_or_blank_space(self, tmp_path):
+        assert self.hover(tmp_path, 0, "fill", nth=1) is None, "a word in a trailing comment"
+        assert self.hover(tmp_path, 6, "accept") is None
+        assert self.hover(tmp_path, 5, "accept") is None and self.hover(tmp_path, 5, "fill") is None, "words in a string"
+        assert run_js(tmp_path, f"L.hoverAt(vocab, {json.dumps(self.LINES)}, 1, 1)") is None
+        assert run_js(tmp_path, f"L.hoverAt(vocab, {json.dumps(self.LINES)}, 1, 400)") is None
+
+
+@needs_node
+class TestLineDiff:
+    """History shows a saved version with its differences from the script as
+    it is saved now, drawn on the version's own lines."""
+
+    def ops(self, tmp_path, a, b):
+        return "".join({"same": "=", "del": "-", "add": "+"}[o["op"]]
+                       for o in run_js(tmp_path, f"D.lineDiff({json.dumps(a)}, {json.dumps(b)})"))
+
+    def marks(self, tmp_path, a, b):
+        return run_js(tmp_path, f"D.diffMarks({json.dumps(a)}, {json.dumps(b)})")
+
+    def test_the_shortest_edit(self, tmp_path):
+        assert self.ops(tmp_path, list("abc"), list("abc")) == "==="
+        assert self.ops(tmp_path, list("abcd"), list("acd")) == "=-=="
+        assert self.ops(tmp_path, list("acd"), list("abcd")) == "=+=="
+        assert self.ops(tmp_path, list("abc"), list("xbz")) .count("=") == 1
+        assert self.ops(tmp_path, [], list("ab")) == "++" and self.ops(tmp_path, list("ab"), []) == "--"
+        assert self.ops(tmp_path, [], []) == ""
+
+    def test_every_line_of_both_texts_is_accounted_for_in_order(self, tmp_path):
+        a, b = list("the quick brown fox"), list("a quick brown dog barks")
+        got = run_js(tmp_path, f"D.lineDiff({json.dumps(a)}, {json.dumps(b)})")
+        assert [o["a"] for o in got if o["a"] is not None] == list(range(len(a)))
+        assert [o["b"] for o in got if o["b"] is not None] == list(range(len(b)))
+        assert all(a[o["a"]] == b[o["b"]] for o in got if o["op"] == "same")
+        assert sum(o["op"] == "same" for o in got) >= len(" quick brown ")
+
+    def test_marks_are_on_the_versions_own_rows(self, tmp_path):
+        old = ["scenario t", "on order", "    after 250ms", "    accept"]
+        new = ["scenario t", "on order where symbol == 'IBM'", "    accept", "    when cancel", "        accept"]
+        assert self.marks(tmp_path, old, new) == {
+            "only": [1, 2], "removed": 2, "added": 3,
+            # the line that replaced rows 1-2 belongs after them; a gap past the last row is after the text
+            "gaps": [{"row": 3, "count": 1}, {"row": 4, "count": 2}]}
+        assert self.marks(tmp_path, old, old) == {"only": [], "gaps": [], "removed": 0, "added": 0}
+        assert self.marks(tmp_path, [], ["x"]) == {"only": [], "gaps": [{"row": 0, "count": 1}], "removed": 0, "added": 1}
+
+    def test_a_text_too_large_for_the_table_is_still_told_apart(self, tmp_path):
+        got = run_js(tmp_path, "(() => { const a = ['head', ...Array.from({length: 2100}, (_, i) => 'a' + i), 'tail'];"
+                               " const b = ['head', ...Array.from({length: 2100}, (_, i) => 'b' + i), 'tail'];"
+                               " const m = D.diffMarks(a, b); return [m.removed, m.added, m.only[0], m.only.at(-1), m.gaps]; })()")
+        assert got == [2100, 2100, 1, 2100, [{"row": 2101, "count": 2100}]]
+
+    def test_lines_are_split_the_way_the_editor_shows_them(self, tmp_path):
+        assert run_js(tmp_path, 'D.splitLines("a\\r\\nb\\n")') == ["a", "b"]
+        assert run_js(tmp_path, 'D.splitLines("a\\n\\nb")') == ["a", "", "b"]
 
 
 @needs_node
@@ -273,12 +369,46 @@ class TestWiring:
             client = json.dumps(app["panes"][f"client-{pane}"]).replace("client", "market").replace("Client", "Market")
             assert client == json.dumps(app["panes"][f"market-{pane}"]), pane
 
+    def test_history_is_wired_to_the_versions_the_server_keeps(self):
+        import tomllib
+        toml = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
+        assert toml["tables"]["fix_scenarios"]["versioned"] is True
+        service = toml["services"]["scenario_versions"]
+        assert service["protocol"] == "reqrep" and "fix_scenarios__history WHERE id = :id" in service["sql"]
+        assert "ORDER BY _mkio_version DESC" in service["sql"]
+        pane = (STATIC / "panes" / "scenarios.js").read_text(encoding="utf-8")
+        assert 'client.request("scenario_versions", { id })' in pane
+        assert 'from "/static/line-diff.js"' in pane and (STATIC / "line-diff.js").is_file()
+        for column in re.findall(r"\bv\.(\w+)|\brow\.(updated_at|source)", pane):
+            name = column[0] or column[1]
+            assert name in service["sql"], f"the pane reads {name}, which scenario_versions does not select"
+        for act in ("history", "restore", "back"):
+            assert f'data-act="{act}"' in pane and f'act === "{act}"' in pane, act
+        # A version is looked at, never edited or run; Restore is an unsaved edit, so nothing is lost to it.
+        assert "if (current === null || viewing) return;" in pane
+        assert 'button("save").disabled = !dirty() || !!viewing;' in pane
+        css = (STATIC / "mkfix.css").read_text(encoding="utf-8")
+        for rule in (".scn-history", ".scn-version", ".scn-diff-only", ".scn-diff-gap"):
+            assert rule in css, rule
+
+    def test_hover_is_wired_and_its_tooltip_is_themed(self):
+        pane = (STATIC / "panes" / "scenarios.js").read_text(encoding="utf-8")
+        ace = (STATIC / "vendor" / "ace" / "ace.js").read_text(encoding="utf-8")
+        assert "HoverTooltip" in ace and 'ace.require("ace/tooltip")' in pane, "the vendored Ace must carry the tooltip the pane asks for"
+        assert "hoverAt(vocab," in pane and "hover.addToEditor(editor)" in pane
+        assert "session.getAnnotations()" in pane, "a problem's message is part of the hover"
+        css = (STATIC / "mkfix.css").read_text(encoding="utf-8")
+        assert ".ace_tooltip.ace-mkfix" in css, "Ace hangs the hover tooltip on <body> with the theme class on the tooltip"
+
     def test_the_editor_keeps_to_its_side(self):
         pane = (STATIC / "panes" / "scenarios.js").read_text(encoding="utf-8")
         for call in ('cmd("check_scenario", { source: editor.getValue(), side })', 'cmd("list_examples", { side })',
                      'cmd("stop_scenario", { name: current })', "const mine = `side == '${side}'`"):
             assert call in pane, call
-        assert pane.count('cmd("save_scenario"') == 2 == pane.count("source, side })") + pane.count("source: text, side })")
+        saves = re.findall(r'cmd\("save_scenario", \{([^}]*)\}', pane)
+        assert len(saves) == 3 and all(re.search(r"\bside\b", s) for s in saves), "every save says which side it is for"
+        for call in ('cmd("record_start", { side, session })', 'cmd("record_stop", { side, name })', 'cmd("record_status", { side })'):
+            assert call in pane, call
         assert "wanted.side !== side" in pane, "an example opened for the other editor is not this one's"
         viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")
         assert 'app.fireAction("pane.show", `${side}-scenarios`)' in viewer

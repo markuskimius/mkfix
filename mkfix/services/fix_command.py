@@ -120,6 +120,12 @@ class FixCommandService(Service):
             return {"ok": True}
         elif command == "setup_loopback":
             return {"ok": True, **await scenarios.setup_loopback(data.get("port"))}
+        elif command == "record_start":
+            return {"ok": True, **scenarios.record_start(data.get("side", ""), data.get("session", ""))}
+        elif command == "record_stop":
+            return {"ok": True, **await scenarios.record_stop(data.get("side", ""), data.get("name", "recorded"))}
+        elif command == "record_status":
+            return {"ok": True, **scenarios.record_status(data.get("side", ""))}
         elif command == "run_loopback_tour":
             return {"ok": True, **await scenarios.run_tour(data.get("port"))}
         elif command == "detach_instance":

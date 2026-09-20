@@ -285,7 +285,7 @@ class TestPaneModuleIntegrity:
 
     def test_services_called_from_js_exist(self, pane_sources, known_services):
         for name, source in pane_sources.items():
-            for service in re.findall(r'client\.(?:send|subscribe)\(\s*"(\w+)"', source):
+            for service in re.findall(r'(?:client\.(?:send|subscribe|request)|\bfollow)\(\s*"(\w+)"', source):
                 assert service in known_services, \
                     f"{name} calls unknown service {service!r}"
 
@@ -1107,6 +1107,148 @@ class TestStyleAndGateValues:
                     checked += 1
         assert checked > 50
 
+    # -- the columns an expression names ------------------------------------------------
+    #
+    # Compiling proves the grammar, not the names: a missing key is NULL at
+    # run time, so `r.session_staus == 'ACTIVE'` is a gate that is never true
+    # and a button that is never enabled, without a word anywhere. mkio's
+    # `check_fields` (1.5) holds every path an expression reads against what
+    # its scope really has: the row its service delivers.
+
+    @staticmethod
+    def _service_columns(toml_config, service: str) -> set[str]:
+        """The columns a service's rows carry: its table's, or whatever its
+        `sql` selects — asked of SQLite itself, over the declared schema."""
+        import sqlite3
+        spec = toml_config["services"][service]
+        db = sqlite3.connect(":memory:")
+        for name, table in toml_config["tables"].items():
+            cols = ", ".join(f'"{c}" {t}' for c, t in table["columns"].items())
+            db.execute(f'CREATE TABLE "{name}" ({cols}, _mkio_ref TEXT, _mkio_version INTEGER)')
+        sql = spec.get("sql") or f'SELECT * FROM "{spec["primary_table"]}"'
+        names = {d[0] for d in db.execute(f"SELECT * FROM ({sql}) LIMIT 0").description}
+        db.close()
+        return names
+
+    @staticmethod
+    def _problems(source: str, schema: dict) -> list[str]:
+        from mkio import expr
+        return [e.message for e in expr.check_fields(expr.parse(source), schema)]
+
+    def _table_panes(self, app_config, toml_config):
+        for pid, pane in app_config["panes"].items():
+            if pane.get("type") == "mkio-table" and pane.get("service") in toml_config["services"]:
+                yield pid, pane, dict.fromkeys(self._service_columns(toml_config, pane["service"]))
+
+    def test_the_check_would_catch_a_misspelt_column(self):
+        schema = {"rows": {"*": {"status": None}}, "value": None}
+        assert self._problems("ALL(rows, r -> r.status == 'armed')", schema) == []
+        assert len(self._problems("ALL(rows, r -> r.staus == 'armed')", schema)) == 1
+        assert len(self._problems("valeu == 1", schema)) == 1
+
+    def test_panes_show_and_style_columns_their_service_delivers(self, app_config, toml_config):
+        checked = 0
+        for pid, pane, row in self._table_panes(app_config, toml_config):
+            for key in ("columns", "labels", "types", "styles"):
+                unknown = set(pane.get(key, ())) - set(row)
+                assert not unknown, f"{pid}.{key} names {sorted(unknown)}, which {pane['service']} does not deliver"
+            for column, _ in self._sort_keys(pid, pane.get("sort")):
+                assert column in row, f"{pid} sorts by {column!r}, which {pane['service']} does not deliver"
+            checked += 1
+        assert checked >= 12
+
+    @staticmethod
+    def _sort_keys(pid: str, spec) -> list[tuple[str, str]]:
+        """A pane's `sort` as mkio-table's `sortFromSpec` reads it: a column
+        name (`"-col"` descending), `{col, dir}`, or a list of those. Any
+        other shape — `{column: …}` was written here once — is dropped with a
+        console warning and the pane opens unsorted."""
+        keys = []
+        for item in ([] if spec in (None, "") else spec if isinstance(spec, list) else [spec]):
+            if isinstance(item, str):
+                keys.append((item.lstrip("-"), "desc" if item.startswith("-") else "asc"))
+            else:
+                assert isinstance(item, dict) and set(item) <= {"col", "dir"} and item.get("col"), \
+                    f"{pid}: mkio-table cannot read the sort entry {item!r}"
+                assert item.get("dir", "asc") in ("asc", "desc"), f"{pid}: {item!r}"
+                keys.append((item["col"], item.get("dir", "asc")))
+        assert len({c for c, _ in keys}) == len(keys), f"{pid}: a column is sorted twice"
+        return keys
+
+    def test_the_sort_check_reads_what_mkui_reads(self):
+        assert self._sort_keys("p", ["scope", "-name", {"col": "id", "dir": "desc"}]) == [
+            ("scope", "asc"), ("name", "desc"), ("id", "desc")]
+        assert self._sort_keys("p", "-id") == [("id", "desc")] and self._sort_keys("p", None) == []
+        for bad in ([{"column": "id", "dir": "desc"}], [{"col": "id", "dir": "down"}], ["id", "-id"]):
+            with pytest.raises(AssertionError):
+                self._sort_keys("p", bad)
+        source = (Path(__import__("mkui").__file__).parent / "static" / "src" / "widgets" / "mkio-table.js").read_text(encoding="utf-8")
+        assert "col = item.col;" in source and 'item[0] === "-" ? "desc" : "asc"' in source, \
+            "mkio-table's sort spec changed shape: _sort_keys must follow it"
+
+    def test_the_run_panes_open_newest_first(self, app_config):
+        for side in ("client", "market"):
+            assert app_config["panes"][f"{side}-runs"]["sort"] == ["-id"]
+            assert app_config["panes"][f"{side}-scripts"]["sort"] == ["-updated_at"]
+            assert app_config["panes"][f"{side}-log"]["sort"] == ["-timestamp"]
+
+    def test_filters_and_row_styles_read_real_columns(self, app_config, toml_config):
+        checked = 0
+        for pid, pane, row in self._table_panes(app_config, toml_config):
+            sources = [pane["filter"]] if "filter" in pane else []
+            sources += [rule["when"] for rule in pane.get("rowStyle", [])]
+            for source in sources:
+                assert self._problems(source, row) == [], f"{pid}: {source}"
+                checked += 1
+            for column, rules in pane.get("styles", {}).items():
+                for rule in rules:
+                    assert self._problems(rule["when"], {"value": None, "row": row, **row}) == [], f"{pid}.{column}: {rule['when']}"
+                    checked += 1
+        assert checked > 40
+
+    def test_button_gates_read_real_columns(self, app_config, toml_config):
+        checked = 0
+        for pid, pane, row in self._table_panes(app_config, toml_config):
+            for button in pane.get("buttons", []):
+                when = button.get("enable", {}).get("when")
+                if when:
+                    assert self._problems(when, {"rows": {"*": row}, "row": row}) == [], f"{pid} {button['label']}: {when}"
+                    checked += 1
+        assert checked > 25
+
+    def test_button_payloads_and_dialogs_read_real_columns_and_fields(self, app_config, toml_config):
+        """`${row.x}` in a payload or a field's value, and every expression a
+        dialog field carries, against the row the button was pressed on and
+        the dialog's own fields."""
+        from mkio import expr
+        keys = ("showWhen", "compute", "required", "disabled", "readonly")
+        checked = 0
+        for pid, pane, row in self._table_panes(app_config, toml_config):
+            for button in pane.get("buttons", []):
+                for text in (v for node in _walk_dicts(button) for v in node.values() if isinstance(v, str)):
+                    for column in re.findall(r"\$\{row\.(\w+)", text):
+                        assert column in row, f"{pid} {button['label']} reads row.{column}"
+                        checked += 1
+                dialog = button.get("action", {}).get("dialog")
+                if not isinstance(dialog, dict):
+                    continue
+                schema = {"row": row, "rows": {"*": row}, **dict.fromkeys(_dialog_field_names(dialog))}
+                for node in _walk_dicts(dialog):
+                    for key in keys:
+                        if isinstance(node.get(key), str):
+                            assert self._problems(node[key], schema) == [], f"{pid} {button['label']} {key}: {node[key]}"
+                            checked += 1
+        for name, dialog in app_config["dialogs"].items():
+            # opened from pane code, with a `row` of the pane's making
+            schema = {"row": None, **dict.fromkeys(_dialog_field_names(dialog))}
+            for node in _walk_dicts(dialog):
+                for key in keys:
+                    if isinstance(node.get(key), str):
+                        assert self._problems(node[key], schema) == [], f"{name} {key}: {node[key]}"
+                        expr.compile(node[key], expr.Env(strict=False))
+                        checked += 1
+        assert checked > 120
+
     def test_display_templates_compile_and_render(self, app_config):
         """`display` templates are the pane's only say over what a cell
         shows; the Messages pane relies on one to render the stored SOH
@@ -1305,7 +1447,7 @@ class TestMenubar:
     most a console warning, and the order of the menus is a layout the eye
     learns, so both are pinned here."""
 
-    MENUS = ["FIX", "Edit", "Client", "Market", "To Do", "Config", "Layout", "Window", "Help"]
+    MENUS = ["FIX", "Edit", "Client", "Market", "Config", "To Do", "Layout", "Window", "Help"]
     # What each menu of panes opens, in order (None is a separator): FIX is
     # the wire, Client the orders we send and Market the orders we receive
     # (blotters, then that side's scenarios), To Do what has no side yet,
