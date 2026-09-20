@@ -960,6 +960,8 @@ class TestCancelReplaceRequests:
         assert msg["11"] == "C201"
         assert msg["41"] == "NOPE"
         assert "Unknown order" in msg["58"]
+        assert (msg["39"], msg["102"]) == ("8", "1"), \
+            "UnknownOrder: the 39=8 describes no order of the sender's, who then keeps its own status"
         row = await self._order(db)
         assert row["pending_action"] == "", "the known order is untouched"
 
@@ -3211,7 +3213,7 @@ class TestVersioning:
     @pytest.mark.asyncio
     async def test_tables_are_versioned(self):
         assert set(versioned_tables(CONFIG)) == {
-            "fix_sessions", "fix_orders", "fix_executions"}
+            "fix_sessions", "fix_orders", "fix_executions", "fix_scenarios"}
 
     @pytest.mark.asyncio
     async def test_order_lifecycle_is_one_chain(self, stack):

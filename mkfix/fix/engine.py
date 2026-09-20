@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import uuid
 from typing import Any, TYPE_CHECKING
@@ -10,6 +11,8 @@ from typing import Any, TYPE_CHECKING
 from mkfix.fix.dictionary import (FixDictionary, STANDARD_VERSIONS,
                                   custom_meta, custom_names, register_custom,
                                   unregister_custom)
+from mkfix.fix.actions import ACTIONS, ORDER_KEY, TRADE_KEY
+from mkfix.fix.events import EngineEvent, EventBus, report_kinds
 from mkfix.fix.idgen import IdGenerator
 from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
                                extra_pairs_of, format_extra_tags, parse_fix,
@@ -147,6 +150,28 @@ def _client_specs_of(spec: str | None) -> list[ClientTag]:
         return parse_client_tags("")
 
 
+def _market_action(fn):
+    """A market-side action: ``fn`` loads its order, builds the answer and
+    submits its writes, returning ``(message, result)``; this holds the
+    session's order lock across all of that, then sends the message with the
+    lock released and returns the result.
+
+    The lock is what a script acting at wire speed needs and a hand on a
+    button rarely did: these actions write the whole of ORDER_UPDATE_COLS
+    back from the snapshot they loaded, so a cancel/replace request the read
+    loop parks between the load and the write lost its pending_* columns.
+    The send stays outside it — it awaits, the counterparty may answer inside
+    it, and that answer's handler takes the same lock."""
+    @functools.wraps(fn)
+    async def action(self: "FixEngine", session_id: str, *args: Any, **kwargs: Any) -> Any:
+        session = self._active_session(session_id)
+        async with self._order_lock(session_id):
+            msg, result = await fn(self, session_id, *args, **kwargs)
+        await session.send_message(msg)
+        return result
+    return action
+
+
 class FixEngine:
     """Manages all FIX sessions and bridges messages to mkio's database."""
 
@@ -157,6 +182,10 @@ class FixEngine:
         self.sessions: dict[str, FixSession] = {}
         self._compiled_ops: dict[str, tuple[CompiledOp, ...]] = {}
         self._replay_tasks: dict[int, ReplayTask] = {}
+        self.events = EventBus()
+        self._order_locks: dict[str, asyncio.Lock] = {}
+        from mkfix.scenario.store import ScenarioManager    # imports this module's siblings
+        self.scenarios = ScenarioManager(self)
 
     async def start(self) -> None:
         """Load session configs from DB and compile write operations."""
@@ -169,9 +198,11 @@ class FixEngine:
         await self.ids.start()
         await self._load_custom_dictionaries()
         await self._load_sessions()
+        await self.scenarios.start()
 
     async def stop(self) -> None:
         """Stop all sessions and replay tasks."""
+        await self.scenarios.stop()
         for task in list(self._replay_tasks.values()):
             await task.stop()
         self._replay_tasks.clear()
@@ -825,6 +856,7 @@ class FixEngine:
             "error_text": "",
             "seq_epoch": 0,
         }
+        was_active = state["status"] == "ACTIVE"
         state.update(updates)
 
         values = (
@@ -840,6 +872,11 @@ class FixEngine:
         params = (state["session_id"], *values, None, *values)
         ops = self._compiled_ops["upsert_state"]
         await self.writer.submit(ops, (params,), {"session_id": session_id})
+        # A script's orders can do nothing while their session is not ACTIVE.
+        is_active = state["status"] == "ACTIVE"
+        if is_active != was_active and self.events.active:
+            self.events.emit(EngineEvent(("session up" if is_active else "session down",), session_id,
+                                         detail={"status": state["status"]}))
 
     async def on_app_message(self, session: FixSession, msg_type: str, msg: FixMessage) -> None:
         """Handle an inbound application-level FIX message."""
@@ -948,6 +985,34 @@ class FixEngine:
             ops, (_order_params(order_row, keep_sent_text=True, keep_pending=True),),
             {"cl_ord_id": cl_ord_id})
 
+        trade = await self._record_report_trade(session, msg, cl_ord_id, order_row["client"])
+
+        if not self.events.active:
+            return
+        after = await self._find_order(session_id, cl_ord_id)
+        if order is None and after is not None:
+            # A row this report created: an order that went out around
+            # send_new_order — a replayed log — becomes known here.
+            self.events.emit(EngineEvent(("sent order",), session_id, order=after, msg=msg,
+                                         request=after["cl_ord_id"]))
+        if trade is not None:
+            trade = await self._find_execution(session_id, trade["exec_id"])
+        self.events.emit(EngineEvent(
+            report_kinds(msg), session_id, msg=msg, request=msg.get("11", ""),
+            order=after, prev=order, trade=trade))
+
+    async def _record_report_trade(self, session: FixSession, msg: FixMessage, cl_ord_id: str,
+                                   client: str) -> dict[str, Any] | None:
+        """The trade an ExecutionReport reports — a fill, or a correction or
+        bust of one — written as a row or a new version of one; None for a
+        report that is about the order alone."""
+        dictionary = session.dictionary
+        session_id = session.session_id
+        now = _fix_timestamp()
+        side_code = msg.get("54", "")
+        exec_type_code = msg.get("150", "")
+        trans_type_code = msg.get("20", "0")
+
         # Record fills — and trade corrections/busts, which arrive via
         # ExecTransType(20) on FIX 4.2 and as ExecType(150) G/H from 4.3 on
         if trans_type_code in ("1", "2"):
@@ -957,7 +1022,7 @@ class FixEngine:
             exec_type = dictionary.enum_name("150", exec_type_code)
             exec_code = exec_type_code
         else:
-            return
+            return None
 
         # A correction/bust is a new version of the trade whose execution it
         # references (tag 19); a new fill, or a reference we can't resolve,
@@ -991,10 +1056,11 @@ class FixEngine:
             "direction": "RX",
             "dk_reason": "",
             "dk_text": "",
-            "client": order_row["client"] or await self._client_of_order(session_id, cl_ord_id),
+            "client": client or await self._client_of_order(session_id, cl_ord_id),
             "extra_tags": format_extra_tags(extra_pairs_of(msg, dictionary, CONSUMED_EXEC_TAGS)),
         }
         await self._submit_execution(exec_row, referenced["id"] if referenced else None)
+        return exec_row
 
     async def _handle_cancel_reject(self, session: FixSession, msg: FixMessage) -> None:
         """Process an OrderCancelReject (35=9): the request of its ClOrdID(11)
@@ -1030,6 +1096,12 @@ class FixEngine:
                   _fix_timestamp(), None, order["id"])
         ops = self._compiled_ops["resolve_request"]
         await self.writer.submit(ops, (params,), {"cl_ord_id": order["cl_ord_id"]})
+        if self.events.active:
+            self.events.emit(EngineEvent(
+                ("cancel rejected", "message"), session_id, msg=msg, request=request_id, prev=order,
+                order=await self._load_order_by_id(order["id"]),
+                detail={"response_to": kind.lower(),
+                        "reason": dictionary.enum_name("102", reason_code) if reason_code else ""}))
 
     async def _handle_dont_know_trade(self, session: FixSession, msg: FixMessage) -> None:
         """Process a DontKnowTrade (35=Q): mark the sent trade whose ExecID(17)
@@ -1048,6 +1120,15 @@ class FixEngine:
         params = (reason, msg.get("58", ""), None, execution["id"])
         ops = self._compiled_ops["dk_execution"]
         await self.writer.submit(ops, (params,), {"exec_id": execution["exec_id"]})
+        if self.events.active:
+            try:
+                order = await self._load_order_for_execution(execution)
+            except ValueError:
+                order = None
+            self.events.emit(EngineEvent(
+                ("dk", "message"), session.session_id, msg=msg, order=order, prev=order,
+                trade=await self._load_execution_by_id(execution["id"]),
+                detail={"reason": reason, "text": msg.get("58", "")}))
 
     async def _handle_new_order(self, session: FixSession, msg: FixMessage) -> None:
         """Record an inbound NewOrderSingle (35=D) as a received order awaiting action."""
@@ -1103,6 +1184,10 @@ class FixEngine:
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
+        if self.events.active:
+            self.events.emit(EngineEvent(
+                ("order", "message"), session.session_id, msg=msg, request=order_row["cl_ord_id"],
+                order=await self._find_order(session.session_id, order_row["cl_ord_id"])))
 
     async def _handle_cancel_request(self, session: FixSession, msg: FixMessage, action: str) -> None:
         """Park an inbound OrderCancelRequest (35=F) or OrderCancelReplaceRequest
@@ -1112,28 +1197,41 @@ class FixEngine:
         session_id = session.session_id
         orig_cl_ord_id = msg.get("41", "")
         request_id = msg.get("11", "")
-        try:
-            order = await self._load_order(session_id, orig_cl_ord_id)
-        except ValueError:
+        kind = action.lower()
+        async with self._order_lock(session_id):
+            try:
+                order = await self._load_order(session_id, orig_cl_ord_id)
+            except ValueError:
+                order = None
+            if order is not None:
+                await self._write_order(
+                    order,
+                    pending_action=action,
+                    pending_cl_ord_id=request_id,
+                    pending_qty=msg.get_float("38", 0.0),
+                    pending_price=msg.get_float("44", 0.0),
+                    pending_extra_tags=format_extra_tags(extra_pairs_of(msg, session.dictionary)),
+                    text=msg.get("58", ""),
+                )
+        if order is None:
             reject = session.factory.order_cancel_reject(
                 cl_ord_id=request_id,
                 orig_cl_ord_id=orig_cl_ord_id,
                 ord_status="8",
                 response_to="1" if action == "Cancel" else "2",
                 text=f"Unknown order: {orig_cl_ord_id}",
+                # UnknownOrder: the 39=8 above describes no order of the
+                # sender's, and a receiver that knows better keeps its status.
+                reason="1",
             )
             await session.send_message(reject)
+            self.events.emit(EngineEvent(("message",), session_id, msg=msg, request=request_id,
+                                         detail={"unknown_order": orig_cl_ord_id, "request": kind}))
             return
-
-        await self._write_order(
-            order,
-            pending_action=action,
-            pending_cl_ord_id=request_id,
-            pending_qty=msg.get_float("38", 0.0),
-            pending_price=msg.get_float("44", 0.0),
-            pending_extra_tags=format_extra_tags(extra_pairs_of(msg, session.dictionary)),
-            text=msg.get("58", ""),
-        )
+        if self.events.active:
+            self.events.emit(EngineEvent(
+                (kind, "message"), session_id, msg=msg, request=request_id, prev=order,
+                order=await self._load_order_by_id(order["id"])))
 
     async def send_new_order(
         self,
@@ -1151,10 +1249,18 @@ class FixEngine:
         client: str = "",
         handl_inst: str = "1",
         text: str = "",
+        source: str = "manual",
+        tag: str = "",
         **extra: str,
     ) -> str:
         """Send a NewOrderSingle and return the ClOrdID. `client` goes out on
-        the session's client tag; an extra tag naming that tag overrides it."""
+        the session's client tag; an extra tag naming that tag overrides it.
+
+        The order is announced (`sent order`) once its row is written and
+        *before* the message goes out: the counterparty may acknowledge inside
+        the send, and whoever takes the order — a script that sent it (`tag`
+        tells the runner which), or one waiting for orders sent by hand —
+        must own it by then or it would never hear that acknowledgement."""
         session = self.sessions.get(session_id)
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
@@ -1229,6 +1335,10 @@ class FixEngine:
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
+        if self.events.active:
+            self.events.emit(EngineEvent(
+                ("sent order",), session_id, source=source, request=cl_ord_id, msg=msg,
+                order=await self._find_order(session_id, cl_ord_id), detail={"tag": tag}))
 
         try:
             await session.send_message(msg)
@@ -1403,6 +1513,55 @@ class FixEngine:
                                      {"cl_ord_id": request_id})
             raise
 
+    # ── Actions by name ──────────────────────────────────────────────
+
+    async def perform(self, op: str, data: dict[str, Any], source: str = "manual") -> dict[str, Any]:
+        """Run the order or trade action ``op`` (a key of ``ACTIONS``) on a
+        payload of its terms, and announce it. The one way in for the UI's
+        ``fix_cmd`` and for scripted scenarios alike, so both meet the same
+        checks; ``source`` tells listeners which of them acted.
+
+        The subject is found before the action runs — an accepted replace
+        renames the order it was named by — and re-read after it by row id.
+        """
+        action = ACTIONS.get(op)
+        if action is None:
+            raise ValueError(f"Unknown command: {op}")
+        if not self.events.active:
+            return await action(self, data)
+
+        session_id = data.get("session_id", "")
+        data = {**data, "_source": source}
+        prev, trade = await self._action_subject(op, data)
+        result = await action(self, data)
+        if op == "send_new_order":      # announced as `sent order` by send_new_order itself, before its send
+            order = await self._find_order(session_id, result["cl_ord_id"])
+        else:
+            order = await self._load_order_by_id(prev["id"] if prev else None)
+        self.events.emit(EngineEvent(
+            ("action",), session_id, source=source, order=order, prev=prev,
+            trade=await self._load_execution_by_id(trade["id"] if trade else None),
+            request=str(result.get("cl_ord_id", "")),
+            detail={"op": op, "result": result}))
+        return result
+
+    async def _action_subject(self, op: str, data: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """The order and trade rows an action is about, as they stand before it."""
+        session_id = data.get("session_id", "")
+        if op in ORDER_KEY:
+            return await self._find_order(session_id, str(data.get(ORDER_KEY[op], ""))), None
+        if op in TRADE_KEY:
+            trade = await self._find_execution(session_id, str(data.get(TRADE_KEY[op], "")))
+            if trade is None:
+                return None, None
+            if trade["direction"] == "TX":
+                try:
+                    return await self._load_order_for_execution(trade), trade
+                except ValueError:
+                    return None, trade
+            return await self._find_order(session_id, trade["cl_ord_id"]), trade
+        return None, None
+
     # ── Market-side actions (received orders, sent trades) ───────────
 
     def _active_session(self, session_id: str) -> FixSession:
@@ -1443,6 +1602,31 @@ class FixEngine:
             "WHERE h.session_id = ? AND h.cl_ord_id = ? ORDER BY o.id DESC LIMIT 1",
             (session_id, cl_ord_id),
         )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
+
+    def _order_lock(self, session_id: str) -> asyncio.Lock:
+        """One lock per session for every snapshot-then-write of its received
+        orders (see `_market_action`); held by the inbound cancel/replace
+        handler too. Never held across a send."""
+        lock = self._order_locks.get(session_id)
+        if lock is None:
+            lock = self._order_locks[session_id] = asyncio.Lock()
+        return lock
+
+    async def _load_order_by_id(self, row_id: int | None) -> dict[str, Any] | None:
+        if row_id is None:
+            return None
+        cursor = await self.db.read_conn.execute("SELECT * FROM fix_orders WHERE id = ?", (row_id,))
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
+
+    async def _load_execution_by_id(self, row_id: int | None) -> dict[str, Any] | None:
+        if row_id is None:
+            return None
+        cursor = await self.db.read_conn.execute("SELECT * FROM fix_executions WHERE id = ?", (row_id,))
         row = await cursor.fetchone()
         await cursor.close()
         return dict(row) if row else None
@@ -1618,8 +1802,9 @@ class FixEngine:
         }
         await self._submit_execution(exec_row, row_id)
 
+    @_market_action
     async def accept_order(self, session_id: str, cl_ord_id: str, extra_tags: str = "",
-                           text: str = "") -> str:
+                           text: str = "") -> tuple[FixMessage, str]:
         """Accept a received order: send ExecutionReport(New), return the OrderID."""
         session = self._active_session(session_id)
         extra_pairs = parse_extra_tags(extra_tags)
@@ -1645,11 +1830,11 @@ class FixEngine:
         await self._write_order(order, order_id=order_id, status="New",
                                 sent_text=self._text_as_sent(session, msg),
                                 pending_action="", pending_extra_tags="")
-        await session.send_message(msg)
-        return order_id
+        return msg, order_id
 
+    @_market_action
     async def reject_order(self, session_id: str, cl_ord_id: str, text: str = "",
-                           extra_tags: str = "") -> None:
+                           extra_tags: str = "") -> tuple[FixMessage, None]:
         """Reject a received order: send ExecutionReport(Rejected)."""
         session = self._active_session(session_id)
         extra_pairs = parse_extra_tags(extra_tags)
@@ -1675,12 +1860,13 @@ class FixEngine:
         await self._write_order(order, status="Rejected", leaves_qty=0.0,
                                 sent_text=self._text_as_sent(session, msg),
                                 pending_action="", pending_extra_tags="")
-        await session.send_message(msg)
+        return msg, None
 
+    @_market_action
     async def fill_order(
         self, session_id: str, cl_ord_id: str, qty: float, price: float,
         extra_tags: str = "", text: str = "",
-    ) -> str:
+    ) -> tuple[FixMessage, str]:
         """Fill a received order (partially or fully) and return the ExecID."""
         if qty <= 0:
             raise ValueError("Fill quantity must be positive")
@@ -1734,11 +1920,11 @@ class FixEngine:
             qty, price, cum_qty, avg_price, leaves_qty,
             text=sent_text, extra_tags=extra_tags,
         )
-        await session.send_message(msg)
-        return exec_id
+        return msg, exec_id
 
+    @_market_action
     async def unsolicited_cancel(self, session_id: str, cl_ord_id: str, extra_tags: str = "",
-                                 text: str = "") -> str:
+                                 text: str = "") -> tuple[FixMessage, str]:
         """Cancel a received order nobody asked to cancel: send
         ExecutionReport(Canceled) under the order's own ClOrdID, without
         OrigClOrdID(41), and return the ExecID."""
@@ -1776,13 +1962,13 @@ class FixEngine:
             pending_action="" if consumed else order["pending_action"],
             pending_extra_tags="" if consumed else order["pending_extra_tags"],
         )
-        await session.send_message(msg)
-        return exec_id
+        return msg, exec_id
 
+    @_market_action
     async def restate_order(
         self, session_id: str, cl_ord_id: str, qty: float, price: float = 0.0,
         reason: str = "", extra_tags: str = "", text: str = "",
-    ) -> str:
+    ) -> tuple[FixMessage, str]:
         """Restate a received order's terms unasked: send ExecutionReport
         (Restated) under the order's own ClOrdID, without OrigClOrdID(41),
         carrying the new OrderQty(38)/Price(44) and ExecRestatementReason
@@ -1837,8 +2023,7 @@ class FixEngine:
             pending_action="" if consumed else order["pending_action"],
             pending_extra_tags="" if consumed else order["pending_extra_tags"],
         )
-        await session.send_message(msg)
-        return exec_id
+        return msg, exec_id
 
     async def accept_request(self, session_id: str, cl_ord_id: str, extra_tags: str = "",
                              text: str = "") -> str:
@@ -1867,8 +2052,9 @@ class FixEngine:
         else:
             raise ValueError(f"Nothing pending on {cl_ord_id}")
 
+    @_market_action
     async def accept_cancel(self, session_id: str, cl_ord_id: str, extra_tags: str = "",
-                            text: str = "") -> str:
+                            text: str = "") -> tuple[FixMessage, str]:
         """Accept the pending cancel request: send ExecutionReport(Canceled)."""
         session = self._active_session(session_id)
         extra_pairs = parse_extra_tags(extra_tags)
@@ -1907,11 +2093,11 @@ class FixEngine:
             pending_action="", pending_cl_ord_id="",
             pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
         )
-        await session.send_message(msg)
-        return exec_id
+        return msg, exec_id
 
+    @_market_action
     async def accept_replace(self, session_id: str, cl_ord_id: str, extra_tags: str = "",
-                             text: str = "") -> str:
+                             text: str = "") -> tuple[FixMessage, str]:
         """Accept the pending cancel/replace request: send ExecutionReport(Replaced)
         with the requested quantity and price."""
         session = self._active_session(session_id)
@@ -1974,11 +2160,11 @@ class FixEngine:
             _fix_timestamp(), None, session_id, new_cl_ord_id)
         await self.writer.submit(self._compiled_ops["record_entered"], (params,),
                                  {"cl_ord_id": new_cl_ord_id})
-        await session.send_message(msg)
-        return exec_id
+        return msg, exec_id
 
+    @_market_action
     async def reject_cancel(self, session_id: str, cl_ord_id: str, text: str = "",
-                            extra_tags: str = "") -> None:
+                            extra_tags: str = "") -> tuple[FixMessage, None]:
         """Reject the pending cancel/replace request: send OrderCancelReject (35=9).
         The order itself is untouched — its status was never changed by the request."""
         session = self._active_session(session_id)
@@ -2004,12 +2190,13 @@ class FixEngine:
             pending_action="", pending_cl_ord_id="",
             pending_qty=0.0, pending_price=0.0, pending_extra_tags="",
         )
-        await session.send_message(msg)
+        return msg, None
 
+    @_market_action
     async def correct_trade(
         self, session_id: str, exec_id: str, qty: float, price: float,
         extra_tags: str = "", text: str = "",
-    ) -> str:
+    ) -> tuple[FixMessage, str]:
         """Correct a sent trade (ExecTransType=Correct) and return the new ExecID."""
         if qty <= 0:
             raise ValueError("Corrected quantity must be positive")
@@ -2061,11 +2248,11 @@ class FixEngine:
             exec_ref_id=exec_id, row_id=execution["id"],
             text=self._text_as_sent(session, msg), extra_tags=extra_tags,
         )
-        await session.send_message(msg)
-        return new_exec_id
+        return msg, new_exec_id
 
+    @_market_action
     async def bust_trade(self, session_id: str, exec_id: str, extra_tags: str = "",
-                         text: str = "") -> str:
+                         text: str = "") -> tuple[FixMessage, str]:
         """Bust a sent trade (ExecTransType=Cancel) and return the new ExecID."""
         session = self._active_session(session_id)
         extra_pairs = parse_extra_tags(extra_tags)
@@ -2116,11 +2303,11 @@ class FixEngine:
             exec_ref_id=exec_id, row_id=execution["id"],
             text=self._text_as_sent(session, msg), extra_tags=extra_tags,
         )
-        await session.send_message(msg)
-        return new_exec_id
+        return msg, new_exec_id
 
+    @_market_action
     async def renotify_trade(self, session_id: str, exec_id: str, extra_tags: str = "",
-                             text: str = "") -> str:
+                             text: str = "") -> tuple[FixMessage, str]:
         """Re-notify a sent trade the counterparty DK'd and return the new ExecID.
 
         The trade's current report — its fill, correction or bust, by the
@@ -2183,8 +2370,7 @@ class FixEngine:
             exec_ref_id=sent.get("19", ""), row_id=execution["id"],
             text=sent.get("58", ""), extra_tags=extra_tags,
         )
-        await session.send_message(msg)
-        return new_exec_id
+        return msg, new_exec_id
 
     async def dk_trade(
         self, session_id: str, exec_id: str, reason: str, text: str = "",
@@ -2524,6 +2710,12 @@ class FixEngine:
                 if row["dictionary"] in names and row["session_id"] not in leaving:
                     problems.append(
                         f"dictionary {row['dictionary']} is bound to session {row['session_id']}")
+        live = [run.scenario.name for run in self.scenarios.live_runs()]
+        scripted = ("fix_orders", "fix_executions", "fix_scenarios", "fix_scenario_runs",
+                    "fix_scenario_instances", "fix_scenario_log")
+        if live and any(selection.get(t) for t in scripted):
+            problems.append(f"scenario {', '.join(sorted(live))} is armed: its scripts read the orders, trades "
+                            "and run rows this archive would take — stop the run first")
         if selection.get("fix_id_state"):
             problems.append(
                 "fix_id_state holds the ID counters the running engine is using — "

@@ -1,0 +1,32 @@
+# Correct and bust
+#
+# Shows:   the three ways to say which trade — last trade, first trade,
+#          trade where … — and the correct and bust actions
+# Needs:   any session that receives orders
+# Watch:   Sent Trades: Exec Type turns to Correct, then Cancel (busted rows
+#          are muted); open History on a trade to see its versions
+# Outcome: three fills; the last is repriced, the first is busted, and any
+#          trade above 150 is busted too
+
+scenario correct-and-bust
+
+on order
+    accept
+    fill qty: order.order_qty / 4, price: order.price
+    after 500ms
+    fill qty: order.order_qty / 4, price: order.price + 0.01
+    after 500ms
+    fill qty: order.order_qty / 4, price: order.price + 0.02
+
+    # The most recent trade: same quantity, better price.
+    after 2s
+    correct last trade, qty: order.last_qty, price: order.price, text: 'price as agreed'
+
+    # The first trade of the order, whatever has happened since.
+    after 2s
+    bust first trade, text: 'erroneous'
+
+    # The first trade the condition is true for. `trade` is the candidate;
+    # a trade already busted is not offered again.
+    if COUNT(trades, t -> t.last_price > 150 and t.exec_type not in ['Cancel', 'TradeCancel']) > 0
+        bust trade where trade.last_price > 150, text: 'through the limit'

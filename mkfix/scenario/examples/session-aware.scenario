@@ -1,0 +1,26 @@
+# Session aware
+#
+# Shows:   `session down` and `session up`, waiting for a reconnect, `on error
+#          continue`, and a verdict with pass / fail
+# Needs:   any session that receives orders; stop and start it mid-run
+# Watch:   the Runs pane: what each order's script is waiting for
+# Outcome: fills pause while the session is down and resume when it is back;
+#          an order whose session stays down a minute fails its script
+
+scenario session-aware
+on error continue
+
+on order
+    accept
+
+    when session down
+        log 'paused: ${order.cl_ord_id}'
+        wait session up or timeout 1m
+        if event.kind != 'session up'
+            fail 'session did not come back'
+
+    while order.leaves_qty > 0
+        after 1s
+        fill qty: MIN(50, order.leaves_qty), price: order.price
+
+    pass 'filled ${order.cum_qty}'

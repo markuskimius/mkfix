@@ -36,7 +36,7 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # orders_query/executions_query join the owning session's live status onto
 # these rows as session_status, which the blotters' action buttons gate on.
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", handl_inst_code = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", cxl_rej_reason = "TEXT DEFAULT ''", pending_entered = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", handl_inst_code = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", cxl_rej_reason = "TEXT DEFAULT ''", pending_entered = "TEXT DEFAULT ''", scenario = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -99,6 +99,32 @@ archive = { cutoff = "saved", group = "config" }
 [tables.fix_templates]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", restate_reason = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP" }
 archive = { group = "config" }
+
+# Scripted scenarios (mkfix/scenario). A scenario is its source text under a
+# unique name, versioned so every Save is kept and the History pane can show
+# what a run ran. All four tables are written only through fix_cmd, so the
+# runner's view of what is armed never drifts from the rows.
+[tables.fix_scenarios]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", source = "TEXT NOT NULL DEFAULT ''", problems = "INTEGER DEFAULT 0", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+versioned = true
+archive = { group = "config" }
+
+# One arming of a scenario. `armed` and `paused` rows are live; the engine
+# re-arms them at startup after marking what the last process left behind
+# `interrupted`. `version` is the scenario row's _mkio_version the run used.
+[tables.fix_scenario_runs]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scenario = "TEXT NOT NULL", version = "INTEGER DEFAULT 0", session = "TEXT DEFAULT ''", seed = "INTEGER DEFAULT 0", speed = "REAL DEFAULT 1", status = "TEXT DEFAULT 'armed'", verdict = "TEXT DEFAULT ''", orders = "INTEGER DEFAULT 0", live = "INTEGER DEFAULT 0", passed = "INTEGER DEFAULT 0", failed = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", ended_at = "TEXT DEFAULT ''" }
+archive = { cutoff = "started_at", format = "%Y%m%d-%H:%M:%S.000" }
+
+# One order's script within a run: where it is and what it is waiting for.
+# Written on changes of status, line or wait, not on every statement.
+[tables.fix_scenario_instances]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", order_row = "INTEGER NOT NULL", scenario = "TEXT DEFAULT ''", session_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", block_line = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", line = "INTEGER DEFAULT 0", waiting_for = "TEXT DEFAULT ''", message = "TEXT DEFAULT ''", actions = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+archive = { cutoff = "started_at", format = "%Y%m%d-%H:%M:%S.000" }
+
+[tables.fix_scenario_log]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", order_row = "INTEGER", scenario = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL", line = "INTEGER DEFAULT 0", text = "TEXT DEFAULT ''" }
+archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 # ─��─ Transaction Services ───────────────────────────────────────────
 
@@ -222,7 +248,7 @@ watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
 sql = """SELECT o.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_orders o LEFT JOIN fix_session_state t ON t.session_id = o.session_id"""
-filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client", "handl_inst"]
+filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client", "handl_inst", "scenario"]
 
 [services.executions_query]
 protocol = "query"
@@ -256,6 +282,25 @@ filterable = ["scope"]
 
 # One scope's templates for a dialog's Template dropdown, every term column
 # along so the pick fills the form (mkui's `fill`).
+[services.scenarios_query]
+protocol = "query"
+primary_table = "fix_scenarios"
+
+[services.scenario_runs_query]
+protocol = "query"
+primary_table = "fix_scenario_runs"
+filterable = ["scenario", "status"]
+
+[services.scenario_instances_query]
+protocol = "query"
+primary_table = "fix_scenario_instances"
+filterable = ["run_id", "scenario", "status", "session_id"]
+
+[services.scenario_log_query]
+protocol = "query"
+primary_table = "fix_scenario_log"
+filterable = ["run_id", "scenario"]
+
 [services.templates_list]
 protocol = "reqrep"
 sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst FROM fix_templates WHERE scope = :scope ORDER BY name"

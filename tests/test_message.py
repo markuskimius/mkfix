@@ -588,6 +588,12 @@ class TestVersionAwareWireCodes:
             assert (f.cancel_request("C2", "C1", "AAPL", "1")["60"] is not None) is expect, version
             assert (f.cancel_replace_request("C2", "C1", "AAPL", "1", 100)["60"] is not None) is expect, version
 
+    def test_cancel_reject_reason_is_sent_where_defined(self):
+        assert self._factory("FIX.4.2").order_cancel_reject("C2", "C1", "8", "1", reason="1")["102"] == "1"
+        assert self._factory("FIX.4.2").order_cancel_reject("C2", "C1", "8", "1")["102"] is None
+        d = self._factory("FIX.4.0")
+        assert (d.order_cancel_reject("C2", "C1", "8", "1", reason="1")["102"] is not None) == d.dictionary.defines("102")
+
     def test_cancel_reject_434_gated(self):
         assert self._factory("FIX.4.1").order_cancel_reject("C2", "C1", "8", "1")["434"] is None
         assert self._factory("FIX.4.2").order_cancel_reject("C2", "C1", "8", "1")["434"] == "1"

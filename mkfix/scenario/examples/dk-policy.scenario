@@ -1,0 +1,33 @@
+# DK policy
+#
+# Shows:   disputing fills with `dk`, the trade in hand under `when fill`, and
+#          event.prev — telling a fill that moved CumQty from a re-notification
+# Needs:   the loopback sessions with dispute-desk armed on the market side,
+#          which fills an order in one clip and re-notifies a disputed trade
+# Watch:   Received Trades: DK and DK Text; Sent Trades on the other side
+# Outcome: this client takes clips of 50 at most, so the venue's single fill is
+#          disputed once; the re-notification that answers it is recognised as
+#          one and left alone; after 10 s the script passes
+
+scenario dk-policy
+
+run on LOOP-CLI
+    new symbol: 'AAPL', side: buy, qty: 100, type: limit, price: 150.00
+    expect ack within 2s
+    let disputed = 0
+
+    # A re-notified fill comes under a new ExecID and is recorded as a new
+    # trade, so it is a `fill` event like any other. What gives it away is
+    # that CumQty stands where the order already had it: event.prev is the
+    # order as it was before this report. Without this test, a client that
+    # disputes every fill and a venue that re-notifies every dispute would go
+    # round until the runner stopped them.
+    when fill and event.prev.cum_qty < order.cum_qty and trade.last_qty > 50
+        let disputed = disputed + 1
+        dk reason: 'Quantity exceeds order', text: 'clips of 50 at most, got ${trade.last_qty}'
+
+    when fill and event.prev.cum_qty == order.cum_qty
+        log 're-notified: ${trade.last_qty} @ ${trade.last_price}'
+
+    after 10s
+    pass '${disputed} disputed'

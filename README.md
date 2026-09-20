@@ -9,7 +9,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Session Management** -- Configure and run FIX sessions as initiator or
   acceptor from a live Sessions blotter showing status, sequence numbers and
   the last error,
-  created and edited through modal dialogs. Buttons follow the session's state:
+  created and edited through dialogs. Buttons follow the session's state:
   Start, Edit, Delete, Reset Seq, and Change Seq only while a session is
   down, Stop only while it runs. Reset Seq resets a session in one click:
   both sequence numbers return to 1 and a resend request from the
@@ -148,6 +148,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   Templates pane under the Trading menu lists every kind for editing and
   deleting. Templates live in
   the database and are shared by everyone on the server, like layouts.
+  No dialog blocks the application: it floats over a workspace that stays
+  live, so you can scroll a blotter, open Details, or raise a second dialog
+  while one is open. A dialog acts on the rows it was opened on -- its title
+  names them -- whatever is selected afterwards.
 - **Client Column** -- Orders, trades and messages carry the client they
   name, but the tag that carries it differs by counterparty: ClientID (109)
   through FIX 4.2, a PartyID with PartyRole 3 from 4.3, OnBehalfOfCompID
@@ -185,6 +189,61 @@ A FIX protocol testing engine for capital markets connectivity, built on
   their New and each cancel or replace request. The trade blotters show each
   report's Text. Older orders and trades are seeded once at startup from
   their recorded messages (HandlInst and trade tags; not Sent Text).
+- **Scenarios** -- Scripts that act on orders as things happen to them, in a
+  small language of their own. A script can play either side or both: answer
+  the orders you receive (`on order`), send orders of its own and manage them
+  (`run on SESSION`), or mind the orders you send by hand (`on sent order`).
+  Every order gets its own copy of the script, so the same few lines handle
+  one order or a thousand.
+
+  ```
+  scenario slow-fill
+
+  on order where symbol in ['IBM', 'MSFT']
+      after 200ms
+      accept
+      when cancel
+          accept
+          stop
+      while order.leaves_qty > 0
+          after 1s ± 250ms
+          fill qty: MIN(100, order.leaves_qty), price: order.price
+  ```
+
+  The actions are the blotter buttons -- `accept`, `reject`, `fill`,
+  `unsol cxl`, `restate`, `correct`, `bust`, `renotify` on the market side;
+  `new`, `replace`, `cancel`, `dk` on the sending side -- with the dialogs'
+  fields as terms. `repeat 20 at 5/s` around a `new` sends twenty orders,
+  each its own script; `when` reacts to events beside the main flow
+  (cancel and replace requests and disputes on one side; acknowledgements,
+  fills, `cancel rejected`, corrections and busts on the other); `wait` and `expect … within` wait for events,
+  `after` for time (with seeded jitter, so a run repeats exactly); conditions
+  are mkio expressions over the order's row, its trades, the recorded
+  versions of its row (`history`) and the event in hand. The **Scenarios**
+  pane (Trading menu) is an editor that checks as you type -- a misspelt
+  column or an action on the wrong side of an order is underlined before
+  anything runs -- completes words in context (Ctrl+Space), explains the one
+  under the cursor (F1), folds blocks, and has an optional vim mode. **Arm**
+  a saved script and it takes matching orders as they arrive; **Scenario
+  Runs**, **Scenario Scripts** and **Scenario Log** show each order's script,
+  the line it is on and what it is waiting for, with Pause, Stop and Detach,
+  and the order blotters name the scenario that took an order. Sixteen
+  bundled examples -- an auto-acknowledge, a cancel/replace desk, a dispute
+  desk, a deliberately misbehaving counterparty; a single order's lifecycle,
+  a replace chase, a seeded burst of twenty orders, a DK policy, a regression
+  suite with verdicts, a minder for hand-sent orders; and a loopback tour that
+  plays both sides by itself -- open as copies from **From example…**, and
+  the language reference is under **Help**. The sending examples run over two
+  loopback sessions, this server talking to itself: **Help › Scenario
+  Language › Scenario Examples › Set up loopback sessions** creates and
+  starts them, so the tour runs on a fresh install. Scripts are versioned
+  like sessions, so every Save is kept. A script can do more than the blotter
+  offers -- the buttons
+  hide Fill on a rejected order, the engine does not refuse it -- which is
+  the point of a test venue. Scripts live in the server's memory: after a
+  restart the old run is marked `interrupted`; a scenario that only waits for
+  orders is armed again, and one that sends orders is not run again -- a
+  restart never sends anything.
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **Saved Layouts** -- The Layout menu saves the window arrangement (frame
@@ -295,8 +354,8 @@ change it): a `manifest.json`, a CSV per table with every column, the version
 history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
 `--tables` takes the short names `messages`, `orders`, `trades`, `iois`,
-`allocations`, `sessions`, `dictionaries`, `settings`, `ids`, `replay_jobs`,
-`templates`, `layouts`, and `--group config` or `--all` reaches the config tables, which
+`allocations`, `runs`, `scripts`, `scenario_log`, `sessions`, `dictionaries`,
+`settings`, `ids`, `replay_jobs`, `templates`, `scenarios`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
 `--host` as the server: when a server answers on that port the archive runs
 through it, the engine refuses to archive a running session, a dictionary a
@@ -375,6 +434,13 @@ its toolbar instead of sitting still with old rows.
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
 - [mkui](https://github.com/markuskimius/mkui) >= 1.10.0, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser
+
+## Third-party code
+
+The Scenarios editor is [Ace](https://ace.c9.io) (ace-builds 1.44.0, BSD-3-Clause),
+vendored prebuilt under `mkfix/static/vendor/ace` with its LICENSE; nothing is
+built or downloaded at run time. The standard FIX dictionaries are generated
+from the QuickFIX specs (see `mkfix/fix/dictionary_data/NOTICE`).
 
 ## License
 

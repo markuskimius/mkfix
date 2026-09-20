@@ -43,3 +43,7 @@ mkfix = "mkfix.__main__:main"
 
 [tool.hatch.version]
 path = "mkfix/__init__.py"
+
+# Notes for working on the source, not part of the package.
+[tool.hatch.build.targets.wheel]
+exclude = ["**/CLAUDE.md"]

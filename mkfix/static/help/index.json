@@ -1,0 +1,4 @@
+[
+  { "id": "scenario-language", "title": "Scenario Language", "file": "scenario-language.md" },
+  { "id": "scenario-examples", "title": "Scenario Examples", "builtin": "examples" }
+]

@@ -47,6 +47,15 @@ def known_services(toml_config) -> set[str]:
     return set(toml_config["services"]) | set(re.findall(r'add_service\(\s*"([^"]+)"', main))
 
 
+def _fix_cmd_commands() -> set[str]:
+    """Every command fix_cmd answers: the branches of its _dispatch, and the
+    order and trade actions it hands to FixEngine.perform by table."""
+    from mkfix.fix.actions import ACTIONS
+    source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8")
+    assert "if command in ACTIONS" in source, "fix_cmd no longer routes the action table"
+    return set(re.findall(r'command == "([^"]+)"', source)) | set(ACTIONS)
+
+
 def _frame_pane_ids(layout: dict) -> list[str]:
     """Pane ids referenced by a frame layout, recursing through splits/tabs."""
     ids = []
@@ -302,10 +311,7 @@ class TestPaneModuleIntegrity:
         """Same guard app.json gets, for commands sent from pane JS. The
         replay pane derives its command from the button action, so its
         candidates are matched by their _replay suffix."""
-        handled = set(re.findall(
-            r'command == "([^"]+)"',
-            (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8"),
-        ))
+        handled = _fix_cmd_commands()
         used = set()
         for name, source in pane_sources.items():
             if 'client.send("fix_cmd"' not in source:
@@ -412,11 +418,25 @@ class TestServiceReferences:
                 assert target in known_services, \
                     f"pane {pane_id!r} button {button['label']!r} calls unknown service {target!r}"
 
+    def test_no_dialog_blocks_the_application(self, app_config):
+        """A dialog floats over a workspace that stays live: the blotters keep
+        updating, another order can be looked up, a second dialog opened. It
+        acts on the rows it was opened on (mkui captures them at the click,
+        and the title names them), so nothing is lost by letting go of the
+        pointer. `modal: true` dims the workspace and stills the menubar
+        until the dialog is answered; only a confirmation asks for that, and
+        mkui makes those modal by itself."""
+        modal = [node.get("title") for node in _walk_dicts(app_config) if node.get("modal")]
+        assert modal == [], f"modal dialogs: {modal}"
+        dialogs = [b["action"]["dialog"] for pane in app_config["panes"].values()
+                   for b in pane.get("buttons", []) if isinstance(b.get("action"), dict)
+                   and isinstance(b["action"].get("dialog"), dict)]
+        assert len(dialogs) >= 16, "the guard looks at the dialogs it thinks it does"
+
     def test_fix_cmd_ops_have_dispatch_branches(self, app_config):
         """An op in app.json with no _dispatch branch fails only when the
         button is clicked, and only in the browser."""
-        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8")
-        handled = set(re.findall(r'command == "([^"]+)"', source))
+        handled = _fix_cmd_commands()
         used = {
             node["op"]
             for node in _walk_dicts(app_config["panes"])
@@ -1501,6 +1521,9 @@ class TestHelpMenu:
         menu = app_config["menubar"][-1]
         assert menu["label"] == "Help"
         assert menu["items"] == [
+            {"label": "Scenario Language", "action": "pane.show", "args": "help-viewer"},
+            {"label": "Scenario Editor Keys", "action": "dialog.open", "args": "scenario_keys"},
+            {"sep": True},
             {"label": "Keyboard Shortcuts", "action": "dialog.open", "args": "shortcuts"},
             {"sep": True},
             {"label": "About mkfix", "action": "dialog.about"},
@@ -1516,9 +1539,14 @@ class TestHelpMenu:
         assert {"dialog.open", "dialog.about"} <= used
         assert used <= registered, f"not registered by mkui: {sorted(used - registered)}"
 
-    def test_every_declared_dialog_is_opened_by_a_menu_item(self, app_config):
+    def test_every_declared_dialog_is_opened_by_something(self, app_config, pane_sources):
+        """By a menu's `dialog.open`, or by a pane's `app.dialog("name", …)`;
+        a named dialog nothing opens is dead config, and a name nothing
+        declares fails only on the click."""
         opened = {item["args"] for menu in app_config["menubar"]
                   for item in menu["items"] if item.get("action") == "dialog.open"}
+        for source in pane_sources.values():
+            opened |= set(re.findall(r'app\.dialog\("([a-z_]+)"', source))
         assert set(app_config["dialogs"]) == opened
 
     def test_shortcuts_box_is_a_message_box_with_one_way_out(self, app_config):
@@ -1970,10 +1998,9 @@ class TestDictionaryConfig:
     def test_dictionaries_pane_commands_have_branches(self):
         """The dictionaries pane calls fix_cmd through its cmd() helper; a
         command with no dispatch branch fails only on click, in the browser."""
-        source = (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8")
         js = (STATIC / "panes" / "dictionaries.js").read_text(encoding="utf-8")
         used = set(re.findall(r'cmd\("([a-z_]+)"', js))
-        handled = set(re.findall(r'command == "([^"]+)"', source))
+        handled = _fix_cmd_commands()
         assert used, "dictionaries pane calls no fix_cmd commands"
         missing = used - handled
         assert not missing, f"dictionaries pane sends unhandled fix_cmd commands: {sorted(missing)}"

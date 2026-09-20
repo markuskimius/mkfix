@@ -7,6 +7,8 @@ from typing import Any, TYPE_CHECKING
 from mkio.services.base import Service
 from mkio.ws_protocol import make_result, make_error
 
+from mkfix.fix.actions import ACTIONS
+
 if TYPE_CHECKING:
     from aiohttp.web import WebSocketResponse
     from mkfix.fix.engine import FixEngine
@@ -77,198 +79,49 @@ class FixCommandService(Service):
             await engine.save_template(
                 scope, data["save_as"], **{k: data.get(k, "") for k in keys})
 
+        if command in ACTIONS:
+            return {"ok": True, **await engine.perform(command, data)}
+
+        scenarios = engine.scenarios
+        if command == "check_scenario":
+            return {"ok": True, **await scenarios.check(data.get("source", ""))}
+        elif command == "save_scenario":
+            return {"ok": True, **await scenarios.save(data["name"], data.get("source", ""))}
+        elif command == "delete_scenario":
+            await scenarios.delete(data["name"])
+            return {"ok": True}
+        elif command == "scenario_vocab":
+            from mkfix.scenario import vocabulary
+            return {"ok": True, "vocabulary": vocabulary()}
+        elif command == "list_examples":
+            return {"ok": True, "examples": scenarios.examples()}
+        elif command == "get_example":
+            return {"ok": True, **scenarios.example(data["name"])}
+        elif command == "arm_scenario":
+            return {"ok": True, **await scenarios.arm(
+                data["name"], session=data.get("session", ""), seed=int(data["seed"]) if data.get("seed") else None,
+                speed=float(data.get("speed") or 1.0))}
+        elif command == "stop_run":
+            await scenarios.stop_run(data["run_id"])
+            return {"ok": True}
+        elif command == "pause_run":
+            await scenarios.pause_run(data["run_id"])
+            return {"ok": True}
+        elif command == "resume_run":
+            await scenarios.resume_run(data["run_id"])
+            return {"ok": True}
+        elif command == "setup_loopback":
+            return {"ok": True, **await scenarios.setup_loopback(data.get("port"))}
+        elif command == "detach_instance":
+            await scenarios.detach(data["order_row"])
+            return {"ok": True}
+
         if command == "start_session":
             await engine.start_session(data["session_id"])
             return {"ok": True}
 
         elif command == "stop_session":
             await engine.stop_session(data["session_id"])
-            return {"ok": True}
-
-        elif command == "send_new_order":
-            cl_ord_id = await engine.send_new_order(
-                session_id=data["session_id"],
-                symbol=data["symbol"],
-                side=data["side"],
-                qty=float(data["qty"]),
-                ord_type=data.get("ord_type", "2"),
-                price=float(data["price"]) if data.get("price") else None,
-                tif=data.get("tif", "0"),
-                extra_tags=data.get("extra_tags", ""),
-                expire_time=data.get("expire_time", ""),
-                expire_date=data.get("expire_date", ""),
-                expire_precision=data.get("expire_precision", ""),
-                client=data.get("client", ""),
-                handl_inst=data.get("handl_inst") or "1",
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "cl_ord_id": cl_ord_id}
-
-        elif command == "send_cancel":
-            cl_ord_id = await engine.send_cancel(
-                session_id=data["session_id"],
-                orig_cl_ord_id=data["orig_cl_ord_id"],
-                symbol=data["symbol"],
-                side=data["side"],
-                qty=float(data.get("qty", 0)),
-                extra_tags=data.get("extra_tags", ""),
-                client=data.get("client", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "cl_ord_id": cl_ord_id}
-
-        elif command == "send_cancel_replace":
-            cl_ord_id = await engine.send_cancel_replace(
-                session_id=data["session_id"],
-                orig_cl_ord_id=data["orig_cl_ord_id"],
-                symbol=data["symbol"],
-                side=data["side"],
-                qty=float(data["qty"]),
-                ord_type=data.get("ord_type", "2"),
-                price=float(data["price"]) if data.get("price") else None,
-                tif=data.get("tif"),
-                extra_tags=data.get("extra_tags", ""),
-                expire_time=data.get("expire_time", ""),
-                expire_date=data.get("expire_date", ""),
-                expire_precision=data.get("expire_precision", ""),
-                client=data.get("client", ""),
-                handl_inst=data.get("handl_inst") or "1",
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "cl_ord_id": cl_ord_id}
-
-        elif command == "accept_order":
-            order_id = await engine.accept_order(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "order_id": order_id}
-
-        elif command == "reject_order":
-            await engine.reject_order(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                text=data.get("text", ""),
-                extra_tags=data.get("extra_tags", ""),
-            )
-            return {"ok": True}
-
-        elif command == "fill_order":
-            exec_id = await engine.fill_order(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                qty=float(data["qty"]),
-                price=float(data["price"]),
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "unsolicited_cancel":
-            exec_id = await engine.unsolicited_cancel(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "restate_order":
-            exec_id = await engine.restate_order(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                qty=float(data["qty"]),
-                price=float(data.get("price") or 0),
-                reason=data.get("restate_reason", ""),
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "accept_request":
-            exec_id = await engine.accept_request(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "reject_request":
-            await engine.reject_request(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                text=data.get("text", ""),
-                extra_tags=data.get("extra_tags", ""),
-            )
-            return {"ok": True}
-
-        elif command == "accept_cancel":
-            exec_id = await engine.accept_cancel(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "accept_replace":
-            exec_id = await engine.accept_replace(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "reject_cancel":
-            await engine.reject_cancel(
-                session_id=data["session_id"],
-                cl_ord_id=data["cl_ord_id"],
-                text=data.get("text", ""),
-                extra_tags=data.get("extra_tags", ""),
-            )
-            return {"ok": True}
-
-        elif command == "correct_trade":
-            exec_id = await engine.correct_trade(
-                session_id=data["session_id"],
-                exec_id=data["exec_id"],
-                qty=float(data["qty"]),
-                price=float(data["price"]),
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "bust_trade":
-            exec_id = await engine.bust_trade(
-                session_id=data["session_id"],
-                exec_id=data["exec_id"],
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "renotify_trade":
-            exec_id = await engine.renotify_trade(
-                session_id=data["session_id"],
-                exec_id=data["exec_id"],
-                extra_tags=data.get("extra_tags", ""),
-                text=data.get("text", ""),
-            )
-            return {"ok": True, "exec_id": exec_id}
-
-        elif command == "dk_trade":
-            await engine.dk_trade(
-                session_id=data["session_id"],
-                exec_id=data["exec_id"],
-                reason=data.get("dk_reason", ""),
-                text=data.get("text", ""),
-                extra_tags=data.get("extra_tags", ""),
-            )
             return {"ok": True}
 
         elif command == "reset_sequence":

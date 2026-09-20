@@ -2,14 +2,26 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.47",
+    "version": "0.48",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
-      { "label": "GitHub", "href": "https://github.com/markuskimius/mkfix" },
-      { "label": "Report an issue", "href": "https://github.com/markuskimius/mkfix/issues" },
-      { "label": "License", "href": "https://github.com/markuskimius/mkfix/blob/main/LICENSE" },
-      { "label": "FIX dictionary notice", "href": "https://github.com/markuskimius/mkfix/blob/main/mkfix/fix/dictionary_data/NOTICE" }
+      {
+        "label": "GitHub",
+        "href": "https://github.com/markuskimius/mkfix"
+      },
+      {
+        "label": "Report an issue",
+        "href": "https://github.com/markuskimius/mkfix/issues"
+      },
+      {
+        "label": "License",
+        "href": "https://github.com/markuskimius/mkfix/blob/main/LICENSE"
+      },
+      {
+        "label": "FIX dictionary notice",
+        "href": "https://github.com/markuskimius/mkfix/blob/main/mkfix/fix/dictionary_data/NOTICE"
+      }
     ],
     "about": {
       "title": "About mkfix",
@@ -22,9 +34,18 @@
       ],
       "builtins": false,
       "facts": [
-        { "label": "Server", "value": "${state.mkio.server.name} ${state.mkio.server.version}" },
-        { "label": "mkui", "value": "${app.mkui}" },
-        { "label": "mkio", "value": "${state.mkio.server.mkio}" }
+        {
+          "label": "Server",
+          "value": "${state.mkio.server.name} ${state.mkio.server.version}"
+        },
+        {
+          "label": "mkui",
+          "value": "${app.mkui}"
+        },
+        {
+          "label": "mkio",
+          "value": "${state.mkio.server.mkio}"
+        }
       ]
     }
   },
@@ -35,7 +56,11 @@
       "color": "#000"
     },
     "selected_session": null,
-    "selected_message": null
+    "selected_message": null,
+    "selected_scenario": null,
+    "selected_scenario_instance": null,
+    "help_target": null,
+    "open_example": null
   },
   "menubar": [
     {
@@ -114,6 +139,29 @@
           "label": "Sent Trades",
           "action": "pane.show",
           "args": "market-trade-blotter"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Scenarios",
+          "action": "pane.show",
+          "args": "scenarios"
+        },
+        {
+          "label": "Scenario Runs",
+          "action": "pane.show",
+          "args": "scenario-runs"
+        },
+        {
+          "label": "Scenario Scripts",
+          "action": "pane.show",
+          "args": "scenario-instances"
+        },
+        {
+          "label": "Scenario Log",
+          "action": "pane.show",
+          "args": "scenario-log"
         },
         {
           "sep": true
@@ -204,6 +252,19 @@
       "label": "Help",
       "items": [
         {
+          "label": "Scenario Language",
+          "action": "pane.show",
+          "args": "help-viewer"
+        },
+        {
+          "label": "Scenario Editor Keys",
+          "action": "dialog.open",
+          "args": "scenario_keys"
+        },
+        {
+          "sep": true
+        },
+        {
           "label": "Keyboard Shortcuts",
           "action": "dialog.open",
           "args": "shortcuts"
@@ -223,16 +284,147 @@
       "title": "Keyboard Shortcuts",
       "width": 460,
       "facts": [
-        { "label": "Ctrl/Cmd+C", "value": "Copy the selected rows" },
-        { "label": "Ctrl/Cmd+A", "value": "Select every row" },
-        { "label": "Ctrl/Cmd+F", "value": "Find in the focused table" },
-        { "label": "Ctrl/Cmd+G", "value": "Next match (Shift for the previous one)" },
-        { "label": "Escape", "value": "Clear the selection, then close find; in a dialog, cancel it unless it is pinned" },
-        { "label": "Enter", "value": "Submit a dialog from a single-line field" },
-        { "label": "Ctrl/Cmd+Enter", "value": "Submit a dialog from anywhere in it" }
+        {
+          "label": "Ctrl/Cmd+C",
+          "value": "Copy the selected rows"
+        },
+        {
+          "label": "Ctrl/Cmd+A",
+          "value": "Select every row"
+        },
+        {
+          "label": "Ctrl/Cmd+F",
+          "value": "Find in the focused table"
+        },
+        {
+          "label": "Ctrl/Cmd+G",
+          "value": "Next match (Shift for the previous one)"
+        },
+        {
+          "label": "Escape",
+          "value": "Clear the selection, then close find; in a dialog, cancel it unless it is pinned"
+        },
+        {
+          "label": "Enter",
+          "value": "Submit a dialog from a single-line field"
+        },
+        {
+          "label": "Ctrl/Cmd+Enter",
+          "value": "Submit a dialog from anywhere in it"
+        }
       ],
       "buttons": [
-        { "id": "ok", "label": "OK", "kind": "primary", "cancel": true, "default": true }
+        {
+          "id": "ok",
+          "label": "OK",
+          "kind": "primary",
+          "cancel": true,
+          "default": true
+        }
+      ]
+    },
+    "arm_scenario": {
+      "title": "Arm ${row.name}",
+      "width": 340,
+      "submit": {
+        "label": "Arm",
+        "service": "fix_cmd",
+        "op": "arm_scenario"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "hidden",
+          "value": "${row.name}"
+        },
+        {
+          "name": "session",
+          "label": "Only this session's orders",
+          "type": "select",
+          "optionsFrom": {
+            "service": "sessions_list",
+            "value": "session_id",
+            "label": "session_id"
+          },
+          "options": [
+            {
+              "value": "",
+              "label": "(any session)"
+            }
+          ],
+          "value": ""
+        },
+        {
+          "row": [
+            {
+              "name": "speed",
+              "label": "Speed",
+              "type": "number",
+              "value": 1,
+              "min": 0.01,
+              "step": "any",
+              "width": 0.5
+            },
+            {
+              "name": "seed",
+              "label": "Seed (blank: the script's, or random)",
+              "type": "text",
+              "value": "",
+              "width": 0.5
+            }
+          ]
+        }
+      ]
+    },
+    "scenario_keys": {
+      "title": "Scenario Editor Keys",
+      "width": 480,
+      "facts": [
+        {
+          "label": "Ctrl+Space",
+          "value": "Complete: actions, terms, events, words for a term, templates, sessions, fields"
+        },
+        {
+          "label": "F1",
+          "value": "Explain the word under the cursor; an open Help pane follows"
+        },
+        {
+          "label": "Ctrl/Cmd+S",
+          "value": "Save (in vim mode, :w)"
+        },
+        {
+          "label": "Ctrl/Cmd+F",
+          "value": "Find; Ctrl/Cmd+H replaces"
+        },
+        {
+          "label": "Ctrl/Cmd+/",
+          "value": "Comment or uncomment the selected lines"
+        },
+        {
+          "label": "Alt+L",
+          "value": "Fold the block at the cursor; Alt+Shift+L unfolds"
+        },
+        {
+          "label": "Ctrl/Cmd+Alt+Up/Down",
+          "value": "Add a cursor above or below"
+        },
+        {
+          "label": "Tab / Shift+Tab",
+          "value": "Indent or outdent the selection — blocks are indentation"
+        },
+        {
+          "label": "vim",
+          "value": "The checkbox in the toolbar; remembered by this browser"
+        }
+      ],
+      "buttons": [
+        {
+          "id": "ok",
+          "label": "OK",
+          "kind": "primary",
+          "cancel": true,
+          "default": true
+        }
       ]
     }
   },
@@ -251,7 +443,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.47"
+        "text": "mkfix v0.48"
       }
     ],
     "bindStyle": {
@@ -353,7 +545,6 @@
             "type": "dialog",
             "dialog": {
               "title": "New Session",
-              "modal": true,
               "width": 440,
               "fields": [
                 {
@@ -589,7 +780,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Edit Session ${row.session_id}",
-              "modal": true,
               "width": 440,
               "fields": [
                 {
@@ -899,7 +1089,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Change Seq ${row.session_id}",
-              "modal": true,
               "width": 320,
               "fields": [
                 {
@@ -1052,6 +1241,7 @@
         "sent_text",
         "text",
         "extra_tags",
+        "scenario",
         "updated_at"
       ],
       "history": {
@@ -1087,7 +1277,8 @@
         "handl_inst": "Handl Inst",
         "sent_text": "Sent Text",
         "text": "Rcvd Text",
-        "extra_tags": "Extra Tags"
+        "extra_tags": "Extra Tags",
+        "scenario": "Scenario"
       },
       "types": {
         "updated_at": {
@@ -1165,7 +1356,6 @@
             "type": "dialog",
             "dialog": {
               "title": "New Order",
-              "modal": true,
               "pin": "keep",
               "width": 420,
               "fields": [
@@ -1437,7 +1627,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Cancel/Replace ${row.cl_ord_id}",
-              "modal": true,
               "pin": "keep",
               "width": 420,
               "submitPerRow": true,
@@ -1719,7 +1908,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Cancel ${row.cl_ord_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -1958,7 +2146,6 @@
             "type": "dialog",
             "dialog": {
               "title": "DK ${row.exec_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -2107,6 +2294,7 @@
         "sent_text",
         "text",
         "extra_tags",
+        "scenario",
         "updated_at"
       ],
       "history": {
@@ -2141,7 +2329,8 @@
         "handl_inst": "Handl Inst",
         "sent_text": "Sent Text",
         "text": "Rcvd Text",
-        "extra_tags": "Extra Tags"
+        "extra_tags": "Extra Tags",
+        "scenario": "Scenario"
       },
       "types": {
         "updated_at": {
@@ -2215,7 +2404,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Accept ${row.pending_action} ${row.cl_ord_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -2290,7 +2478,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Reject ${row.pending_action} ${row.cl_ord_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -2370,7 +2557,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Fill ${row.cl_ord_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -2467,7 +2653,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Unsolicited Cancel ${row.cl_ord_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -2542,7 +2727,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Restate ${row.cl_ord_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -2901,7 +3085,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Correct ${row.exec_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -2998,7 +3181,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Bust ${row.exec_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -3073,7 +3255,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Re-notify ${row.exec_id}",
-              "modal": true,
               "pin": "keep",
               "width": 380,
               "submitPerRow": true,
@@ -3369,7 +3550,6 @@
             "type": "dialog",
             "dialog": {
               "title": "Edit Template ${row.name}",
-              "modal": true,
               "width": 420,
               "fields": [
                 {
@@ -3742,6 +3922,280 @@
           }
         }
       ]
+    },
+    "scenarios": {
+      "title": "Scenarios",
+      "type": "scenarios"
+    },
+    "help-viewer": {
+      "title": "Help",
+      "type": "help-viewer"
+    },
+    "scenario-runs": {
+      "title": "Scenario Runs",
+      "type": "mkio-table",
+      "service": "scenario_runs_query",
+      "protocol": "query",
+      "columns": [
+        "id",
+        "scenario",
+        "status",
+        "verdict",
+        "orders",
+        "live",
+        "passed",
+        "failed",
+        "session",
+        "speed",
+        "seed",
+        "version",
+        "started_at",
+        "ended_at"
+      ],
+      "labels": {
+        "id": "Run",
+        "scenario": "Scenario",
+        "status": "Status",
+        "verdict": "Verdict",
+        "orders": "Orders",
+        "live": "Live",
+        "passed": "Passed",
+        "failed": "Failed",
+        "session": "Session",
+        "speed": "Speed",
+        "seed": "Seed",
+        "version": "Script Ver",
+        "started_at": "Started",
+        "ended_at": "Ended"
+      },
+      "types": {
+        "started_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        },
+        "ended_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "sort": [
+        {
+          "column": "id",
+          "dir": "desc"
+        }
+      ],
+      "styles": {
+        "status": [
+          {
+            "when": "value == 'armed'",
+            "color": "#4ec9b0",
+            "bold": true
+          },
+          {
+            "when": "value == 'paused'",
+            "color": "#dcdcaa"
+          },
+          {
+            "when": "value == 'interrupted'",
+            "color": "#ce9178"
+          },
+          {
+            "when": "value == 'stopped'",
+            "color": "#858585"
+          }
+        ],
+        "verdict": [
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
+          }
+        ]
+      },
+      "buttons": [
+        {
+          "label": "Pause",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'armed')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "pause_run",
+            "data": {
+              "run_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Resume",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'paused')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "resume_run",
+            "data": {
+              "run_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Stop",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['armed', 'paused'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "stop_run",
+            "data": {
+              "run_id": "${row.id}"
+            }
+          }
+        }
+      ]
+    },
+    "scenario-instances": {
+      "title": "Scenario Scripts",
+      "type": "mkio-table",
+      "service": "scenario_instances_query",
+      "protocol": "query",
+      "select": {
+        "state": "selected_scenario_instance"
+      },
+      "columns": [
+        "run_id",
+        "scenario",
+        "cl_ord_id",
+        "symbol",
+        "session_id",
+        "status",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
+        "order_id",
+        "started_at",
+        "updated_at"
+      ],
+      "labels": {
+        "run_id": "Run",
+        "scenario": "Scenario",
+        "cl_ord_id": "ClOrdID",
+        "symbol": "Symbol",
+        "session_id": "Session",
+        "status": "Status",
+        "line": "Line",
+        "waiting_for": "Waiting For",
+        "message": "Message",
+        "actions": "Actions",
+        "order_id": "Order ID",
+        "started_at": "Started",
+        "updated_at": "Updated"
+      },
+      "types": {
+        "started_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "sort": [
+        {
+          "column": "updated_at",
+          "dir": "desc"
+        }
+      ],
+      "styles": {
+        "status": [
+          {
+            "when": "CONTAINS(['running', 'listening'], value)",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
+          },
+          {
+            "when": "CONTAINS(['stopped', 'detached', 'completed', 'interrupted'], value)",
+            "color": "#858585"
+          }
+        ]
+      },
+      "buttons": [
+        {
+          "label": "Detach",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['running', 'listening'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "detach_instance",
+            "data": {
+              "order_row": "${row.order_row}"
+            }
+          }
+        }
+      ]
+    },
+    "scenario-log": {
+      "title": "Scenario Log",
+      "type": "mkio-table",
+      "service": "scenario_log_query",
+      "protocol": "query",
+      "columns": [
+        "timestamp",
+        "run_id",
+        "scenario",
+        "cl_ord_id",
+        "line",
+        "text"
+      ],
+      "labels": {
+        "timestamp": "Time",
+        "run_id": "Run",
+        "scenario": "Scenario",
+        "cl_ord_id": "ClOrdID",
+        "line": "Line",
+        "text": "Text"
+      },
+      "types": {
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "sort": [
+        {
+          "column": "timestamp",
+          "dir": "desc"
+        }
+      ]
     }
   },
   "frames": [
@@ -3857,7 +4311,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.47",
+      "version": "0.48",
       "mkio": "1.5",
       "expr": "2"
     },

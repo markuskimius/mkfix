@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from mkfix.fix.engine import FixEngine
+from mkfix.fix.events import EventBus
 from mkfix.services.fix_command import FixCommandService
 
 
@@ -20,6 +22,10 @@ def _make_service(engine=None):
 
 def _make_engine():
     engine = MagicMock()
+    # The action table is real — it is what turns a dialog's strings into the
+    # engine calls these tests assert on — over an engine of mocks.
+    engine.events = EventBus()
+    engine.perform = lambda op, data, source="manual": FixEngine.perform(engine, op, data, source)
     for method in (
         "start_session", "stop_session", "reload_session", "reset_sequence",
         "start_replay", "pause_replay", "resume_replay", "stop_replay",
@@ -162,7 +168,7 @@ class TestDispatch:
             session_id="S1", symbol="AAPL", side="1", qty=100.0,
             ord_type="2", price=150.25, tif="0", extra_tags="",
             expire_time="", expire_date="", expire_precision="", client="",
-            handl_inst="1", text="",
+            handl_inst="1", text="", source="manual", tag="",
         )
         resp = _sent(ws)
         assert resp["ok"] is True

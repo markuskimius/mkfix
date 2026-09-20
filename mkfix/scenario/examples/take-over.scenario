@@ -1,0 +1,34 @@
+# Take over
+#
+# Shows:   `on sent order` — a script for orders sent some other way: by hand
+#          from Sent Orders, or by Message Replay
+# Needs:   arm this, then send an IBM order by hand on any session
+# Watch:   Sent Orders: the Scenario column names this script on the orders it took
+# Outcome: every IBM order you send is minded — it must be acknowledged, fills
+#          through its limit are disputed, and whatever is open after 30 s is
+#          cancelled; orders in other symbols are left to you
+
+scenario take-over
+
+# No `new` here: the order already exists. An order a `run on` script sent
+# belongs to that script and is never taken.
+on sent order where symbol == 'IBM'
+    expect ack or rejected within 2s else fail 'no answer to ${order.cl_ord_id}'
+    if event.kind == 'rejected'
+        stop
+
+    when fill and event.prev.cum_qty < order.cum_qty and trade.last_price > order.price
+        dk reason: price_exceeds_limit
+
+    # You may still work the order by hand; the script hears of it.
+    when manual
+        log 'by hand: ${event.op}'
+
+    when cancel rejected and event.reason == 'TooLateToCancel'
+        stop
+
+    after 30s
+    if order.leaves_qty > 0 and order.pending_action == ''
+        cancel text: 'minder: time is up'
+        expect canceled or filled within 5s
+    pass 'left ${order.leaves_qty}'

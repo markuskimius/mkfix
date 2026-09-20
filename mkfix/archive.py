@@ -2,7 +2,7 @@
 defaults.
 
 The tables come from the ``archive`` keys in mkfix.toml — the running-data
-tables (messages, orders, trades, IOIs, allocations) in the ``data`` group,
+tables (messages, orders, trades, IOIs, allocations, scenario runs) in the ``data`` group,
 archived by default, and the config/state tables in ``config``, archived
 only when named. The default cutoff is the start of today in local time, so
 a plain ``mkfix archive`` clears down everything from before today. Short
@@ -50,6 +50,10 @@ ALIASES: dict[str, str] = {
     "ids": "fix_id_state",
     "replay_jobs": "fix_replay_jobs",
     "templates": "fix_templates",
+    "scenarios": "fix_scenarios",
+    "runs": "fix_scenario_runs",
+    "scripts": "fix_scenario_instances",
+    "scenario_log": "fix_scenario_log",
     "layouts": "mkui_layouts",
 }
 
@@ -118,7 +122,7 @@ def _parser(cmd: str) -> argparse.ArgumentParser:
                             "overrides --group)")
         p.add_argument("--group", default=None, metavar="{data,config}",
                        help="archive one group: data (messages, orders, trades, iois, "
-                            "allocations; the default) or config (the rest). Most config "
+                            "allocations, runs, scripts, scenario_log; the default) or config (the rest). Most config "
                             "tables are archived whole, whatever the cutoff")
         p.add_argument("--all", action="store_true",
                        help="archive both groups; not with --tables or --group")

@@ -526,9 +526,11 @@ class FixMessageFactory:
         response_to: str,
         order_id: str = "",
         text: str | None = None,
+        reason: str = "",
     ) -> FixMessage:
         """OrderCancelReject (35=9); response_to is CxlRejResponseTo(434):
-        1 = cancel request, 2 = cancel/replace request."""
+        1 = cancel request, 2 = cancel/replace request. `reason` is
+        CxlRejReason(102), sent where the dictionary defines the tag."""
         fields: dict[str, str] = {
             "35": "9",
             "37": order_id or "NONE",
@@ -540,6 +542,8 @@ class FixMessageFactory:
         }
         if text:
             fields["58"] = text
+        if reason and self.dictionary.defines("102"):
+            fields["102"] = reason
         if not self.dictionary.defines("434"):
             fields.pop("434")
         self._strip_legacy_body_time(fields)
