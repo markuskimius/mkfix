@@ -396,6 +396,34 @@ class TestRunner:
         assert {m.get("11"): m.get("150") for m in desk.sent()} == {"A": "8", "B": "0"}
 
     @pytest.mark.asyncio
+    async def test_moving_a_run_changes_who_is_offered_an_order_first(self, desk):
+        rejecting = desk.arm(script("reject text: 'first'\n"))
+        accepting = desk.arm(script("accept\n").replace("scenario t", "scenario u"))
+        third = desk.arm(script("accept\n", header="on order where symbol == 'ZZ'").replace("scenario t", "scenario v"))
+        assert desk.runner.offered() == [rejecting, accepting, third]
+        await desk.order("A")
+        assert desk.runner.move(accepting, up=True) and desk.runner.offered() == [accepting, rejecting, third]
+        await desk.order("B")
+        assert {m.get("11"): m.get("150") for m in desk.sent()} == {"A": "8", "B": "0"}
+        assert not desk.runner.move(accepting, up=True), "already first"
+        assert not desk.runner.move(third, up=False), "already last"
+        assert desk.runner.move(accepting, up=False) and desk.runner.move(accepting, up=False)
+        assert desk.runner.offered() == [rejecting, third, accepting]
+        desk.runner.stop(third)
+        assert desk.runner.offered() == [rejecting, accepting] and not desk.runner.move(third, up=True)
+
+    @pytest.mark.asyncio
+    async def test_the_same_script_may_be_armed_for_different_sessions(self, desk):
+        other = StubSession("S2")
+        desk.engine.sessions["S2"] = other
+        one = desk.arm(script("accept\n"), session="S1")
+        two = desk.arm(script("reject\n"), session="S2")
+        await desk.order("A")
+        await desk.order("B", session=other)
+        assert [i.order["cl_ord_id"] for i in one.instances] == ["A"]
+        assert [i.order["cl_ord_id"] for i in two.instances] == ["B"]
+
+    @pytest.mark.asyncio
     async def test_blocks_are_tried_in_order_within_a_script(self, desk):
         run = desk.arm("scenario t\non order where order_qty >= 1000\n    reject text: 'big'\non order\n    accept\n")
         await desk.order("A", qty=5000)
@@ -456,8 +484,12 @@ class TestRunner:
     @pytest.mark.asyncio
     async def test_what_cannot_be_armed(self, desk):
         sc, _ = scenario.check("scenario t\nrun on NOPE\n    new symbol: 'A', side: buy, qty: 1\n")
-        with pytest.raises(ScenarioError, match="`run on NOPE`: no such session"):
+        with pytest.raises(ScenarioError, match="`run` on NOPE: no such session"):
             desk.runner.arm(sc)
+        open_, _ = scenario.check("scenario t\nrun\n    new symbol: 'A', side: buy, qty: 1\n")
+        with pytest.raises(ScenarioError, match="line 2: `run` names no session, so choose the one to send on"):
+            desk.runner.arm(open_)
+        assert desk.runner.runs == [], "a refused run leaves nothing behind"
         with pytest.raises(ScenarioError, match="has no block to run"):
             desk.runner.arm(scenario.check("scenario t\n")[0])
         with pytest.raises(ScenarioError, match="speed"):
@@ -471,6 +503,23 @@ class TestRunner:
         await desk.order()
         await desk.advance(1)
         assert seen == [(RUNNING, 3, "after 1s"), (COMPLETED, 4, "")]
+
+    @pytest.mark.asyncio
+    async def test_too_many_live_scripts_for_the_server(self, desk):
+        """The ceiling is on what is live across every run, and a script that ends makes room."""
+        desk.runner.max_live = 2
+        one = desk.arm(script("wait cancel\n", header="on order where symbol == 'IBM'"))
+        two = desk.arm(script("wait cancel\n").replace("scenario t", "scenario u"))
+        await desk.order("A", sym="IBM")
+        await desk.order("B")
+        await desk.order("C")
+        assert (len(one.instances), len(two.instances), desk.runner.live) == (1, 1, 2)
+        assert two.log[-1][3] == "order C not taken: 2 scripts are live already"
+        desk.runner.detach((await desk.row("A"))["id"])
+        await desk.order("D")
+        assert desk.runner.live == 2 and [i.order["cl_ord_id"] for i in two.instances] == ["B", "D"]
+        desk.runner.stop_all()
+        assert desk.runner.live == 0
 
     @pytest.mark.asyncio
     async def test_too_many_orders_for_one_run(self, desk):

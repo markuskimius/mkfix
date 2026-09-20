@@ -2,9 +2,20 @@
 
 A scenario is a script that acts on orders as things happen to them: accept this, fill that a second later, refuse the second replace, dispute a fill that is through its limit. Each order gets its own copy of the script, so the same few lines handle one order or a thousand.
 
-A script can play either side, or both: answer the orders you receive, send orders of its own and manage them, or mind the orders you send by hand.
+There are two kinds, kept apart throughout — two menus, two editors, two sets of runs:
 
-Write scripts in the **Scenarios** pane (Trading menu). The editor checks as you type, completes words with Ctrl+Space, and explains the word under the cursor with F1. **Arm** a saved script to let it take orders — **Run**, when it sends its own; the **Scenario Runs** pane shows every order's script, the line it is on and what it is waiting for.
+| | A **market scenario** | A **client scenario** |
+|---|---|---|
+| acts on | the orders you receive | the orders you send |
+| with | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` | `new`, `replace`, `cancel`, `dk` |
+| in blocks | `on order` | `run`, `on sent order` |
+| is started with | **Arm…** — it waits for orders to match | **Run…** — it sends at once, on the session you choose |
+| at once | once per session it is armed for | as many runs as you like |
+| lives in | **Market** menu: Market Scenarios, Runs, Scripts, Log | **Client** menu: Client Scenarios, Runs, Scripts, Log |
+
+A script is one or the other: a block of the other kind is a problem the editor underlines. To play both sides of an order, write one of each — the loopback tour in [Scenario Examples](scenario-examples.md) does.
+
+The rest of the language — waiting, `when`, events, control, expressions — is the same on both sides. The editor checks as you type, completes words with Ctrl+Space, and explains the word under the cursor with F1. The **Scripts** pane of each side shows every order's script, the line it is on and what it is waiting for.
 
 ## A first script
 
@@ -36,22 +47,29 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 
 ## Blocks
 
-| Block | The order is | The script may |
-|---|---|---|
-| `on order where EXPR` | one you received | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` |
-| `run on SESSION` | one the script sends with `new` | `new`, `replace`, `cancel`, `dk` |
-| `on sent order where EXPR` | one sent some other way — by hand, or by Message Replay | `replace`, `cancel`, `dk` |
+| Block | Side | The order is | The script may |
+|---|---|---|---|
+| `on order where EXPR` | market | one you received | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` |
+| `run` or `run on SESSION` | client | one the script sends with `new` | `new`, `replace`, `cancel`, `dk` |
+| `on sent order where EXPR` | client | one sent some other way — by hand, or by Message Replay | `replace`, `cancel`, `dk` |
 
 `where` is optional. In it the order's columns are names by themselves — `symbol == 'IBM' and order_qty >= 1000` — and `order.symbol` works too.
 
-A received order is offered to the armed scenarios in the order they were armed, and to each script's blocks from the top. The first block whose `where` is true takes it, and an order has one script. Orders that were there before a scenario was armed are left alone. An order you send by hand is offered to the `on sent order` blocks the same way; one a `run on` script sent belongs to that script.
+## Market scenarios
 
-## Sending orders
+The script at the top of this page is one: `on order` blocks, armed with **Arm…**, which asks for an optional session (only its orders are taken), a speed and a seed.
+
+- A received order is offered to the armed runs in their **Priority** — first armed, first offered — and to each script's blocks from the top. The first block whose `where` is true takes it, and an order has one script. **Move Up** and **Move Down** in **Market Runs** change a run's place in line: put the narrow script (`where symbol == 'IBM'`) ahead of the catch-all.
+- Orders that were there before a scenario was armed are left alone.
+- Arm as many scenarios as you like, and the same one for several sessions. Only a second arming of the same script for the same sessions is refused — it could never be given an order.
+- A market run stays armed until you stop it, and is armed again, in the same place in line, after a restart.
+
+## Client scenarios
 
 ```scenario
 scenario burst
 
-run on LOOP-CLI
+run
     let clients = ['ACME', 'GLOBEX']
     repeat 20 at 5/s with sym = ['IBM', 'MSFT']
         new symbol: sym, side: buy, qty: 100 * (n + 1), price: 25.00, client: clients[n % 2]
@@ -63,11 +81,14 @@ run on LOOP-CLI
         pass
 ```
 
-- A `run on` block starts as soon as the script is run, so its session must be logged on: **Run…** refuses a session that is not active. `new` sends the order; from then on the script is that order's, and one script sends one order.
+- `run` leaves the session to **Run…**, which asks for it — so one script runs on any session, and on several at once. `run on SESSION` names it in the script: Run… then opens on that session, and the one you choose there wins.
+- A `run` block starts as soon as the script is run, so the session must be logged on: Run… refuses one that is not active. `new` sends the order; from then on the script is that order's, and one script sends one order.
 - Put `new` inside a `repeat` and every pass is a script of its own with an order of its own. `at 5/s` or `every 200ms` paces the passes, which do not wait for one another. Lines outside that `repeat` run once, before any order exists: they may set names, wait and log, but not act.
 - `replace` and `cancel` name the order's current ClOrdID by themselves. A `replace` changes only the terms it gives; the rest keep the order's last accepted values, as the Replace dialog would.
 - `order.pending_action` is the request still unanswered — never stack one request on another unless that is what you are testing.
-- A run that only sends ends by itself when its last script does. One that also waits for orders stays armed until you stop it.
+- **Run it as often as you like, while it is running.** Every Run… is a run of its own, with its own orders, seed and verdict, listed in **Client Runs**; **Stop all** in the editor stops every live run of the open script, **Stop** in Client Runs stops one. Editing a script does not disturb its live runs: each keeps the version it started with.
+- A run that only sends ends by itself when its last script does.
+- `on sent order` is the other client block: it waits, like a market scenario, for orders sent some other way — by hand from Sent Orders, or by Message Replay — and minds them. An order a `run` script sent belongs to that script and is never offered. The session chosen at Run…, if any, is the only one it watches; such a run stays live until stopped, and has a Priority among the client runs that wait.
 
 ## Actions
 
@@ -209,13 +230,15 @@ Two functions exist only in scenarios:
 - A failing expression, a refused action or a trade target that matches nothing fails the order's script and names the line. With `on error continue` the last two raise an `error` event instead.
 - More than 1000 actions on one order fails its script. A desk that re-notifies every dispute, facing a client that disputes every report, would otherwise go round for ever — a re-notification is a new trade.
 - A script can do more than the blotter offers: the buttons hide Fill on a rejected order, the engine does not refuse it. That is deliberate — a test venue misbehaves on purpose — so check your `if`s.
-- Scripts live in the server's memory. After a restart the run is marked `interrupted` and its orders' scripts are gone. A scenario that only waits for orders is armed again as a new run; one that sends orders is not run again — a restart must not send anything.
-- A script can fail in its first instant — `new` refused because the session had just dropped. The run then ends at once: the Scenarios pane says so in its status line, and **Scenario Log** and **Scenario Scripts** say why. **Stop** on a run that is already over changes nothing.
+- Scripts live in the server's memory. After a restart the run is marked `interrupted` and its orders' scripts are gone. A scenario that only waits for orders is armed again as a new run, in the place in line it had; one that sends orders is not run again — a restart must not send anything.
+- A script can fail in its first instant — `new` refused because the session had just dropped. The run then ends at once: the editor says so in its status line, and that side's **Log** and **Scripts** panes say why. **Stop** on a run that is already over changes nothing.
 
 ## Running
 
-- **Arm…** (**Run…** for a script that sends) asks for an optional session (only its orders are taken by the `on` blocks), a speed (2 runs the script's waits twice as fast — mind that real answers do not get faster) and a seed.
-- The sending examples run over two loopback sessions, `LOOP-CLI` facing `LOOP-MKT`: **Help › Scenario Examples › Set up loopback sessions** creates and starts them.
-- **Scenario Runs** lists the runs with their orders' scripts. **Pause** parks every script before its next line; **Stop** ends the run; **Detach** gives one order back to you.
+- **Arm…** (Market Scenarios) and **Run…** (Client Scenarios) ask for a session, a speed (2 runs the script's waits twice as fast — mind that real answers do not get faster) and a seed (blank: the script's `seed`, or a random one, shown in the Runs pane so a run can be repeated).
+- Any number of runs may be live at once, on either side. The server stops taking orders into scripts at 20,000 live scripts, and a single run at 10,000 orders; the run's log says so.
+- **Runs** lists a side's runs. **Pause** parks every script of a run before its next line; **Stop** ends it; **Move Up**/**Move Down** change its Priority. **Scripts** lists the orders' scripts — **Detach** gives one order back to you — and selecting a row moves the editor to its line. **Log** holds what the scripts `log`, and why one failed.
+- A scenario cannot be deleted while it has a live run. Names are shared by the two sides: a client and a market scenario cannot have the same one.
+- The client examples run over two loopback sessions, `LOOP-CLI` facing `LOOP-MKT`: **Help › Scenario Examples › Set up loopback sessions** creates and starts them, and **Run the loopback tour** also arms the venue and runs the client.
 - Orders a script has taken carry its name and run in the **Scenario** column of the order blotters.
-- An archive that would take orders, trades or run rows is refused while a scenario is armed.
+- An archive that would take orders, trades or run rows is refused while a scenario is armed or running.

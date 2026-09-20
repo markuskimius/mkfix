@@ -2,8 +2,9 @@
 #
 # Shows:   many orders from one script — `repeat N at RATE with …`, the pass
 #          counter `n`, seeded RANDOM(), client, expire, handl_inst
-# Needs:   the loopback sessions with a market-side scenario armed
-# Watch:   Sent Orders filling up at five a second; Scenario Scripts, one row
+# Needs:   the loopback sessions with a market scenario armed; run on LOOP-CLI.
+#          Run it twice at once for two bursts side by side
+# Watch:   Sent Orders filling up at five a second; Client Scripts, one row
 #          an order
 # Outcome: twenty orders across three symbols and two clients, sizes and prices
 #          drawn from the seed, each its own script that expects its
@@ -12,7 +13,7 @@
 scenario order-burst
 seed 20260920                   # the same twenty orders every run
 
-run on LOOP-CLI
+run
     # Lines outside the `repeat` that sends run once, before any order exists.
     let clients = ['ACME', 'GLOBEX']
     log 'sending 20 orders'

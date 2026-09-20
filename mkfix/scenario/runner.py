@@ -8,10 +8,16 @@ whose `where` is true owns it, and an order has one owner.
 
 Three kinds of block. `on order` takes received orders and `on sent order`
 takes orders sent some other way (by hand, by Message Replay): both wait,
-armed, for an order to match. `run on SESSION` sends its own: it starts at
-once, and where its `new` sits inside a `repeat`, every pass is a script of
-its own with an order of its own, started at the pace the `repeat` asks for.
-A run with nothing armed ends by itself when its last script does.
+armed, for an order to match. `run` sends its own: it starts at once, and
+where its `new` sits inside a `repeat`, every pass is a script of its own
+with an order of its own, started at the pace the `repeat` asks for. A run
+with nothing armed ends by itself when its last script does.
+
+A script is for one side (`Scenario.side`), and so is its run. Any number of
+runs may be live at once, of one script or of many: a client script run
+three times sends three sets of orders, on three sessions if asked. Runs
+that wait for orders are offered them in `runs` order — their priority,
+which `move` changes.
 """
 
 from __future__ import annotations
@@ -56,13 +62,27 @@ class Run:
     scenario: Scenario
     seed: int
     speed: float = 1.0
-    session: str | None = None            # only this session's orders, when given
+    # Where `run` blocks send (over the session a block names, when given)
+    # and the only session whose orders the `on` blocks are offered.
+    session: str | None = None
     status: str = "armed"                 # armed | finished | stopped
     generators: list[Instance] = field(default_factory=list)
     paused: bool = False
     instances: list[Instance] = field(default_factory=list)
     log: list[tuple[float, int | None, int, str]] = field(default_factory=list)   # (time, order id, line, text)
     _gates: list[tuple[Any, Any]] = field(default_factory=list)
+
+    @property
+    def side(self) -> str:
+        return self.scenario.side
+
+    @property
+    def waits(self) -> bool:
+        """It has `on` blocks: it is offered orders, and stays armed until stopped."""
+        return any(b.kind != vocab.CLIENT for b in self.scenario.blocks)
+
+    def session_of(self, block: Any) -> str | None:
+        return self.session or block.session
 
     @property
     def verdict(self) -> str:
@@ -81,11 +101,13 @@ class ScenarioRunner:
     BUSTED: tuple[str, ...] = ("Cancel", "TradeCancel")
 
     def __init__(self, engine: FixEngine, clock: Clock | None = None, *,
-                 max_actions: int = 1000, max_instances: int = 10000) -> None:
+                 max_actions: int = 1000, max_instances: int = 10000, max_live: int = 20000) -> None:
         self.engine = engine
         self.scheduler = clock.scheduler if clock is not None else Scheduler()
         self.clock = clock if clock is not None else Clock(self.scheduler)
         self.max_actions, self.max_instances = max_actions, max_instances
+        self.max_live = max_live              # live scripts, every run together
+        self.live = 0
         self.runs: list[Run] = []
         self.owners: dict[int, Instance] = {}
         self.on_change: Callable[[Instance], None] | None = None     # status, line, waiting_for
@@ -101,10 +123,11 @@ class ScenarioRunner:
     def arm(self, scenario: Scenario, *, session: str | None = None, seed: int | None = None,
             speed: float = 1.0, start: bool = True) -> Run:
         """Start a run: offer orders to ``scenario``'s `on order` and `on sent
-        order` blocks, and start its `run on` blocks. The caller has checked
-        the script: a scenario with errors is not armed.
+        order` blocks, and start its `run` blocks — on ``session`` when one is
+        given, else on the session each names. The caller has checked the
+        script: a scenario with errors is not armed.
 
-        ``start=False`` arms without starting the `run on` blocks, for a
+        ``start=False`` arms without starting the `run` blocks, for a
         caller that must record the run before anything can happen in it —
         a script may fail, and the run end, in its first instant — and then
         calls `start(run)`."""
@@ -113,11 +136,14 @@ class ScenarioRunner:
         for block in scenario.blocks:
             if block.kind != vocab.CLIENT:
                 continue
-            target = self.engine.sessions.get(block.session)
+            name = session or block.session
+            if not name:
+                raise ScenarioError(f"line {block.line}: `run` names no session, so choose the one to send on")
+            target = self.engine.sessions.get(name)
             if target is None:
-                raise ScenarioError(f"`run on {block.session}`: no such session")
+                raise ScenarioError(f"`run` on {name}: no such session")
             if not target.is_active:
-                raise ScenarioError(f"`run on {block.session}`: the session is not active — start it, and wait "
+                raise ScenarioError(f"`run` on {name}: the session is not active — start it, and wait "
                                     "for it to log on, before running a script that sends on it")
         if speed <= 0:
             raise ScenarioError("speed must be more than zero")
@@ -132,7 +158,7 @@ class ScenarioRunner:
         return run
 
     def start(self, run: Run) -> None:
-        """Start the run's `run on` blocks."""
+        """Start the run's `run` blocks."""
         for block in run.scenario.blocks:
             if block.kind != vocab.CLIENT:
                 continue
@@ -151,8 +177,12 @@ class ScenarioRunner:
         if len(run.instances) >= self.max_instances:
             self._log(None, block.line, f"no more orders: the run already has {self.max_instances}", run=run)
             return False
+        if self.live >= self.max_live:
+            self._log(None, block.line, f"no more orders: {self.max_live} scripts are live already", run=run)
+            return False
         instance = Instance(self, run, block, None, len(run.instances), body=body, vars=names, n=n)
         run.instances.append(instance)
+        self.live += 1
         self._claims[instance.tag] = instance
         instance.start()
         return True
@@ -172,6 +202,22 @@ class ScenarioRunner:
     def stop_all(self) -> None:
         for run in list(self.runs):
             self.stop(run)
+
+    def offered(self, side: str | None = None) -> list[Run]:
+        """The live runs that wait for orders, first offered first."""
+        return [r for r in self.runs if r.status == "armed" and r.waits and side in (None, r.side)]
+
+    def move(self, run: Run, up: bool) -> bool:
+        """One place earlier or later among its side's waiting runs. False at the end of the line."""
+        peers = self.offered(run.side)
+        if run not in peers:
+            return False
+        at = peers.index(run) + (-1 if up else 1)
+        if not 0 <= at < len(peers):
+            return False
+        a, b = self.runs.index(run), self.runs.index(peers[at])
+        self.runs[a], self.runs[b] = self.runs[b], self.runs[a]
+        return True
 
     def pause(self, run: Run) -> None:
         """Scripts park before their next line; a wait already under way runs out."""
@@ -241,7 +287,12 @@ class ScenarioRunner:
                     self._log(None, block.line, f"order {order['cl_ord_id']} not taken: the run already has "
                                                 f"{self.max_instances} orders", run=run)
                     return
+                if self.live >= self.max_live:
+                    self._log(None, block.line, f"order {order['cl_ord_id']} not taken: {self.max_live} scripts "
+                                                "are live already", run=run)
+                    return
                 instance = Instance(self, run, block, order, len(run.instances))
+                self.live += 1
                 instance.main.event = event_map(ev.kinds, ev.source, request=ev.request, msg=ev.msg)
                 run.instances.append(instance)
                 self.owners[order["id"]] = instance
@@ -266,6 +317,8 @@ class ScenarioRunner:
         if instance.key is not None and self.owners.get(instance.key) is instance:
             del self.owners[instance.key]
         self._claims.pop(instance.tag, None)
+        if not instance.generator:
+            self.live -= 1
         if instance.message:
             self._log(instance, instance.line, f"{instance.status}: {instance.message}")
         self._maybe_finished(instance.run)
@@ -273,7 +326,7 @@ class ScenarioRunner:
     def _maybe_finished(self, run: Run) -> None:
         """A run that only sends is over when its last script is: nothing of
         it waits for orders. One with `on` blocks stays armed until stopped."""
-        if run.status != "armed" or any(b.kind != vocab.CLIENT for b in run.scenario.blocks):
+        if run.status != "armed" or run.waits:
             return
         if any(i.live for i in [*run.generators, *run.instances]):
             return

@@ -105,7 +105,7 @@ archive = { group = "config" }
 # what a run ran. All four tables are written only through fix_cmd, so the
 # runner's view of what is armed never drifts from the rows.
 [tables.fix_scenarios]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", source = "TEXT NOT NULL DEFAULT ''", problems = "INTEGER DEFAULT 0", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", side = "TEXT DEFAULT ''", source = "TEXT NOT NULL DEFAULT ''", problems = "INTEGER DEFAULT 0", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
 versioned = true
 archive = { group = "config" }
 
@@ -113,17 +113,17 @@ archive = { group = "config" }
 # re-arms them at startup after marking what the last process left behind
 # `interrupted`. `version` is the scenario row's _mkio_version the run used.
 [tables.fix_scenario_runs]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scenario = "TEXT NOT NULL", version = "INTEGER DEFAULT 0", session = "TEXT DEFAULT ''", seed = "INTEGER DEFAULT 0", speed = "REAL DEFAULT 1", status = "TEXT DEFAULT 'armed'", verdict = "TEXT DEFAULT ''", orders = "INTEGER DEFAULT 0", live = "INTEGER DEFAULT 0", passed = "INTEGER DEFAULT 0", failed = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", ended_at = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scenario = "TEXT NOT NULL", side = "TEXT DEFAULT ''", priority = "INTEGER DEFAULT 0", version = "INTEGER DEFAULT 0", session = "TEXT DEFAULT ''", seed = "INTEGER DEFAULT 0", speed = "REAL DEFAULT 1", status = "TEXT DEFAULT 'armed'", verdict = "TEXT DEFAULT ''", orders = "INTEGER DEFAULT 0", live = "INTEGER DEFAULT 0", passed = "INTEGER DEFAULT 0", failed = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", ended_at = "TEXT DEFAULT ''" }
 archive = { cutoff = "started_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 # One order's script within a run: where it is and what it is waiting for.
 # Written on changes of status, line or wait, not on every statement.
 [tables.fix_scenario_instances]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", order_row = "INTEGER NOT NULL", scenario = "TEXT DEFAULT ''", session_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", block_line = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", line = "INTEGER DEFAULT 0", waiting_for = "TEXT DEFAULT ''", message = "TEXT DEFAULT ''", actions = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", order_row = "INTEGER NOT NULL", scenario = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", session_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", block_line = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", line = "INTEGER DEFAULT 0", waiting_for = "TEXT DEFAULT ''", message = "TEXT DEFAULT ''", actions = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
 archive = { cutoff = "started_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_scenario_log]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", order_row = "INTEGER", scenario = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL", line = "INTEGER DEFAULT 0", text = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", order_row = "INTEGER", scenario = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL", line = "INTEGER DEFAULT 0", text = "TEXT DEFAULT ''" }
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 # ─��─ Transaction Services ───────────────────────────────────────────
@@ -285,21 +285,22 @@ filterable = ["scope"]
 [services.scenarios_query]
 protocol = "query"
 primary_table = "fix_scenarios"
+filterable = ["side"]
 
 [services.scenario_runs_query]
 protocol = "query"
 primary_table = "fix_scenario_runs"
-filterable = ["scenario", "status"]
+filterable = ["scenario", "status", "side"]
 
 [services.scenario_instances_query]
 protocol = "query"
 primary_table = "fix_scenario_instances"
-filterable = ["run_id", "scenario", "status", "session_id"]
+filterable = ["run_id", "scenario", "status", "session_id", "side"]
 
 [services.scenario_log_query]
 protocol = "query"
 primary_table = "fix_scenario_log"
-filterable = ["run_id", "scenario"]
+filterable = ["run_id", "scenario", "side"]
 
 [services.templates_list]
 protocol = "reqrep"

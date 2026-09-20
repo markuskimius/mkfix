@@ -9,7 +9,10 @@
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alt = (words) => [...words].sort((a, b) => b.length - a.length).map((w) => esc(w).replace(/ /g, "\\s+")).join("|");
 
-const HEADERS = ["scenario", "seed", "on error", "on sent order", "on order", "run on"];
+const HEADERS = ["scenario", "seed", "on error", "on sent order", "on order", "run"];
+// A script is for one side, so an editor offers only its side's blocks.
+const SIDE_BLOCKS = { market: ["on order"], client: ["run", "on sent order"] };
+const BLOCKS = Object.values(SIDE_BLOCKS).flat();
 const CLAUSES = ["where", "within", "or timeout", "else fail", "using", "every", "with", "and", "or", "not", "in",
   "last trade", "first trade", "trade where", "continue"];
 
@@ -93,7 +96,7 @@ export function blockKindAt(lines, row) {
     if (!line.trim() || /^\s/.test(line) || /^#/.test(line)) continue;
     if (/^on\s+sent\s+order\b/i.test(line)) return "attached";
     if (/^on\s+order\b/i.test(line)) return "market";
-    if (/^run\s+on\b/i.test(line)) return "client";
+    if (/^run\b/i.test(line)) return "client";
     return null;
   }
   return null;
@@ -101,7 +104,8 @@ export function blockKindAt(lines, row) {
 
 const item = (value, meta, doc, extra = {}) => ({ caption: value, value, meta, doc: doc || "", ...extra });
 
-// What could come next at (row, col). `extras` = { templates: {scope: [names]}, sessions: [names] }.
+// What could come next at (row, col). `extras` = { templates: {scope: [names]}, sessions: [names],
+// side: "client" | "market" — the editor's side, which narrows the blocks offered }.
 export function completionsAt(vocab, lines, row, col, extras = {}) {
   const line = (lines[row] ?? "").slice(0, col);
   const kind = blockKindAt(lines, row);
@@ -120,8 +124,11 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
   }
 
   if (!/^\s/.test(lines[row] ?? "") && trimmed === "") {
-    return HEADERS.map((h) => item(h, "block", vocab.statements[h]?.[1] ?? vocab.statements[h]?.doc));
+    const mine = SIDE_BLOCKS[extras.side];
+    return HEADERS.filter((h) => !mine || !BLOCKS.includes(h) || mine.includes(h))
+      .map((h) => item(h, "block", vocab.statements[h]?.[1] ?? vocab.statements[h]?.doc));
   }
+  if (/^run$/.test(trimmed)) return [item("on ", "session", "Name the session here, or leave it to be chosen at Run…", { caption: "on" })];
   if (/^run on$/.test(trimmed)) return (extras.sessions ?? []).map((s) => item(s, "session"));
 
   if (trimmed === "") {

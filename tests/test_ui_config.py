@@ -1305,7 +1305,20 @@ class TestMenubar:
     most a console warning, and the order of the menus is a layout the eye
     learns, so both are pinned here."""
 
-    MENUS = ["Sessions", "Messages", "Edit", "Trading", "Tools", "Layout", "Window", "Help"]
+    MENUS = ["FIX", "Edit", "Client", "Market", "To Do", "Config", "Layout", "Window", "Help"]
+    # What each menu of panes opens, in order (None is a separator): FIX is
+    # the wire, Client the orders we send and Market the orders we receive
+    # (blotters, then that side's scenarios), To Do what has no side yet,
+    # Config what the rest is set up with.
+    PANES = {
+        "FIX": ["session-blotter", None, "raw-messages", "message-detail"],
+        "Client": ["order-blotter", "trade-blotter", None,
+                   "client-scenarios", "client-runs", "client-scripts", "client-log"],
+        "Market": ["market-order-blotter", "market-trade-blotter", None,
+                   "market-scenarios", "market-runs", "market-scripts", "market-log"],
+        "To Do": ["ioi-viewer", "allocation-viewer", "replay-control"],
+        "Config": ["templates", "dictionaries"],
+    }
     BUILTIN_ACTIONS = {
         "pane.show", "edit.copy", "edit.selectAll", "edit.undo", "edit.redo",
         "layout.save", "layout.reset",
@@ -1315,6 +1328,19 @@ class TestMenubar:
 
     def test_menu_order(self, app_config):
         assert [m["label"] for m in app_config["menubar"]] == self.MENUS
+
+    def test_each_pane_menu_holds_what_it_should(self, app_config):
+        by = {m["label"]: m["items"] for m in app_config["menubar"]}
+        for label, panes in self.PANES.items():
+            assert [None if i.get("sep") else i.get("args") for i in by[label]] == panes, label
+            assert all(i.get("sep") or i["action"] == "pane.show" for i in by[label]), label
+
+    def test_every_pane_is_on_exactly_one_menu(self, app_config):
+        """A pane no menu opens can only be reached from a saved layout; one
+        on two menus has two homes to keep in step."""
+        shown = _menubar_pane_ids(app_config["menubar"])
+        assert sorted(shown) == sorted(set(shown)), "a pane is on two menus"
+        assert set(app_config["panes"]) == set(shown), set(app_config["panes"]) ^ set(shown)
 
     def test_every_item_is_an_action_separator_or_submenu(self, app_config):
         for menu in app_config["menubar"]:
@@ -2405,7 +2431,7 @@ class TestTemplates:
     `fill` copying the picked row's terms into the form — and closes on a
     Save-as name, under which the fix_cmd op keeps the terms it was sent
     (`TEMPLATE_TERMS` in fix_command.py, `save_template` in the engine, a
-    name unique within its scope). One Templates pane under the Trading menu
+    name unique within its scope). One Templates pane under the Config menu
     edits and deletes; no blotter button opens a template list any more."""
 
     # fix_cmd op -> the template scope its dialog loads and saves
@@ -2511,8 +2537,8 @@ class TestTemplates:
         assert "filter" not in spec, "every scope in the one pane"
         assert toml_config["services"]["templates_query"]["primary_table"] == "fix_templates"
         assert [b["label"] for b in spec["buttons"]] == ["Edit", "Delete"]
-        trading = next(m for m in app_config["menubar"] if m["label"] == "Trading")
-        assert trading["items"][-1] == {"label": "Templates", "action": "pane.show", "args": "templates"}
+        config = next(m for m in app_config["menubar"] if m["label"] == "Config")
+        assert config["items"][0] == {"label": "Templates", "action": "pane.show", "args": "templates"}
         assert _menubar_pane_ids(app_config["menubar"]).count("templates") == 1
         for pane_id, pane in app_config["panes"].items():
             for b in pane.get("buttons", []):

@@ -416,7 +416,7 @@ class Instance:
         if st.verb == "new":
             if self.order is not None:
                 raise ScriptError(st.line, "this script has already sent its order: one order per script")
-            payload["session_id"], payload["_tag"] = self.block.session, self.tag
+            payload["session_id"], payload["_tag"] = self.run.session_of(self.block), self.tag
         elif self.order is None:
             raise ScriptError(st.line, f"`{st.verb}` before `new`: this script has no order yet")
         else:

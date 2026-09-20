@@ -214,13 +214,13 @@ class _Parser:
                         raise _Problem("Expected `continue` or `fail`", line.pos)
                     line.end()
                     scenario.on_error = choice
-                elif line.at_phrase("on order") or line.at_phrase("on sent order") or line.at_phrase("run on"):
+                elif line.at_phrase("on order") or line.at_phrase("on sent order") or line.at_phrase("run"):
                     scenario.blocks.append(self.block(line))
                 else:
                     word = (line.words_ahead(1) or [line.text.split()[0]])[0]
                     raise _Problem(
                         f"Expected `scenario`, `seed`, `on error`, or a block (`on order`, `on sent order`, "
-                        f"`run on`), got {word!r}", line.indent, len(line.text))
+                        f"`run`), got {word!r}", line.indent, len(line.text))
             except _Problem as p:
                 self.problem(line, p)
                 self.skip_body(line.indent)
@@ -229,12 +229,15 @@ class _Parser:
         return scenario
 
     def block(self, line: _Line) -> Block:
-        if line.take_phrase("run on"):
-            m = line.take_re(_SESSION)
-            if not m:
-                raise _Problem("Expected a session name", line.pos)
+        if line.take_phrase("run"):
+            session = None
+            if line.take_phrase("on"):
+                m = line.take_re(_SESSION)
+                if not m:
+                    raise _Problem("Expected a session name", line.pos)
+                session = m.group()
             line.end()
-            block = Block(vocab.CLIENT, line.no, line.indent, session=m.group())
+            block = Block(vocab.CLIENT, line.no, line.indent, session=session)
         else:
             kind = vocab.ATTACHED if line.take_phrase("on sent order") else vocab.MARKET
             if kind == vocab.MARKET:

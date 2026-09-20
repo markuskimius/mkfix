@@ -151,6 +151,18 @@ class Scenario:
     on_error: str = "fail"            # fail | continue
     blocks: list[Block] = field(default_factory=list)
 
+    @property
+    def side(self) -> str:
+        """client | market — what its blocks make it; '' with no blocks, and
+        the first block's side for a script that (wrongly) mixes the two."""
+        from .vocab import side_of
+        return side_of(self.blocks[0].kind) if self.blocks else ""
+
+    @property
+    def needs_session(self) -> bool:
+        """True when a `run` block leaves its session to be chosen at Run…"""
+        return any(b.kind == "client" and not b.session for b in self.blocks)
+
 
 def walk(body: list[Statement]):
     """Every statement under ``body``, depth first, in source order."""

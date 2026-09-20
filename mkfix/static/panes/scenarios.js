@@ -1,5 +1,9 @@
 // Scenarios pane: the list of saved scripts and an Ace editor over the one
-// selected. Everything it knows about the language comes from the server —
+// selected. It comes in two — Client Scenarios and Market Scenarios, the same
+// pane type told its `side` in app.json — because a script is for one side:
+// a client scenario sends orders and acts on them (Run…, as many runs at once
+// as asked for), a market scenario acts on orders received (Arm…). Each lists,
+// checks, saves and follows only its own side. Everything it knows about the language comes from the server —
 // the vocabulary (`scenario_vocab`) for colouring, completion and help, and
 // `check_scenario` for the problems it underlines — so the Python parser is
 // the only thing that decides what a script means.
@@ -18,7 +22,12 @@ const TEMPLATE_SCOPES = {
   new: "order", replace: "order", cancel: "cancel", accept: "accept", reject: "reject", fill: "fill",
   "unsol cxl": "unsolicited", restate: "restate", dk: "dk", correct: "correct", bust: "bust", renotify: "renotify",
 };
-const STARTER = (name) => `scenario ${name}\n\non order\n    after 250ms\n    accept\n`;
+const STARTER = {
+  market: (name) => `scenario ${name}\n\non order\n    after 250ms\n    accept\n`,
+  client: (name) => `scenario ${name}\n\nrun\n    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 100.00\n`
+    + `    expect ack within 2s\n    pass\n`,
+};
+const LIVE = ["armed", "paused"];
 
 let aceReady = null;
 function loadScript(src) {
@@ -83,7 +92,7 @@ function loadAce(vocab) {
       // A line that opens a block indents the next one.
       Mode.prototype.getNextLineIndent = function (state, line, tab) {
         const indent = this.$getIndent(line);
-        const opens = /^\s*(on\s+(sent\s+)?order\b|run\s+on\b|when\b|if\b|else\b|while\b|repeat\b)/i.test(line.replace(/#.*$/, ""));
+        const opens = /^\s*(on\s+(sent\s+)?order\b|run\b|when\b|if\b|else\b|while\b|repeat\b)/i.test(line.replace(/#.*$/, ""));
         return opens ? indent + tab : indent;
       };
       exports.Mode = Mode;
@@ -102,6 +111,9 @@ function loadAce(vocab) {
 registerPaneType("scenarios", async (spec, app, host) => {
   const client = await ensureMkio(app.config?.mkio?.url);
   const cmd = (command, data = {}) => client.send("fix_cmd", { command, ...data }, { op: command });
+  const side = spec.side === "client" ? "client" : "market";
+  const Side = side === "client" ? "Client" : "Market";
+  const startWord = side === "client" ? "Run" : "Arm";
 
   host.innerHTML = `
     <div class="scn-pane">
@@ -109,8 +121,8 @@ registerPaneType("scenarios", async (spec, app, host) => {
         <button class="mkui-btn" data-act="new">New</button>
         <button class="mkui-btn" data-act="example">From example…</button>
         <button class="mkui-btn" data-act="save" disabled>Save</button>
-        <button class="mkui-btn" data-act="arm" disabled>Arm…</button>
-        <button class="mkui-btn" data-act="stop" disabled>Stop run</button>
+        <button class="mkui-btn" data-act="arm" disabled>${startWord}…</button>
+        <button class="mkui-btn" data-act="stop" disabled>Stop all</button>
         <span class="scn-gap"></span>
         <button class="mkui-btn" data-act="import">Import</button>
         <button class="mkui-btn" data-act="export" disabled>Export</button>
@@ -150,38 +162,47 @@ registerPaneType("scenarios", async (spec, app, host) => {
   let current = null;                   // the name open in the editor
   let saved = "";                       // its text as last saved
   let problems = 0;
-  let sends = false;
+  let checked = { needs_session: false, session: "" };
   let markers = [];
   let liveMarkers = [];
-  let extras = { sessions: [], templates: {}, templateScopes: TEMPLATE_SCOPES };
+  let extras = { sessions: [], templates: {}, templateScopes: TEMPLATE_SCOPES, side };
   const sessions = new Map();
   const templates = new Map();
 
   const dirty = () => current !== null && editor.getValue() !== saved;
-  const liveRun = (name) => [...runs.values()].find((r) => r.scenario === name && (r.status === "armed" || r.status === "paused"));
+  const liveRuns = (name) => [...runs.values()].filter((r) => r.scenario === name && LIVE.includes(r.status));
 
   function renderList() {
     const names = [...scenarios.keys()].sort((a, b) => a.localeCompare(b));
     listEl.innerHTML = names.map((name) => {
       const row = scenarios.get(name);
-      const run = liveRun(name);
-      const badge = run ? `<span class="scn-badge scn-${run.status}">${run.status}${run.live ? ` · ${run.live}` : ""}</span>`
+      const live = liveRuns(name);
+      const scripts = live.reduce((n, r) => n + (r.live || 0), 0);
+      const state = live.length && live.every((r) => r.status === "paused") ? "paused" : "armed";
+      const what = live.length > 1 ? `${live.length} runs` : side === "client" && state === "armed" ? "running" : state;
+      const badge = live.length ? `<span class="scn-badge scn-${state}">${what}${scripts ? ` · ${scripts}` : ""}</span>`
         : row.problems ? `<span class="scn-badge scn-problems">${row.problems} problem${row.problems === 1 ? "" : "s"}</span>` : "";
       return `<div class="scn-item${name === current ? " scn-current" : ""}" data-name="${name.replace(/"/g, "&quot;")}">
         <span class="scn-name"></span>${badge}</div>`;
-    }).join("") || `<div class="scn-empty">No scenarios yet. <b>New</b> starts one; <b>From example…</b> copies a bundled one.</div>`;
+    }).join("") || `<div class="scn-empty">No ${side} scenarios yet — scripts that ${side === "client"
+      ? "send orders and act on them" : "act on the orders you receive"}. <b>New</b> starts one; <b>From example…</b> copies a bundled one.</div>`;
     listEl.querySelectorAll(".scn-item").forEach((el) => { el.querySelector(".scn-name").textContent = el.dataset.name; });
   }
 
   function renderButtons() {
-    const run = current && liveRun(current);
+    const live = current ? liveRuns(current) : [];
     button("save").disabled = !dirty();
-    button("arm").disabled = !current || dirty() || problems > 0 || !!run;
-    button("stop").disabled = !run;
+    // A live run is no bar to another: a client script runs as often as asked,
+    // a market script is armed once per session (the server refuses a repeat).
+    button("arm").disabled = !current || dirty() || problems > 0;
+    button("stop").disabled = !live.length;
+    button("stop").textContent = live.length > 1 ? `Stop all (${live.length})` : "Stop run";
     button("export").disabled = !current;
-    button("delete").disabled = !current || !!run;
+    button("delete").disabled = !current || live.length > 0;
+    button("delete").title = live.length ? "Stop its runs first" : "";
     button("arm").title = !current ? "" : dirty() ? "Save first" : problems ? "Fix the problems first"
-      : run ? "Already running" : sends ? "Send this script's orders, and arm its `on` blocks" : "Let this script take matching orders";
+      : side === "client" ? `Send this script's orders${live.length ? " — another run beside the " + live.length + " live" : ""}`
+        : "Let this script take matching orders";
   }
 
   function status(text, kind = "") {
@@ -201,7 +222,7 @@ registerPaneType("scenarios", async (spec, app, host) => {
     const seq = ++checkSeq;
     let result;
     try {
-      result = await cmd("check_scenario", { source: editor.getValue() });
+      result = await cmd("check_scenario", { source: editor.getValue(), side });
     } catch (err) {
       status(`check failed: ${err.message ?? err}`, "error");
       return;
@@ -213,9 +234,7 @@ registerPaneType("scenarios", async (spec, app, host) => {
       session.addMarker(new Range(d.line - 1, d.col, d.line - 1, Math.max(d.end, d.col + 1)), `scn-mark-${d.severity}`, "text"));
     session.setAnnotations(result.diagnostics.map((d) => ({ row: d.line - 1, column: d.col, text: d.message, type: d.severity })));
     problems = result.errors;
-    // A script that sends its own orders is run; one that only waits for orders is armed.
-    sends = result.blocks.some((b) => b.kind === "client");
-    button("arm").textContent = sends ? "Run…" : "Arm…";
+    checked = { needs_session: !!result.needs_session, session: result.session ?? "" };
     const first = result.diagnostics.find((d) => d.severity === "error");
     status(problems ? `${problems} problem${problems === 1 ? "" : "s"} — line ${first.line}: ${first.message}`
       : result.diagnostics.length ? `${result.diagnostics.length} warning(s)` : "No problems", problems ? "error" : "ok");
@@ -228,11 +247,13 @@ registerPaneType("scenarios", async (spec, app, host) => {
     liveMarkers.forEach(({ id, row }) => { session.removeMarker(id); session.removeGutterDecoration(row, "scn-live-gutter"); });
     liveMarkers = [];
     if (!current || dirty()) return;
-    const run = liveRun(current);
-    if (!run) return;
+    // Every live run of this text: a run of an earlier version is on other lines.
+    const version = scenarios.get(current)?._mkio_version;
+    const mine = new Set(liveRuns(current).filter((r) => version == null || !r.version || r.version === version).map((r) => r.id));
+    if (!mine.size) return;
     const byLine = new Map();
     for (const inst of instances.values()) {
-      if (inst.run_id !== run.id || !["running", "listening"].includes(inst.status) || !inst.line) continue;
+      if (!mine.has(inst.run_id) || !["running", "listening"].includes(inst.status) || !inst.line) continue;
       byLine.set(inst.line, (byLine.get(inst.line) ?? 0) + 1);
     }
     for (const [line, count] of byLine) {
@@ -241,7 +262,8 @@ registerPaneType("scenarios", async (spec, app, host) => {
       liveMarkers.push({ id: session.addMarker(new Range(row, 0, row, 1), "scn-live-line", "fullLine"), row, count });
     }
     if (byLine.size && !problems) {
-      status([...byLine].sort((a, b) => a[0] - b[0]).map(([l, c]) => `line ${l} ×${c}`).join("   ") + "   — scripts waiting here", "live");
+      status([...byLine].sort((a, b) => a[0] - b[0]).map(([l, c]) => `line ${l} ×${c}`).join("   ")
+        + `   — scripts waiting here${mine.size > 1 ? `, of ${mine.size} runs` : ""}`, "live");
     }
   }
 
@@ -250,14 +272,14 @@ registerPaneType("scenarios", async (spec, app, host) => {
   const announced = new Set();
   let seenRuns = false;
   function announceRun() {
-    const ended = [...runs.values()].filter((r) => !["armed", "paused"].includes(r.status));
+    const ended = [...runs.values()].filter((r) => !LIVE.includes(r.status));
     if (!seenRuns) { ended.forEach((r) => announced.add(r.id)); seenRuns = true; return; }   // history, not news
     for (const r of ended) {
       if (announced.has(r.id)) continue;
       announced.add(r.id);
       if (r.scenario !== current) continue;
       const tally = `${r.orders} order${r.orders === 1 ? "" : "s"}, ${r.passed} passed, ${r.failed} failed`;
-      if (r.verdict === "failed") status(`Run ${r.id} ${r.status}: FAILED (${tally}) — Scenario Log and Scenario Scripts say why`, "error");
+      if (r.verdict === "failed") status(`Run ${r.id} ${r.status}: FAILED (${tally}) — ${Side} Log and ${Side} Scripts say why`, "error");
       else status(`Run ${r.id} ${r.status}${r.verdict ? ": " + r.verdict : ""} (${tally})`, r.verdict ? "ok" : "");
     }
   }
@@ -291,9 +313,9 @@ registerPaneType("scenarios", async (spec, app, host) => {
     if (current === null) return;
     const source = editor.getValue();
     try {
-      await cmd("save_scenario", { name: current, source });
+      await cmd("save_scenario", { name: current, source, side });
       saved = source;
-      status(problems ? `Saved as a draft: ${problems} problem(s) keep it from being armed` : "Saved", problems ? "error" : "ok");
+      status(problems ? `Saved as a draft: ${problems} problem(s) keep it from being ${side === "client" ? "run" : "armed"}` : "Saved", problems ? "error" : "ok");
     } catch (err) {
       status(String(err.message ?? err), "error");
     }
@@ -306,9 +328,9 @@ registerPaneType("scenarios", async (spec, app, host) => {
     if (!name) return;
     if (scenarios.has(name)) { status(`${name} already exists`, "error"); return; }
     if (!(await leaveCurrent())) return;
-    const text = source ? source.replace(/^(\s*scenario\s+).*$/m, `$1${name}`) : STARTER(name);
+    const text = source ? source.replace(/^(\s*scenario\s+).*$/m, `$1${name}`) : STARTER[side](name);
     try {
-      await cmd("save_scenario", { name, source: text });
+      await cmd("save_scenario", { name, source: text, side });
       open(name, text);
     } catch (err) {
       status(String(err.message ?? err), "error");
@@ -334,10 +356,10 @@ registerPaneType("scenarios", async (spec, app, host) => {
   }
 
   async function fromExample() {
-    const { examples } = await cmd("list_examples");
+    const { examples } = await cmd("list_examples", { side });
     const menu = document.createElement("div");
     menu.className = "scn-examples";
-    menu.innerHTML = `<div class="scn-examples-head">Bundled examples — opened as a copy of your own <button class="mkui-btn">Close</button></div>`
+    menu.innerHTML = `<div class="scn-examples-head">Bundled ${side} examples — opened as a copy of your own <button class="mkui-btn">Close</button></div>`
       + examples.map((e) => `<div class="scn-example" data-name="${e.name}"><b></b><span></span></div>`).join("");
     menu.querySelectorAll(".scn-example").forEach((el, i) => {
       el.querySelector("b").textContent = examples[i].title;
@@ -372,10 +394,13 @@ registerPaneType("scenarios", async (spec, app, host) => {
       URL.revokeObjectURL(a.href);
       return;
     }
-    if (act === "arm") return app.dialog("arm_scenario", { row: { name: current } });
+    if (act === "arm") {
+      const context = { row: { name: current, ...checked } };
+      return side === "client" ? app.dialog("run_scenario", context) : app.dialog("arm_scenario", context);
+    }
     if (act === "stop") {
-      const run = liveRun(current);
-      if (run) cmd("stop_run", { run_id: run.id }).catch((err) => status(String(err.message ?? err), "error"));
+      // One run of several is stopped from the Runs pane; this stops the script.
+      cmd("stop_scenario", { name: current }).catch((err) => status(String(err.message ?? err), "error"));
       return;
     }
     if (act === "delete") {
@@ -437,11 +462,11 @@ registerPaneType("scenarios", async (spec, app, host) => {
 
   // -- subscriptions ----------------------------------------------------------------------------
   const subs = [];
-  function follow(service, map, key, after) {
-    const subid = `scn-${service}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  function follow(service, map, key, after, filter) {
+    const subid = `scn-${side}-${service}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const apply = (op, row) => { if (op === "delete") map.delete(row[key]); else map.set(row[key], row); };
     client.subscribe(service, "query", {
-      subid,
+      subid, ...(filter ? { filter } : {}),
       onSnapshot: (rows) => { map.clear(); rows.forEach((r) => apply("insert", r)); after(); },
       onUpdate: (op, row) => { apply(op, row); after(); },
       onDelta: (changes) => { changes.forEach(({ op, row }) => apply(op, row)); after(); },
@@ -449,12 +474,13 @@ registerPaneType("scenarios", async (spec, app, host) => {
     subs.push(subid);
   }
   function followAll() {
+  const mine = `side == '${side}'`;
   follow("scenarios_query", scenarios, "name", () => {
     if (current !== null && !scenarios.has(current)) { current = null; editor.setReadOnly(true); }
     renderList(); renderButtons();
-  });
-  follow("scenario_runs_query", runs, "id", () => { renderList(); renderButtons(); renderLive(); announceRun(); });
-  follow("scenario_instances_query", instances, "id", renderLive);
+  }, mine);
+  follow("scenario_runs_query", runs, "id", () => { renderList(); renderButtons(); renderLive(); announceRun(); }, mine);
+  follow("scenario_instances_query", instances, "id", renderLive, mine);
   follow("sessions_query", sessions, "session_id", () => { extras.sessions = [...sessions.keys()]; });
   follow("templates_query", templates, "id", () => {
     extras.templates = {};
@@ -469,8 +495,9 @@ registerPaneType("scenarios", async (spec, app, host) => {
     editor.gotoLine(inst.line, 0, true);
   });
   // The Help viewer's "Open in editor".
-  const unexample = app.state.subscribe("open_example", async (name) => {
-    if (!name) return;
+  const unexample = app.state.subscribe("open_example", async (wanted) => {
+    if (!wanted || wanted.side !== side) return;          // the other editor's
+    const { name } = wanted;
     app.state.set("open_example", null);
     const { source } = await cmd("get_example", { name });
     let unique = name;

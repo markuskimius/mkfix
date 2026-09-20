@@ -145,7 +145,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   and the dialog's pin keeps it open for a run: after each send the form
   keeps the terms as entered (only the Save-as name clears, so a template
   is saved once), ready for the next order to vary one of them. The
-  Templates pane under the Trading menu lists every kind for editing and
+  Templates pane under the Config menu lists every kind for editing and
   deleting. Templates live in
   the database and are shared by everyone on the server, like layouts.
   No dialog blocks the application: it floats over a workspace that stays
@@ -190,11 +190,15 @@ A FIX protocol testing engine for capital markets connectivity, built on
   report's Text. Older orders and trades are seeded once at startup from
   their recorded messages (HandlInst and trade tags; not Sent Text).
 - **Scenarios** -- Scripts that act on orders as things happen to them, in a
-  small language of their own. A script can play either side or both: answer
-  the orders you receive (`on order`), send orders of its own and manage them
-  (`run on SESSION`), or mind the orders you send by hand (`on sent order`).
-  Every order gets its own copy of the script, so the same few lines handle
-  one order or a thousand.
+  small language of their own. There are two kinds, each with its own menu,
+  editor and run panes. A **market scenario** (Market menu) answers the orders
+  you receive (`on order`): **Arm…** it and it waits for orders to match. A
+  **client scenario** (Client menu) sends orders of its own and manages them
+  (`run`), or minds the orders you send by hand (`on sent order`): **Run…** it
+  on the session you choose, as many runs at once as you like, of one script
+  or of many. A script is one kind or the other -- the editor underlines a
+  block of the wrong side. Every order gets its own copy of the script, so
+  the same few lines handle one order or a thousand.
 
   ```
   scenario slow-fill
@@ -212,31 +216,38 @@ A FIX protocol testing engine for capital markets connectivity, built on
 
   The actions are the blotter buttons -- `accept`, `reject`, `fill`,
   `unsol cxl`, `restate`, `correct`, `bust`, `renotify` on the market side;
-  `new`, `replace`, `cancel`, `dk` on the sending side -- with the dialogs'
+  `new`, `replace`, `cancel`, `dk` on the client side -- with the dialogs'
   fields as terms. `repeat 20 at 5/s` around a `new` sends twenty orders,
   each its own script; `when` reacts to events beside the main flow
   (cancel and replace requests and disputes on one side; acknowledgements,
   fills, `cancel rejected`, corrections and busts on the other); `wait` and `expect … within` wait for events,
   `after` for time (with seeded jitter, so a run repeats exactly); conditions
   are mkio expressions over the order's row, its trades, the recorded
-  versions of its row (`history`) and the event in hand. The **Scenarios**
-  pane (Trading menu) is an editor that checks as you type -- a misspelt
+  versions of its row (`history`) and the event in hand. **Client
+  Scenarios** and **Market Scenarios** are editors that check as you type -- a misspelt
   column or an action on the wrong side of an order is underlined before
   anything runs -- completes words in context (Ctrl+Space), explains the one
-  under the cursor (F1), folds blocks, and has an optional vim mode. **Arm**
-  a saved script and it takes matching orders as they arrive; **Scenario
-  Runs**, **Scenario Scripts** and **Scenario Log** show each order's script,
-  the line it is on and what it is waiting for, with Pause, Stop and Detach,
-  and the order blotters name the scenario that took an order. Sixteen
+  under the cursor (F1), folds blocks, and has an optional vim mode. Each
+  side's **Runs**, **Scripts** and **Log** panes show its runs and each
+  order's script, the line it is on and what it is waiting for, with Pause,
+  Stop and Detach, and the order blotters name the scenario that took an
+  order. Received orders are offered to the armed runs in their **Priority**
+  -- first armed, first offered -- which **Move Up**/**Move Down** change; the
+  same market script can be armed once per session. `run` may name its
+  session (`run on SESSION`) or leave it to Run…, so one client script runs
+  on several sessions at once; **Stop all** in the editor stops every live
+  run of a script, and editing one leaves its live runs on the version they
+  started with. Seventeen
   bundled examples -- an auto-acknowledge, a cancel/replace desk, a dispute
   desk, a deliberately misbehaving counterparty; a single order's lifecycle,
   a replace chase, a seeded burst of twenty orders, a DK policy, a regression
-  suite with verdicts, a minder for hand-sent orders; and a loopback tour that
-  plays both sides by itself -- open as copies from **From example…**, and
-  the language reference is under **Help**. The sending examples run over two
-  loopback sessions, this server talking to itself: **Help › Scenario
-  Language › Scenario Examples › Set up loopback sessions** creates and
-  starts them, so the tour runs on a fresh install. Scripts are versioned
+  suite with verdicts, a minder for hand-sent orders; and a loopback venue and
+  client that together play both sides -- open as copies from each editor's
+  **From example…**, and the language reference is under **Help**. The client
+  examples run over two loopback sessions, this server talking to itself:
+  **Help › Scenario Language › Scenario Examples › Set up loopback sessions**
+  creates and starts them, and **Run the loopback tour** also arms the venue
+  and runs the client, so the tour is one click on a fresh install. Scripts are versioned
   like sessions, so every Save is kept. A script can do more than the blotter
   offers -- the buttons
   hide Fill on a rejected order, the engine does not refuse it -- which is
@@ -389,14 +400,15 @@ with an error instead of starting.
    initiator pointing at the other as acceptor on the same port.
 2. **Start both sessions** -- Logon and Heartbeat messages will stream in the
    Messages pane.
-3. **Send an order** with the New button on the Sent Orders blotter -- see
+3. **Send an order** with the New button on the Sent Orders blotter (Client
+   menu; the receiving side's blotters are under Market) -- see
    it in the Messages pane and the blotter itself; click any message row to
    break it out field by field in the Detail pane. On the acceptor side it
    appears in Received Orders, where it can be accepted, rejected, filled,
    restated, or canceled unsolicited;
    fills land in Sent Trades, where they can be corrected or busted, and on
    the client side in Received Trades, where they can be DK'd.
-4. **Replay a log** from Tools > Replay Control -- load a production FIX log and
+4. **Replay a log** from To Do > Replay Control -- load a production FIX log and
    replay it into a test session.
 
 ## Configuration

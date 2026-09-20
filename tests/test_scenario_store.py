@@ -9,7 +9,7 @@ import pytest_asyncio
 from mkfix.fix.message import parse_fix
 from mkfix.scenario.clock import Scheduler, VirtualClock
 from mkfix.scenario.runner import ScenarioRunner
-from mkfix.scenario.store import ScenarioManager, example_header
+from mkfix.scenario.store import LOOPBACK, ScenarioManager, example_header
 from mkfix.services.fix_command import FixCommandService
 
 from tests.test_engine import StubSession, _fetch_all, stack  # noqa: F401
@@ -41,6 +41,12 @@ async def kit(stack):
     manager, clock = await _manager(engine)
     yield db, engine, stub, manager, clock
     await manager.stop()
+
+
+def _ask(engine):
+    svc = FixCommandService(config={}, db=MagicMock(), change_bus=MagicMock(), writer=MagicMock())
+    svc.set_engine(engine)
+    return svc._dispatch
 
 
 async def _order(engine, stub, manager, cl="C1", qty=100):
@@ -93,7 +99,13 @@ class TestScripts:
         manager = ScenarioManager(MagicMock(), MagicMock())
         listed = {e["name"]: e for e in manager.examples()}
         assert {"auto-ack", "slow-fill", "cancel-replace-desk", "dispute-desk"} <= set(listed)
-        assert all(set(e) == {"name", "title", "shows", "needs", "watch", "outcome"} for e in listed.values())
+        assert all(set(e) == {"name", "side", "title", "shows", "needs", "watch", "outcome"} for e in listed.values())
+        assert {e["side"] for e in listed.values()} == {"client", "market"}
+        client, market = manager.examples("client"), manager.examples("market")
+        assert len(client) + len(market) == len(listed) and {e["side"] for e in client} == {"client"}
+        assert {"loopback-client", "take-over", "order-burst"} <= {e["name"] for e in client}
+        assert {"loopback-venue", "auto-ack"} <= {e["name"] for e in market}
+        assert manager.example("take-over")["side"] == "client"
         assert listed["auto-ack"]["title"] == "Auto-acknowledge" and "250 ms" in listed["auto-ack"]["outcome"]
         one = manager.example("slow-fill")
         assert one["source"].startswith("# Slow fill\n") and "while order.leaves_qty > 0" in one["source"]
@@ -116,10 +128,10 @@ class TestRuns:
         (row,) = await _fetch_all(db, "SELECT * FROM fix_scenario_runs")
         assert (row["id"], row["scenario"], row["version"], row["session"], row["seed"], row["speed"], row["status"]) == (
             armed["run_id"], "slow", 2, "S1", 11, 2.0, "armed")
-        for refused, why in [(("slow",), "already armed"), (("nope",), "No scenario named")]:
-            with pytest.raises(ValueError, match=why):
-                await manager.arm(*refused)
-        with pytest.raises(ValueError, match="is armed: stop its run first"):
+        assert (row["side"], row["priority"], armed["side"]) == ("market", 1, "market")
+        with pytest.raises(ValueError, match="No scenario named"):
+            await manager.arm("nope")
+        with pytest.raises(ValueError, match="has 1 live run: stop it first"):
             await manager.delete("slow")
 
     @pytest.mark.asyncio
@@ -219,7 +231,7 @@ class TestRuns:
         await manager.save("slow", SLOW)
         await manager.arm("slow")
         await manager.stop()
-        await manager._write("upsert_scenario", ("slow", "scenario slow\non order\n    nonsense\n", 1, "", "", None))
+        await manager._write("upsert_scenario", ("slow", "market", "scenario slow\non order\n    nonsense\n", 1, "", "", None))
         manager2, _ = await _manager(engine)
         try:
             assert [r["status"] for r in await _fetch_all(db, "SELECT status FROM fix_scenario_runs")] == ["interrupted"]
@@ -237,6 +249,237 @@ class TestRuns:
         await engine.check_archive({"fix_messages": [{"id": 1}]})
         await manager.stop_run(run_id)
         await engine.check_archive({"fix_orders": [{"id": 1}], "fix_scenario_runs": [{"id": run_id}]})
+
+
+CLIENT = "scenario send\nrun\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    wait filled\n"
+MINDER = "scenario mind\non sent order\n    wait filled\n"
+
+
+class TestSides:
+    @pytest.mark.asyncio
+    async def test_a_script_is_saved_with_its_side(self, kit):
+        db, engine, stub, manager, clock = kit
+        assert (await manager.save("slow", SLOW))["side"] == "market"
+        assert (await manager.save("send", CLIENT, "client"))["side"] == "client"
+        assert (await manager.save("mind", MINDER))["side"] == "client"
+        rows = {r["name"]: r["side"] for r in await _fetch_all(db, "SELECT name, side FROM fix_scenarios")}
+        assert rows == {"slow": "market", "send": "client", "mind": "client"}
+        checked = await manager.check(CLIENT)
+        assert (checked["side"], checked["needs_session"], checked["session"]) == ("client", True, "")
+        named = await manager.check(CLIENT.replace("run\n", "run on S1\n"))
+        assert (named["needs_session"], named["session"]) == (False, "S1")
+        two = await manager.check(CLIENT.replace("run\n", "run on S1\n") + "run on S2\n    new symbol: 'A', side: buy, qty: 1\n")
+        assert two["session"] == "", "Run… opens on a session only when the script names exactly one"
+
+    @pytest.mark.asyncio
+    async def test_the_pane_it_is_saved_from_decides_and_a_draft_of_the_wrong_side_is_a_draft(self, kit):
+        db, engine, stub, manager, clock = kit
+        wrong = await manager.save("send", CLIENT, "market")
+        assert wrong["side"] == "market" and wrong["errors"] == 1
+        assert "This is a market scenario" in wrong["diagnostics"][0]["message"]
+        empty = await manager.save("blank", "scenario blank\n", "client")
+        assert empty["side"] == "client"
+        with pytest.raises(ValueError, match="client side or the market side, not 'both'"):
+            await manager.save("x", "scenario x\n", "both")
+        with pytest.raises(ValueError, match="has 1 problem"):
+            await manager.arm("send")
+
+    @pytest.mark.asyncio
+    async def test_one_name_for_both_sides(self, kit):
+        db, engine, stub, manager, clock = kit
+        await manager.save("slow", SLOW, "market")
+        with pytest.raises(ValueError, match="A market scenario is already called 'slow': choose another name"):
+            await manager.save("slow", CLIENT.replace("send", "slow"), "client")
+        assert (await manager.load("slow"))["source"] == SLOW
+
+    @pytest.mark.asyncio
+    async def test_each_sides_command_starts_only_its_own(self, kit):
+        db, engine, stub, manager, clock = kit
+        ask = _ask(engine)
+        await manager.save("slow", SLOW)
+        await manager.save("send", CLIENT)
+        with pytest.raises(ValueError, match="'send' is a client scenario: run it from Client Scenarios"):
+            await ask("arm_scenario", {"name": "send", "session": "S1"})
+        with pytest.raises(ValueError, match="'slow' is a market scenario: arm it from Market Scenarios"):
+            await ask("run_scenario", {"name": "slow"})
+        with pytest.raises(Exception, match="`run` names no session"):
+            await ask("run_scenario", {"name": "send"})
+        assert manager.live_runs() == [] and await _fetch_all(db, "SELECT * FROM fix_scenario_runs") == []
+        assert (await ask("arm_scenario", {"name": "slow"}))["side"] == "market"
+        assert (await ask("run_scenario", {"name": "send", "session": "S1"}))["side"] == "client"
+        await manager.flush()
+        assert len(stub.sent) == 1
+
+    @pytest.mark.asyncio
+    async def test_rows_are_stamped_with_the_side(self, kit):
+        db, engine, stub, manager, clock = kit
+        await manager.save("slow", SLOW)
+        await manager.save("send", CLIENT.replace("    wait filled\n", "    log 'sent'\n    wait filled\n"))
+        await manager.arm("slow")
+        await manager.arm("send", session="S1")
+        await _order(engine, stub, manager)
+        for table in ("fix_scenario_runs", "fix_scenario_instances"):
+            rows = await _fetch_all(db, f"SELECT scenario, side FROM {table} ORDER BY id")
+            assert sorted((r["scenario"], r["side"]) for r in rows) == [("send", "client"), ("slow", "market")], table
+        logged = await _fetch_all(db, "SELECT * FROM fix_scenario_log ORDER BY scenario")
+        assert [(r["scenario"], r["side"], r["text"]) for r in logged] == [
+            ("send", "client", "sent"), ("slow", "market", "working C1")]
+
+    @pytest.mark.asyncio
+    async def test_rows_from_before_sides_are_given_one(self, kit):
+        db, engine, stub, manager, clock = kit
+        await manager.save("slow", SLOW)
+        await manager.save("send", CLIENT)
+        await manager.arm("send", session="S1")
+        await manager.flush()
+        await manager.stop()
+        conn = engine.db.write_conn
+        for table in ("fix_scenarios", "fix_scenario_runs", "fix_scenario_instances", "fix_scenario_log"):
+            await (await conn.execute(f"UPDATE {table} SET side = ''")).close()
+        await (await conn.execute("INSERT INTO fix_scenario_runs (scenario, side, status) VALUES ('gone', '', 'stopped')")).close()
+        await conn.commit()
+        manager2, _ = await _manager(engine)
+        try:
+            rows = {r["name"]: r["side"] for r in await _fetch_all(db, "SELECT name, side FROM fix_scenarios")}
+            assert rows == {"slow": "market", "send": "client"}
+            runs = {r["scenario"]: r["side"] for r in await _fetch_all(db, "SELECT scenario, side FROM fix_scenario_runs")}
+            assert runs == {"send": "client", "gone": "market"}, "a run whose script is gone is taken for a market run"
+            assert {r["side"] for r in await _fetch_all(db, "SELECT side FROM fix_scenario_instances")} == {"client"}
+        finally:
+            await manager2.stop()
+
+
+class TestManyRuns:
+    @pytest.mark.asyncio
+    async def test_a_client_script_runs_as_many_times_at_once_as_asked(self, kit):
+        db, engine, stub, manager, clock = kit
+        await manager.save("send", CLIENT)
+        ids = [(await manager.arm("send", side="client", session="S1"))["run_id"] for _ in range(3)]
+        await manager.flush()
+        assert len(set(ids)) == 3 and len(stub.sent) == 3 and len(manager.live_runs("send")) == 3
+        rows = await _fetch_all(db, "SELECT * FROM fix_scenario_runs ORDER BY id")
+        assert [(r["status"], r["live"], r["priority"]) for r in rows] == [("armed", 1, 0)] * 3
+        with pytest.raises(ValueError, match="'send' has 3 live runs: stop them first"):
+            await manager.delete("send")
+        # edited while they run: each run keeps the script it started with
+        await manager.save("send", CLIENT + "    pass\n")
+        assert all(len(r.scenario.blocks[0].body) == 2 for r in manager.live_runs("send"))
+        assert await manager.stop_scenario("send") == {"stopped": 3}
+        rows = await _fetch_all(db, "SELECT * FROM fix_scenario_runs ORDER BY id")
+        assert [r["status"] for r in rows] == ["stopped"] * 3 and manager.live_runs() == []
+        assert await manager.stop_scenario("send") == {"stopped": 0}
+        await manager.delete("send")
+
+    @pytest.mark.asyncio
+    async def test_a_waiting_script_is_armed_once_for_the_same_sessions(self, kit):
+        db, engine, stub, manager, clock = kit
+        engine.sessions["S2"] = StubSession("S2")
+        await manager.save("slow", SLOW)
+        await manager.save("mind", MINDER)
+        await manager.arm("slow")
+        with pytest.raises(ValueError, match="'slow' is already armed on every session: a second run there would never"):
+            await manager.arm("slow")
+        await manager.arm("slow", session="S1")
+        await manager.arm("slow", session="S2")
+        with pytest.raises(ValueError, match="'slow' is already armed on S2"):
+            await manager.arm("slow", session="S2")
+        await manager.arm("mind")
+        with pytest.raises(ValueError, match="'mind' is already armed on every session"):
+            await manager.arm("mind")
+        assert len(manager.live_runs()) == 4
+        await manager.stop_run(1)
+        await manager.arm("slow")                       # its place is free again
+
+    @pytest.mark.asyncio
+    async def test_priority_is_the_place_in_line_and_moves(self, kit):
+        db, engine, stub, manager, clock = kit
+        ask = _ask(engine)
+        for name, body in (("a", "reject text: 'a'"), ("b", "accept"), ("c", "reject text: 'c'")):
+            await manager.save(name, f"scenario {name}\non order\n    {body}\n")
+            await manager.arm(name)
+        await manager.save("mind", MINDER)
+        await manager.save("send", CLIENT)
+        await manager.arm("mind")
+        await manager.arm("send", session="S1")
+
+        async def places():
+            rows = await _fetch_all(db, "SELECT scenario, priority FROM fix_scenario_runs ORDER BY id")
+            return {r["scenario"]: r["priority"] for r in rows}
+
+        assert await places() == {"a": 1, "b": 2, "c": 3, "mind": 1, "send": 0}, "each side has its own line"
+        await ask("move_run", {"run_id": 2, "direction": "up"})
+        assert await places() == {"a": 2, "b": 1, "c": 3, "mind": 1, "send": 0}
+        await _order(engine, stub, manager)
+        assert engine._as_sent(stub, stub.sent[-1]).get("150") == "0", "b is offered the order first now"
+        for run_id, direction, why in ((2, "up", "already first"), (3, "down", "already last"),
+                                       (5, "up", "only sends orders"), (2, "sideways", "up or down")):
+            with pytest.raises(ValueError, match=why):
+                await manager.move_run(run_id, direction)
+        await manager.stop_run(2)
+        assert await places() == {"a": 1, "b": 0, "c": 2, "mind": 1, "send": 0}
+        with pytest.raises(ValueError, match="Run 2 is not live"):
+            await manager.move_run(2, "up")
+
+    @pytest.mark.asyncio
+    async def test_a_restart_arms_again_in_the_same_order(self, kit):
+        db, engine, stub, manager, clock = kit
+        for name in ("a", "b", "c"):
+            await manager.save(name, f"scenario {name}\non order\n    accept text: '{name}'\n")
+            await manager.arm(name)
+        await manager.move_run(3, "up")
+        await manager.move_run(3, "up")
+        await manager.stop()
+        manager2, _ = await _manager(engine)
+        try:
+            assert [r.scenario.name for r in manager2.runner.offered("market")] == ["c", "a", "b"]
+            rows = await _fetch_all(db, "SELECT scenario, status, priority FROM fix_scenario_runs ORDER BY id")
+            assert [(r["scenario"], r["status"], r["priority"]) for r in rows] == [
+                ("a", "interrupted", 0), ("b", "interrupted", 0), ("c", "interrupted", 0),
+                ("c", "armed", 1), ("a", "armed", 2), ("b", "armed", 3)]
+        finally:
+            await manager2.stop()
+
+
+class TestTour:
+    @pytest.mark.asyncio
+    async def test_the_loopback_tour_in_one_step(self, kit, monkeypatch):
+        db, engine, stub, manager, clock = kit
+        from tests.test_scenario_sending import LinkedSession
+        cli, mkt = LinkedSession(engine, "LOOP-CLI"), LinkedSession(engine, "LOOP-MKT")
+        cli.peer, mkt.peer = mkt, cli
+
+        async def setup(port=None, start=True):
+            engine.sessions.update({"LOOP-CLI": cli, "LOOP-MKT": mkt})
+            return {"sessions": LOOPBACK, "port": 9880, "created": [], "started": []}
+        monkeypatch.setattr(manager, "setup_loopback", setup)
+        await manager.save("loopback-client", manager.example("loopback-client")["source"] + "# mine\n", "client")
+        first = await _ask(engine)("run_loopback_tour", {})
+        assert (first["venue_run"], first["client_run"]) == (1, 2)
+        saved = {r["name"]: r for r in await _fetch_all(db, "SELECT * FROM fix_scenarios")}
+        assert saved["loopback-venue"]["side"] == "market" and saved["loopback-client"]["source"].endswith("# mine\n")
+        runs = await _fetch_all(db, "SELECT scenario, session, side FROM fix_scenario_runs ORDER BY id")
+        assert [(r["scenario"], r["session"], r["side"]) for r in runs] == [
+            ("loopback-venue", "LOOP-MKT", "market"), ("loopback-client", "LOOP-CLI", "client")]
+        again = await manager.run_tour()
+        assert (again["venue_run"], again["client_run"]) == (1, 3), "the venue is left armed; the client runs again"
+        await clock.advance(12)
+        await manager.flush()
+        rows = await _fetch_all(db, "SELECT * FROM fix_scenario_runs WHERE side = 'client' ORDER BY id")
+        assert [(r["orders"], r["passed"], r["failed"]) for r in rows] == [(5, 5, 0), (5, 5, 0)]
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_never_logs_on_is_said(self, kit, monkeypatch):
+        db, engine, stub, manager, clock = kit
+        down = StubSession("LOOP-CLI")
+        down.is_active = False
+
+        async def setup(port=None, start=True):
+            engine.sessions["LOOP-CLI"] = down
+            return {"sessions": LOOPBACK, "port": 9880, "created": [], "started": []}
+        monkeypatch.setattr(manager, "setup_loopback", setup)
+        with pytest.raises(ValueError, match="LOOP-CLI did not log on within 0.1 s: is port 9880 free"):
+            await manager.run_tour(timeout=0.1)
+        assert manager.live_runs() == []
 
 
 class TestCommands:
@@ -333,14 +576,14 @@ class TestSendingRuns:
         db, engine, stub, manager, clock = kit
         stub.is_active = False
         await manager.save("one", "scenario one\nrun on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n")
-        with pytest.raises(Exception, match="`run on S1`: the session is not active"):
+        with pytest.raises(Exception, match="`run` on S1: the session is not active"):
             await manager.arm("one")
         assert await _fetch_all(db, "SELECT * FROM fix_scenario_runs") == [] and manager.live_runs() == []
 
     @pytest.mark.asyncio
     async def test_stop_tidies_a_row_an_earlier_process_left(self, kit):
         db, engine, stub, manager, clock = kit
-        await manager._write("insert_run", ("ghost", 1, "", 1, 1.0, "armed", "20260920-17:26:35.643", None))
+        await manager._write("insert_run", ("ghost", "client", 1, "", 1, 1.0, "armed", "20260920-17:26:35.643", None))
         await manager.stop_run(1)
         (run,) = await _fetch_all(db, "SELECT * FROM fix_scenario_runs")
         assert run["status"] == "interrupted" and run["ended_at"]
@@ -348,7 +591,7 @@ class TestSendingRuns:
     @pytest.mark.asyncio
     async def test_a_restart_never_sends_again(self, kit):
         db, engine, stub, manager, clock = kit
-        await manager.save("both", "scenario both\non order\n    accept\nrun on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    wait filled\n")
+        await manager.save("both", "scenario both\non sent order\n    wait filled\nrun on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    wait filled\n")
         await manager.arm("both")
         await manager.flush()
         assert len(stub.sent) == 1

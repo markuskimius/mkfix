@@ -1,17 +1,18 @@
 # Single order lifecycle
 #
-# Shows:   the sending side at its simplest — `run on`, `new`, `expect … within`,
+# Shows:   the client side at its simplest — `run`, `new`, `expect … within`,
 #          waiting for fills, `cancel`, and a verdict
-# Needs:   the loopback sessions (Help > Scenario Examples sets them up) with a
-#          market-side scenario armed, such as slow-fill; or your own counterparty
-# Watch:   Sent Orders and Received Trades; the run's verdict in Scenario Runs
+# Needs:   a session that is logged on, chosen at Run…: LOOP-CLI of the loopback
+#          sessions (Help > Scenario Examples sets them up) with a market
+#          scenario armed, such as slow-fill; or your own counterparty
+# Watch:   Sent Orders and Received Trades; the run's verdict in Client Runs
 # Outcome: one order is sent, must be acknowledged within 2 s, is given 5 s to
 #          trade, and whatever is left is cancelled; the script passes if every
 #          answer came in time
 
 scenario single-order-lifecycle
 
-run on LOOP-CLI
+run
     new symbol: 'IBM', side: buy, qty: 300, type: limit, price: 100.00, tif: day, text: 'lifecycle'
 
     # `expect` fails this order's script if the event does not come in time.

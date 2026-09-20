@@ -49,15 +49,28 @@ class TestParser:
         assert clean("scenario t\non order\n    accept\n").on_error == "fail"
 
     def test_three_kinds_of_block(self):
-        sc = clean("scenario t\n"
-                   "on order where symbol in ['IBM'] and order.order_qty > 0\n    accept\n"
-                   "on sent order where client == 'ACME'\n    cancel\n"
-                   "run on BROKER-1.a\n    new symbol: 'IBM', side: buy, qty: 100\n")
+        sc, _ = scenario.parse("scenario t\n"
+                               "on order where symbol in ['IBM'] and order.order_qty > 0\n    accept\n"
+                               "on sent order where client == 'ACME'\n    cancel\n"
+                               "run on BROKER-1.a\n    new symbol: 'IBM', side: buy, qty: 100\n"
+                               "run\n    new symbol: 'IBM', side: buy, qty: 100\n")
         assert [(b.kind, b.session, b.where.source if b.where else None) for b in sc.blocks] == [
             (vocab.MARKET, None, "symbol in ['IBM'] and order.order_qty > 0"),
             (vocab.ATTACHED, None, "client == 'ACME'"),
-            (vocab.CLIENT, "BROKER-1.a", None)]
+            (vocab.CLIENT, "BROKER-1.a", None),
+            (vocab.CLIENT, None, None)]
         assert clean("scenario t\non order\n    accept\n").blocks[0].where is None
+
+    def test_run_may_leave_its_session_to_be_chosen(self):
+        named = clean("scenario t\nrun on S\n    new symbol: 'A', side: buy, qty: 1\n")
+        open_ = clean("scenario t\nrun\n    new symbol: 'A', side: buy, qty: 1\n")
+        both = clean("scenario t\nrun on S\n    new symbol: 'A', side: buy, qty: 1\n"
+                     "run\n    new symbol: 'A', side: buy, qty: 1\n")
+        assert (named.needs_session, open_.needs_session, both.needs_session) == (False, True, True)
+        assert not clean("scenario t\non sent order\n    cancel\n").needs_session
+        # `run` is a word of its own, not the start of another
+        assert any(m.startswith("Expected `scenario`") and "'running'" in m
+                   for _, _, m in problems("scenario t\nrunning\n    accept\n"))
 
     def test_after_and_jitter(self):
         plain, jitter, ascii_jitter, computed = body_of(market(
@@ -213,19 +226,53 @@ class TestParser:
 
     def test_empty_text(self):
         assert [m for _, _, m in problems("")] == [
-            "A script needs at least one block: `on order`, `on sent order` or `run on SESSION`",
+            "A script needs at least one block: `on order`, `on sent order` or `run`",
             "A script starts with `scenario NAME`"]
 
 
 # -- meaning ------------------------------------------------------------------------
 
+class TestSides:
+    """A script is for the client side or the market side, never both."""
+
+    CLIENT = "scenario t\nrun\n    new symbol: 'A', side: buy, qty: 1\non sent order\n    cancel\n"
+    MARKET = "scenario t\non order\n    accept\non order where symbol == 'A'\n    reject\n"
+
+    def test_the_blocks_say_which(self):
+        assert clean(self.CLIENT).side == "client" and clean(self.MARKET).side == "market"
+        assert clean("scenario t\non sent order\n    cancel\n").side == "client"
+        assert scenario.parse("scenario t\n")[0].side == ""
+
+    @pytest.mark.parametrize("second", ["run\n    new symbol: 'A', side: buy, qty: 1\n", "on sent order\n    cancel\n"])
+    def test_a_script_of_both_is_a_problem_at_the_block_that_does_not_belong(self, second):
+        found = problems("scenario t\non order\n    accept\n" + second)
+        assert [(line, col) for line, col, _ in found] == [(4, 0)]
+        assert found[0][2].startswith("This is a market scenario, and this block belongs in a client scenario")
+        (line, _, message), = problems(self.CLIENT + "on order\n    accept\n")
+        assert line == 6 and "This is a client scenario" in message and "move this to a market scenario" in message
+
+    def test_the_pane_it_is_edited_in_decides(self):
+        """Market Scenarios checks with side="market": a client script there
+        is wrong from its first block, not only where the sides first differ."""
+        _, diags = scenario.check(self.CLIENT, side="market")
+        assert [d.line for d in diags] == [2, 4] and all("This is a market scenario" in d.message for d in diags)
+        assert scenario.check(self.CLIENT, side="client")[1] == []
+        assert scenario.check(self.MARKET, side="market")[1] == []
+        assert [d.line for d in scenario.check(self.MARKET, side="client")[1]] == [2, 4]
+
+    def test_every_block_kind_has_a_side(self):
+        assert {k: vocab.side_of(k) for k in vocab.SIDES} == {
+            vocab.MARKET: "market", vocab.CLIENT: "client", vocab.ATTACHED: "client"}
+        assert set(vocab.SCENARIO_SIDES) == {"client", "market"}
+
+
 class TestChecker:
     @pytest.mark.parametrize("text, line, col, message", [
-        (market("new symbol: 'A', side: buy, qty: 1\n"), 3, 4, "`new` belongs in a `run on` block, not an `on order` block"),
-        (market("cancel\n"), 3, 4, "`cancel` belongs in a `run on` block or an `on sent order` block"),
+        (market("new symbol: 'A', side: buy, qty: 1\n"), 3, 4, "`new` belongs in a `run` block, not an `on order` block"),
+        (market("cancel\n"), 3, 4, "`cancel` belongs in a `run` block or an `on sent order` block"),
         ("scenario t\non sent order\n    accept\n", 3, 4, "`accept` belongs in an `on order` block"),
         ("scenario t\non sent order\n    new symbol: 'A', side: buy, qty: 1\n", 3, 4, "one order per script"),
-        ("scenario t\nrun on S\n    cancel\n", 2, 0, "A `run on` block sends its own orders: it needs a `new`"),
+        ("scenario t\nrun on S\n    cancel\n", 2, 0, "A `run` block sends its own orders: it needs a `new`"),
         ("scenario t\nrun on S\n    expect ack within 1s\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",
          3, 4, "This line runs before any order exists: move it inside the `repeat` that sends"),
         ("scenario t\nrun on S\n    if n == 0\n        cancel\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",

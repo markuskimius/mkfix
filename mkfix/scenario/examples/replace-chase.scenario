@@ -2,7 +2,8 @@
 #
 # Shows:   walking a price up with `replace`, `cancel rejected`, the
 #          order.pending_action guard, terms a replace leaves out
-# Needs:   the loopback sessions with cancel-replace-desk or slow-fill armed
+# Needs:   the loopback sessions with cancel-replace-desk or slow-fill armed;
+#          run on LOOP-CLI
 # Watch:   Sent Orders: Pending, Pending ID, New Px, Rej Reason; the ClOrdID
 #          moving only when a replace is accepted
 # Outcome: the limit is raised a tick every 2 s, up to three times, while the
@@ -11,7 +12,7 @@
 
 scenario replace-chase
 
-run on LOOP-CLI
+run
     new symbol: 'MSFT', side: buy, qty: 500, type: limit, price: 50.00
     expect ack within 2s
 

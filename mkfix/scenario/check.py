@@ -28,9 +28,10 @@ _TEMPLATE_SCOPE = {
     "bust": "bust", "renotify": "renotify",
 }
 _SIDE_NAMES = {
-    vocab.MARKET: "an `on order` block", vocab.CLIENT: "a `run on` block",
+    vocab.MARKET: "an `on order` block", vocab.CLIENT: "a `run` block",
     vocab.ATTACHED: "an `on sent order` block",
 }
+_SIDE_BLOCKS = {"market": "`on order`", "client": "`run` and `on sent order`"}
 
 
 def _close(word: str, known: Iterable[str]) -> str:
@@ -39,7 +40,9 @@ def _close(word: str, known: Iterable[str]) -> str:
 
 
 class _Checker:
-    def __init__(self, templates: Mapping[str, Iterable[str]] | None, sessions: Iterable[str] | None) -> None:
+    def __init__(self, templates: Mapping[str, Iterable[str]] | None, sessions: Iterable[str] | None,
+                 side: str | None = None) -> None:
+        self.side = side
         self.templates = {scope: set(names) for scope, names in templates.items()} if templates is not None else None
         self.sessions = set(sessions) if sessions is not None else None
         self.out: list[Diagnostic] = []
@@ -78,7 +81,17 @@ class _Checker:
 
     def scenario(self, scenario: Scenario) -> None:
         if not scenario.blocks:
-            self.report(1, 0, 1, "A script needs at least one block: `on order`, `on sent order` or `run on SESSION`")
+            self.report(1, 0, 1, "A script needs at least one block: `on order`, `on sent order` or `run`")
+        # One side per script. A client scenario sends orders and acts on
+        # them, a market scenario acts on orders received; the panes, the
+        # runs and what may run at once are all kept apart by that.
+        side = self.side or scenario.side
+        for block in scenario.blocks:
+            if vocab.side_of(block.kind) != side:
+                other = vocab.side_of(block.kind)
+                self.report(block.line, block.col, block.col + 3,
+                            f"This is a {side} scenario, and this block belongs in a {other} scenario: a script is "
+                            f"for one side. Keep {_SIDE_BLOCKS[side]} here and move this to a {other} scenario")
         for block in scenario.blocks:
             self.block(block)
 
@@ -101,8 +114,8 @@ class _Checker:
         with an order of its own, and the lines around that `repeat` run
         before any order exists: they may set things up, not act or wait."""
         if not any(isinstance(st, Action) and st.verb == "new" for st in walk(block.body)):
-            self.report(block.line, block.col, block.col + len("run on"),
-                        "A `run on` block sends its own orders: it needs a `new`")
+            self.report(block.line, block.col, block.col + len("run"),
+                        "A `run` block sends its own orders: it needs a `new`")
             return
         if any(isinstance(st, Action) and st.verb == "new" for st in block.body):
             return
@@ -196,12 +209,14 @@ class _Checker:
 
 
 def check(text: str, *, templates: Mapping[str, Iterable[str]] | None = None,
-          sessions: Iterable[str] | None = None) -> tuple[Scenario, list[Diagnostic]]:
+          sessions: Iterable[str] | None = None, side: str | None = None) -> tuple[Scenario, list[Diagnostic]]:
     """Parse and check ``text``. ``templates`` (scope -> names) and ``sessions``
     are checked against when given; a caller that does not know them says
-    None and those references pass."""
+    None and those references pass. ``side`` (client | market) is the side
+    the script must be for — the pane it is being edited in; without it the
+    script's first block decides, and every other block must agree."""
     scenario, diagnostics = parse(text)
-    checker = _Checker(templates, sessions)
+    checker = _Checker(templates, sessions, side)
     checker.scenario(scenario)
     every = sorted({*diagnostics, *checker.out}, key=lambda d: (d.line, d.col, d.message))
     return scenario, every

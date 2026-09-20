@@ -13,6 +13,7 @@ from mkfix import scenario
 
 ROOT = Path(__file__).parent.parent
 STATIC = ROOT / "mkfix" / "static"
+SIDES = ("client", "market")
 HELP = STATIC / "help"
 
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
@@ -82,10 +83,13 @@ class TestColouring:
 @needs_node
 class TestCompletion:
     LINES = ["scenario t", "on order", "    ", "    when ", "    fill ", "    fill qty: 1, ", "    restate qty: 1, reason: ",
-             "    if order.", "    bust ", "    fill using '", "run on ", "", "on sent order", "    ", "    when cancel rejected and event."]
+             "    if order.", "    bust ", "    fill using '", "run on ", "", "on sent order", "    ", "    when cancel rejected and event.",
+             "run ", "    "]
 
-    def names(self, tmp_path, row, limit=None):
+    def names(self, tmp_path, row, limit=None, side=None):
         extras = {"sessions": ["S1", "S2"], "templates": {"fill": ["half", "all"]}, "templateScopes": {"fill": "fill"}}
+        if side:
+            extras["side"] = side
         got = run_js(tmp_path, f"L.completionsAt(vocab, {json.dumps(self.LINES)}, {row}, {len(self.LINES[row])}, "
                                f"{json.dumps(extras)}).map((c) => c.caption)")
         return got[:limit] if limit else got
@@ -109,7 +113,13 @@ class TestCompletion:
         assert self.names(tmp_path, 8, 3) == ["last trade", "first trade", "trade where"]
         assert self.names(tmp_path, 9) == ["half", "all"]
         assert self.names(tmp_path, 10) == ["S1", "S2"]
-        assert self.names(tmp_path, 11) == ["scenario", "seed", "on error", "on sent order", "on order", "run on"]
+        assert self.names(tmp_path, 11) == ["scenario", "seed", "on error", "on sent order", "on order", "run"]
+        assert self.names(tmp_path, 15) == ["on"], "`run` may name its session, or leave it to Run…"
+        assert "new" in self.names(tmp_path, 16), "a bare `run` opens a client block"
+
+    def test_an_editor_offers_only_its_own_sides_blocks(self, tmp_path):
+        assert self.names(tmp_path, 11, side="market") == ["scenario", "seed", "on error", "on order"]
+        assert self.names(tmp_path, 11, side="client") == ["scenario", "seed", "on error", "on sent order", "run"]
         assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 14))
 
     def test_help_for_the_word_under_the_cursor(self, tmp_path):
@@ -233,31 +243,84 @@ class TestWiring:
         for module in ("scenarios.js", "help-viewer.js"):
             assert f'/static/panes/{module}' in index
         shown = {i.get("args") for m in app["menubar"] for i in m["items"] if i.get("action") == "pane.show"}
-        assert {"scenarios", "scenario-runs", "scenario-instances", "scenario-log", "help-viewer"} <= shown
+        assert {f"{side}-{pane}" for side in SIDES for pane in ("scenarios", "runs", "scripts", "log")} | {"help-viewer"} <= shown
         for state in ("selected_scenario", "selected_scenario_instance", "help_target", "open_example"):
             assert state in app["state"], state
+
+    @pytest.mark.parametrize("side", SIDES)
+    def test_each_side_has_its_own_four_panes_over_its_own_rows(self, side):
+        """The two sides share tables and services; a pane's `filter` is all
+        that keeps a client run out of Market Runs."""
+        import tomllib
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        toml = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
+        word = side.capitalize()
+        editor = app["panes"][f"{side}-scenarios"]
+        assert editor == {"title": f"{word} Scenarios", "type": "scenarios", "side": side}
+        for pane, service, title in (("runs", "scenario_runs_query", "Runs"), ("scripts", "scenario_instances_query", "Scripts"),
+                                     ("log", "scenario_log_query", "Log")):
+            spec = app["panes"][f"{side}-{pane}"]
+            assert (spec["title"], spec["service"], spec["filter"]) == (f"{word} {title}", service, f"side == '{side}'")
+            assert "side" in toml["services"][service]["filterable"]
+        assert "side" in toml["services"]["scenarios_query"]["filterable"]
+        assert app["panes"][f"{side}-scripts"]["select"] == {"state": "selected_scenario_instance"}
+        for table in ("fix_scenarios", "fix_scenario_runs", "fix_scenario_instances", "fix_scenario_log"):
+            assert "side" in toml["tables"][table]["columns"], table
+
+    def test_the_two_sides_panes_differ_only_by_side(self):
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        for pane in ("runs", "scripts", "log"):
+            client = json.dumps(app["panes"][f"client-{pane}"]).replace("client", "market").replace("Client", "Market")
+            assert client == json.dumps(app["panes"][f"market-{pane}"]), pane
+
+    def test_the_editor_keeps_to_its_side(self):
+        pane = (STATIC / "panes" / "scenarios.js").read_text(encoding="utf-8")
+        for call in ('cmd("check_scenario", { source: editor.getValue(), side })', 'cmd("list_examples", { side })',
+                     'cmd("stop_scenario", { name: current })', "const mine = `side == '${side}'`"):
+            assert call in pane, call
+        assert pane.count('cmd("save_scenario"') == 2 == pane.count("source, side })") + pane.count("source: text, side })")
+        assert "wanted.side !== side" in pane, "an example opened for the other editor is not this one's"
+        viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")
+        assert 'app.fireAction("pane.show", `${side}-scenarios`)' in viewer
 
     def test_the_run_panes_send_commands_that_exist(self):
         from tests.test_ui_config import _fix_cmd_commands
         app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
-        ops = {b["action"]["op"] for pane in ("scenario-runs", "scenario-instances")
-               for b in app["panes"][pane]["buttons"]}
-        assert ops == {"pause_run", "resume_run", "stop_run", "detach_instance"} and ops <= _fix_cmd_commands()
-        assert app["dialogs"]["arm_scenario"]["submit"] == {"label": "Arm", "service": "fix_cmd", "op": "arm_scenario"}
-        fields = {f.get("name") for item in app["dialogs"]["arm_scenario"]["fields"] for f in item.get("row", [item])}
-        assert fields == {"name", "session", "speed", "seed"}
+        for side in SIDES:
+            ops = {b["action"]["op"] for pane in ("runs", "scripts") for b in app["panes"][f"{side}-{pane}"]["buttons"]}
+            assert ops == {"pause_run", "resume_run", "stop_run", "move_run", "detach_instance"} and ops <= _fix_cmd_commands()
+            moves = [b for b in app["panes"][f"{side}-runs"]["buttons"] if b["action"]["op"] == "move_run"]
+            assert [(b["label"], b["action"]["data"]["direction"]) for b in moves] == [("Move Up", "up"), ("Move Down", "down")]
+            assert all(b["enable"]["maxSelected"] == 1 and "r.priority > 0" in b["enable"]["when"] for b in moves)
+            assert "priority" in app["panes"][f"{side}-runs"]["columns"]
+        assert {"run_scenario", "stop_scenario", "run_loopback_tour"} <= _fix_cmd_commands()
+        for name, label in (("arm_scenario", "Arm"), ("run_scenario", "Run")):
+            spec = app["dialogs"][name]
+            assert spec["submit"] == {"label": label, "service": "fix_cmd", "op": name}
+            fields = {f.get("name") for item in spec["fields"] for f in item.get("row", [item])}
+            assert fields == {"name", "session", "speed", "seed"}
+        session = app["dialogs"]["run_scenario"]["fields"][1]
+        assert (session["required"], session["value"]) == ("row.needs_session", "${row.session}")
+        pane = (STATIC / "panes" / "scenarios.js").read_text(encoding="utf-8")
+        assert "checked = { needs_session: !!result.needs_session, session: result.session ?? \"\" }" in pane
 
     def test_the_examples_page_can_set_up_the_sessions_its_examples_name(self):
         from mkfix.scenario.store import EXAMPLES, LOOPBACK
         from tests.test_ui_config import _fix_cmd_commands
         viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")
+        from mkfix.scenario.store import TOUR, example_header
         assert 'cmd("setup_loopback")' in viewer and "setup_loopback" in _fix_cmd_commands()
-        named = set()
+        assert 'cmd("run_loopback_tour")' in viewer
         for path in EXAMPLES.glob("*.scenario"):
-            sc, _ = scenario.check(path.read_text(encoding="utf-8"))
-            named |= {b.session for b in sc.blocks if b.session}
-        assert named == {LOOPBACK["client"]}, "every sending example runs on the loopback client"
+            text = path.read_text(encoding="utf-8")
+            sc, _ = scenario.check(text)
+            assert not any(b.session for b in sc.blocks), f"{path.name}: an example leaves its session to Run…"
+            if sc.needs_session:
+                assert LOOPBACK["client"] in example_header(text)["needs"], path.name
         assert all(name in viewer for name in LOOPBACK.values())
+        for side, name in TOUR.items():
+            assert scenario.check((EXAMPLES / f"{name}.scenario").read_text(encoding="utf-8"))[0].side == side
+            assert name in viewer
 
     def test_orders_show_which_scenario_took_them(self):
         app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))

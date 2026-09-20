@@ -21,6 +21,16 @@ ATTACHED = "attached"    # on sent order where … — manages an order sent som
 SIDES = (MARKET, CLIENT, ATTACHED)
 _SENDING = (CLIENT, ATTACHED)
 
+# A script is for one side of an order, and the UI keeps the two apart: a
+# *market* scenario answers orders we receive (`on order`); a *client*
+# scenario sends orders or minds ones sent by hand (`run`, `on sent order`).
+SCENARIO_SIDES = ("client", "market")
+
+
+def side_of(kind: str) -> str:
+    """The scenario side a kind of block belongs to."""
+    return "market" if kind == MARKET else "client"
+
 
 @dataclass(frozen=True, slots=True)
 class Verb:
@@ -107,7 +117,7 @@ STATEMENTS: dict[str, tuple[str, str]] = {
     "on error": ("on error continue", "A refused action raises an `error` event instead of failing the order's script."),
     "on order": ("on order [where EXPR]", "A block run for every received order the expression matches."),
     "on sent order": ("on sent order [where EXPR]", "A block run for every order sent some other way — by hand, or by Message Replay."),
-    "run on": ("run on SESSION", "A block that sends its own orders on a session; starts when you press Run."),
+    "run": ("run [on SESSION]", "A block that sends its own orders; starts when you press Run. Without `on SESSION` the session is chosen at Run…, so one script can run on several at once."),
     "after": ("after DURATION [± DURATION]", "Wait that long. The optional part is random jitter either way."),
     "wait": ("wait EVENT [or EVENT…] [where EXPR] [or timeout DURATION]", "Wait for an event; carry on either way."),
     "expect": ("expect EVENT [or EVENT…] [where EXPR] within DURATION [else fail 'WHY']", "Wait for an event, and fail the order's script if it does not come in time."),

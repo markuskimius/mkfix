@@ -47,6 +47,8 @@ class Pair:
             text = (EXAMPLES / f"{text}.scenario").read_text(encoding="utf-8")
         sc, diags = scenario.check(text)
         assert scenario.errors(diags) == [], [str(d) for d in diags]
+        if sc.needs_session:
+            kw.setdefault("session", "LOOP-CLI")        # what Run… would have been given
         return self.runner.arm(sc, **kw)
 
     async def advance(self, seconds):
@@ -200,9 +202,54 @@ class TestSending:
         from mkfix.scenario.runner import ScenarioError
         pair.cli.is_active = False
         sc, _ = scenario.check("scenario down\nrun on LOOP-CLI\n    new symbol: 'A', side: buy, qty: 1, price: 1\n")
-        with pytest.raises(ScenarioError, match="`run on LOOP-CLI`: the session is not active"):
+        with pytest.raises(ScenarioError, match="`run` on LOOP-CLI: the session is not active"):
             pair.runner.arm(sc)
         assert pair.runner.runs == [] and not pair.engine.events.active
+
+    @pytest.mark.asyncio
+    async def test_a_run_without_a_session_sends_where_it_is_told(self, pair):
+        """`run` leaves the session to Run…: one script, a run a session."""
+        engine = pair.engine
+        cli2, mkt2 = LinkedSession(engine, "CLI-2"), LinkedSession(engine, "MKT-2")
+        cli2.peer, mkt2.peer = mkt2, cli2
+        engine.sessions.update({"CLI-2": cli2, "MKT-2": mkt2})
+        text = "scenario open\nrun\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n    expect ack within 1s\n    pass\n"
+        pair.arm("scenario instant\non order\n    accept\n")
+        sc, _ = scenario.check(text)
+        runs = [pair.runner.arm(sc, session="LOOP-CLI"), pair.runner.arm(sc, session="CLI-2"),
+                pair.runner.arm(sc, session="CLI-2")]
+        await pair.runner.settle()
+        assert [r.status for r in runs] == ["finished"] * 3 and [r.verdict for r in runs] == [PASSED] * 3
+        assert [o["session_id"] for o in await pair.orders("TX")] == ["LOOP-CLI", "CLI-2", "CLI-2"]
+        assert (len(pair.cli.sent), len(cli2.sent)) == (1, 2)
+
+    @pytest.mark.asyncio
+    async def test_the_session_chosen_at_run_wins_over_the_one_written(self, pair):
+        engine = pair.engine
+        cli2, mkt2 = LinkedSession(engine, "CLI-2"), LinkedSession(engine, "MKT-2")
+        cli2.peer, mkt2.peer = mkt2, cli2
+        engine.sessions.update({"CLI-2": cli2, "MKT-2": mkt2})
+        sc, _ = scenario.check("scenario named\nrun on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n")
+        pair.runner.arm(sc)
+        pair.runner.arm(sc, session="CLI-2")
+        await pair.runner.settle()
+        assert [o["session_id"] for o in await pair.orders("TX")] == ["LOOP-CLI", "CLI-2"]
+        pair.cli.is_active = False
+        pair.runner.arm(sc, session="CLI-2")            # the session written is not looked at
+        from mkfix.scenario.runner import ScenarioError
+        with pytest.raises(ScenarioError, match="`run` on LOOP-CLI: the session is not active"):
+            pair.runner.arm(sc)
+
+    @pytest.mark.asyncio
+    async def test_many_runs_of_one_script_at_once_each_with_its_own_orders(self, pair):
+        pair.arm(MARKET)
+        text = ("scenario many\nrun\n    repeat 3 at 10/s\n        new symbol: 'IBM', side: buy, qty: 100, price: 10\n"
+                "        wait filled or timeout 5s\n        pass '${order.cum_qty}'\n")
+        runs = [pair.arm(text, seed=n) for n in range(4)]
+        await pair.advance(6)
+        assert [r.counts() for r in runs] == [{PASSED: 3}] * 4
+        assert len({i.order["id"] for r in runs for i in r.instances}) == 12 == len(await pair.orders("TX"))
+        assert [r.status for r in runs] == ["finished"] * 4
 
     @pytest.mark.asyncio
     async def test_armed_but_not_started_until_told(self, pair):
@@ -374,11 +421,12 @@ class TestExamples:
 
     @pytest.mark.asyncio
     async def test_loopback_tour(self, pair):
-        run = pair.arm("loopback-tour")
+        venue = pair.arm("loopback-venue", session="LOOP-MKT")
+        run = pair.arm("loopback-client")
         await pair.advance(12)
-        kinds = [i.block.kind for i in run.instances]
-        assert kinds.count("client") == 5 and kinds.count("market") == 5 and "attached" not in kinds
-        clients = [i for i in run.instances if i.block.kind == "client"]
+        assert [i.block.kind for i in venue.instances] == ["market"] * 5
+        assert [i.block.kind for i in run.instances] == ["client"] * 5, "its own orders are not minded"
+        clients = run.instances
         assert all(i.status == PASSED for i in clients), [i.message for i in clients]
         # 100: half filled, replaced up to 200, half of what was left filled -> 125
         assert [i.message for i in clients][:2] == ["IBM: 125 done", "MSFT: 200 done"]
@@ -421,5 +469,7 @@ class TestExamples:
         assert set(vocab.EVENTS) - events <= {"message", "er", "pending", "restated", "expired", "done for day",
                                               "corrected", "busted"}, "reports a script seldom needs to name"
         assert kinds == set(vocab.SIDES)
+        sides = {scenario.check(p.read_text(encoding="utf-8"))[0].side for p in EXAMPLES.glob("*.scenario")}
+        assert sides == set(vocab.SCENARIO_SIDES)
         assert {"Repeat", "repeat at", "repeat every", "repeat with", "else fail", "or timeout", "Expect", "Wait"} <= shapes
         assert set(vocab.CONTEXT_DOCS) - roots == set(), "every name an expression can see is used somewhere"

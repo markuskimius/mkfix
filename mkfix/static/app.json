@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.48",
+    "version": "0.49",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -64,18 +64,16 @@
   },
   "menubar": [
     {
-      "label": "Sessions",
+      "label": "FIX",
       "items": [
         {
           "label": "Sessions",
           "action": "pane.show",
           "args": "session-blotter"
-        }
-      ]
-    },
-    {
-      "label": "Messages",
-      "items": [
+        },
+        {
+          "sep": true
+        },
         {
           "label": "Messages",
           "action": "pane.show",
@@ -115,7 +113,7 @@
       ]
     },
     {
-      "label": "Trading",
+      "label": "Client",
       "items": [
         {
           "label": "Sent Orders",
@@ -131,6 +129,31 @@
           "sep": true
         },
         {
+          "label": "Client Scenarios",
+          "action": "pane.show",
+          "args": "client-scenarios"
+        },
+        {
+          "label": "Client Runs",
+          "action": "pane.show",
+          "args": "client-runs"
+        },
+        {
+          "label": "Client Scripts",
+          "action": "pane.show",
+          "args": "client-scripts"
+        },
+        {
+          "label": "Client Log",
+          "action": "pane.show",
+          "args": "client-log"
+        }
+      ]
+    },
+    {
+      "label": "Market",
+      "items": [
+        {
           "label": "Received Orders",
           "action": "pane.show",
           "args": "market-order-blotter"
@@ -144,37 +167,29 @@
           "sep": true
         },
         {
-          "label": "Scenarios",
+          "label": "Market Scenarios",
           "action": "pane.show",
-          "args": "scenarios"
+          "args": "market-scenarios"
         },
         {
-          "label": "Scenario Runs",
+          "label": "Market Runs",
           "action": "pane.show",
-          "args": "scenario-runs"
+          "args": "market-runs"
         },
         {
-          "label": "Scenario Scripts",
+          "label": "Market Scripts",
           "action": "pane.show",
-          "args": "scenario-instances"
+          "args": "market-scripts"
         },
         {
-          "label": "Scenario Log",
+          "label": "Market Log",
           "action": "pane.show",
-          "args": "scenario-log"
-        },
-        {
-          "sep": true
-        },
-        {
-          "label": "Templates",
-          "action": "pane.show",
-          "args": "templates"
+          "args": "market-log"
         }
       ]
     },
     {
-      "label": "Tools",
+      "label": "To Do",
       "items": [
         {
           "label": "IOIs",
@@ -187,17 +202,24 @@
           "args": "allocation-viewer"
         },
         {
-          "sep": true
+          "label": "Replay Control",
+          "action": "pane.show",
+          "args": "replay-control"
+        }
+      ]
+    },
+    {
+      "label": "Config",
+      "items": [
+        {
+          "label": "Templates",
+          "action": "pane.show",
+          "args": "templates"
         },
         {
           "label": "Dictionaries",
           "action": "pane.show",
           "args": "dictionaries"
-        },
-        {
-          "label": "Replay Control",
-          "action": "pane.show",
-          "args": "replay-control"
         }
       ]
     },
@@ -376,6 +398,60 @@
         }
       ]
     },
+    "run_scenario": {
+      "title": "Run ${row.name}",
+      "width": 340,
+      "submit": {
+        "label": "Run",
+        "service": "fix_cmd",
+        "op": "run_scenario"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "hidden",
+          "value": "${row.name}"
+        },
+        {
+          "name": "session",
+          "label": "Session to send on",
+          "type": "select",
+          "optionsFrom": {
+            "service": "sessions_list",
+            "value": "session_id",
+            "label": "session_id"
+          },
+          "options": [
+            {
+              "value": "",
+              "label": "(the one the script names)"
+            }
+          ],
+          "value": "${row.session}",
+          "required": "row.needs_session"
+        },
+        {
+          "row": [
+            {
+              "name": "speed",
+              "label": "Speed",
+              "type": "number",
+              "value": 1,
+              "min": 0.01,
+              "step": "any",
+              "width": 0.5
+            },
+            {
+              "name": "seed",
+              "label": "Seed (blank: the script's, or random)",
+              "type": "text",
+              "value": "",
+              "width": 0.5
+            }
+          ]
+        }
+      ]
+    },
     "scenario_keys": {
       "title": "Scenario Editor Keys",
       "width": 480,
@@ -443,7 +519,7 @@
     "right": [
       {
         "type": "text",
-        "text": "mkfix v0.48"
+        "text": "mkfix v0.49"
       }
     ],
     "bindStyle": {
@@ -3923,23 +3999,22 @@
         }
       ]
     },
-    "scenarios": {
-      "title": "Scenarios",
-      "type": "scenarios"
+    "client-scenarios": {
+      "title": "Client Scenarios",
+      "type": "scenarios",
+      "side": "client"
     },
-    "help-viewer": {
-      "title": "Help",
-      "type": "help-viewer"
-    },
-    "scenario-runs": {
-      "title": "Scenario Runs",
+    "client-runs": {
+      "title": "Client Runs",
       "type": "mkio-table",
       "service": "scenario_runs_query",
       "protocol": "query",
+      "filter": "side == 'client'",
       "columns": [
         "id",
         "scenario",
         "status",
+        "priority",
         "verdict",
         "orders",
         "live",
@@ -3956,6 +4031,7 @@
         "id": "Run",
         "scenario": "Scenario",
         "status": "Status",
+        "priority": "Priority",
         "verdict": "Verdict",
         "orders": "Orders",
         "live": "Live",
@@ -4015,6 +4091,12 @@
             "color": "#f44747",
             "bold": true
           }
+        ],
+        "priority": [
+          {
+            "when": "value == 0",
+            "color": "transparent"
+          }
         ]
       },
       "buttons": [
@@ -4065,14 +4147,51 @@
               "run_id": "${row.id}"
             }
           }
+        },
+        {
+          "label": "Move Up",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "maxSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "move_run",
+            "data": {
+              "run_id": "${row.id}",
+              "direction": "up"
+            }
+          }
+        },
+        {
+          "label": "Move Down",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "maxSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "move_run",
+            "data": {
+              "run_id": "${row.id}",
+              "direction": "down"
+            }
+          }
         }
       ]
     },
-    "scenario-instances": {
-      "title": "Scenario Scripts",
+    "client-scripts": {
+      "title": "Client Scripts",
       "type": "mkio-table",
       "service": "scenario_instances_query",
       "protocol": "query",
+      "filter": "side == 'client'",
       "select": {
         "state": "selected_scenario_instance"
       },
@@ -4163,11 +4282,12 @@
         }
       ]
     },
-    "scenario-log": {
-      "title": "Scenario Log",
+    "client-log": {
+      "title": "Client Log",
       "type": "mkio-table",
       "service": "scenario_log_query",
       "protocol": "query",
+      "filter": "side == 'client'",
       "columns": [
         "timestamp",
         "run_id",
@@ -4196,6 +4316,328 @@
           "dir": "desc"
         }
       ]
+    },
+    "market-scenarios": {
+      "title": "Market Scenarios",
+      "type": "scenarios",
+      "side": "market"
+    },
+    "market-runs": {
+      "title": "Market Runs",
+      "type": "mkio-table",
+      "service": "scenario_runs_query",
+      "protocol": "query",
+      "filter": "side == 'market'",
+      "columns": [
+        "id",
+        "scenario",
+        "status",
+        "priority",
+        "verdict",
+        "orders",
+        "live",
+        "passed",
+        "failed",
+        "session",
+        "speed",
+        "seed",
+        "version",
+        "started_at",
+        "ended_at"
+      ],
+      "labels": {
+        "id": "Run",
+        "scenario": "Scenario",
+        "status": "Status",
+        "priority": "Priority",
+        "verdict": "Verdict",
+        "orders": "Orders",
+        "live": "Live",
+        "passed": "Passed",
+        "failed": "Failed",
+        "session": "Session",
+        "speed": "Speed",
+        "seed": "Seed",
+        "version": "Script Ver",
+        "started_at": "Started",
+        "ended_at": "Ended"
+      },
+      "types": {
+        "started_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        },
+        "ended_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "sort": [
+        {
+          "column": "id",
+          "dir": "desc"
+        }
+      ],
+      "styles": {
+        "status": [
+          {
+            "when": "value == 'armed'",
+            "color": "#4ec9b0",
+            "bold": true
+          },
+          {
+            "when": "value == 'paused'",
+            "color": "#dcdcaa"
+          },
+          {
+            "when": "value == 'interrupted'",
+            "color": "#ce9178"
+          },
+          {
+            "when": "value == 'stopped'",
+            "color": "#858585"
+          }
+        ],
+        "verdict": [
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
+          }
+        ],
+        "priority": [
+          {
+            "when": "value == 0",
+            "color": "transparent"
+          }
+        ]
+      },
+      "buttons": [
+        {
+          "label": "Pause",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'armed')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "pause_run",
+            "data": {
+              "run_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Resume",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'paused')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "resume_run",
+            "data": {
+              "run_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Stop",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['armed', 'paused'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "stop_run",
+            "data": {
+              "run_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Move Up",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "maxSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "move_run",
+            "data": {
+              "run_id": "${row.id}",
+              "direction": "up"
+            }
+          }
+        },
+        {
+          "label": "Move Down",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "maxSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "move_run",
+            "data": {
+              "run_id": "${row.id}",
+              "direction": "down"
+            }
+          }
+        }
+      ]
+    },
+    "market-scripts": {
+      "title": "Market Scripts",
+      "type": "mkio-table",
+      "service": "scenario_instances_query",
+      "protocol": "query",
+      "filter": "side == 'market'",
+      "select": {
+        "state": "selected_scenario_instance"
+      },
+      "columns": [
+        "run_id",
+        "scenario",
+        "cl_ord_id",
+        "symbol",
+        "session_id",
+        "status",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
+        "order_id",
+        "started_at",
+        "updated_at"
+      ],
+      "labels": {
+        "run_id": "Run",
+        "scenario": "Scenario",
+        "cl_ord_id": "ClOrdID",
+        "symbol": "Symbol",
+        "session_id": "Session",
+        "status": "Status",
+        "line": "Line",
+        "waiting_for": "Waiting For",
+        "message": "Message",
+        "actions": "Actions",
+        "order_id": "Order ID",
+        "started_at": "Started",
+        "updated_at": "Updated"
+      },
+      "types": {
+        "started_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "sort": [
+        {
+          "column": "updated_at",
+          "dir": "desc"
+        }
+      ],
+      "styles": {
+        "status": [
+          {
+            "when": "CONTAINS(['running', 'listening'], value)",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
+          },
+          {
+            "when": "CONTAINS(['stopped', 'detached', 'completed', 'interrupted'], value)",
+            "color": "#858585"
+          }
+        ]
+      },
+      "buttons": [
+        {
+          "label": "Detach",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['running', 'listening'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "detach_instance",
+            "data": {
+              "order_row": "${row.order_row}"
+            }
+          }
+        }
+      ]
+    },
+    "market-log": {
+      "title": "Market Log",
+      "type": "mkio-table",
+      "service": "scenario_log_query",
+      "protocol": "query",
+      "filter": "side == 'market'",
+      "columns": [
+        "timestamp",
+        "run_id",
+        "scenario",
+        "cl_ord_id",
+        "line",
+        "text"
+      ],
+      "labels": {
+        "timestamp": "Time",
+        "run_id": "Run",
+        "scenario": "Scenario",
+        "cl_ord_id": "ClOrdID",
+        "line": "Line",
+        "text": "Text"
+      },
+      "types": {
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "sort": [
+        {
+          "column": "timestamp",
+          "dir": "desc"
+        }
+      ]
+    },
+    "help-viewer": {
+      "title": "Help",
+      "type": "help-viewer"
     }
   },
   "frames": [
@@ -4311,7 +4753,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.48",
+      "version": "0.49",
       "mkio": "1.5",
       "expr": "2"
     },

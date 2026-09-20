@@ -84,9 +84,9 @@ class FixCommandService(Service):
 
         scenarios = engine.scenarios
         if command == "check_scenario":
-            return {"ok": True, **await scenarios.check(data.get("source", ""))}
+            return {"ok": True, **await scenarios.check(data.get("source", ""), data.get("side", ""))}
         elif command == "save_scenario":
-            return {"ok": True, **await scenarios.save(data["name"], data.get("source", ""))}
+            return {"ok": True, **await scenarios.save(data["name"], data.get("source", ""), data.get("side", ""))}
         elif command == "delete_scenario":
             await scenarios.delete(data["name"])
             return {"ok": True}
@@ -94,13 +94,21 @@ class FixCommandService(Service):
             from mkfix.scenario import vocabulary
             return {"ok": True, "vocabulary": vocabulary()}
         elif command == "list_examples":
-            return {"ok": True, "examples": scenarios.examples()}
+            return {"ok": True, "examples": scenarios.examples(data.get("side", ""))}
         elif command == "get_example":
             return {"ok": True, **scenarios.example(data["name"])}
-        elif command == "arm_scenario":
+        elif command == "arm_scenario" or command == "run_scenario":
+            # Two names for one thing, so neither side's button can start the
+            # other's script: arming waits for orders, running sends them.
             return {"ok": True, **await scenarios.arm(
-                data["name"], session=data.get("session", ""), seed=int(data["seed"]) if data.get("seed") else None,
+                data["name"], side="market" if command == "arm_scenario" else "client",
+                session=data.get("session", ""), seed=int(data["seed"]) if data.get("seed") else None,
                 speed=float(data.get("speed") or 1.0))}
+        elif command == "stop_scenario":
+            return {"ok": True, **await scenarios.stop_scenario(data["name"])}
+        elif command == "move_run":
+            await scenarios.move_run(data["run_id"], data.get("direction", "up"))
+            return {"ok": True}
         elif command == "stop_run":
             await scenarios.stop_run(data["run_id"])
             return {"ok": True}
@@ -112,6 +120,8 @@ class FixCommandService(Service):
             return {"ok": True}
         elif command == "setup_loopback":
             return {"ok": True, **await scenarios.setup_loopback(data.get("port"))}
+        elif command == "run_loopback_tour":
+            return {"ok": True, **await scenarios.run_tour(data.get("port"))}
         elif command == "detach_instance":
             await scenarios.detach(data["order_row"])
             return {"ok": True}

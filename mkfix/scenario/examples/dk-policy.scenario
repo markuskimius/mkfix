@@ -2,8 +2,9 @@
 #
 # Shows:   disputing fills with `dk`, the trade in hand under `when fill`, and
 #          event.prev — telling a fill that moved CumQty from a re-notification
-# Needs:   the loopback sessions with dispute-desk armed on the market side,
-#          which fills an order in one clip and re-notifies a disputed trade
+# Needs:   the loopback sessions with dispute-desk armed in Market Scenarios,
+#          which fills an order in one clip and re-notifies a disputed trade;
+#          run on LOOP-CLI
 # Watch:   Received Trades: DK and DK Text; Sent Trades on the other side
 # Outcome: this client takes clips of 50 at most, so the venue's single fill is
 #          disputed once; the re-notification that answers it is recognised as
@@ -11,7 +12,7 @@
 
 scenario dk-policy
 
-run on LOOP-CLI
+run
     new symbol: 'AAPL', side: buy, qty: 100, type: limit, price: 150.00
     expect ack within 2s
     let disputed = 0
