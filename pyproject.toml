@@ -22,8 +22,8 @@ classifiers = [
     "Topic :: Office/Business :: Financial",
 ]
 dependencies = [
-    "mkio>=1.3.0,<2",  # 1.3.0: a page that stops reading can no longer freeze, then end, every blotter's live updates
-    "mkui>=1.8.0,<2",  # 1.8.0: message boxes (`dialog.about`, `dialog.open`) behind the Help menu
+    "mkio>=1.5.0,<2",  # 1.5.0: expression language 2 (and/or/not/in, durations, COUNT), which app.json's `expect.expr` pins
+    "mkui>=1.10.0,<2",  # 1.10.0: the browser half of expression language 2, vendored from mkio 1.5
 ]
 
 [project.optional-dependencies]

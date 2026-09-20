@@ -1685,6 +1685,22 @@ class TestVersions:
 
         assert app_config["mkio"]["expect"]["expr"] == str(LANGUAGE_VERSION)
 
+    def test_both_ends_speak_the_pinned_language(self, app_config):
+        """The handshake only compares the server's language with the pin.
+        The browser evaluates app.json with the copy mkui vendors, so an mkui
+        behind the installed mkio would leave `and`/`in`/durations parsing on
+        the server (and in these tests) and failing in the page."""
+        import re
+        import mkui
+        from mkio import expr
+
+        vendored = (Path(mkui.__file__).parent / "static" / "src" / "lib" / "expr.js").read_text(encoding="utf-8")
+        browser = re.search(r'LANGUAGE_VERSION = "(\d+)"', vendored).group(1)
+        assert browser == expr.LANGUAGE_VERSION == app_config["mkio"]["expect"]["expr"]
+        gate = expr.compile("status in ['New', 'Replaced'] and not pending and age < 1.5m "
+                            "and COUNT(rows, r -> r.ok) == 1")
+        assert gate({"status": "New", "pending": "", "age": 60, "rows": [{"ok": True}, {"ok": False}]}) is True
+
     def test_framework_floors_are_semver_majors(self):
         """mkio and mkui follow Semantic Versioning from 1.0.0: a minor is an
         addition, a major may remove anything. The floors must sit on a 1.x

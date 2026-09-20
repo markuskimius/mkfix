@@ -370,10 +370,11 @@ its toolbar instead of sitting still with old rows.
 
 ## Dependencies
 
-- [mkio](https://github.com/markuskimius/mkio) >= 1.3.0, < 2 -- async microservice
-  framework (aiohttp + aiosqlite)
-- [mkui](https://github.com/markuskimius/mkui) >= 1.8.0, < 2 -- Web Components UI
-  framework
+- [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
+  framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
+  (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
+- [mkui](https://github.com/markuskimius/mkui) >= 1.10.0, < 2 -- Web Components UI
+  framework; 1.10.0 evaluates the same language 2 in the browser
 
 ## License
 
