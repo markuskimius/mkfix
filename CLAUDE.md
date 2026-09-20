@@ -37,7 +37,7 @@ mkfix/
     fix_command.py       # FixCommandService — UI commands to engine
   static/                # scenario UI: static/CLAUDE.md
     index.html, app.json, mkfix.css
-    fix-dictionary.js, fix-formatter.js  # scenario JS: static/CLAUDE.md
+    fix-dictionary.js, fix-formatter.js
     panes/               # custom mkui pane types
 tools/
   quickfix_to_json.py    # regenerate dictionary_data from QuickFIX XML specs
