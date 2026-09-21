@@ -1,4 +1,4 @@
-"""The engine groundwork scripted scenarios stand on: `FixEngine.perform`
+"""The engine groundwork scripted macros stand on: `FixEngine.perform`
 (one way in for every order and trade action), the event bus (what happened,
 announced after its writes), and the market-side order lock."""
 
@@ -278,10 +278,10 @@ class TestPerform:
         stub.send_message = send
         result = await engine.perform("send_new_order", {
             "session_id": "S1", "symbol": "AAPL", "side": "1", "qty": "100", "price": "150", "_tag": "t7"},
-            source="scenario")
+            source="macro")
         assert on_the_wire == [[("sent order",)]]
         sent, acted = seen
-        assert sent.source == "scenario" and sent.detail == {"tag": "t7"} and sent.prev is None
+        assert sent.source == "macro" and sent.detail == {"tag": "t7"} and sent.prev is None
         assert sent.order["cl_ord_id"] == result["cl_ord_id"] == sent.request and sent.order["status"] == "PendingNew"
         # the terms as given, for whoever writes down what was done (the recorder); nothing internal
         assert acted.kinds == ("action",) and acted.detail == {

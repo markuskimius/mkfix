@@ -30,12 +30,12 @@ mkfix/
     engine.py           # FixEngine — session lifecycle, WriteBatcher bridge, replay
     actions.py, events.py  # perform(), event bus, order lock — see fix/CLAUDE.md
     replay.py           # Log parser + ReplayTask
-  scenario/            # the scenario language — see scenario/CLAUDE.md
+  macro/               # macros (the scripting language) — see macro/CLAUDE.md
   archive.py           # mkfix archive / restore over mkio's row archiving
-  upgrade.py           # pre-0.34 mirror columns (Record history)
+  upgrade.py           # pre-0.34 mirror columns; pre-0.51 scenarios dropped
   services/
     fix_command.py       # FixCommandService — UI commands to engine
-  static/                # scenario UI: static/CLAUDE.md
+  static/                # macro UI: static/CLAUDE.md
     index.html, app.json, mkfix.css
     fix-dictionary.js, fix-formatter.js
     panes/               # custom mkui pane types

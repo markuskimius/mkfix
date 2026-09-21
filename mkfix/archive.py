@@ -2,7 +2,7 @@
 defaults.
 
 The tables come from the ``archive`` keys in mkfix.toml — the running-data
-tables (messages, orders, trades, IOIs, allocations, scenario runs) in the ``data`` group,
+tables (messages, orders, trades, IOIs, allocations, macro runs) in the ``data`` group,
 archived by default, and the config/state tables in ``config``, archived
 only when named. The default cutoff is the start of today in local time, so
 a plain ``mkfix archive`` clears down everything from before today. Short
@@ -35,7 +35,7 @@ from mkio.archive import (
     restore_offline,
 )
 
-from mkfix.upgrade import mirror_columns_in_archive, strip_mirror_columns
+from mkfix.upgrade import mirror_columns_in_archive, scenarios_in_archive, strip_retired
 
 ALIASES: dict[str, str] = {
     "messages": "fix_messages",
@@ -50,10 +50,10 @@ ALIASES: dict[str, str] = {
     "ids": "fix_id_state",
     "replay_jobs": "fix_replay_jobs",
     "templates": "fix_templates",
-    "scenarios": "fix_scenarios",
-    "runs": "fix_scenario_runs",
-    "scripts": "fix_scenario_instances",
-    "scenario_log": "fix_scenario_log",
+    "macros": "fix_macros",
+    "macro_runs": "fix_macro_runs",
+    "macro_orders": "fix_macro_orders",
+    "macro_log": "fix_macro_log",
     "layouts": "mkui_layouts",
 }
 
@@ -122,7 +122,7 @@ def _parser(cmd: str) -> argparse.ArgumentParser:
                             "overrides --group)")
         p.add_argument("--group", default=None, metavar="{data,config}",
                        help="archive one group: data (messages, orders, trades, iois, "
-                            "allocations, runs, scripts, scenario_log; the default) or config (the rest). Most config "
+                            "allocations, macro_runs, macro_orders, macro_log; the default) or config (the rest). Most config "
                             "tables are archived whole, whatever the cutoff")
         p.add_argument("--all", action="store_true",
                        help="archive both groups; not with --tables or --group")
@@ -275,12 +275,15 @@ def _restore(cfg: dict[str, Any], args: argparse.Namespace, tables: list[str] | 
             f"a server is answering at {server_url(cfg)} — restore needs it stopped"
         )
     stale = mirror_columns_in_archive(args.archive_dir)
-    result = restore_offline(cfg, strip_mirror_columns(args.archive_dir),
+    retired = scenarios_in_archive(args.archive_dir)
+    result = restore_offline(cfg, strip_retired(args.archive_dir),
                              tables=tables, dry_run=args.dry_run)
     verb = "would be restored" if args.dry_run else "restored"
     print(f"Restoring from {args.archive_dir}" + (" (dry run)" if args.dry_run else ""))
     for table, columns in stale.items():
         print(f"  {table}: pre-0.34 mirror column(s) {', '.join(columns)} left behind")
+    if retired:
+        print(f"  pre-0.51 scenarios left behind (macros start afresh): {', '.join(retired)}")
     for name, t in result["tables"].items():
         parts = [f"{t['rows']:,} rows"]
         if t.get("history"):

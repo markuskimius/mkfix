@@ -1,4 +1,4 @@
 [
-  { "id": "scenario-language", "title": "Scenario Language", "file": "scenario-language.md" },
-  { "id": "scenario-examples", "title": "Scenario Examples", "builtin": "examples" }
+  { "id": "macro-language", "title": "Macro Language", "file": "macro-language.md" },
+  { "id": "macro-examples", "title": "Macro Examples", "builtin": "examples" }
 ]

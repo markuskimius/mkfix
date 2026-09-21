@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "mkio>=1.5.0,<2",  # 1.5.0: expression language 2 (and/or/not/in, durations, COUNT), which app.json's `expect.expr` pins
-    "mkui>=1.10.0,<2",  # 1.10.0: the browser half of expression language 2, vendored from mkio 1.5
+    "mkui>=1.11.0,<2",  # 1.11.0: the dialog's `checklist` field (the Pause and Stop run lists) and `optionsFrom.empty`
 ]
 
 [project.optional-dependencies]

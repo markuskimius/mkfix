@@ -236,7 +236,9 @@ class TestPaneModules:
 
 @pytest.fixture(scope="module")
 def pane_sources() -> dict[str, str]:
-    return {p.name: p.read_text(encoding="utf-8") for p in sorted((STATIC / "panes").glob("*.js"))}
+    # The pane modules, and the one module that is no pane but is always loaded.
+    files = [*sorted((STATIC / "panes").glob("*.js")), STATIC / "macro-status.js"]
+    return {p.name: p.read_text(encoding="utf-8") for p in files}
 
 
 def _resolve_js_import(spec: str, js_file: Path) -> Path | None:
@@ -538,7 +540,7 @@ class TestServiceReferences:
         assert {"cxl_rej_reason", "pending_entered"} <= set(table)
 
     def test_sent_requests_do_not_gate_on_the_slot(self, app_config):
-        """A cancel on top of a pending replace is a scenario worth sending:
+        """A cancel on top of a pending replace is a macro worth sending:
         Sent Orders' Replace and Cancel never test pending_action."""
         by = {b["label"]: b for b in app_config["panes"]["order-blotter"]["buttons"]}
         for label in ("Replace", "Cancel"):
@@ -707,7 +709,7 @@ class TestServiceReferences:
         would silently send a bad code), and New and Replace offer the same
         lists. The lists are deliberately not narrowed to the session's
         version: a value the session's dictionary lacks (Market on Close on
-        4.4, At the Close on 4.1) is a test scenario, so the engine sends
+        4.4, At the Close on 4.1) is a test macro, so the engine sends
         whatever code is picked and the labels only advise where the value
         is standard."""
         from mkfix.fix.dictionary import STANDARD_VERSIONS, FixDictionary
@@ -1188,9 +1190,9 @@ class TestStyleAndGateValues:
 
     def test_the_run_panes_open_newest_first(self, app_config):
         for side in ("client", "market"):
-            assert app_config["panes"][f"{side}-runs"]["sort"] == ["-id"]
-            assert app_config["panes"][f"{side}-scripts"]["sort"] == ["-updated_at"]
-            assert app_config["panes"][f"{side}-log"]["sort"] == ["-timestamp"]
+            assert app_config["panes"][f"{side}-macro-runs"]["sort"] == ["-id"]
+            assert app_config["panes"][f"{side}-macro-orders"]["sort"] == ["-updated_at"]
+            assert app_config["panes"][f"{side}-macro-log"]["sort"] == ["-timestamp"]
 
     def test_filters_and_row_styles_read_real_columns(self, app_config, toml_config):
         checked = 0
@@ -1248,6 +1250,28 @@ class TestStyleAndGateValues:
                         expr.compile(node[key], expr.Env(strict=False))
                         checked += 1
         assert checked > 120
+
+    def test_a_fetched_select_names_its_blank_choice_the_way_mkui_reads_it(self, app_config):
+        """mkui does not merge a static `options` list into one fetched by
+        `optionsFrom`: the blank choice of such a select is a dash unless
+        `optionsFrom.empty` names it (mkui 1.11). Several selects once carried an
+        `options` entry for it — "(any session)", "every session" — that
+        nothing ever showed."""
+        from mkio import expr
+        named = 0
+        for node in _walk_dicts(app_config):
+            if node.get("type") != "select" or "optionsFrom" not in node:
+                continue
+            assert "options" not in node, f"{node.get('name')}: `options` beside `optionsFrom` is never shown"
+            empty = node["optionsFrom"].get("empty")
+            if empty is not None:
+                assert isinstance(empty, str) and empty.strip()
+                expr.compile_template(empty, expr.Env(strict=False))
+                named += 1
+        assert named >= 4
+        import mkui
+        dialog = (Path(mkui.static_dir) / "src" / "widgets" / "mkui-dialog.js").read_text(encoding="utf-8")
+        assert "field?.optionsFrom?.empty" in dialog, "the installed mkui must read the key"
 
     def test_display_templates_compile_and_render(self, app_config):
         """`display` templates are the pane's only say over what a cell
@@ -1450,14 +1474,14 @@ class TestMenubar:
     MENUS = ["FIX", "Edit", "Client", "Market", "Config", "To Do", "Layout", "Window", "Help"]
     # What each menu of panes opens, in order (None is a separator): FIX is
     # the wire, Client the orders we send and Market the orders we receive
-    # (blotters, then that side's scenarios), To Do what has no side yet,
+    # (blotters, then that side's macros), To Do what has no side yet,
     # Config what the rest is set up with.
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail"],
         "Client": ["order-blotter", "trade-blotter", None,
-                   "client-scenarios", "client-runs", "client-scripts", "client-log"],
+                   "client-macros", "client-macro-runs", "client-macro-orders", "client-macro-log"],
         "Market": ["market-order-blotter", "market-trade-blotter", None,
-                   "market-scenarios", "market-runs", "market-scripts", "market-log"],
+                   "market-macros", "market-macro-runs", "market-macro-orders", "market-macro-log"],
         "To Do": ["ioi-viewer", "allocation-viewer", "replay-control"],
         "Config": ["templates", "dictionaries"],
     }
@@ -1689,8 +1713,8 @@ class TestHelpMenu:
         menu = app_config["menubar"][-1]
         assert menu["label"] == "Help"
         assert menu["items"] == [
-            {"label": "Scenario Language", "action": "pane.show", "args": "help-viewer"},
-            {"label": "Scenario Editor Keys", "action": "dialog.open", "args": "scenario_keys"},
+            {"label": "Macro Language", "action": "pane.show", "args": "help-viewer"},
+            {"label": "Macro Editor Keys", "action": "dialog.open", "args": "macro_keys"},
             {"sep": True},
             {"label": "Keyboard Shortcuts", "action": "dialog.open", "args": "shortcuts"},
             {"sep": True},

@@ -1,0 +1,29 @@
+# Order burst
+#
+# Shows:   many orders from one macro — `repeat N at RATE with …`, the pass
+#          counter `n`, seeded RANDOM(), client, expire, handl_inst
+# Needs:   the loopback sessions with a market macro armed; run on LOOP-CLI.
+#          Run it twice at once for two bursts side by side
+# Watch:   Sent Orders filling up at five a second; Client Macro Orders, one row
+#          an order
+# Outcome: twenty orders across three symbols and two clients, sizes and prices
+#          drawn from the seed, each its own macro that expects its
+#          acknowledgement and passes or fails on it
+
+macro order-burst
+seed 20260920                   # the same twenty orders every run
+
+run
+    # Lines outside the `repeat` that sends run once, before any order exists.
+    let clients = ['ACME', 'GLOBEX']
+    log 'sending 20 orders'
+
+    # Every pass is a macro of its own with an order of its own. `at 5/s`
+    # paces the passes; the passes do not wait for one another.
+    repeat 20 at 5/s with sym = ['IBM', 'MSFT', 'AAPL']
+        let lots = 1 + FLOOR(RANDOM() * 5)
+        let px = TICK(20 + RANDOM() * 5, 0.05)
+        let side = IF(n % 2 == 0, 'buy', 'sell')
+        new symbol: sym, side: side, qty: lots * 100, price: px, client: clients[n % 2]
+        expect ack within 2s else fail 'order ${n} (${sym}) was not acknowledged'
+        pass '${sym} x ${order.order_qty} for ${order.client}'

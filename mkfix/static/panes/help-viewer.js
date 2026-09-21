@@ -2,16 +2,16 @@
 // renderer in markdown.js, with a contents list. The same files read well on
 // GitHub, so the documentation is written once.
 //
-// The Scenario Examples page is not a file: it is built from the headers of
+// The Macro Examples page is not a file: it is built from the headers of
 // the examples the server ships (`fix_cmd list_examples`), each with a way
-// to open a copy in the Scenarios pane.
+// to open a copy in the Macros pane.
 //
 // `app.state.help_target = { page, anchor }` opens a page at a heading — the
 // editor's F1 sets it.
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
 import { escapeHtml, headings, renderMarkdown } from "/static/markdown.js";
-import { highlight } from "/static/scenario-lang.js";
+import { highlight } from "/static/macro-lang.js";
 
 const { registerPaneType } = window.Mkui;
 
@@ -35,13 +35,13 @@ registerPaneType("help-viewer", async (spec, app, host) => {
         <dl>${["shows", "needs", "watch", "outcome"].filter((k) => e[k]).map((k) =>
           `<dt>${k[0].toUpperCase() + k.slice(1)}</dt><dd>${escapeHtml(e[k])}</dd>`).join("")}</dl>
         <button class="mkui-btn" data-example="${escapeHtml(e.name)}" data-side="${escapeHtml(e.side)}">Open in ${
-          e.side === "client" ? "Client" : "Market"} Scenarios</button>
+          e.side === "client" ? "Client" : "Market"} Macros</button>
       </section>`;
-    const sides = [["market", "Market scenarios", "market-examples", "They act on the orders you receive. <b>Arm…</b> one and it waits for orders to match."],
-      ["client", "Client scenarios", "client-examples", "They send orders and act on them. <b>Run…</b> one on a session — as many runs at once as you like."]];
+    const sides = [["market", "Market macros", "market-examples", "They act on the orders you receive. <b>Arm…</b> one and it waits for orders to match."],
+      ["client", "Client macros", "client-examples", "They send orders and act on them. <b>Run…</b> one on a session — as many runs at once as you like."]];
     const sections = sides.map(([side, title, id, blurb]) =>
       `<h2 id="${id}">${title}</h2><p>${blurb}</p>${examples.filter((e) => e.side === side).map(card).join("")}`).join("");
-    return { html: `<h1 id="scenario-examples">Scenario Examples</h1>
+    return { html: `<h1 id="macro-examples">Macro Examples</h1>
       <p>Bundled with mkfix and read-only: the button under each makes a copy of your own in that side's editor.</p>
       <p>The client examples are written for the session <code>LOOP-CLI</code>, facing <code>LOOP-MKT</code> — this
       server talking to itself, so both sides of every order are on your screen. Arm a market example
@@ -63,8 +63,8 @@ registerPaneType("help-viewer", async (spec, app, host) => {
       content = await examplesPage();
     } else {
       const text = await (await fetch(`/static/help/${entry.file}`, { cache: "no-cache" })).text();
-      vocab ??= (await cmd("scenario_vocab")).vocabulary;
-      content = { html: renderMarkdown(text, { highlight: (code, lang) => (lang === "scenario" ? highlight(code, vocab) : null) }),
+      vocab ??= (await cmd("macro_vocab")).vocabulary;
+      content = { html: renderMarkdown(text, { highlight: (code, lang) => (lang === "macro" ? highlight(code, vocab) : null) }),
         toc: headings(text).filter((h) => h.level === 2 || h.level === 3) };
     }
     page.innerHTML = content.html;
@@ -109,7 +109,7 @@ registerPaneType("help-viewer", async (spec, app, host) => {
     const example = e.target.closest("[data-example]");
     if (example) {
       const side = example.dataset.side === "client" ? "client" : "market";
-      app.fireAction("pane.show", `${side}-scenarios`);
+      app.fireAction("pane.show", `${side}-macros`);
       app.state.set("open_example", { name: example.dataset.example, side });
     }
   });

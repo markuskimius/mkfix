@@ -1,0 +1,40 @@
+# Dispute desk
+#
+# Shows:   `when dk` — reacting to a DontKnowTrade — with the trade in hand,
+#          trade.dk_reason and trade.dk_text, a counter kept with `let`,
+#          renotify and bust
+# Needs:   any session that receives orders, and a counterparty that disputes
+#          (the client-side example dk-policy does)
+# Watch:   Sent Trades: the DK and DK Text columns, then a new ExecID
+# Outcome: a price dispute busts the trade; any other dispute is answered by
+#          re-notifying once, and a second dispute busts it
+
+macro dispute-desk
+
+on order
+    accept
+    fill qty: order.order_qty, price: order.price
+
+    # A name set with `let` belongs to this order's macro; setting it again
+    # changes it, so it can count.
+    let disputes = 0
+
+    # Inside `when dk` the trade is the one disputed, so `renotify` and
+    # `bust` need no target. The macro stays alive for its `when` lines
+    # after the last plain line has run.
+    when dk
+        let disputes = disputes + 1
+
+        if trade.dk_reason == 'PriceExceedsLimit'
+            after 500ms
+            bust text: 'busted: ${trade.dk_text}'
+
+        # A re-notification goes out under a new ExecID, and the counterparty
+        # records it as a new trade. A desk that re-sends every dispute,
+        # facing a client that disputes every report, would go round for
+        # ever: one re-send per order stops it here.
+        else if disputes > 1
+            bust text: 'disputed twice'
+        else
+            after 1s
+            renotify text: 'as reported'

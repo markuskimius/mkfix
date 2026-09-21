@@ -1,0 +1,29 @@
+# Reject by rule
+#
+# Shows:   if / else if / else, matching on the order's own terms, let,
+#          text with ${…} placeholders, `using` a saved template
+# Needs:   any session that receives orders
+# Watch:   Received Orders: Status and Sent Text; Messages for the reports
+# Outcome: odd lots, oversized orders and a blocked client are rejected with
+#          a reason; everything else is accepted
+
+macro reject-by-rule
+
+# Only limit orders are this macro's business: the rest stay pending for
+# a person, or for another armed macro further down the list.
+on order where ord_type_code == '2'
+    let limit = 10000
+    after 100ms
+
+    if order.client in ['BLOCKED', 'SUSPENDED']
+        # A saved Reject template carries the wording the desk agreed on.
+        # Inline terms would override the template's.
+        reject using 'client-blocked'
+    else if order.order_qty > limit
+        reject text: 'Order of ${order.order_qty} exceeds the ${limit} limit'
+    else if order.order_qty % 100 != 0
+        reject text: 'Round lots only', extra: '103=99'
+    else if order.symbol not in ['IBM', 'MSFT', 'AAPL']
+        reject text: 'Unknown symbol ${order.symbol}', extra: '103=1'
+    else
+        accept text: 'Working'

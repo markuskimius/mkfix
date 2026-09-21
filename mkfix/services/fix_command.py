@@ -82,54 +82,65 @@ class FixCommandService(Service):
         if command in ACTIONS:
             return {"ok": True, **await engine.perform(command, data)}
 
-        scenarios = engine.scenarios
-        if command == "check_scenario":
-            return {"ok": True, **await scenarios.check(data.get("source", ""), data.get("side", ""))}
-        elif command == "save_scenario":
-            return {"ok": True, **await scenarios.save(data["name"], data.get("source", ""), data.get("side", ""))}
-        elif command == "delete_scenario":
-            await scenarios.delete(data["name"])
+        macros = engine.macros
+        if command == "check_macro":
+            return {"ok": True, **await macros.check(data.get("source", ""), data.get("side", ""))}
+        elif command == "save_macro":
+            return {"ok": True, **await macros.save(data["name"], data.get("source", ""), data.get("side", ""))}
+        elif command == "delete_macro":
+            await macros.delete(data["name"])
             return {"ok": True}
-        elif command == "scenario_vocab":
-            from mkfix.scenario import vocabulary
+        elif command == "macro_vocab":
+            from mkfix.macro import vocabulary
             return {"ok": True, "vocabulary": vocabulary()}
         elif command == "list_examples":
-            return {"ok": True, "examples": scenarios.examples(data.get("side", ""))}
+            return {"ok": True, "examples": macros.examples(data.get("side", ""))}
         elif command == "get_example":
-            return {"ok": True, **scenarios.example(data["name"])}
-        elif command == "arm_scenario" or command == "run_scenario":
+            return {"ok": True, **macros.example(data["name"])}
+        elif command == "arm_macro" or command == "run_macro":
             # Two names for one thing, so neither side's button can start the
             # other's script: arming waits for orders, running sends them.
-            return {"ok": True, **await scenarios.arm(
-                data["name"], side="market" if command == "arm_scenario" else "client",
+            return {"ok": True, **await macros.arm(
+                data["name"], side="market" if command == "arm_macro" else "client",
                 session=data.get("session", ""), seed=int(data["seed"]) if data.get("seed") else None,
                 speed=float(data.get("speed") or 1.0))}
-        elif command == "stop_scenario":
-            return {"ok": True, **await scenarios.stop_scenario(data["name"])}
+        elif command == "stop_macro":
+            return {"ok": True, **await macros.stop_macro(data["name"])}
         elif command == "move_run":
-            await scenarios.move_run(data["run_id"], data.get("direction", "up"))
+            await macros.move_run(data["run_id"], data.get("direction", "up"))
             return {"ok": True}
         elif command == "stop_run":
-            await scenarios.stop_run(data["run_id"])
+            await macros.stop_run(data["run_id"])
             return {"ok": True}
         elif command == "pause_run":
-            await scenarios.pause_run(data["run_id"])
+            await macros.pause_run(data["run_id"])
             return {"ok": True}
         elif command == "resume_run":
-            await scenarios.resume_run(data["run_id"])
+            await macros.resume_run(data["run_id"])
             return {"ok": True}
         elif command == "setup_loopback":
-            return {"ok": True, **await scenarios.setup_loopback(data.get("port"))}
+            return {"ok": True, **await macros.setup_loopback(data.get("port"))}
         elif command == "record_start":
-            return {"ok": True, **scenarios.record_start(data.get("side", ""), data.get("session", ""))}
+            return {"ok": True, **macros.record_start(data.get("side", ""), data.get("session", ""))}
         elif command == "record_stop":
-            return {"ok": True, **await scenarios.record_stop(data.get("side", ""), data.get("name", "recorded"))}
+            return {"ok": True, **await macros.record_stop(data.get("side", ""), data.get("name", "recorded"),
+                                                           save=str(data.get("save", "")).lower() in ("1", "true", "yes"))}
+        elif command == "macro_status":
+            return {"ok": True, **macros.status()}
+        elif command == "play_macro":
+            return {"ok": True, **await macros.play(
+                data.get("side", ""), data.get("what", ""), session=data.get("session", ""),
+                seed=int(data["seed"]) if data.get("seed") else None, speed=float(data.get("speed") or 1.0))}
+        elif command == "pause_runs":
+            return {"ok": True, **await macros.pause_runs(data.get("side", ""), data.get("runs") or data.get("run", ""))}
+        elif command == "stop_runs":
+            return {"ok": True, **await macros.stop_runs(data.get("side", ""), data.get("runs") or data.get("run", ""))}
         elif command == "record_status":
-            return {"ok": True, **scenarios.record_status(data.get("side", ""))}
+            return {"ok": True, **macros.record_status(data.get("side", ""))}
         elif command == "run_loopback_tour":
-            return {"ok": True, **await scenarios.run_tour(data.get("port"))}
-        elif command == "detach_instance":
-            await scenarios.detach(data["order_row"])
+            return {"ok": True, **await macros.run_tour(data.get("port"))}
+        elif command == "detach_order":
+            await macros.detach(data["order_row"])
             return {"ok": True}
 
         if command == "start_session":

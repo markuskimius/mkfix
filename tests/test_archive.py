@@ -57,11 +57,11 @@ class TestDeclarations:
         specs = archive_specs(CONFIG)
         data = {n: s for n, s in specs.items() if s.group == "data"}
         assert set(data) == {"fix_messages", "fix_orders", "fix_executions", "fix_iois", "fix_allocations",
-                             "fix_scenario_runs", "fix_scenario_instances", "fix_scenario_log"}
+                             "fix_macro_runs", "fix_macro_orders", "fix_macro_log"}
         for spec in data.values():
             assert spec.cutoff is not None and spec.format == FIX_STAMP, spec.table
         assert data["fix_orders"].cutoff == "created_at"
-        started = {"fix_scenario_runs", "fix_scenario_instances"}
+        started = {"fix_macro_runs", "fix_macro_orders"}
         assert all(data[t].cutoff == "started_at" for t in started)
         assert all(data[t].cutoff == "timestamp" for t in data if t != "fix_orders" and t not in started)
 
@@ -70,7 +70,7 @@ class TestDeclarations:
         config = {n: s for n, s in specs.items() if s.group == "config"}
         assert set(config) == {
             "fix_sessions", "fix_dictionaries", "fix_settings", "fix_id_state",
-            "fix_replay_jobs", "fix_templates", "fix_scenarios", "mkui_layouts",
+            "fix_replay_jobs", "fix_templates", "fix_macros", "mkui_layouts",
         }
         assert config["fix_sessions"].companions == ("fix_session_state",)
         # Whole tables except the layouts, whose `saved` is a real timestamp.
@@ -398,7 +398,7 @@ class TestThroughTheServer:
             assert manifest["mode"] == "online" and manifest["app"] == "mkfix"
             assert set(manifest["tables"]) == {
                 "fix_messages", "fix_orders", "fix_executions", "fix_iois", "fix_allocations",
-                "fix_scenario_runs", "fix_scenario_instances", "fix_scenario_log"}
+                "fix_macro_runs", "fix_macro_orders", "fix_macro_log"}
             with open(run_dir / "fix_messages.csv", newline="", encoding="utf-8") as f:
                 msgs = list(csv.DictReader(f))
             assert len(msgs) == len(before["fix_messages"])

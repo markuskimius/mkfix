@@ -412,7 +412,7 @@ class TestMarketFlow:
 
     @pytest.mark.asyncio
     async def test_fill_of_filled_order_overfills(self, stack):
-        """A fully filled order stays fillable — overfills are a scenario the
+        """A fully filled order stays fillable — overfills are a macro the
         engine must be able to produce. Leaves stays 0 and status Filled."""
         db, writer, engine = stack
         stub = await self._seed(engine)
@@ -3067,7 +3067,7 @@ class TestFix44Executions:
 class TestNonStandardOrderCodes:
     """The order dialogs offer OrdType/TimeInForce values annotated with the
     versions that define them, but the engine never narrows by the session's
-    dictionary: sending a code the dictionary lacks is a test scenario, so
+    dictionary: sending a code the dictionary lacks is a test macro, so
     the picked code goes out unchanged on any version."""
 
     @pytest.mark.asyncio
@@ -3213,7 +3213,7 @@ class TestVersioning:
     @pytest.mark.asyncio
     async def test_tables_are_versioned(self):
         assert set(versioned_tables(CONFIG)) == {
-            "fix_sessions", "fix_orders", "fix_executions", "fix_scenarios"}
+            "fix_sessions", "fix_orders", "fix_executions", "fix_macros"}
 
     @pytest.mark.asyncio
     async def test_order_lifecycle_is_one_chain(self, stack):

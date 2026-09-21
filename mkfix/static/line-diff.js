@@ -1,6 +1,6 @@
-// Line differences between two texts, for the scenario editors' History: a
+// Line differences between two texts, for the macro editors' History: a
 // saved version is shown as it was, with the lines that are no longer in the
-// current script marked, and the places where the current script has lines
+// current macro marked, and the places where the current macro has lines
 // this version lacks. Pure functions — node tests them.
 
 // Above this many cell pairs the table is not worth its memory: the lines

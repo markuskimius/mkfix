@@ -1,7 +1,7 @@
 """The order and trade actions, by name.
 
 One table serves everything that acts on an order: the UI's ``fix_cmd``
-commands and scripted scenarios both go through ``FixEngine.perform``, so a
+commands and scripted macros both go through ``FixEngine.perform``, so a
 script can do exactly what a button can, behind the same checks. Each entry
 turns a payload of loosely typed fields — a dialog submits strings — into
 the engine call and names what it returns.

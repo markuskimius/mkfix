@@ -184,8 +184,8 @@ class FixEngine:
         self._replay_tasks: dict[int, ReplayTask] = {}
         self.events = EventBus()
         self._order_locks: dict[str, asyncio.Lock] = {}
-        from mkfix.scenario.store import ScenarioManager    # imports this module's siblings
-        self.scenarios = ScenarioManager(self)
+        from mkfix.macro.store import MacroManager    # imports this module's siblings
+        self.macros = MacroManager(self)
 
     async def start(self) -> None:
         """Load session configs from DB and compile write operations."""
@@ -198,11 +198,11 @@ class FixEngine:
         await self.ids.start()
         await self._load_custom_dictionaries()
         await self._load_sessions()
-        await self.scenarios.start()
+        await self.macros.start()
 
     async def stop(self) -> None:
         """Stop all sessions and replay tasks."""
-        await self.scenarios.stop()
+        await self.macros.stop()
         for task in list(self._replay_tasks.values()):
             await task.stop()
         self._replay_tasks.clear()
@@ -1518,7 +1518,7 @@ class FixEngine:
     async def perform(self, op: str, data: dict[str, Any], source: str = "manual") -> dict[str, Any]:
         """Run the order or trade action ``op`` (a key of ``ACTIONS``) on a
         payload of its terms, and announce it. The one way in for the UI's
-        ``fix_cmd`` and for scripted scenarios alike, so both meet the same
+        ``fix_cmd`` and for scripted macros alike, so both meet the same
         checks; ``source`` tells listeners which of them acted.
 
         The subject is found before the action runs — an accepted replace
@@ -1955,7 +1955,7 @@ class FixEngine:
 
         # As with a fill, the report implicitly acknowledges a not-yet-accepted
         # order, so the pending New is consumed; a pending Cancel/Replace stays
-        # parked — rejecting it afterwards is the "too late to cancel" scenario.
+        # parked — rejecting it afterwards is the "too late to cancel" macro.
         consumed = order["pending_action"] == "New"
         await self._write_order(
             order, order_id=order_id, status="Canceled", leaves_qty=0.0,
@@ -2711,11 +2711,11 @@ class FixEngine:
                 if row["dictionary"] in names and row["session_id"] not in leaving:
                     problems.append(
                         f"dictionary {row['dictionary']} is bound to session {row['session_id']}")
-        live = [run.scenario.name for run in self.scenarios.live_runs()]
-        scripted = ("fix_orders", "fix_executions", "fix_scenarios", "fix_scenario_runs",
-                    "fix_scenario_instances", "fix_scenario_log")
+        live = [run.macro.name for run in self.macros.live_runs()]
+        scripted = ("fix_orders", "fix_executions", "fix_macros", "fix_macro_runs",
+                    "fix_macro_orders", "fix_macro_log")
         if live and any(selection.get(t) for t in scripted):
-            problems.append(f"scenario {', '.join(sorted(live))} is armed: its scripts read the orders, trades "
+            problems.append(f"macro {', '.join(sorted(live))} is armed: its scripts read the orders, trades "
                             "and run rows this archive would take — stop the run first")
         if selection.get("fix_id_state"):
             problems.append(

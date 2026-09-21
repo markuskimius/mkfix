@@ -1,16 +1,16 @@
 # mkfix/fix — actions, events and the order lock
 
-What scripted scenarios stand on. None of it changes what a user sees.
+What scripted macros stand on. None of it changes what a user sees.
 
 ## One way in: `FixEngine.perform(op, data, source)`
 
-`actions.py` holds `ACTIONS`: every order and trade action by its `fix_cmd` name, each a small coroutine turning a loosely typed payload (a dialog submits strings) into the engine call and naming what it returns (`cl_ord_id`, `order_id`, `exec_id`). `FixCommandService._dispatch` hands any command in `ACTIONS` to `perform` — `save_as` templates are saved first, a UI concern — and keeps only the session, replay and dictionary commands as branches of its own; `test_ui_config._fix_cmd_commands` is the union the app.json guards check against. A script calls the same `perform` with `source="scenario"`, so it can do exactly what a button can, behind the same refusals (`_active_session`, `_require_live_trade`, the Restate checks). `ORDER_KEY`/`TRADE_KEY` name the payload key carrying the action's subject; `test_events.TestPerform` holds the table to `TEMPLATE_TERMS`.
+`actions.py` holds `ACTIONS`: every order and trade action by its `fix_cmd` name, each a small coroutine turning a loosely typed payload (a dialog submits strings) into the engine call and naming what it returns (`cl_ord_id`, `order_id`, `exec_id`). `FixCommandService._dispatch` hands any command in `ACTIONS` to `perform` — `save_as` templates are saved first, a UI concern — and keeps only the session, replay and dictionary commands as branches of its own; `test_ui_config._fix_cmd_commands` is the union the app.json guards check against. A script calls the same `perform` with `source="macro"`, so it can do exactly what a button can, behind the same refusals (`_active_session`, `_require_live_trade`, the Restate checks). `ORDER_KEY`/`TRADE_KEY` name the payload key carrying the action's subject; `test_events.TestPerform` holds the table to `TEMPLATE_TERMS`.
 
 ## Events: `events.py`
 
 `engine.events` is an `EventBus`: synchronous fan-out to listeners that must not block (they run on a session's read loop or inside an action); one that raises is logged and skipped. **Nothing listens until something subscribes**, and with no listener the engine skips the row reads an event costs (`events.active`).
 
-An `EngineEvent` has `kinds` (most specific first; `kind` is the first), `session_id`, `source` (`wire` / `manual` / `scenario`), `order` and `prev` (the order row after and before — what lets a listener tell a fill that moved CumQty from a re-notified one, which the engine deliberately records as a new trade and infers nothing about), `trade`, `msg`, `request` (the ClOrdID a request or its answer names) and `detail`. `order_key` is `fix_orders.id`, the identity that survives every rename.
+An `EngineEvent` has `kinds` (most specific first; `kind` is the first), `session_id`, `source` (`wire` / `manual` / `macro`), `order` and `prev` (the order row after and before — what lets a listener tell a fill that moved CumQty from a re-notified one, which the engine deliberately records as a new trade and infers nothing about), `trade`, `msg`, `request` (the ClOrdID a request or its answer names) and `detail`. `order_key` is `fix_orders.id`, the identity that survives every rename.
 
 Every event is emitted **after its writes have committed** (`writer.submit` returns on commit), so a listener that queries finds what the event describes.
 
@@ -23,7 +23,7 @@ Every event is emitted **after its writes have committed** (`writer.submit` retu
 | `_handle_dont_know_trade` | `dk`, `message` — only when it names a trade we sent |
 | `update_session_state` | `session up` / `session down`, when a session's ACTIVE-ness flips; no order (`detail.status`) |
 | `send_new_order` | `sent order` — after the row is written and **before the send**, so whoever takes the order owns it before an acknowledgement can arrive; `source` and `detail.tag` say who sent it |
-| `perform` | `action` (`detail.op`, `detail.result`, `detail.data` — the payload as given, minus `_` keys — and `detail.trade_before`, the trade row as the action found it: what the scenario recorder writes scripts from), `send_new_order` included. The subject is found before the action (an accepted replace renames it) and re-read after by row id. A refused action announces nothing |
+| `perform` | `action` (`detail.op`, `detail.result`, `detail.data` — the payload as given, minus `_` keys — and `detail.trade_before`, the trade row as the action found it: what the macro recorder writes scripts from), `send_new_order` included. The subject is found before the action (an accepted replace renames it) and re-read after by row id. A refused action announces nothing |
 
 ## The order lock
 

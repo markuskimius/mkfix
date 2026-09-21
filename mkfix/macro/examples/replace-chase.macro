@@ -1,0 +1,36 @@
+# Replace chase
+#
+# Shows:   walking a price up with `replace`, `cancel rejected`, the
+#          order.pending_action guard, terms a replace leaves out
+# Needs:   the loopback sessions with cancel-replace-desk or slow-fill armed;
+#          run on LOOP-CLI
+# Watch:   Sent Orders: Pending, Pending ID, New Px, Rej Reason; the ClOrdID
+#          moving only when a replace is accepted
+# Outcome: the limit is raised a tick every 2 s, up to three times, while the
+#          order is unfilled; a refused replace is logged and the chase goes on;
+#          what is left at the end is cancelled
+
+macro replace-chase
+
+run
+    new symbol: 'MSFT', side: buy, qty: 500, type: limit, price: 50.00
+    expect ack within 2s
+
+    repeat 3
+        wait filled or timeout 2s
+        if order.leaves_qty == 0
+            pass 'filled on the way up at ${order.avg_price}'
+
+        # Never stack a request on one that is still unanswered.
+        if order.pending_action == ''
+            # Only the price changes: quantity, type and the rest keep the
+            # order's last accepted values, as the Replace dialog would.
+            replace price: TICK(order.price + 0.01, 0.01)
+            wait replaced or cancel rejected or timeout 2s
+            if event.kind == 'cancel rejected'
+                log 'refused (${event.reason}): ${event.text}'
+
+    if order.leaves_qty > 0
+        cancel
+        expect canceled or filled within 2s
+    pass 'chased to ${order.price}'

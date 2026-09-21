@@ -1,0 +1,32 @@
+# Misbehaving counterparty
+#
+# Shows:   what a test venue is for — overfills, reports after the order is
+#          done, and Extra Tags used to add, remove or corrupt tags
+# Needs:   any session that receives orders
+# Watch:   Messages and the Details pane; your own system's alarms
+# Outcome: each order is accepted, overfilled by 10%, then sent a report
+#          with a missing TransactTime, a custom tag and a bad checksum
+
+macro misbehaving-counterparty
+on error continue          # a refused action is an `error` event, not the end
+
+on order
+    accept extra: '9001=venue-A'             # a custom tag, appended to the body
+
+    # More than was asked for. Filled is not a dead state here: only
+    # Canceled and Rejected orders refuse a fill.
+    fill qty: order.order_qty, price: order.price
+    after 300ms
+    fill qty: order.order_qty / 10, price: order.price, text: 'overfill'
+
+    # `60=` with nothing after it deletes a tag the message would carry.
+    after 300ms
+    fill qty: 1, price: order.price, extra: '60='
+
+    # Naming a tag the engine computes overrides it in place: a checksum
+    # that cannot be right, a length that is wrong.
+    after 300ms
+    fill qty: 1, price: order.price, extra: '10=000'
+
+    when error
+        log 'refused: ${event.text}'

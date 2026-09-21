@@ -3,7 +3,7 @@
 Every inbound order message and every action is announced after its
 database writes have committed, so a listener that reads the order finds
 what the event describes. Nothing listens until something subscribes — the
-scenario runner will — and with no listener the engine skips the row reads
+macro runner will — and with no listener the engine skips the row reads
 an event costs.
 """
 
@@ -50,7 +50,7 @@ class EngineEvent:
     event and ``prev`` the row before it — None when there was none — so a
     listener can tell a report that moved CumQty from one that restated it.
     ``source`` is ``wire`` for what the counterparty sent, ``manual`` for an
-    action from the UI and ``scenario`` for one a script took.
+    action from the UI and ``macro`` for one a script took.
     """
     kinds: tuple[str, ...]
     session_id: str

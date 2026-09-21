@@ -242,7 +242,9 @@ class TestLegacyArchives:
 
     def test_restore_cli_goes_through_the_strip(self):
         archive = (ROOT / "mkfix" / "archive.py").read_text(encoding="utf-8")
-        assert "restore_offline(cfg, strip_mirror_columns(args.archive_dir)" in archive
+        assert "restore_offline(cfg, strip_retired(args.archive_dir)" in archive
+        upgrade = (ROOT / "mkfix" / "upgrade.py").read_text(encoding="utf-8")
+        assert "source = strip_mirror_columns(archive_dir)" in upgrade, "strip_retired takes the mirror columns out too"
 
 
 class TestTemplateColumnsAdded:
@@ -275,3 +277,116 @@ class TestTemplateColumnsAdded:
         conn.close()
         assert [(r["scope"], r["name"], r["text"], r["restate_reason"]) for r in rows] == \
             [("fill", "half", "clip", "")]
+
+
+# -- 0.51: scenarios became macros, and start afresh ------------------------------------
+
+def _scenario_db(path: Path) -> None:
+    """A database as 0.50 left it: the scenario tables, and orders naming the script that took them."""
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE fix_orders (id INTEGER PRIMARY KEY, cl_ord_id TEXT, status TEXT, scenario TEXT DEFAULT '');
+        CREATE TABLE fix_orders__history (_mkio_version INTEGER, id INTEGER, cl_ord_id TEXT, status TEXT, scenario TEXT);
+        CREATE TABLE fix_scenarios (id INTEGER PRIMARY KEY, name TEXT, source TEXT);
+        CREATE TABLE fix_scenarios__history (_mkio_version INTEGER, id INTEGER, name TEXT, source TEXT);
+        CREATE TABLE fix_scenario_runs (id INTEGER PRIMARY KEY, scenario TEXT);
+        CREATE TABLE fix_scenario_instances (id INTEGER PRIMARY KEY, run_id INTEGER);
+        CREATE TABLE fix_scenario_log (id INTEGER PRIMARY KEY, text TEXT);
+        CREATE TABLE fix_messages (id INTEGER PRIMARY KEY, raw_message TEXT);
+        INSERT INTO fix_orders VALUES (1, 'C1', 'New', 'slow-fill #3');
+        INSERT INTO fix_orders__history VALUES (1, 1, 'C1', 'PendingNew', ''), (2, 1, 'C1', 'New', 'slow-fill #3');
+        INSERT INTO fix_scenarios VALUES (1, 'slow-fill', 'scenario slow-fill');
+        INSERT INTO fix_messages VALUES (1, '8=FIX.4.2');
+    """)
+    conn.commit()
+    conn.close()
+
+
+class TestRetireScenarios:
+    def test_the_old_tables_and_column_go_and_everything_else_stays(self, tmp_path, capsys):
+        from mkfix.upgrade import SCENARIO_TABLES, retire_scenarios
+        db = tmp_path / "s.db"
+        _scenario_db(db)
+        gone = retire_scenarios(str(db))
+        assert gone == {"tables": list(SCENARIO_TABLES), "columns": ["fix_orders.scenario", "fix_orders__history.scenario"]}
+        assert "start afresh" in capsys.readouterr().out
+        conn = sqlite3.connect(db)
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert tables == {"fix_orders", "fix_orders__history", "fix_messages"}
+        assert conn.execute("SELECT id, cl_ord_id, status FROM fix_orders").fetchall() == [(1, "C1", "New")]
+        assert conn.execute("SELECT _mkio_version, status FROM fix_orders__history ORDER BY 1").fetchall() == [
+            (1, "PendingNew"), (2, "New")]
+        assert conn.execute("SELECT raw_message FROM fix_messages").fetchall() == [("8=FIX.4.2",)]
+        conn.close()
+        assert _columns(db, "fix_orders") == ["id", "cl_ord_id", "status"]
+
+    def test_once_and_never_on_a_current_or_missing_database(self, tmp_path, capsys):
+        from mkfix.upgrade import retire_scenarios
+        db = tmp_path / "s.db"
+        _scenario_db(db)
+        retire_scenarios(str(db))
+        capsys.readouterr()
+        nothing = {"tables": [], "columns": []}
+        assert retire_scenarios(str(db)) == nothing and capsys.readouterr().out == ""
+        assert retire_scenarios(":memory:") == nothing and retire_scenarios(str(tmp_path / "none.db")) == nothing
+        assert not (tmp_path / "none.db").exists()
+
+    def test_mkio_migrates_a_0_50_database_once_it_is_retired(self, tmp_path):
+        """The real thing: mkio's migration refuses a stale column, so the retirement comes first."""
+        from mkfix.upgrade import retire_scenarios
+        db = tmp_path / "old.db"
+        _current_db(db)
+        conn = sqlite3.connect(db)
+        conn.executescript("ALTER TABLE fix_orders ADD COLUMN scenario TEXT DEFAULT '';"
+                           "ALTER TABLE fix_orders__history ADD COLUMN scenario TEXT;"
+                           "CREATE TABLE fix_scenario_runs (id INTEGER PRIMARY KEY, scenario TEXT);")
+        conn.commit()
+        conn.close()
+        with pytest.raises(SystemExit):
+            _current_db(db)                               # without the retirement the server would not start
+        assert retire_scenarios(str(db))["columns"] == ["fix_orders.scenario", "fix_orders__history.scenario"]
+        _current_db(db)
+        assert "macro" in _columns(db, "fix_orders") and "scenario" not in _columns(db, "fix_orders")
+        assert "fix_macros" in {r[0] for r in sqlite3.connect(db).execute("SELECT name FROM sqlite_master")}
+
+    def test_runs_before_mkio_migration_at_startup(self):
+        main = (ROOT / "mkfix" / "__main__.py").read_text(encoding="utf-8")
+        assert main.index('retire_scenarios(cfg["db_path"])') < main.index("app = create_app(cfg)")
+
+
+class TestStripRetired:
+    def _archive(self, root: Path, with_scenarios: bool = True) -> Path:
+        out = root / "arch"
+        out.mkdir()
+        orders = ["id", "cl_ord_id"] + (["scenario"] if with_scenarios else [])
+        tables = {"fix_orders": {"file": "fix_orders.csv", "rows": 1, "columns": dict.fromkeys(orders, "TEXT"),
+                                 "history": {"table": "fix_orders__history", "file": "fix_orders__history.csv", "rows": 1,
+                                             "columns": dict.fromkeys(["_mkio_version", *orders], "TEXT")}}}
+        (out / "fix_orders.csv").write_text(",".join(orders) + "\n1,C1" + (",slow #1" if with_scenarios else "") + "\n", encoding="utf-8")
+        (out / "fix_orders__history.csv").write_text(
+            "_mkio_version," + ",".join(orders) + "\n1,1,C1" + (",slow #1" if with_scenarios else "") + "\n", encoding="utf-8")
+        if with_scenarios:
+            tables["fix_scenario_runs"] = {"file": "fix_scenario_runs.csv", "rows": 1, "columns": {"id": "INTEGER"}}
+            (out / "fix_scenario_runs.csv").write_text("id\n1\n", encoding="utf-8")
+        (out / "manifest.json").write_text(json.dumps({"tables": tables}), encoding="utf-8")
+        return out
+
+    def test_an_old_archive_restores_without_its_scenarios(self, tmp_path):
+        from mkfix.upgrade import scenarios_in_archive, strip_retired
+        archive = self._archive(tmp_path)
+        assert scenarios_in_archive(archive) == ["fix_scenario_runs", "fix_orders.scenario"]
+        before = (archive / "manifest.json").read_text(encoding="utf-8")
+        copy = strip_retired(archive)
+        assert copy != archive and (archive / "manifest.json").read_text(encoding="utf-8") == before, "the archive is untouched"
+        manifest = json.loads((copy / "manifest.json").read_text(encoding="utf-8"))
+        assert set(manifest["tables"]) == {"fix_orders"}
+        assert list(manifest["tables"]["fix_orders"]["columns"]) == ["id", "cl_ord_id"]
+        assert list(manifest["tables"]["fix_orders"]["history"]["columns"]) == ["_mkio_version", "id", "cl_ord_id"]
+        assert (copy / "fix_orders.csv").read_text(encoding="utf-8").splitlines() == ["id,cl_ord_id", "1,C1"]
+        assert (copy / "fix_orders__history.csv").read_text(encoding="utf-8").splitlines() == ["_mkio_version,id,cl_ord_id", "1,1,C1"]
+        assert scenarios_in_archive(copy) == []
+
+    def test_a_current_archive_is_restored_from_where_it_is(self, tmp_path):
+        from mkfix.upgrade import strip_retired
+        archive = self._archive(tmp_path, with_scenarios=False)
+        assert strip_retired(archive) == archive

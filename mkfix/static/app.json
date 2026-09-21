@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.50",
+    "version": "0.51",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -57,10 +57,12 @@
     },
     "selected_session": null,
     "selected_message": null,
-    "selected_scenario": null,
-    "selected_scenario_instance": null,
+    "selected_macro": null,
+    "selected_macro_order": null,
     "help_target": null,
-    "open_example": null
+    "open_example": null,
+    "macros": null,
+    "open_macro": null
   },
   "menubar": [
     {
@@ -129,24 +131,24 @@
           "sep": true
         },
         {
-          "label": "Client Scenarios",
+          "label": "Client Macros",
           "action": "pane.show",
-          "args": "client-scenarios"
+          "args": "client-macros"
         },
         {
-          "label": "Client Runs",
+          "label": "Client Macro Runs",
           "action": "pane.show",
-          "args": "client-runs"
+          "args": "client-macro-runs"
         },
         {
-          "label": "Client Scripts",
+          "label": "Client Macro Orders",
           "action": "pane.show",
-          "args": "client-scripts"
+          "args": "client-macro-orders"
         },
         {
-          "label": "Client Log",
+          "label": "Client Macro Log",
           "action": "pane.show",
-          "args": "client-log"
+          "args": "client-macro-log"
         }
       ]
     },
@@ -167,24 +169,24 @@
           "sep": true
         },
         {
-          "label": "Market Scenarios",
+          "label": "Market Macros",
           "action": "pane.show",
-          "args": "market-scenarios"
+          "args": "market-macros"
         },
         {
-          "label": "Market Runs",
+          "label": "Market Macro Runs",
           "action": "pane.show",
-          "args": "market-runs"
+          "args": "market-macro-runs"
         },
         {
-          "label": "Market Scripts",
+          "label": "Market Macro Orders",
           "action": "pane.show",
-          "args": "market-scripts"
+          "args": "market-macro-orders"
         },
         {
-          "label": "Market Log",
+          "label": "Market Macro Log",
           "action": "pane.show",
-          "args": "market-log"
+          "args": "market-macro-log"
         }
       ]
     },
@@ -274,14 +276,14 @@
       "label": "Help",
       "items": [
         {
-          "label": "Scenario Language",
+          "label": "Macro Language",
           "action": "pane.show",
           "args": "help-viewer"
         },
         {
-          "label": "Scenario Editor Keys",
+          "label": "Macro Editor Keys",
           "action": "dialog.open",
-          "args": "scenario_keys"
+          "args": "macro_keys"
         },
         {
           "sep": true
@@ -345,13 +347,13 @@
         }
       ]
     },
-    "arm_scenario": {
+    "arm_macro": {
       "title": "Arm ${row.name}",
       "width": 340,
       "submit": {
         "label": "Arm",
         "service": "fix_cmd",
-        "op": "arm_scenario"
+        "op": "arm_macro"
       },
       "fields": [
         {
@@ -366,14 +368,9 @@
           "optionsFrom": {
             "service": "sessions_list",
             "value": "session_id",
-            "label": "session_id"
+            "label": "session_id",
+            "empty": "(any session)"
           },
-          "options": [
-            {
-              "value": "",
-              "label": "(any session)"
-            }
-          ],
           "value": ""
         },
         {
@@ -389,7 +386,7 @@
             },
             {
               "name": "seed",
-              "label": "Seed (blank: the script's, or random)",
+              "label": "Seed (blank: the macro's, or random)",
               "type": "text",
               "value": "",
               "width": 0.5
@@ -398,13 +395,13 @@
         }
       ]
     },
-    "run_scenario": {
+    "run_macro": {
       "title": "Run ${row.name}",
       "width": 340,
       "submit": {
         "label": "Run",
         "service": "fix_cmd",
-        "op": "run_scenario"
+        "op": "run_macro"
       },
       "fields": [
         {
@@ -419,14 +416,9 @@
           "optionsFrom": {
             "service": "sessions_list",
             "value": "session_id",
-            "label": "session_id"
+            "label": "session_id",
+            "empty": "(the one the macro names)"
           },
-          "options": [
-            {
-              "value": "",
-              "label": "(the one the script names)"
-            }
-          ],
           "value": "${row.session}",
           "required": "row.needs_session"
         },
@@ -443,7 +435,7 @@
             },
             {
               "name": "seed",
-              "label": "Seed (blank: the script's, or random)",
+              "label": "Seed (blank: the macro's, or random)",
               "type": "text",
               "value": "",
               "width": 0.5
@@ -452,8 +444,247 @@
         }
       ]
     },
-    "scenario_keys": {
-      "title": "Scenario Editor Keys",
+    "play_macro": {
+      "title": "Play ${row.side} macros",
+      "width": 440,
+      "submit": {
+        "label": "Play",
+        "service": "fix_cmd",
+        "op": "play_macro",
+        "then": {
+          "action": "macro.refresh"
+        }
+      },
+      "fields": [
+        {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
+        },
+        {
+          "name": "what",
+          "label": "Macros, and paused runs to resume",
+          "type": "checklist",
+          "size": 8,
+          "all": "All of them",
+          "none": "No ${row.side} macro checks clean yet, and no run is paused",
+          "value": "",
+          "required": true,
+          "invalidMessage": "Tick at least one",
+          "optionsFrom": {
+            "service": "macro_play_options",
+            "params": {
+              "side": "${row.side}"
+            },
+            "value": "value",
+            "label": "label"
+          }
+        },
+        {
+          "name": "session",
+          "label": "${IF(row.side == 'client', 'Session to send on', 'Only this session\\'s orders')}",
+          "type": "select",
+          "showWhen": "CONTAINS(what ?? '', 'macro:') or CONTAINS(what ?? '', 'needs:')",
+          "required": "CONTAINS(what ?? '', 'needs:')",
+          "optionsFrom": {
+            "service": "sessions_list",
+            "value": "session_id",
+            "label": "session_id",
+            "empty": "${IF(row.side == 'client', '(the one the macro names)', '(any session)')}"
+          },
+          "value": ""
+        },
+        {
+          "row": [
+            {
+              "name": "speed",
+              "label": "Speed",
+              "type": "number",
+              "value": 1,
+              "min": 0.01,
+              "step": "any",
+              "width": 0.5,
+              "showWhen": "CONTAINS(what ?? '', 'macro:') or CONTAINS(what ?? '', 'needs:')"
+            },
+            {
+              "name": "seed",
+              "label": "Seed (blank: the macro's, or random)",
+              "type": "text",
+              "value": "",
+              "width": 0.5,
+              "showWhen": "CONTAINS(what ?? '', 'macro:') or CONTAINS(what ?? '', 'needs:')"
+            }
+          ]
+        },
+        {
+          "type": "readonly",
+          "showWhen": "CONTAINS(what ?? '', 'macro:') or CONTAINS(what ?? '', 'needs:')",
+          "value": "The session, speed and seed are for every macro ticked; a seed left blank is each macro's own, or random."
+        }
+      ]
+    },
+    "pause_runs": {
+      "title": "Pause ${row.side} macro runs",
+      "width": 440,
+      "submit": {
+        "label": "Pause",
+        "service": "fix_cmd",
+        "op": "pause_runs"
+      },
+      "fields": [
+        {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
+        },
+        {
+          "name": "runs",
+          "label": "Runs",
+          "type": "checklist",
+          "size": 8,
+          "all": "Every playing run",
+          "none": "No run of this side is playing",
+          "value": "*",
+          "required": true,
+          "invalidMessage": "Tick at least one run",
+          "optionsFrom": {
+            "service": "macro_run_options",
+            "params": {
+              "side": "${row.side}",
+              "paused": 0
+            },
+            "value": "value",
+            "label": "label"
+          }
+        },
+        {
+          "type": "readonly",
+          "value": "A paused run parks each order's macro before its next line; a wait under way runs out. ▶ resumes it."
+        }
+      ]
+    },
+    "stop_runs": {
+      "title": "Stop ${row.side} macro runs",
+      "width": 440,
+      "submit": {
+        "label": "Stop",
+        "service": "fix_cmd",
+        "op": "stop_runs"
+      },
+      "fields": [
+        {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
+        },
+        {
+          "name": "runs",
+          "label": "Runs",
+          "type": "checklist",
+          "size": 8,
+          "all": "Every live run",
+          "none": "No run of this side is live",
+          "value": "*",
+          "required": true,
+          "invalidMessage": "Tick at least one run",
+          "optionsFrom": {
+            "service": "macro_run_options",
+            "params": {
+              "side": "${row.side}",
+              "paused": 1
+            },
+            "value": "value",
+            "label": "label"
+          }
+        },
+        {
+          "type": "readonly",
+          "value": "A stopped run is over: its orders are yours again, and no new ones are taken."
+        }
+      ]
+    },
+    "record_macro": {
+      "title": "Record a ${row.side} macro",
+      "width": 380,
+      "submit": {
+        "label": "Record",
+        "service": "fix_cmd",
+        "op": "record_start",
+        "then": {
+          "action": "macro.refresh"
+        }
+      },
+      "fields": [
+        {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
+        },
+        {
+          "name": "session",
+          "label": "Record what you do by hand on",
+          "type": "select",
+          "value": "",
+          "optionsFrom": {
+            "service": "sessions_list",
+            "value": "session_id",
+            "label": "session_id",
+            "empty": "Every session"
+          }
+        },
+        {
+          "type": "readonly",
+          "showWhen": "row.side == 'client'",
+          "value": "Follows the orders you send from now on: New, Replace and Cancel on Sent Orders, and DK on Received Trades."
+        },
+        {
+          "type": "readonly",
+          "showWhen": "row.side == 'market'",
+          "value": "Follows the orders that arrive from now on: Accept, Reject, Fill, Unsol Cxl and Restate on Received Orders, and Correct, Bust and Re-notify on Sent Trades."
+        }
+      ]
+    },
+    "stop_recording": {
+      "title": "Stop recording the ${row.side} side",
+      "width": 380,
+      "submit": {
+        "label": "Stop and save",
+        "service": "fix_cmd",
+        "op": "record_stop",
+        "then": {
+          "action": "macro.recorded",
+          "args": {
+            "side": "${row.side}",
+            "name": "${name}"
+          }
+        }
+      },
+      "fields": [
+        {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
+        },
+        {
+          "name": "save",
+          "type": "hidden",
+          "value": "1"
+        },
+        {
+          "name": "name",
+          "label": "Save the macro as",
+          "type": "text",
+          "required": true,
+          "value": "recorded"
+        },
+        {
+          "type": "readonly",
+          "value": "The macro opens in ${row.Side} Macros. If the name is taken the recording goes on; if nothing was recorded, nothing is saved."
+        }
+      ]
+    },
+    "macro_keys": {
+      "title": "Macro Editor Keys",
       "width": 480,
       "facts": [
         {
@@ -522,8 +753,11 @@
     ],
     "right": [
       {
+        "type": "macro-status"
+      },
+      {
         "type": "text",
-        "text": "mkfix v0.50"
+        "text": "mkfix v0.51"
       }
     ],
     "bindStyle": {
@@ -1321,7 +1555,7 @@
         "sent_text",
         "text",
         "extra_tags",
-        "scenario",
+        "macro",
         "updated_at"
       ],
       "history": {
@@ -1358,7 +1592,7 @@
         "sent_text": "Sent Text",
         "text": "Rcvd Text",
         "extra_tags": "Extra Tags",
-        "scenario": "Scenario"
+        "macro": "Macro"
       },
       "types": {
         "updated_at": {
@@ -2374,7 +2608,7 @@
         "sent_text",
         "text",
         "extra_tags",
-        "scenario",
+        "macro",
         "updated_at"
       ],
       "history": {
@@ -2410,7 +2644,7 @@
         "sent_text": "Sent Text",
         "text": "Rcvd Text",
         "extra_tags": "Extra Tags",
-        "scenario": "Scenario"
+        "macro": "Macro"
       },
       "types": {
         "updated_at": {
@@ -4003,20 +4237,20 @@
         }
       ]
     },
-    "client-scenarios": {
-      "title": "Client Scenarios",
-      "type": "scenarios",
+    "client-macros": {
+      "title": "Client Macros",
+      "type": "macros",
       "side": "client"
     },
-    "client-runs": {
-      "title": "Client Runs",
+    "client-macro-runs": {
+      "title": "Client Macro Runs",
       "type": "mkio-table",
-      "service": "scenario_runs_query",
+      "service": "macro_runs_query",
       "protocol": "query",
       "filter": "side == 'client'",
       "columns": [
         "id",
-        "scenario",
+        "macro",
         "status",
         "priority",
         "verdict",
@@ -4033,7 +4267,7 @@
       ],
       "labels": {
         "id": "Run",
-        "scenario": "Scenario",
+        "macro": "Macro",
         "status": "Status",
         "priority": "Priority",
         "verdict": "Verdict",
@@ -4044,7 +4278,7 @@
         "session": "Session",
         "speed": "Speed",
         "seed": "Seed",
-        "version": "Script Ver",
+        "version": "Macro Ver",
         "started_at": "Started",
         "ended_at": "Ended"
       },
@@ -4187,18 +4421,18 @@
         }
       ]
     },
-    "client-scripts": {
-      "title": "Client Scripts",
+    "client-macro-orders": {
+      "title": "Client Macro Orders",
       "type": "mkio-table",
-      "service": "scenario_instances_query",
+      "service": "macro_orders_query",
       "protocol": "query",
       "filter": "side == 'client'",
       "select": {
-        "state": "selected_scenario_instance"
+        "state": "selected_macro_order"
       },
       "columns": [
         "run_id",
-        "scenario",
+        "macro",
         "cl_ord_id",
         "symbol",
         "session_id",
@@ -4213,7 +4447,7 @@
       ],
       "labels": {
         "run_id": "Run",
-        "scenario": "Scenario",
+        "macro": "Macro",
         "cl_ord_id": "ClOrdID",
         "symbol": "Symbol",
         "session_id": "Session",
@@ -4272,7 +4506,7 @@
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
-            "op": "detach_instance",
+            "op": "detach_order",
             "data": {
               "order_row": "${row.order_row}"
             }
@@ -4280,16 +4514,16 @@
         }
       ]
     },
-    "client-log": {
-      "title": "Client Log",
+    "client-macro-log": {
+      "title": "Client Macro Log",
       "type": "mkio-table",
-      "service": "scenario_log_query",
+      "service": "macro_log_query",
       "protocol": "query",
       "filter": "side == 'client'",
       "columns": [
         "timestamp",
         "run_id",
-        "scenario",
+        "macro",
         "cl_ord_id",
         "line",
         "text"
@@ -4297,7 +4531,7 @@
       "labels": {
         "timestamp": "Time",
         "run_id": "Run",
-        "scenario": "Scenario",
+        "macro": "Macro",
         "cl_ord_id": "ClOrdID",
         "line": "Line",
         "text": "Text"
@@ -4312,20 +4546,20 @@
         "-timestamp"
       ]
     },
-    "market-scenarios": {
-      "title": "Market Scenarios",
-      "type": "scenarios",
+    "market-macros": {
+      "title": "Market Macros",
+      "type": "macros",
       "side": "market"
     },
-    "market-runs": {
-      "title": "Market Runs",
+    "market-macro-runs": {
+      "title": "Market Macro Runs",
       "type": "mkio-table",
-      "service": "scenario_runs_query",
+      "service": "macro_runs_query",
       "protocol": "query",
       "filter": "side == 'market'",
       "columns": [
         "id",
-        "scenario",
+        "macro",
         "status",
         "priority",
         "verdict",
@@ -4342,7 +4576,7 @@
       ],
       "labels": {
         "id": "Run",
-        "scenario": "Scenario",
+        "macro": "Macro",
         "status": "Status",
         "priority": "Priority",
         "verdict": "Verdict",
@@ -4353,7 +4587,7 @@
         "session": "Session",
         "speed": "Speed",
         "seed": "Seed",
-        "version": "Script Ver",
+        "version": "Macro Ver",
         "started_at": "Started",
         "ended_at": "Ended"
       },
@@ -4496,18 +4730,18 @@
         }
       ]
     },
-    "market-scripts": {
-      "title": "Market Scripts",
+    "market-macro-orders": {
+      "title": "Market Macro Orders",
       "type": "mkio-table",
-      "service": "scenario_instances_query",
+      "service": "macro_orders_query",
       "protocol": "query",
       "filter": "side == 'market'",
       "select": {
-        "state": "selected_scenario_instance"
+        "state": "selected_macro_order"
       },
       "columns": [
         "run_id",
-        "scenario",
+        "macro",
         "cl_ord_id",
         "symbol",
         "session_id",
@@ -4522,7 +4756,7 @@
       ],
       "labels": {
         "run_id": "Run",
-        "scenario": "Scenario",
+        "macro": "Macro",
         "cl_ord_id": "ClOrdID",
         "symbol": "Symbol",
         "session_id": "Session",
@@ -4581,7 +4815,7 @@
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
-            "op": "detach_instance",
+            "op": "detach_order",
             "data": {
               "order_row": "${row.order_row}"
             }
@@ -4589,16 +4823,16 @@
         }
       ]
     },
-    "market-log": {
-      "title": "Market Log",
+    "market-macro-log": {
+      "title": "Market Macro Log",
       "type": "mkio-table",
-      "service": "scenario_log_query",
+      "service": "macro_log_query",
       "protocol": "query",
       "filter": "side == 'market'",
       "columns": [
         "timestamp",
         "run_id",
-        "scenario",
+        "macro",
         "cl_ord_id",
         "line",
         "text"
@@ -4606,7 +4840,7 @@
       "labels": {
         "timestamp": "Time",
         "run_id": "Run",
-        "scenario": "Scenario",
+        "macro": "Macro",
         "cl_ord_id": "ClOrdID",
         "line": "Line",
         "text": "Text"
@@ -4739,7 +4973,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.50",
+      "version": "0.51",
       "mkio": "1.5",
       "expr": "2"
     },

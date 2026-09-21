@@ -1,0 +1,34 @@
+# Loopback venue
+#
+# Shows:   the market half of the loopback tour — a venue that answers
+#          everything a client can do: orders, replaces, cancels and DKs
+# Needs:   the loopback sessions, both started. Help > Macro Examples sets
+#          them up, and its "Run the loopback tour" arms this and runs
+#          loopback-client in one click
+# Watch:   Received Orders and Sent Trades; Market Macro Orders, one row an order
+# Outcome: every order on LOOP-MKT is accepted and filled in two clips a second
+#          apart; the first replace of an order is accepted and later ones are
+#          refused; cancels are honoured; a disputed trade is re-notified
+
+macro loopback-venue
+on error continue
+
+on order where session_id == 'LOOP-MKT'
+    after 100ms ± 20ms
+    accept text: 'working'
+
+    when replace and order.orig_cl_ord_id != ''
+        reject text: 'one replace per order'
+    when replace
+        accept
+    when cancel
+        accept
+        stop
+    when dk
+        renotify
+    when error
+        log 'venue refused: ${event.text}'
+
+    repeat 2 every 1s
+        if order.leaves_qty > 0
+            fill qty: CEIL(order.leaves_qty / 2), price: order.price

@@ -1,0 +1,30 @@
+# Regression suite
+#
+# Shows:   a macro written as a test — `expect … else fail`, `pass`, `fail`,
+#          `log`, `since`, `elapsed`, checks on the order's own history
+# Needs:   the loopback sessions with a market macro armed; run on LOOP-CLI:
+#          cancel-replace-desk passes every check, auto-ack fails the fill check
+# Watch:   Client Macro Runs: Passed, Failed and the Verdict; Client Macro Log for why
+# Outcome: three orders; each passes only if it is acknowledged within a second,
+#          fully filled within 10 s, never overfilled, and answered a cancel it
+#          sent after the fill with a reject
+
+macro regression-suite
+
+run
+    repeat 3 every 500ms with qty = [100, 250, 400]
+        new symbol: 'IBM', side: buy, qty: qty, type: limit, price: 100.00
+        expect ack within 1s else fail 'acknowledged late or not at all'
+        log 'acknowledged after ${ROUND(since, 3)}s'
+
+        expect filled within 10s else fail 'only ${order.cum_qty} of ${qty} after ${ROUND(elapsed)}s'
+
+        if order.cum_qty > order.order_qty
+            fail 'overfilled: ${order.cum_qty} of ${order.order_qty}'
+        if ANY(history, h -> h.status == 'Rejected')
+            fail 'the order was rejected at some point'
+
+        # Too late to cancel: the right answer is a reject, not silence.
+        cancel
+        expect cancel rejected within 2s else fail 'a cancel of a filled order went unanswered'
+        pass

@@ -1,0 +1,28 @@
+# Single order lifecycle
+#
+# Shows:   the client side at its simplest — `run`, `new`, `expect … within`,
+#          waiting for fills, `cancel`, and a verdict
+# Needs:   a session that is logged on, chosen at Run…: LOOP-CLI of the loopback
+#          sessions (Help > Macro Examples sets them up) with a market
+#          macro armed, such as slow-fill; or your own counterparty
+# Watch:   Sent Orders and Received Trades; the run's verdict in Client Macro Runs
+# Outcome: one order is sent, must be acknowledged within 2 s, is given 5 s to
+#          trade, and whatever is left is cancelled; the macro passes if every
+#          answer came in time
+
+macro single-order-lifecycle
+
+run
+    new symbol: 'IBM', side: buy, qty: 300, type: limit, price: 100.00, tif: day, text: 'lifecycle'
+
+    # `expect` fails this order's macro if the event does not come in time.
+    expect ack within 2s else fail 'no acknowledgement for ${order.cl_ord_id}'
+
+    # `wait` carries on either way; afterwards event.kind says which it was.
+    wait filled or timeout 5s
+
+    if order.leaves_qty > 0
+        cancel text: 'time is up'
+        expect canceled or filled within 2s else fail 'the cancel was never answered'
+
+    pass 'done ${order.cum_qty} of ${order.order_qty}'

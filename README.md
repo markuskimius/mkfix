@@ -36,7 +36,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   drag-resizable columns, and UTC timestamps rendered in a selectable
   timezone (defaulting to the browser's).
 - **FIX Dictionaries** -- Standard FIX 4.0 through 5.0SP2 dictionaries ship
-  built in; create tweaked copies per test scenario -- either a delta that
+  built in; create tweaked copies per test macro -- either a delta that
   stays linked to its base version or a standalone document -- edit tag
   names, enum values, message types, repeating groups, and header/trailer
   layout in a dedicated editor pane, import/export them as JSON, and bind
@@ -66,7 +66,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   tag preview, folded until clicked open.
   Values that only some FIX versions define (Market/Limit on Close through
   4.3, At the Close from 4.2) say so in the dropdown, but every value can be
-  sent on every session -- an invalid combination is a test scenario.
+  sent on every session -- an invalid combination is a test macro.
   Every order and trade dialog names the FIX tag on each field, lists
   dropdown values as `code - name`, and ends with a live "Terms as tags"
   line showing the entered terms as `tag=value` pairs before they are sent.
@@ -92,7 +92,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   acts on whatever is pending (ExecutionReport New/Canceled/Replaced on accept;
   ExecutionReport Rejected or OrderCancelReject on reject); orders stay
   fillable while a request is pending and even after a full fill (overfills
-  are a scenario worth testing). Unsol Cxl cancels a working order nobody
+  are a macro worth testing). Unsol Cxl cancels a working order nobody
   asked to cancel -- ExecutionReport Canceled under the order's own ClOrdID,
   without OrigClOrdID -- and leaves a pending cancel or replace request
   parked, so it can still be rejected as too late. Restate changes a working
@@ -189,19 +189,19 @@ A FIX protocol testing engine for capital markets connectivity, built on
   their New and each cancel or replace request. The trade blotters show each
   report's Text. Older orders and trades are seeded once at startup from
   their recorded messages (HandlInst and trade tags; not Sent Text).
-- **Scenarios** -- Scripts that act on orders as things happen to them, in a
-  small language of their own. There are two kinds, each with its own menu,
-  editor and run panes. A **market scenario** (Market menu) answers the orders
+- **Macros** -- Scripts, called macros, that act on orders as things happen
+  to them, in a small language of their own. There are two kinds, each with its own menu,
+  editor and run panes. A **market macro** (Market menu) answers the orders
   you receive (`on order`): **Arm…** it and it waits for orders to match. A
-  **client scenario** (Client menu) sends orders of its own and manages them
+  **client macro** (Client menu) sends orders of its own and manages them
   (`run`), or minds the orders you send by hand (`on sent order`): **Run…** it
-  on the session you choose, as many runs at once as you like, of one script
-  or of many. A script is one kind or the other -- the editor underlines a
-  block of the wrong side. Every order gets its own copy of the script, so
+  on the session you choose, as many runs at once as you like, of one macro
+  or of many. A macro is one kind or the other -- the editor underlines a
+  block of the wrong side. Every order gets its own copy of the macro, so
   the same few lines handle one order or a thousand.
 
   ```
-  scenario slow-fill
+  macro slow-fill
 
   on order where symbol in ['IBM', 'MSFT']
       after 200ms
@@ -218,25 +218,25 @@ A FIX protocol testing engine for capital markets connectivity, built on
   `unsol cxl`, `restate`, `correct`, `bust`, `renotify` on the market side;
   `new`, `replace`, `cancel`, `dk` on the client side -- with the dialogs'
   fields as terms. `repeat 20 at 5/s` around a `new` sends twenty orders,
-  each its own script; `when` reacts to events beside the main flow
+  each its own macro; `when` reacts to events beside the main flow
   (cancel and replace requests and disputes on one side; acknowledgements,
   fills, `cancel rejected`, corrections and busts on the other); `wait` and `expect … within` wait for events,
   `after` for time (with seeded jitter, so a run repeats exactly); conditions
   are mkio expressions over the order's row, its trades, the recorded
   versions of its row (`history`) and the event in hand. **Client
-  Scenarios** and **Market Scenarios** are editors that check as you type -- a misspelt
+  Macros** and **Market Macros** are editors that check as you type -- a misspelt
   column or an action on the wrong side of an order is underlined before
   anything runs -- completes words in context (Ctrl+Space), explains a word
   under the mouse or the cursor (hover, F1), folds blocks, and has an optional vim mode. Each
-  side's **Runs**, **Scripts** and **Log** panes show its runs and each
-  order's script, the line it is on and what it is waiting for, with Pause,
-  Stop and Detach, and the order blotters name the scenario that took an
+  side's **Macro Runs**, **Macro Orders** and **Macro Log** panes show its runs and each
+  order's macro, the line it is on and what it is waiting for, with Pause,
+  Stop and Detach, and the order blotters name the macro that took an
   order. Received orders are offered to the armed runs in their **Priority**
   -- first armed, first offered -- which **Move Up**/**Move Down** change; the
-  same market script can be armed once per session. `run` may name its
-  session (`run on SESSION`) or leave it to Run…, so one client script runs
+  same market macro can be armed once per session. `run` may name its
+  session (`run on SESSION`) or leave it to Run…, so one client macro runs
   on several sessions at once; **Stop all** in the editor stops every live
-  run of a script, and editing one leaves its live runs on the version they
+  run of a macro, and editing one leaves its live runs on the version they
   started with. Seventeen
   bundled examples -- an auto-acknowledge, a cancel/replace desk, a dispute
   desk, a deliberately misbehaving counterparty; a single order's lifecycle,
@@ -245,22 +245,25 @@ A FIX protocol testing engine for capital markets connectivity, built on
   client that together play both sides -- open as copies from each editor's
   **From example…**, and the language reference is under **Help**. The client
   examples run over two loopback sessions, this server talking to itself:
-  **Help › Scenario Language › Scenario Examples › Set up loopback sessions**
+  **Help › Macro Language › Macro Examples › Set up loopback sessions**
   creates and starts them, and **Run the loopback tour** also arms the venue
-  and runs the client, so the tour is one click on a fresh install. **Record…** in either editor writes the
+  and runs the client, so the tour is one click on a fresh install. Sent Orders and Received Orders carry their side's macro
+  controls as four symbols -- **▶** play (macros ticked from a list, and paused runs to
+  resume), **⏸** pause and **■** stop (runs ticked from a list: one, several
+  or all), and **●** record, red while it records -- and the status bar says what the macros are doing:
+  recording, playing, paused, or how the last run ended. **Record…**, there or in either editor, writes the
   first draft for you: work orders by hand -- accept, fill, answer a cancel
   on one side; send, replace, cancel, DK on the other -- and Stop recording
-  opens the script that would have done the same, delays and answers
-  included, ready to run and to loosen. Scripts are versioned
+  opens the macro that would have done the same, delays and answers
+  included, ready to run and to loosen. Macros are versioned
   like sessions, so every Save is kept: **History** in an editor lists the
-  versions with the runs that used each, shows one against the script as
-  saved now, and **Restore** brings it back as an unsaved edit. A script can do more than the blotter
+  versions with the runs that used each, shows one against the macro as
+  saved now, and **Restore** brings it back as an unsaved edit. A macro can do more than the blotter
   offers -- the buttons
   hide Fill on a rejected order, the engine does not refuse it -- which is
-  the point of a test venue. Scripts live in the server's memory: after a
-  restart the old run is marked `interrupted`; a scenario that only waits for
-  orders is armed again, and one that sends orders is not run again -- a
-  restart never sends anything.
+  the point of a test venue. Macros live in the server's memory: after a
+  restart every run that was live is marked `interrupted` and nothing is
+  played again -- a restart stops every macro, and never sends anything.
 - **Message Replay** -- Load production FIX logs and replay them into a test
   session with speed control, message filtering, and pause/resume.
 - **Saved Layouts** -- The Layout menu saves the window arrangement (frame
@@ -311,6 +314,15 @@ A FIX protocol testing engine for capital markets connectivity, built on
 ```bash
 pip install mkfix
 ```
+
+**Upgrading from 0.48-0.50.** What those releases called *scenarios* are
+*macros* from 0.51, and they start afresh: on its first start 0.51 drops the
+saved scenarios, their runs and logs from an existing database (it says so),
+and `mkfix restore` leaves them out of an older archive. Orders, trades and
+messages are untouched. To keep a scenario, **Export** it from the editor
+before upgrading, change its first line from `scenario NAME` to `macro NAME`,
+and **Import** it into Client Macros or Market Macros. Saved window layouts
+that name the old scenario panes lose those panes.
 
 Runs on Linux, macOS and Windows with the standard CPython 3.11+
 interpreter. On Windows, Ctrl+C stops the server the same way as
@@ -371,8 +383,8 @@ change it): a `manifest.json`, a CSV per table with every column, the version
 history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
 `--tables` takes the short names `messages`, `orders`, `trades`, `iois`,
-`allocations`, `runs`, `scripts`, `scenario_log`, `sessions`, `dictionaries`,
-`settings`, `ids`, `replay_jobs`, `templates`, `scenarios`, `layouts`, and `--group config` or `--all` reaches the config tables, which
+`allocations`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
+`settings`, `ids`, `replay_jobs`, `templates`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
 `--host` as the server: when a server answers on that port the archive runs
 through it, the engine refuses to archive a running session, a dictionary a
@@ -450,12 +462,13 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.10.0, < 2 -- Web Components UI
-  framework; 1.10.0 evaluates the same language 2 in the browser
+- [mkui](https://github.com/markuskimius/mkui) >= 1.11.0, < 2 -- Web Components UI
+  framework; 1.10.0 evaluates the same language 2 in the browser, and 1.11.0
+  adds the dialog's checklist field (the Pause and Stop run lists)
 
 ## Third-party code
 
-The Scenarios editor is [Ace](https://ace.c9.io) (ace-builds 1.44.0, BSD-3-Clause),
+The Macros editor is [Ace](https://ace.c9.io) (ace-builds 1.44.0, BSD-3-Clause),
 vendored prebuilt under `mkfix/static/vendor/ace` with its LICENSE; nothing is
 built or downloaded at run time. The standard FIX dictionaries are generated
 from the QuickFIX specs (see `mkfix/fix/dictionary_data/NOTICE`).

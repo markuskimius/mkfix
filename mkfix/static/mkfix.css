@@ -512,37 +512,37 @@
 .mkfix-replay-stopped { color: var(--mkui-fg-mute, #858585); }
 .mkfix-replay-error { color: #f44747; }
 
-/* ── Scenarios pane ─────────────────────────────────────────────────────── */
-.scn-pane { display: flex; flex-direction: column; height: 100%; }
-.scn-toolbar .scn-gap { flex: 1; }
-.scn-vim { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--mkui-fg-mute, #858585); cursor: pointer; }
-.scn-body { display: flex; flex: 1; min-height: 0; }
-.scn-list { width: 190px; flex: none; overflow-y: auto; border-right: 1px solid var(--mkui-border, #333); font-size: 12px; }
-.scn-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; }
-.scn-item:hover { background: var(--mkui-bg-hover, #2a2d2e); }
-.scn-current { background: var(--mkui-bg-alt, #252526); box-shadow: inset 2px 0 0 var(--mkui-accent, #0e639c); }
-.scn-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.scn-badge { font-size: 10px; padding: 0 5px; border-radius: 7px; background: var(--mkui-bg-alt, #333); color: var(--mkui-fg-mute, #858585); }
-.scn-armed { color: #1e1e1e; background: #4ec9b0; }
-.scn-paused { color: #1e1e1e; background: #dcdcaa; }
-.scn-problems { color: #f44747; }
-.scn-empty { padding: 10px; color: var(--mkui-fg-mute, #858585); line-height: 1.5; }
-.scn-main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.scn-editor { flex: 1; min-height: 0; }
-.scn-status { flex: none; padding: 3px 8px; font-size: 11px; min-height: 16px; border-top: 1px solid var(--mkui-border, #333);
+/* ── Macros pane ─────────────────────────────────────────────────────── */
+.macro-pane { display: flex; flex-direction: column; height: 100%; }
+.macro-toolbar .macro-gap { flex: 1; }
+.macro-vim { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--mkui-fg-mute, #858585); cursor: pointer; }
+.macro-body { display: flex; flex: 1; min-height: 0; }
+.macro-list { width: 190px; flex: none; overflow-y: auto; border-right: 1px solid var(--mkui-border, #333); font-size: 12px; }
+.macro-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; }
+.macro-item:hover { background: var(--mkui-bg-hover, #2a2d2e); }
+.macro-current { background: var(--mkui-bg-alt, #252526); box-shadow: inset 2px 0 0 var(--mkui-accent, #0e639c); }
+.macro-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.macro-badge { font-size: 10px; padding: 0 5px; border-radius: 7px; background: var(--mkui-bg-alt, #333); color: var(--mkui-fg-mute, #858585); }
+.macro-armed { color: #1e1e1e; background: #4ec9b0; }
+.macro-paused { color: #1e1e1e; background: #dcdcaa; }
+.macro-problems { color: #f44747; }
+.macro-empty { padding: 10px; color: var(--mkui-fg-mute, #858585); line-height: 1.5; }
+.macro-main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.macro-editor { flex: 1; min-height: 0; }
+.macro-status { flex: none; padding: 3px 8px; font-size: 11px; min-height: 16px; border-top: 1px solid var(--mkui-border, #333);
   color: var(--mkui-fg-mute, #858585); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.scn-status.scn-error { color: #f44747; }
-.scn-status.scn-ok { color: #6a9955; }
-.scn-status.scn-live { color: #4ec9b0; }
-.scn-status.scn-help { color: var(--mkui-fg, #d4d4d4); }
-.scn-ask { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 12px; border-bottom: 1px solid var(--mkui-border, #333); background: var(--mkui-bg-alt, #252526); }
-.scn-ask input { flex: 1; background: var(--mkui-bg, #1e1e1e); color: var(--mkui-fg, #d4d4d4); border: 1px solid var(--mkui-border, #3c3c3c); padding: 2px 5px; font: inherit; }
-.scn-examples { position: absolute; inset: 0 0 auto 0; z-index: 5; max-height: 70%; overflow-y: auto; font-size: 12px;
+.macro-status.macro-error { color: #f44747; }
+.macro-status.macro-ok { color: #6a9955; }
+.macro-status.macro-live { color: #4ec9b0; }
+.macro-status.macro-help { color: var(--mkui-fg, #d4d4d4); }
+.macro-ask { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 12px; border-bottom: 1px solid var(--mkui-border, #333); background: var(--mkui-bg-alt, #252526); }
+.macro-ask input { flex: 1; background: var(--mkui-bg, #1e1e1e); color: var(--mkui-fg, #d4d4d4); border: 1px solid var(--mkui-border, #3c3c3c); padding: 2px 5px; font: inherit; }
+.macro-examples { position: absolute; inset: 0 0 auto 0; z-index: 5; max-height: 70%; overflow-y: auto; font-size: 12px;
   background: var(--mkui-bg-alt, #252526); border-bottom: 1px solid var(--mkui-border, #333); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4); }
-.scn-examples-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; color: var(--mkui-fg-mute, #858585); }
-.scn-example { display: flex; flex-direction: column; gap: 2px; padding: 5px 8px; cursor: pointer; }
-.scn-example:hover { background: var(--mkui-bg-hover, #2a2d2e); }
-.scn-example span { color: var(--mkui-fg-mute, #858585); }
+.macro-examples-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; color: var(--mkui-fg-mute, #858585); }
+.macro-example { display: flex; flex-direction: column; gap: 2px; padding: 5px 8px; cursor: pointer; }
+.macro-example:hover { background: var(--mkui-bg-hover, #2a2d2e); }
+.macro-example span { color: var(--mkui-fg-mute, #858585); }
 
 /* Ace, on mkui's colours: the theme module carries no CSS of its own. */
 .ace-mkfix { background: var(--mkui-bg, #1e1e1e); color: var(--mkui-fg, #d4d4d4); }
@@ -553,48 +553,67 @@
 .ace-mkfix .ace_gutter-active-line { background: rgba(255, 255, 255, 0.06); }
 .ace-mkfix .ace_indent-guide { border-right: 1px solid rgba(255, 255, 255, 0.07); margin-right: -1px; }
 .ace-mkfix .ace_fold { background: #3c3c3c; border-color: #555; }
-.ace-mkfix .ace_comment, .scn-comment { color: #6a9955; font-style: italic; }
-.ace-mkfix .ace_string, .scn-string { color: #ce9178; }
-.ace-mkfix .ace_constant.ace_numeric, .scn-constant-numeric { color: #b5cea8; }
-.ace-mkfix .ace_keyword, .scn-keyword { color: #c586c0; }
-.ace-mkfix .ace_keyword.ace_control, .scn-keyword-control { color: #569cd6; font-weight: 600; }
-.ace-mkfix .ace_keyword.ace_operator, .scn-keyword-operator { color: #d4d4d4; opacity: 0.85; }
-.ace-mkfix .ace_entity.ace_name.ace_function, .scn-entity-name-function { color: #dcdcaa; font-weight: 600; }
-.ace-mkfix .ace_constant.ace_language, .scn-constant-language { color: #4ec9b0; }
-.ace-mkfix .ace_variable.ace_parameter, .scn-variable-parameter { color: #9cdcfe; }
-.ace-mkfix .ace_variable.ace_language, .scn-variable-language { color: #4fc1ff; }
-.ace-mkfix .ace_support.ace_function, .scn-support-function { color: #dcdcaa; }
-.scn-support-constant { color: #4ec9b0; }
-.scn-history { width: 210px; flex: none; overflow-y: auto; border-left: 1px solid var(--mkui-border, #333); font-size: 12px; }
-.scn-history[hidden] { display: none; }
-.scn-history-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--mkui-border, #333); }
-.scn-history-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mkui-fg-mute, #858585); }
-.scn-version { padding: 4px 8px; cursor: pointer; }
-.scn-version:hover { background: var(--mkui-bg-hover, #2a2d2e); }
-.scn-version-meta { color: var(--mkui-fg-mute, #858585); font-size: 11px; }
-.scn-history-foot { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-top: 1px solid var(--mkui-border, #333); position: sticky; bottom: 0; background: var(--mkui-bg, #1e1e1e); }
-.scn-diff-only { position: absolute; background: rgba(244, 71, 71, 0.14); }
-.ace-mkfix .ace_gutter-cell.scn-diff-only-gutter { box-shadow: inset 3px 0 0 #f44747; }
-.ace-mkfix .ace_gutter-cell.scn-diff-gap::after,
-.ace-mkfix .ace_gutter-cell.scn-diff-gap-after::after { content: "▸"; position: absolute; left: 3px; color: #6a9955; line-height: 1; }
-.ace-mkfix .ace_gutter-cell.scn-diff-gap::after { top: -0.45em; }
-.ace-mkfix .ace_gutter-cell.scn-diff-gap-after::after { bottom: -0.45em; }
+.ace-mkfix .ace_comment, .macro-comment { color: #6a9955; font-style: italic; }
+.ace-mkfix .ace_string, .macro-string { color: #ce9178; }
+.ace-mkfix .ace_constant.ace_numeric, .macro-constant-numeric { color: #b5cea8; }
+.ace-mkfix .ace_keyword, .macro-keyword { color: #c586c0; }
+.ace-mkfix .ace_keyword.ace_control, .macro-keyword-control { color: #569cd6; font-weight: 600; }
+.ace-mkfix .ace_keyword.ace_operator, .macro-keyword-operator { color: #d4d4d4; opacity: 0.85; }
+.ace-mkfix .ace_entity.ace_name.ace_function, .macro-entity-name-function { color: #dcdcaa; font-weight: 600; }
+.ace-mkfix .ace_constant.ace_language, .macro-constant-language { color: #4ec9b0; }
+.ace-mkfix .ace_variable.ace_parameter, .macro-variable-parameter { color: #9cdcfe; }
+.ace-mkfix .ace_variable.ace_language, .macro-variable-language { color: #4fc1ff; }
+.ace-mkfix .ace_support.ace_function, .macro-support-function { color: #dcdcaa; }
+.macro-support-constant { color: #4ec9b0; }
+.macro-history { width: 210px; flex: none; overflow-y: auto; border-left: 1px solid var(--mkui-border, #333); font-size: 12px; }
+.macro-history[hidden] { display: none; }
+.macro-history-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--mkui-border, #333); }
+.macro-history-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mkui-fg-mute, #858585); }
+.macro-version { padding: 4px 8px; cursor: pointer; }
+.macro-version:hover { background: var(--mkui-bg-hover, #2a2d2e); }
+.macro-version-meta { color: var(--mkui-fg-mute, #858585); font-size: 11px; }
+.macro-history-foot { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-top: 1px solid var(--mkui-border, #333); position: sticky; bottom: 0; background: var(--mkui-bg, #1e1e1e); }
+.macro-diff-only { position: absolute; background: rgba(244, 71, 71, 0.14); }
+.ace-mkfix .ace_gutter-cell.macro-diff-only-gutter { box-shadow: inset 3px 0 0 #f44747; }
+.ace-mkfix .ace_gutter-cell.macro-diff-gap::after,
+.ace-mkfix .ace_gutter-cell.macro-diff-gap-after::after { content: "▸"; position: absolute; left: 3px; color: #6a9955; line-height: 1; }
+.ace-mkfix .ace_gutter-cell.macro-diff-gap::after { top: -0.45em; }
+.ace-mkfix .ace_gutter-cell.macro-diff-gap-after::after { bottom: -0.45em; }
 /* Ace puts the hover and completion tooltips on <body> with the theme's
    class on the tooltip itself; the gutter's sits inside the editor. */
 .ace_tooltip.ace-mkfix, .ace-mkfix .ace_tooltip, .ace_tooltip.ace_doc-tooltip { background: var(--mkui-bg-alt, #252526); color: var(--mkui-fg, #d4d4d4);
   border: 1px solid var(--mkui-border, #454545); border-radius: 3px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   font-family: var(--mkui-font, system-ui, sans-serif); padding: 5px 8px; }
-.mkui-btn.scn-recording { color: #f44747; border-color: #f44747; }
-.mkui-btn.scn-recording::before { content: "● "; }
-.scn-ask select { background: var(--mkui-bg, #1e1e1e); color: var(--mkui-fg, #d4d4d4); border: 1px solid var(--mkui-border, #3c3c3c); padding: 2px 5px; font: inherit; }
-.scn-hover { max-width: 460px; font-size: 12px; line-height: 1.45; white-space: normal; }
-.scn-hover-title { font-family: var(--mkui-font-mono, monospace); color: #dcdcaa; margin-bottom: 2px; }
-.scn-hover-error { color: #f44747; margin-bottom: 4px; }
-.scn-hover-warning { color: #dcdcaa; margin-bottom: 4px; }
-.scn-mark-error { position: absolute; border-bottom: 2px dotted #f44747; }
-.scn-mark-warning { position: absolute; border-bottom: 2px dotted #dcdcaa; }
-.scn-live-line { position: absolute; background: rgba(78, 201, 176, 0.13); }
-.ace-mkfix .ace_gutter-cell.scn-live-gutter { box-shadow: inset 3px 0 0 #4ec9b0; color: #4ec9b0; }
+.macro-statusbar { display: inline-flex; gap: 14px; margin-right: 14px; }
+.macro-status-item { cursor: pointer; white-space: nowrap; padding: 0 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.35); }
+.macro-status-item:hover { text-decoration: underline; }
+.macro-status-recording { color: #ff7b72; font-weight: 600; }
+.macro-status-playing { color: #4ec9b0; }
+.macro-status-paused { color: #dcdcaa; }
+.macro-status-passed { color: #8fd17a; }
+.macro-status-failed { color: #ff7b72; font-weight: 600; }
+.macro-status-ended { color: #d4d4d4; }
+.mkui-btn.macro-control { min-width: 26px; padding-left: 6px; padding-right: 6px; text-align: center; }
+/* Lit while it is what is happening. A disabled ⏸ (nothing left playing) still shows its light. */
+.mkui-btn.macro-control.macro-playing { color: #1e1e1e; background: #4ec9b0; border-color: #4ec9b0; }
+.mkui-btn.macro-control.macro-paused, .mkui-btn.macro-control.macro-paused:disabled { color: #1e1e1e; background: #dcdcaa; border-color: #dcdcaa; opacity: 1; }
+.mkui-btn.macro-control.macro-recording::before { content: none; }      /* the symbol is the dot */
+.mkui-btn.macro-control.macro-recording { animation: macro-rec 1.2s ease-in-out infinite; }
+@keyframes macro-rec { 50% { opacity: 0.45; } }
+/* The rule between the table's own buttons and ours. The toolbar's flex gap (6px) already stands to its
+   left, so the margin makes that up to the padding on its right: 8px either side. */
+.macro-controls { display: inline-flex; gap: 4px; margin-left: 2px; padding-left: 8px; border-left: 1px solid var(--mkui-border, #3c3c3c); }
+.mkui-btn.macro-recording { color: #f44747; border-color: #f44747; }
+.mkui-btn.macro-recording::before { content: "● "; }
+.macro-ask select { background: var(--mkui-bg, #1e1e1e); color: var(--mkui-fg, #d4d4d4); border: 1px solid var(--mkui-border, #3c3c3c); padding: 2px 5px; font: inherit; }
+.macro-hover { max-width: 460px; font-size: 12px; line-height: 1.45; white-space: normal; }
+.macro-hover-title { font-family: var(--mkui-font-mono, monospace); color: #dcdcaa; margin-bottom: 2px; }
+.macro-hover-error { color: #f44747; margin-bottom: 4px; }
+.macro-hover-warning { color: #dcdcaa; margin-bottom: 4px; }
+.macro-mark-error { position: absolute; border-bottom: 2px dotted #f44747; }
+.macro-mark-warning { position: absolute; border-bottom: 2px dotted #dcdcaa; }
+.macro-live-line { position: absolute; background: rgba(78, 201, 176, 0.13); }
+.ace-mkfix .ace_gutter-cell.macro-live-gutter { box-shadow: inset 3px 0 0 #4ec9b0; color: #4ec9b0; }
 
 /* ── Help viewer ────────────────────────────────────────────────────────── */
 .help-pane { display: flex; height: 100%; font-size: 13px; }
