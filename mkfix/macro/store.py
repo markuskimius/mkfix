@@ -501,7 +501,8 @@ class MacroManager:
         self.recorders[side] = Recorder(self.engine, side, session)
         return self.recorders[side].status()
 
-    async def record_stop(self, side: str, name: str = "recorded", save: bool = False) -> dict[str, Any]:
+    async def record_stop(self, side: str, name: str = "recorded", save: bool = False,
+                          delays: bool = False) -> dict[str, Any]:
         """Stop recording and write the macro. With ``save`` it is also kept
         under ``name`` — refused, the recording still under way, if the name
         is taken: what was recorded must not be lost to a clash."""
@@ -511,7 +512,7 @@ class MacroManager:
         name = " ".join(str(name).split()) or "recorded"
         if save and await self._fetch("SELECT 1 FROM fix_macros WHERE name = ?", (name,)):
             raise ValueError(f"A macro is already called {name!r}: choose another name. Still recording")
-        result = await self.recorders.pop(side).stop(name)
+        result = await self.recorders.pop(side).stop(name, delays=delays)
         result.update(name=name, side=side, saved=False)
         if save and result["orders"]:
             await self.save(name, result["source"], side)

@@ -5,13 +5,18 @@ order of its side it keeps a timeline — what the counterparty did and what
 was done by hand, each with its moment — and `stop()` writes the timelines
 out in the macro language, one block an order:
 
-- an action with nothing from the counterparty since the last one becomes
-  `after DELAY` and the action;
 - an action that followed something from the counterparty was an answer to
-  it: `wait EVENT`, `after DELAY` (the time taken to answer), the action.
+  it, and is triggered by it: every event heard since the last action is
+  waited for, in order, and the action runs when the last comes;
+- only an action with nothing heard since the one before has nothing but
+  time to go by: `after DELAY` and the action;
+- on the market side a request answered the same way every time is written
+  as the rule it was: a `when` handler beside the main flow.
 
-What comes out is a first draft, literal about what happened: the delays
-are the ones taken, the `where` is the order that was seen. It is meant to
+`delays` keeps the time taken to answer as well (see `_body`).
+
+What comes out is a first draft, literal about what happened: the events
+are the ones heard, the `where` is the order that was seen. It is meant to
 be read and loosened — a `wait` turned into a `when`, a quantity into an
 expression — and it always checks clean, so it can be run as it stands.
 
@@ -69,10 +74,11 @@ class _Timeline:
 
 class Recorder:
     def __init__(self, engine: FixEngine, side: str, session: str = "",
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic, delays: bool = False) -> None:
         if side not in vocab.MACRO_SIDES:
             raise ValueError(f"A recording is of the client side or the market side, not {side!r}")
         self.engine, self.side, self.session, self.clock = engine, side, session, clock
+        self.delays = delays            # write the time taken to answer an event too; settable until `stop`
         self.timelines: dict[int, _Timeline] = {}
         self.started = clock()
         self.started_at = _fix_timestamp()
@@ -139,8 +145,12 @@ class Recorder:
 
     # -- writing -----------------------------------------------------------------------------
 
-    async def stop(self, name: str = "recorded") -> dict[str, Any]:
-        """Stop listening and write what was recorded: `{source, orders, actions}`."""
+    async def stop(self, name: str = "recorded", delays: bool | None = None) -> dict[str, Any]:
+        """Stop listening and write what was recorded: `{source, orders,
+        actions}`. ``delays`` keeps the time taken to answer each event; the
+        timeline holds it either way, so it is a choice for the end."""
+        if delays is not None:
+            self.delays = delays
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
@@ -150,7 +160,10 @@ class Recorder:
                 f"{self.started_at[9:17]} UTC" + (f" on {', '.join(sessions)}" if sessions else "")
                 + f": {len(lines)} order{'s' if len(lines) != 1 else ''}, {self.actions} action{'s' if self.actions != 1 else ''}.",
                 "# A first draft, literal about what happened: read it, and loosen what is too exact —",
-                "# a delay, a quantity, the `where`. It checks clean, so it runs as it stands.", "",
+                "# a quantity, a bound, the `where`. It checks clean, so it runs as it stands.",
+                ("# Each action runs when what it answered comes, after the time you took to answer it."
+                 if self.delays else
+                 "# Each action runs the moment what it answered comes; `after` is only where nothing came between two."), "",
                 f"macro {name}", ""]
         if not lines:
             head += ["# Nothing was recorded: no order "
@@ -161,24 +174,84 @@ class Recorder:
                 "actions": self.actions}
 
     async def _body(self, line: _Timeline, since: float) -> list[str]:
+        """One order's statements. What happened decides when the next thing
+        is done, not the clock:
+
+        - an action that followed something from the counterparty is written
+          after a wait for it — every event heard since the last action, in
+          the order heard — and runs the moment the last of them comes. A
+          market order's arrival is such an event: the first action on it has
+          no delay. A client macro `expect`s within a generous bound, so a
+          venue that never answers fails the run instead of hanging it; a
+          market macro `wait`s, as long as the client takes;
+        - only an action with nothing heard since the one before it has
+          nothing but time to go by, and is written `after DELAY`;
+        - on the market side, a request that was answered the same way every
+          time it came is a rule, and is written as one: `when cancel` /
+          `accept`, beside the main flow, instead of a wait inside it.
+
+        With ``self.delays`` the time taken to answer is kept as well: an
+        `after` follows the wait (and leads a `when`'s answer)."""
+        steps = line.steps
+        handled, handlers = self._handlers(steps) if self.side == "market" else (set(), [])
         out: list[str] = []
-        heard: _Step | None = None
-        for n, step in enumerate(line.steps):
-            if step.kind == "heard":
-                heard = step
+        for event, answer, think, final in handlers:
+            out.append(f"when {event}")
+            if self.delays and think >= _QUIET:
+                out.append(f"    after {_duration(think)}")
+            out.append("    " + await self._action(line, answer))
+            if final:
+                out.append("    stop")
+        heard_since = self.side == "market"          # the arrival itself
+        last = since
+        for n, step in enumerate(steps):
+            if n in handled:
                 continue
-            if heard is not None:
-                out.append(f"wait {heard.name}")
-                since, heard = heard.at, None
-            if step.at - since >= _QUIET:
-                out.append(f"after {_duration(step.at - since)}")
+            if step.kind == "heard":
+                if self.side == "client":
+                    bound = _duration(max(5.0, 3 * (step.at - last)), coarse=True)
+                    out.append(f"expect {step.name} within {bound}")
+                elif any(s.kind == "did" and k not in handled for k, s in enumerate(steps) if k > n):
+                    out.append(f"wait {step.name}")        # a wait nothing follows is not worth a line
+                heard_since, last = True, step.at
+                continue
+            if (not heard_since or self.delays) and step.at - last >= _QUIET:
+                out.append(f"after {_duration(step.at - last)}")
             out.append(await self._action(line, step))
-            since = step.at
-        if heard is not None and self.side == "client":
-            # What the counterparty last did is what a client macro would check for.
-            out.append(f"expect {heard.name} within {_duration(max(2.0, 2 * (heard.at - since)), coarse=True)}")
+            heard_since, last = False, step.at
+        if self.side == "client" and steps and steps[-1].kind == "heard":
             out.append("pass")
         return out
+
+    # What answers a request: the first thing done after it, if it is one of these.
+    _ANSWERS = {"cancel": ("accept", "reject"), "replace": ("accept", "reject"), "dk": ("renotify", "correct", "bust")}
+
+    def _handlers(self, steps: list[_Step]) -> tuple[set[int], list[tuple[str, _Step, float, bool]]]:
+        """The requests that were answered the same way every time, as
+        `(event, the answer, the time first taken to give it, nothing was
+        done after)`, and the steps they account for. One answered two ways
+        — the first replace accepted, the second refused — is no rule: it
+        stays in the main flow, in the order it happened."""
+        found: dict[str, list[tuple[int, _Step | None]]] = {}
+        for n, step in enumerate(steps):
+            if step.kind == "heard" and step.name in self._ANSWERS:
+                nxt = steps[n + 1] if n + 1 < len(steps) else None
+                answered = nxt is not None and nxt.kind == "did" and nxt.name in self._ANSWERS[step.name]
+                found.setdefault(step.name, []).append((n, nxt if answered else None))
+        handled: set[int] = set()
+        handlers = []
+        for event, seen in found.items():
+            answers = [a for _, a in seen]
+            if any(a is None for a in answers) or len({(a.name, tuple(sorted(a.terms.items()))) for a in answers}) != 1:
+                continue
+            first_n, first = seen[0]
+            handled |= {k for n, _ in seen for k in (n, n + 1)}
+            last_n = seen[-1][0] + 1
+            # An accepted cancel ends the order; with nothing done after it, the macro says so, so that
+            # what the main flow still has to do is not done to a cancelled order when the cancel comes sooner.
+            final = event == "cancel" and first.name == "accept" and not any(s.kind == "did" for s in steps[last_n + 1:])
+            handlers.append((event, first, first.at - steps[first_n].at, final))
+        return handled, handlers
 
     async def _action(self, line: _Timeline, step: _Step) -> str:
         parts = [step.name]

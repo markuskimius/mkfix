@@ -254,8 +254,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   recording, playing, paused, or how the last run ended. **Record…**, there or in either editor, writes the
   first draft for you: work orders by hand -- accept, fill, answer a cancel
   on one side; send, replace, cancel, DK on the other -- and Stop recording
-  opens the macro that would have done the same, delays and answers
-  included, ready to run and to loosen. Macros are versioned
+  opens the macro that would have done the same, ready to run and to
+  loosen. It is triggered by events, not the clock: each action waits for
+  what you heard before you took it, a request you always answered the same
+  way becomes a `when` handler, and time is written only where nothing came
+  between two of your actions (or everywhere, with **Keep my delays**). Macros are versioned
   like sessions, so every Save is kept: **History** in an editor lists the
   versions with the runs that used each, shows one against the macro as
   saved now, and **Restore** brings it back as an unsaved edit. A macro can do more than the blotter

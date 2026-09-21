@@ -534,6 +534,10 @@ class TestWiring:
         assert "'needs:'" in sql and "'macro:'" in sql and "'resume:'" in sql
         stop = app["dialogs"]["stop_recording"]
         assert {"name": "save", "type": "hidden", "value": "1"} in stop["fields"]
+        # how the macro is written is chosen at the end: the recording holds the timing either way
+        assert {"name": "delays", "label": "Keep my delays", "type": "checkbox", "value": False} in stop["fields"]
+        assert 'delays=yes("delays")' in (ROOT / "mkfix" / "services" / "fix_command.py").read_text(encoding="utf-8")
+        assert 'label: "Keep my delays"' in (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
         assert stop["submit"]["then"] == {"action": "macro.recorded", "args": {"side": "${row.side}", "name": "${name}"}}
         assert app["dialogs"]["record_macro"]["submit"]["then"] == {"action": "macro.refresh"}
         # in place as soon as the blotter is: a pane's `_ready`, not the next poll, brings them
@@ -603,7 +607,8 @@ class TestWiring:
             assert call in pane, call
         saves = re.findall(r'cmd\("save_macro", \{([^}]*)\}', pane)
         assert len(saves) == 3 and all(re.search(r"\bside\b", s) for s in saves), "every save says which side it is for"
-        for call in ('cmd("record_start", { side, session })', 'cmd("record_stop", { side, name })', 'cmd("record_status", { side })'):
+        for call in ('cmd("record_start", { side, session })', 'cmd("record_stop", { side, name, delays: delays ? "1" : "" })',
+                     'cmd("record_status", { side })'):
             assert call in pane, call
         assert "wanted.side !== side" in pane, "an example opened for the other editor is not this one's"
         viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")

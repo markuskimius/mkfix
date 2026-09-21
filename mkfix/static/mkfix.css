@@ -605,6 +605,7 @@
 .macro-controls { display: inline-flex; gap: 4px; margin-left: 2px; padding-left: 8px; border-left: 1px solid var(--mkui-border, #3c3c3c); }
 .mkui-btn.macro-recording { color: #f44747; border-color: #f44747; }
 .mkui-btn.macro-recording::before { content: "● "; }
+.macro-ask input[type="checkbox"] { flex: none; padding: 0; }
 .macro-ask select { background: var(--mkui-bg, #1e1e1e); color: var(--mkui-fg, #d4d4d4); border: 1px solid var(--mkui-border, #3c3c3c); padding: 2px 5px; font: inherit; }
 .macro-hover { max-width: 460px; font-size: 12px; line-height: 1.45; white-space: normal; }
 .macro-hover-title { font-family: var(--mkui-font-mono, monospace); color: #dcdcaa; margin-bottom: 2px; }

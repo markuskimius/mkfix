@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.51",
+    "version": "0.52",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -678,6 +678,22 @@
           "value": "recorded"
         },
         {
+          "name": "delays",
+          "label": "Keep my delays",
+          "type": "checkbox",
+          "value": false
+        },
+        {
+          "type": "readonly",
+          "showWhen": "not delays",
+          "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two of your actions."
+        },
+        {
+          "type": "readonly",
+          "showWhen": "delays",
+          "value": "Each action will also wait the time you took to answer — a venue with a person's pauses."
+        },
+        {
           "type": "readonly",
           "value": "The macro opens in ${row.Side} Macros. If the name is taken the recording goes on; if nothing was recorded, nothing is saved."
         }
@@ -757,7 +773,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.51"
+        "text": "mkfix v0.52"
       }
     ],
     "bindStyle": {
@@ -4973,7 +4989,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.51",
+      "version": "0.52",
       "mkio": "1.5",
       "expr": "2"
     },

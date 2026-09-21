@@ -123,8 +123,9 @@ class FixCommandService(Service):
         elif command == "record_start":
             return {"ok": True, **macros.record_start(data.get("side", ""), data.get("session", ""))}
         elif command == "record_stop":
+            yes = lambda key: str(data.get(key, "")).lower() in ("1", "true", "yes")  # noqa: E731
             return {"ok": True, **await macros.record_stop(data.get("side", ""), data.get("name", "recorded"),
-                                                           save=str(data.get("save", "")).lower() in ("1", "true", "yes"))}
+                                                           save=yes("save"), delays=yes("delays"))}
         elif command == "macro_status":
             return {"ok": True, **macros.status()}
         elif command == "play_macro":

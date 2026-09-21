@@ -512,11 +512,13 @@ registerPaneType("macros", async (spec, app, host) => {
       }
       let suggested = "recorded";
       for (let n = 2; macros.has(suggested); n++) suggested = `recorded-${n}`;
-      const name = await askName(suggested);
-      if (!name) return;                                   // still recording: nothing is lost by changing your mind
+      const asked = await askName(suggested, { label: "Keep my delays",
+        title: "Off: each action runs the moment what it answered comes. On: it also waits the time you took to answer." });
+      if (!asked) return;                                  // still recording: nothing is lost by changing your mind
+      const { name, ticked: delays } = asked;
       if (macros.has(name)) return status(`${name} already exists`, "error");
       if (!(await leaveCurrent())) return;
-      const result = await cmd("record_stop", { side, name });
+      const result = await cmd("record_stop", { side, name, delays: delays ? "1" : "" });
       recording = null;
       renderRecord();
       if (!result.orders) {
@@ -547,16 +549,23 @@ registerPaneType("macros", async (spec, app, host) => {
     }
   }
 
-  function askName(suggested) {
+  // `option` = a tick box beside the name ({ label, title }): the answer is then { name, ticked }.
+  function askName(suggested, option = null) {
     return new Promise((resolve) => {
       const bar = document.createElement("div");
       bar.className = "macro-ask";
-      bar.innerHTML = `<span>Name</span><input type="text" spellcheck="false"><button class="mkui-btn">OK</button><button class="mkui-btn">Cancel</button>`;
-      const input = bar.querySelector("input");
+      bar.innerHTML = `<span>Name</span><input type="text" spellcheck="false">`
+        + (option ? `<label class="macro-vim" title="${option.title}"><input type="checkbox"> ${option.label}</label>` : "")
+        + `<button class="mkui-btn">OK</button><button class="mkui-btn">Cancel</button>`;
+      const input = bar.querySelector("input[type=text]");
+      const tick = bar.querySelector("input[type=checkbox]");
       const [ok, cancel] = bar.querySelectorAll("button");
       input.value = suggested;
       const done = (value) => { bar.remove(); resolve(value); };
-      ok.onclick = () => done(input.value.trim().replace(/\s+/g, " ") || null);
+      ok.onclick = () => {
+        const name = input.value.trim().replace(/\s+/g, " ") || null;
+        done(option && name ? { name, ticked: !!tick?.checked } : name);
+      };
       cancel.onclick = () => done(null);
       input.onkeydown = (e) => { if (e.key === "Enter") ok.onclick(); if (e.key === "Escape") done(null); };
       $(".macro-main").prepend(bar);
