@@ -29,7 +29,7 @@ mkfix/
     transport.py        # FixSocket, FixInitiator, FixListener, FixServer
     engine.py           # FixEngine — session lifecycle, WriteBatcher bridge, replay
     actions.py, events.py  # perform(), event bus, order lock — see fix/CLAUDE.md
-    replay.py           # Log parser + ReplayTask
+    replay.py           # Message Replay — see fix/CLAUDE.md
   macro/               # macros (the scripting language) — see macro/CLAUDE.md
   archive.py           # mkfix archive / restore over mkio's row archiving
   upgrade.py           # pre-0.34 mirror columns; pre-0.51 scenarios dropped
@@ -150,7 +150,7 @@ Transaction ops need TOML `defaults` for any field the client may omit; one with
 
 ## Security notes
 
-Message Replay loads production FIX logs into test sessions, so files and hosts named `prod`/`production` may legitimately appear. Replayed production data stays on this machine: never commit, push or send it to external services.
+Message Replay loads production FIX logs into test sessions, so files and hosts named `prod`/`production` may appear. Replayed production data stays on this machine: never commit, push or send it to external services.
 
 ## Running tests
 

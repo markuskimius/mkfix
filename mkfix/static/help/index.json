@@ -1,4 +1,5 @@
 [
   { "id": "macro-language", "title": "Macro Language", "file": "macro-language.md" },
-  { "id": "macro-examples", "title": "Macro Examples", "builtin": "examples" }
+  { "id": "macro-examples", "title": "Macro Examples", "builtin": "examples" },
+  { "id": "replaying-a-log", "title": "Replaying a Log", "file": "replaying-a-log.md" }
 ]

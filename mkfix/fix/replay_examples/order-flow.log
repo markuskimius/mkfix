@@ -1,0 +1,12 @@
+# Six order messages, one direction, no header
+#
+# Three new orders, a replace of the first, a cancel of the second and one
+# more order, fifteen seconds of log time. The lines carry no CompIDs, so
+# there is one direction and the session's header goes on every message;
+# the timestamp prefix paces the replay.
+20260921-14:00:00.000 : 35=D|11=REPLAY-001|21=1|55=IBM|54=1|38=100|40=2|44=150.25|59=0|60=20260921-14:00:00.000|
+20260921-14:00:02.500 : 35=D|11=REPLAY-002|21=1|55=MSFT|54=2|38=250|40=1|59=0|60=20260921-14:00:02.500|
+20260921-14:00:05.000 : 35=D|11=REPLAY-003|21=1|55=AAPL|54=1|38=50|40=2|44=189.10|59=1|60=20260921-14:00:05.000|
+20260921-14:00:08.000 : 35=G|11=REPLAY-004|41=REPLAY-001|21=1|55=IBM|54=1|38=120|40=2|44=150.50|59=0|60=20260921-14:00:08.000|
+20260921-14:00:11.000 : 35=F|11=REPLAY-005|41=REPLAY-002|55=MSFT|54=2|38=250|60=20260921-14:00:11.000|
+20260921-14:00:15.000 : 35=D|11=REPLAY-006|21=1|55=GOOG|54=1|38=10|40=2|44=142.00|59=3|60=20260921-14:00:15.000|

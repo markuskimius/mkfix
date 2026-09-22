@@ -28,7 +28,7 @@ def _make_engine():
     engine.perform = lambda op, data, source="manual": FixEngine.perform(engine, op, data, source)
     for method in (
         "start_session", "stop_session", "reload_session", "reset_sequence",
-        "start_replay", "pause_replay", "resume_replay", "stop_replay",
+        "start_replay", "pause_replay", "resume_replay", "stop_replay", "delete_replay",
     ):
         setattr(engine, method, AsyncMock())
     engine.send_new_order = AsyncMock(return_value="RTXX00000001")
@@ -515,7 +515,7 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("command", [
-        "start_replay", "pause_replay", "resume_replay", "stop_replay",
+        "pause_replay", "resume_replay", "stop_replay", "delete_replay",
     ])
     async def test_replay_commands_coerce_job_id(self, command):
         engine = _make_engine()
@@ -523,6 +523,33 @@ class TestDispatch:
         ws = _make_ws()
         await svc.on_message(ws, {"ref": "r", "op": command, "data": {"job_id": "3"}})
         getattr(engine, command).assert_awaited_once_with(3)
+
+    @pytest.mark.asyncio
+    async def test_start_replay_passes_the_direction_and_answers_the_count(self):
+        engine = _make_engine()
+        engine.start_replay = AsyncMock(return_value={"selected": 4, "direction": "A→B"})
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r", "op": "start_replay", "data": {"job_id": "3", "direction": "A→B"}})
+        engine.start_replay.assert_awaited_once_with(3, direction="A→B")
+        assert _sent(ws)["selected"] == 4
+
+    @pytest.mark.asyncio
+    async def test_load_and_configure_replay_pass_the_dialogs_fields(self):
+        engine = _make_engine()
+        engine.load_replay = AsyncMock(return_value={"job_id": 9, "count": 28, "name": "day"})
+        engine.configure_replay = AsyncMock()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r", "op": "load_replay",
+                                  "data": {"name": "", "file_path": "", "example": "two-sided-day"}})
+        engine.load_replay.assert_awaited_once_with(name="", file_path="", example="two-sided-day")
+        assert _sent(ws)["job_id"] == 9
+        await svc.on_message(ws, {"ref": "r", "op": "configure_replay", "data": {
+            "job_id": "9", "target_session": "Client", "speed": "2", "msg_filter": "D,G",
+            "time_from": "09:00", "time_to": "", "max_gap": "5"}})
+        engine.configure_replay.assert_awaited_once_with(
+            9, target_session="Client", speed="2", msg_filter="D,G", time_from="09:00", time_to="", max_gap="5")
 
 
 class TestSaveAsTemplate:

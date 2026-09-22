@@ -18,7 +18,8 @@ from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
                                extra_pairs_of, format_extra_tags, parse_fix,
                                CONSUMED_EXEC_TAGS,
                                ClientTag, client_of, parse_client_tags)
-from mkfix.fix.replay import ReplayTask, parse_log_file
+from mkfix.fix import replay
+from mkfix.fix.replay import ReplayTask
 from mkfix.fix.session import FixSession
 
 if TYPE_CHECKING:
@@ -105,6 +106,15 @@ TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
 ]
+
+# A replay job: what Load found in the file (summary and its readable
+# columns), what Configure chose, and the run's own progress. The direction
+# is asked at every Start, so the job keeps only the one it played last.
+REPLAY_CONFIG_COLS = ["target_session", "speed", "msg_filter", "time_from", "time_to", "max_gap",
+                      "default_direction"]
+REPLAY_JOB_COLS = ["name", "file_path", "status", "total_messages", "sent_messages", "selected_messages",
+                   "error_text", "created_at", "summary", "pairs", "first_time", "last_time", "direction",
+                   ] + REPLAY_CONFIG_COLS
 
 
 def _order_params(row: dict[str, Any], keep_sent_text: bool = False,
@@ -463,6 +473,34 @@ class FixEngine:
                 f"WHERE id = ? RETURNING *"
             ),
             param_names=tuple(replay_cols[1:] + ["_mkio_ref", "id"]),
+        ),)
+        job_ph = ", ".join(["?"] * (len(REPLAY_JOB_COLS) + 1))
+        self._compiled_ops["insert_replay"] = (CompiledOp(
+            table="fix_replay_jobs",
+            op_type="insert",
+            sql=(f"INSERT INTO fix_replay_jobs ({', '.join(REPLAY_JOB_COLS)}, _mkio_ref) "
+                 f"VALUES ({job_ph}) RETURNING *"),
+            param_names=tuple(REPLAY_JOB_COLS + ["_mkio_ref"]),
+        ),)
+        cfg_set = ", ".join(f"{c} = ?" for c in REPLAY_CONFIG_COLS)
+        self._compiled_ops["configure_replay"] = (CompiledOp(
+            table="fix_replay_jobs",
+            op_type="update",
+            sql=f"UPDATE fix_replay_jobs SET {cfg_set}, _mkio_ref = ? WHERE id = ? RETURNING *",
+            param_names=tuple(REPLAY_CONFIG_COLS + ["_mkio_ref", "id"]),
+        ),)
+        self._compiled_ops["begin_replay"] = (CompiledOp(
+            table="fix_replay_jobs",
+            op_type="update",
+            sql=("UPDATE fix_replay_jobs SET direction = ?, selected_messages = ?, sent_messages = 0, "
+                 "status = 'running', error_text = '', _mkio_ref = ? WHERE id = ? RETURNING *"),
+            param_names=("direction", "selected_messages", "_mkio_ref", "id"),
+        ),)
+        self._compiled_ops["delete_replay"] = (CompiledOp(
+            table="fix_replay_jobs",
+            op_type="delete",
+            sql="DELETE FROM fix_replay_jobs WHERE id = ? RETURNING *",
+            param_names=("id",),
         ),)
 
     async def _ensure_indexes(self) -> None:
@@ -2483,76 +2521,169 @@ class FixEngine:
 
     # ── Replay ───────────────────────────────────────────────────────
 
-    async def start_replay(self, job_id: int) -> None:
-        """Start a replay job."""
-        conn = self.db.read_conn
-        cursor = await conn.execute("SELECT * FROM fix_replay_jobs WHERE id = ?", (job_id,))
-        row = await cursor.fetchone()
-        await cursor.close()
+    async def load_replay(self, name: str = "", file_path: str = "", example: str = "") -> dict[str, Any]:
+        """Create a replay job: parse the file once (a day's log, in a
+        thread) and keep what it holds on the row — CompID pairs, message
+        types with counts, time span — for Configure and Start to offer.
+        Every type starts ticked; the direction waits for Start."""
+        spec = f"{replay.EXAMPLE_PREFIX}{example.strip()}" if example.strip() else file_path
+        path = replay.resolve_path(spec)
+        messages = await asyncio.to_thread(replay.parse_log_file, path)
+        if not messages:
+            raise ValueError(f"No FIX application messages found in {path}")
+        summary = replay.summarize(messages)
+        if not name.strip():
+            name = next((e["title"] for e in replay.examples() if e["name"] == path.stem), path.stem) \
+                if spec.startswith(replay.EXAMPLE_PREFIX) else path.name
+        job = {
+            "name": name.strip(), "file_path": spec.strip(), "status": "loaded",
+            "total_messages": summary["count"], "sent_messages": 0, "selected_messages": 0,
+            "error_text": "", "created_at": _fix_timestamp(), "summary": json.dumps(summary),
+            "pairs": replay.describe_pairs(summary), "first_time": summary["first"],
+            "last_time": summary["last"], "direction": "",
+            "target_session": "", "speed": 1.0, "msg_filter": ",".join(summary["types"]),
+            "time_from": "", "time_to": "", "max_gap": 30.0,
+            "default_direction": await self._default_direction(summary, ""),
+        }
+        params = tuple(job[c] for c in REPLAY_JOB_COLS) + (None,)
+        await self.writer.submit(self._compiled_ops["insert_replay"], (params,), {})
+        row = await self._fetch_one("SELECT MAX(id) AS id FROM fix_replay_jobs")
+        return {"job_id": row["id"], "count": summary["count"], "name": job["name"]}
+
+    async def configure_replay(self, job_id: int, target_session: str = "", speed: Any = 1.0,
+                               msg_filter: str = "", time_from: str = "", time_to: str = "",
+                               max_gap: Any = 30.0) -> None:
+        job = await self._replay_job(job_id)
+        if job["id"] in self._replay_tasks and not self._replay_tasks[job["id"]].done:
+            raise ValueError(f"Replay job {job_id} is {job['status']} — stop it before changing it")
+        if target_session and target_session not in self.sessions:
+            raise ValueError(f"Unknown session: {target_session}")
+        try:
+            speed, max_gap = float(speed or 0), float(max_gap or 0)
+        except (TypeError, ValueError):
+            raise ValueError("Speed and max gap are numbers") from None
+        if speed < 0 or max_gap < 0:
+            raise ValueError("Speed and max gap cannot be negative")
+        replay.select_messages([], time_from=time_from, time_to=time_to)   # validates the window
+        summary = json.loads(job["summary"] or "{}")
+        known = set(summary.get("types", {}))
+        types = [t.strip() for t in str(msg_filter).split(",") if t.strip()]
+        unknown = [t for t in types if t not in known]
+        if unknown:
+            raise ValueError(f"The file has no {', '.join(unknown)} messages")
+        config = {
+            "target_session": target_session, "speed": speed, "msg_filter": ",".join(types),
+            "time_from": time_from.strip(), "time_to": time_to.strip(), "max_gap": max_gap,
+            "default_direction": await self._default_direction(summary, target_session),
+        }
+        params = tuple(config[c] for c in REPLAY_CONFIG_COLS) + (None, job["id"])
+        await self.writer.submit(self._compiled_ops["configure_replay"], (params,), {"id": job["id"]})
+
+    async def _default_direction(self, summary: dict[str, Any], session_id: str) -> str:
+        """The direction Start preselects: the file's only pair, else the one
+        pair whose sender is the session's own SenderCompID."""
+        pairs = summary.get("pairs", [])
+        if len(pairs) == 1:
+            return replay.direction_key(pairs[0]["sender"], pairs[0]["target"])
+        if not session_id:
+            return ""
+        row = await self._fetch_one("SELECT sender_comp_id FROM fix_sessions WHERE session_id = ?", (session_id,))
         if not row:
-            raise ValueError(f"Unknown replay job: {job_id}")
-        job = dict(row)
+            return ""
+        ours = [p for p in pairs if p["sender"] == row["sender_comp_id"]]
+        return replay.direction_key(ours[0]["sender"], ours[0]["target"]) if len(ours) == 1 else ""
+
+    async def start_replay(self, job_id: int, direction: str = "") -> dict[str, Any]:
+        """Start a replay job in one direction: the messages the file holds
+        from that sender to that target, of the configured types, inside
+        the configured window, sent as the target session."""
+        job = await self._replay_job(job_id)
+        live = self._replay_tasks.get(job["id"])
+        if live and not live.done:
+            raise ValueError(f"Replay job {job_id} is already {job['status']}")
 
         session_id = job.get("target_session", "")
         session = self.sessions.get(session_id)
+        if not session_id:
+            raise ValueError("Configure the job with a session to replay into")
         if not session or not session.is_active:
             raise ValueError(f"Target session {session_id} is not active")
 
-        messages = parse_log_file(job["file_path"])
-        if not messages:
-            raise ValueError(f"No FIX messages found in {job['file_path']}")
+        summary = json.loads(job["summary"] or "{}")
+        keys = [replay.direction_key(p["sender"], p["target"]) for p in summary.get("pairs", [])]
+        direction = direction.strip() or job.get("default_direction", "")
+        if len(keys) > 1 and not direction:
+            raise ValueError("Choose a direction: the file holds messages both ways")
+        if direction and keys and direction not in keys:
+            raise ValueError(f"The file holds no {direction} messages")
 
-        msg_filter: set[str] | None = None
-        filt = job.get("msg_filter", "")
-        if filt:
-            msg_filter = {t.strip() for t in filt.split(",") if t.strip()}
+        messages = await asyncio.to_thread(replay.parse_log_file, replay.resolve_path(job["file_path"]))
+        chosen = replay.select_messages(messages, direction, job.get("msg_filter", ""),
+                                        job.get("time_from", ""), job.get("time_to", ""))
+        if not chosen:
+            raise ValueError("Nothing to replay: no message matches the direction, types and window")
 
-        await self._update_replay_job(job_id, 0, len(messages))
+        params = (direction, len(chosen), None, job["id"])
+        await self.writer.submit(self._compiled_ops["begin_replay"], (params,), {"id": job["id"]})
 
         task = ReplayTask(
-            job_id=job_id,
+            job_id=job["id"],
             session=session,
-            messages=messages,
-            speed=job.get("speed", 1.0),
-            msg_filter=msg_filter,
+            messages=chosen,
+            speed=float(job.get("speed") or 0),
+            max_gap=float(job.get("max_gap") or 0),
             on_progress=self._on_replay_progress,
         )
-        self._replay_tasks[job_id] = task
+        self._replay_tasks[job["id"]] = task
         await task.start()
+        return {"selected": len(chosen), "direction": direction}
 
     async def pause_replay(self, job_id: int) -> None:
-        task = self._replay_tasks.get(job_id)
-        if not task:
-            raise ValueError(f"No running replay job: {job_id}")
+        task = self._live_replay(job_id)
         task.pause()
         await self._on_replay_progress(job_id, task.sent, "paused", "")
 
     async def resume_replay(self, job_id: int) -> None:
-        task = self._replay_tasks.get(job_id)
-        if not task:
-            raise ValueError(f"No running replay job: {job_id}")
+        task = self._live_replay(job_id)
         task.resume()
         await self._on_replay_progress(job_id, task.sent, "running", "")
 
     async def stop_replay(self, job_id: int) -> None:
-        task = self._replay_tasks.pop(job_id, None)
-        if not task:
-            raise ValueError(f"No running replay job: {job_id}")
+        task = self._live_replay(job_id)
+        self._replay_tasks.pop(job_id, None)
         await task.stop()
         await self._on_replay_progress(job_id, task.sent, "stopped", "")
+
+    async def delete_replay(self, job_id: int) -> None:
+        """Delete a job, stopping it first if it is playing."""
+        job = await self._replay_job(job_id)
+        task = self._replay_tasks.pop(job["id"], None)
+        if task:
+            await task.stop()
+        await self.writer.submit(self._compiled_ops["delete_replay"], ((job["id"],),), {"id": job["id"]})
+
+    def _live_replay(self, job_id: int) -> ReplayTask:
+        task = self._replay_tasks.get(job_id)
+        if not task or task.done:
+            raise ValueError(f"Replay job {job_id} is not playing")
+        return task
+
+    async def _replay_job(self, job_id: int) -> dict[str, Any]:
+        row = await self._fetch_one("SELECT * FROM fix_replay_jobs WHERE id = ?", (int(job_id),))
+        if not row:
+            raise ValueError(f"Unknown replay job: {job_id}")
+        return row
+
+    async def _fetch_one(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+        cursor = await self.db.read_conn.execute(sql, params)
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
 
     async def _on_replay_progress(self, job_id: int, sent: int, status: str, error: str) -> None:
         params = (status, sent, error, None, job_id)
         ops = self._compiled_ops["update_replay"]
         await self.writer.submit(ops, (params,), {"id": job_id})
-
-    async def _update_replay_job(self, job_id: int, sent: int, total: int) -> None:
-        conn = self.db.write_conn
-        await (await conn.execute(
-            "UPDATE fix_replay_jobs SET total_messages = ?, sent_messages = ? WHERE id = ?",
-            (total, sent, job_id),
-        )).close()
-        await conn.commit()
 
     async def _load_custom_dictionaries(self) -> None:
         """Register user-defined dictionaries before sessions bind them."""
@@ -2717,6 +2848,10 @@ class FixEngine:
         if live and any(selection.get(t) for t in scripted):
             problems.append(f"macro {', '.join(sorted(live))} is armed: its scripts read the orders, trades "
                             "and run rows this archive would take — stop the run first")
+        playing = [r["id"] for r in selection.get("fix_replay_jobs", [])
+                   if r["id"] in self._replay_tasks and not self._replay_tasks[r["id"]].done]
+        if playing:
+            problems.append(f"replay job {', '.join(str(i) for i in playing)} is playing — stop it first")
         if selection.get("fix_id_state"):
             problems.append(
                 "fix_id_state holds the ID counters the running engine is using — "

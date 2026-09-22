@@ -164,8 +164,25 @@ class FixCommandService(Service):
             await engine.reload_session(data["session_id"])
             return {"ok": True}
 
+        elif command == "load_replay":
+            return {"ok": True, **await engine.load_replay(
+                name=str(data.get("name", "")), file_path=str(data.get("file_path", "")),
+                example=str(data.get("example", "")))}
+
+        elif command == "configure_replay":
+            await engine.configure_replay(
+                int(data["job_id"]), target_session=str(data.get("target_session", "")),
+                speed=data.get("speed", 1.0), msg_filter=str(data.get("msg_filter", "")),
+                time_from=str(data.get("time_from", "")), time_to=str(data.get("time_to", "")),
+                max_gap=data.get("max_gap", 30.0))
+            return {"ok": True}
+
         elif command == "start_replay":
-            await engine.start_replay(int(data["job_id"]))
+            return {"ok": True, **await engine.start_replay(int(data["job_id"]),
+                                                           direction=str(data.get("direction", "")))}
+
+        elif command == "delete_replay":
+            await engine.delete_replay(int(data["job_id"]))
             return {"ok": True}
 
         elif command == "pause_replay":

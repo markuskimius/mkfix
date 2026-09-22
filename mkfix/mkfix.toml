@@ -74,8 +74,12 @@ archive = { group = "config" }
 columns = { name = "TEXT PRIMARY KEY", base_version = "TEXT DEFAULT ''", doc = "TEXT NOT NULL DEFAULT '{}'", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
 archive = { group = "config" }
 
+# A loaded log and the runs made of it: `summary` (JSON) is what Load
+# found — CompID pairs, message types with counts, time span — with
+# `pairs`/`first_time`/`last_time` as its readable columns; `msg_filter`,
+# the window and `max_gap` are Configure's; `direction` is the last Start's.
 [tables.fix_replay_jobs]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", file_path = "TEXT NOT NULL", status = "TEXT DEFAULT 'loaded'", target_session = "TEXT DEFAULT ''", speed = "REAL DEFAULT 1.0", msg_filter = "TEXT DEFAULT ''", total_messages = "INTEGER DEFAULT 0", sent_messages = "INTEGER DEFAULT 0", error_text = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", name = "TEXT NOT NULL", file_path = "TEXT NOT NULL", status = "TEXT DEFAULT 'loaded'", target_session = "TEXT DEFAULT ''", speed = "REAL DEFAULT 1.0", msg_filter = "TEXT DEFAULT ''", total_messages = "INTEGER DEFAULT 0", sent_messages = "INTEGER DEFAULT 0", selected_messages = "INTEGER DEFAULT 0", error_text = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", summary = "TEXT DEFAULT '{}'", pairs = "TEXT DEFAULT ''", first_time = "TEXT DEFAULT ''", last_time = "TEXT DEFAULT ''", time_from = "TEXT DEFAULT ''", time_to = "TEXT DEFAULT ''", max_gap = "REAL DEFAULT 30", default_direction = "TEXT DEFAULT ''", direction = "TEXT DEFAULT ''" }
 archive = { group = "config" }
 
 # Saved window layouts for mkui's Layout menu: one row per save, the newest
@@ -150,17 +154,6 @@ delete = [
 # rebuilds it. A Delete is a real delete in mkio and takes the chain with it.
 undo = [{ table = "fix_sessions", op_type = "undo", key = ["session_id"] }]
 redo = [{ table = "fix_sessions", op_type = "redo", key = ["session_id"] }]
-
-[services.replay_mgmt]
-protocol = "transaction"
-
-[services.replay_mgmt.ops]
-create = [
-    { table = "fix_replay_jobs", op_type = "insert", fields = ["name", "file_path", "target_session", "speed", "msg_filter"] },
-]
-update_status = [
-    { table = "fix_replay_jobs", op_type = "update", key = ["id"], fields = ["status", "sent_messages", "error_text"] },
-]
 
 # fix_cmd (custom FIX command service) is registered programmatically
 # via app.add_service() in __main__.py.
@@ -347,9 +340,45 @@ filterable = ["run_id", "macro", "side"]
 protocol = "reqrep"
 sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst FROM fix_templates WHERE scope = :scope ORDER BY name"
 
+# Replay jobs, with the target session's live status so Start can gate on
+# it (the join and watch rules are orders_query's).
 [services.replay_jobs]
 protocol = "query"
 primary_table = "fix_replay_jobs"
+watch_tables = ["fix_replay_jobs", "fix_session_state"]
+watch_columns = { fix_session_state = ["status"] }
+key = ["id"]
+sql = """SELECT j.*, COALESCE(t.status, 'DOWN') AS session_status
+         FROM fix_replay_jobs j LEFT JOIN fix_session_state t ON t.session_id = j.target_session"""
+filterable = ["name", "status", "target_session", "session_status"]
+
+# What a loaded log holds, read out of the job's summary for the Start and
+# Configure dialogs: its CompID pairs as directions, its message types
+# with counts. Messages without CompIDs make one blank-keyed direction.
+[services.replay_directions]
+protocol = "reqrep"
+description = "The directions a replay job's file holds, with message counts"
+sql = """
+SELECT CASE WHEN json_extract(p.value, '$.sender') = '' AND json_extract(p.value, '$.target') = '' THEN ''
+            ELSE json_extract(p.value, '$.sender') || '→' || json_extract(p.value, '$.target') END AS value,
+       CASE WHEN json_extract(p.value, '$.sender') = '' AND json_extract(p.value, '$.target') = ''
+            THEN '(no CompIDs in the file)'
+            ELSE json_extract(p.value, '$.sender') || ' → ' || json_extract(p.value, '$.target') END
+       || ' · ' || json_extract(p.value, '$.count') AS label
+  FROM fix_replay_jobs j, json_each(j.summary, '$.pairs') AS p
+ WHERE j.id = :job_id
+"""
+
+[services.replay_types]
+protocol = "reqrep"
+description = "The message types a replay job's file holds, with counts"
+sql = """
+SELECT t.key AS value,
+       t.key || '  ' || COALESCE(json_extract(j.summary, '$.names."' || t.key || '"'), '') || ' · ' || t.value AS label
+  FROM fix_replay_jobs j, json_each(j.summary, '$.types') AS t
+ WHERE j.id = :job_id
+ ORDER BY t.key
+"""
 
 # ─── Record History ─────────────────────────────────────────────────
 

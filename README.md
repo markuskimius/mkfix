@@ -274,8 +274,18 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the point of a test venue. Macros live in the server's memory: after a
   restart every run that was live is marked `interrupted` and nothing is
   played again -- a restart stops every macro, and never sends anything.
-- **Message Replay** -- Load production FIX logs and replay them into a test
-  session with speed control, message filtering, and pause/resume.
+- **Message Replay** -- Load a FIX log -- a whole day's, both sides -- and
+  replay it into a test session *as that session*: Load reads the file once
+  and shows the CompID pairs, message types and time span it holds; Configure
+  picks the session, the types (a checklist with counts), a time-of-day window,
+  the speed and the longest gap to wait; Start asks which direction to play --
+  the client's messages into an initiator, or the venue's into an acceptor.
+  On the wire the session's BeginString, CompIDs, sequence numbers,
+  SendingTime and TransactTime replace the log's, PossDup and its
+  companions are dropped, and every other tag -- routing tags, repeating
+  groups -- goes out as logged; admin messages are never sent. Five bundled
+  example logs are offered in the Load dialog; Help > Replaying a Log has
+  the details.
 - **Saved Layouts** -- The Layout menu saves the window arrangement (frame
   positions, tabs, and each open table's filters, sort, and visible columns)
   on the server and restores the newest save at startup; earlier saves stay
@@ -436,8 +446,10 @@ with an error instead of starting.
    restated, or canceled unsolicited;
    fills land in Sent Trades, where they can be corrected or busted, and on
    the client side in Received Trades, where they can be DK'd.
-4. **Replay a log** from To Do > Replay Control -- load a production FIX log and
-   replay it into a test session.
+4. **Replay a log** from To Do > Replay Control -- Load the bundled
+   `two-sided-day` example (or a log of your own), Configure it onto a
+   session, and Start it in either direction; the other end's blotters fill
+   as if the day were happening again.
 
 ## Configuration
 

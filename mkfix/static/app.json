@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.53",
+    "version": "0.54",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -284,6 +284,11 @@
           "label": "Macro Editor Keys",
           "action": "dialog.open",
           "args": "macro_keys"
+        },
+        {
+          "label": "Replaying a Log",
+          "action": "pane.show",
+          "args": "help-replay"
         },
         {
           "sep": true
@@ -773,7 +778,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.53"
+        "text": "mkfix v0.54"
       }
     ],
     "bindStyle": {
@@ -4312,7 +4317,392 @@
     },
     "replay-control": {
       "title": "Replay",
-      "type": "replay-control"
+      "type": "mkio-table",
+      "service": "replay_jobs",
+      "protocol": "query",
+      "columns": [
+        "id",
+        "name",
+        "status",
+        "target_session",
+        "session_status",
+        "direction",
+        "sent_messages",
+        "selected_messages",
+        "total_messages",
+        "pairs",
+        "first_time",
+        "last_time",
+        "speed",
+        "max_gap",
+        "time_from",
+        "time_to",
+        "msg_filter",
+        "file_path",
+        "error_text"
+      ],
+      "labels": {
+        "id": "ID",
+        "name": "Name",
+        "status": "Status",
+        "target_session": "Session",
+        "session_status": "Session Status",
+        "direction": "Direction",
+        "sent_messages": "Sent",
+        "selected_messages": "Selected",
+        "total_messages": "In File",
+        "pairs": "CompID Pairs",
+        "first_time": "First",
+        "last_time": "Last",
+        "speed": "Speed",
+        "max_gap": "Max Gap",
+        "time_from": "From",
+        "time_to": "To",
+        "msg_filter": "Types",
+        "file_path": "File",
+        "error_text": "Error"
+      },
+      "types": {
+        "first_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        },
+        "last_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f"
+        }
+      },
+      "styles": {
+        "status": [
+          {
+            "when": "value == 'running'",
+            "color": "#4ec9b0",
+            "bold": true
+          },
+          {
+            "when": "value == 'paused'",
+            "color": "#dcdcaa",
+            "bold": true
+          },
+          {
+            "when": "value == 'error'",
+            "color": "#f44747",
+            "bold": true
+          },
+          {
+            "when": "value == 'completed'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'stopped'",
+            "color": "#858585"
+          }
+        ],
+        "session_status": [
+          {
+            "when": "value == 'ACTIVE'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'ERROR'",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "sort": "-id",
+      "buttons": [
+        {
+          "label": "Load…",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Load a FIX log",
+              "width": 480,
+              "fields": [
+                {
+                  "name": "example",
+                  "label": "Bundled example",
+                  "type": "select",
+                  "value": "",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": "(a file on the server: give its path below)"
+                    },
+                    {
+                      "value": "iso-timestamped",
+                      "label": "iso-timestamped — Three client messages with ISO-8601 timestamps"
+                    },
+                    {
+                      "value": "order-flow",
+                      "label": "order-flow — Six order messages, one direction, no header"
+                    },
+                    {
+                      "value": "pipe-raw",
+                      "label": "pipe-raw — Three client messages, pipe-delimited, no timestamp prefix"
+                    },
+                    {
+                      "value": "soh-raw",
+                      "label": "soh-raw — Three client messages, SOH-delimited, no timestamp prefix"
+                    },
+                    {
+                      "value": "two-sided-day",
+                      "label": "two-sided-day — A day between a client and a venue, both directions"
+                    }
+                  ]
+                },
+                {
+                  "name": "file_path",
+                  "label": "File path on the server",
+                  "type": "text",
+                  "value": "",
+                  "placeholder": "/path/to/fix.log — ignored when an example is picked"
+                },
+                {
+                  "name": "name",
+                  "label": "Job name",
+                  "type": "text",
+                  "value": "",
+                  "placeholder": "blank = the file's name"
+                },
+                {
+                  "type": "readonly",
+                  "value": "The whole file is read once: its CompID pairs, message types and time span become the job's summary. Raw SOH or pipe lines, QuickFIX and ISO-timestamped logs are recognised; logons, heartbeats and the other admin messages are left out."
+                }
+              ],
+              "submit": {
+                "label": "Load",
+                "service": "fix_cmd",
+                "op": "load_replay"
+              }
+            }
+          }
+        },
+        {
+          "label": "Configure…",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> not CONTAINS(['running', 'paused'], r.status))"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Configure ${row.name}",
+              "width": 480,
+              "fields": [
+                {
+                  "name": "job_id",
+                  "type": "hidden",
+                  "value": "${row.id}"
+                },
+                {
+                  "name": "target_session",
+                  "label": "Session to replay into",
+                  "type": "select",
+                  "value": "${row.target_session}",
+                  "required": true,
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id",
+                    "empty": "(choose a session)"
+                  }
+                },
+                {
+                  "row": [
+                    {
+                      "name": "speed",
+                      "label": "Speed (× log time; 0 = no delay)",
+                      "type": "number",
+                      "value": "${row.speed}",
+                      "min": 0,
+                      "step": "any",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "max_gap",
+                      "label": "Max gap between messages (s)",
+                      "type": "number",
+                      "value": "${row.max_gap}",
+                      "min": 0,
+                      "step": "any",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "time_from",
+                      "label": "From (HH:MM[:SS], blank = start)",
+                      "type": "text",
+                      "value": "${row.time_from}",
+                      "placeholder": "${row.first_time}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "time_to",
+                      "label": "To (HH:MM[:SS], blank = end)",
+                      "type": "text",
+                      "value": "${row.time_to}",
+                      "placeholder": "${row.last_time}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "msg_filter",
+                  "label": "Message types to replay",
+                  "type": "checklist",
+                  "size": 8,
+                  "all": "Every type in the file",
+                  "none": "The file holds no application messages",
+                  "value": "${row.msg_filter}",
+                  "required": true,
+                  "invalidMessage": "Tick at least one type",
+                  "optionsFrom": {
+                    "service": "replay_types",
+                    "params": {
+                      "job_id": "${row.id}"
+                    },
+                    "value": "value",
+                    "label": "label"
+                  }
+                },
+                {
+                  "type": "readonly",
+                  "value": "Speed scales the gaps between the log's timestamps; a gap longer than the maximum is cut to it (a lunch break, the overnight). The window is by the log's time of day."
+                }
+              ],
+              "submit": {
+                "label": "Save",
+                "service": "fix_cmd",
+                "op": "configure_replay"
+              }
+            }
+          }
+        },
+        {
+          "label": "Start…",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> not CONTAINS(['running', 'paused'], r.status) and r.target_session != '' and r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Start ${row.name}",
+              "width": 440,
+              "fields": [
+                {
+                  "name": "job_id",
+                  "type": "hidden",
+                  "value": "${row.id}"
+                },
+                {
+                  "label": "Into session",
+                  "type": "readonly",
+                  "value": "${row.target_session}"
+                },
+                {
+                  "name": "direction",
+                  "label": "Direction (the log's sender → target to play)",
+                  "type": "select",
+                  "value": "${row.default_direction}",
+                  "required": true,
+                  "optionsFrom": {
+                    "service": "replay_directions",
+                    "params": {
+                      "job_id": "${row.id}"
+                    },
+                    "value": "value",
+                    "label": "label",
+                    "empty": "(choose a direction)"
+                  }
+                },
+                {
+                  "type": "readonly",
+                  "value": "Sent as ${row.target_session}: its CompIDs, sequence numbers, SendingTime and TransactTime replace the log's; every other tag goes out as logged, routing tags and repeating groups included. Types: ${row.msg_filter}."
+                }
+              ],
+              "submit": {
+                "label": "Start",
+                "service": "fix_cmd",
+                "op": "start_replay"
+              }
+            }
+          }
+        },
+        {
+          "label": "Pause",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'running')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "pause_replay",
+            "data": {
+              "job_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Resume",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'paused')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "resume_replay",
+            "data": {
+              "job_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Stop",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['running', 'paused'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "stop_replay",
+            "data": {
+              "job_id": "${row.id}"
+            }
+          }
+        },
+        {
+          "label": "Delete",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> not CONTAINS(['running', 'paused'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "delete_replay",
+            "data": {
+              "job_id": "${row.id}"
+            }
+          }
+        }
+      ]
     },
     "dictionaries": {
       "title": "Dictionaries",
@@ -5752,6 +6142,11 @@
     "help-viewer": {
       "title": "Help",
       "type": "help-viewer"
+    },
+    "help-replay": {
+      "title": "Help",
+      "type": "help-viewer",
+      "page": "replaying-a-log"
     }
   },
   "frames": [
@@ -5867,7 +6262,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.53",
+      "version": "0.54",
       "mkio": "1.5",
       "expr": "2"
     },

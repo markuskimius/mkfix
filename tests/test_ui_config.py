@@ -301,38 +301,29 @@ class TestPaneModuleIntegrity:
                 assert service in known_services, \
                     f"{name} calls unknown service {service!r}"
 
-    def test_transaction_ops_called_from_js_exist(self, pane_sources, toml_config):
+    def test_pane_js_writes_only_through_fix_cmd(self, pane_sources, toml_config):
         """A dead op name nacks the transaction only when the button is
-        clicked. Covers both client.send(..., {op}) and dialog submit specs,
-        including ternaries like `op: isEdit ? "update" : "add"`."""
-        pairs = set()
+        clicked. The custom panes send every write through fix_cmd (a TOML
+        transaction service called from JS would need its op checked here
+        the way app.json's dialogs are)."""
         for name, source in pane_sources.items():
             for service, op in re.findall(r'client\.send\("(\w+)".*\{ op: "(\w+)" \}', source):
-                pairs.add((name, service, op))
-            for service, op_expr in re.findall(r'service:\s*"(\w+)",\s*op:\s*([^}]+)', source):
-                for op in re.findall(r'"(\w+)"', op_expr):
-                    pairs.add((name, service, op))
-        assert pairs, "no transaction ops referenced by pane modules"
-        for name, service, op in pairs:
-            spec = toml_config["services"].get(service, {})
-            if spec.get("protocol") != "transaction":
-                continue
-            assert op in spec["ops"], f"{name} sends unknown {service} op {op!r}"
+                spec = toml_config["services"].get(service, {})
+                assert service == "fix_cmd" or spec.get("protocol") != "transaction" or op in spec["ops"], \
+                    f"{name} sends unknown {service} op {op!r}"
 
     def test_fix_cmd_commands_have_dispatch_branches(self, pane_sources):
-        """Same guard app.json gets, for commands sent from pane JS. The
-        replay pane derives its command from the button action, so its
-        candidates are matched by their _replay suffix."""
+        """Same guard app.json gets, for commands sent from pane JS: the
+        panes call fix_cmd through a `cmd("name", …)` helper, or spell the
+        command out in the payload."""
         handled = _fix_cmd_commands()
         used = set()
         for name, source in pane_sources.items():
-            if 'client.send("fix_cmd"' not in source:
-                continue
+            for command in re.findall(r'\bcmd\("(\w+)"', source):
+                used.add((name, command))
             for command in re.findall(r'command:\s*"(\w+)"', source):
                 used.add((name, command))
-            for command in re.findall(r'"(\w+_replay)"', source):
-                used.add((name, command))
-        assert used, "no fix_cmd commands referenced by pane modules"
+        assert len({c for _, c in used}) >= 10, "no fix_cmd commands referenced by pane modules"
         for name, command in used:
             assert command in handled, f"{name} sends unhandled fix_cmd command {command!r}"
 
@@ -965,6 +956,67 @@ class TestServiceReferences:
         assert hosts["trade-blotter"] != hosts["market-trade-blotter"]
 
 
+class TestReplayControl:
+    """Replay Control is a declarative table over replay_jobs: the Load
+    dialog's example list is the bundled files, Start asks the direction
+    from the file's summary, and every button's op has a dispatch branch."""
+
+    def _pane(self, app_config):
+        return app_config["panes"]["replay-control"]
+
+    def _button(self, app_config, label):
+        return next(b for b in self._pane(app_config)["buttons"] if b["label"] == label)
+
+    def test_the_load_dialog_lists_the_bundled_examples(self, app_config):
+        from mkfix.fix import replay
+        field = next(f for item in self._button(app_config, "Load…")["action"]["dialog"]["fields"]
+                     for f in _leaves(item) if f.get("name") == "example")
+        assert field["options"][0]["value"] == "", "a file path is the other way in"
+        listed = {o["value"]: o["label"] for o in field["options"][1:]}
+        shipped = {e["name"]: f"{e['name']} — {e['title']}" for e in replay.examples()}
+        assert listed == shipped, "the example list in app.json drifted from mkfix/fix/replay_examples"
+        assert len(shipped) >= 5
+
+    def test_start_asks_the_direction_from_the_files_summary(self, app_config, toml_config):
+        fields = {f.get("name"): f for item in self._button(app_config, "Start…")["action"]["dialog"]["fields"]
+                  for f in _leaves(item)}
+        direction = fields["direction"]
+        assert direction["required"] is True and direction["value"] == "${row.default_direction}"
+        assert direction["optionsFrom"]["service"] == "replay_directions"
+        assert direction["optionsFrom"]["params"] == {"job_id": "${row.id}"}
+        assert direction["optionsFrom"]["empty"], "with no blank row the first pair would be silently chosen"
+        assert "json_each" in toml_config["services"]["replay_directions"]["sql"]
+        gate = self._button(app_config, "Start…")["enable"]["when"]
+        assert "session_status == 'ACTIVE'" in gate and "target_session != ''" in gate
+
+    def test_configure_ticks_the_files_types(self, app_config, toml_config):
+        fields = {f.get("name"): f for item in self._button(app_config, "Configure…")["action"]["dialog"]["fields"]
+                  for f in _leaves(item)}
+        types = fields["msg_filter"]
+        assert types["type"] == "checklist" and types["value"] == "${row.msg_filter}"
+        assert types["optionsFrom"]["service"] == "replay_types"
+        assert set(fields) >= {"job_id", "target_session", "speed", "max_gap", "time_from", "time_to", "msg_filter"}
+        columns = toml_config["tables"]["fix_replay_jobs"]["columns"]
+        for name in ("target_session", "speed", "max_gap", "time_from", "time_to", "msg_filter"):
+            assert name in columns, f"Configure's {name} has no column to land in"
+
+    def test_the_jobs_table_joins_the_sessions_state(self, toml_config):
+        service = toml_config["services"]["replay_jobs"]
+        assert "fix_session_state" in service["watch_tables"]
+        assert service["watch_columns"] == {"fix_session_state": ["status"]}
+        assert service["key"] == ["id"]
+
+    def test_the_old_pane_module_is_gone(self, index_imports):
+        assert not any("replay-control" in imp for imp in index_imports)
+        assert not (ROOT / "mkfix" / "static" / "panes" / "replay-control.js").exists()
+
+    def test_the_replay_ops_are_fix_cmd_commands(self, app_config):
+        ops = {b["action"].get("op") or b["action"]["dialog"]["submit"]["op"] for b in self._pane(app_config)["buttons"]}
+        assert ops == {"load_replay", "configure_replay", "start_replay", "pause_replay", "resume_replay",
+                       "stop_replay", "delete_replay"}
+        assert ops <= _fix_cmd_commands()
+
+
 class TestSavedLayouts:
     """mkui's Layout menu is opt-in per app and its three halves fail silently
     when one is missing: the `layouts` block constructs the LayoutManager (no
@@ -1304,6 +1356,8 @@ class TestStyleAndGateValues:
 
     ENGINE_STATUSES = {"DOWN", "ERROR", "INITIATING", "LISTENING",
                        "LOGON_SENT", "ACTIVE", "LOGOUT_SENT"}
+    # what load_replay, begin_replay and ReplayTask._report write
+    REPLAY_STATUSES = {"loaded", "running", "paused", "completed", "stopped", "error"}
 
     @pytest.fixture(scope="class")
     def value_domains(self):
@@ -1334,6 +1388,8 @@ class TestStyleAndGateValues:
             ("fix_allocations", "side"): sides,
             ("fix_allocations", "direction"): {"TX", "RX"},
             ("fix_templates", "scope"): TEMPLATE_SCOPES,
+            ("fix_replay_jobs", "status"): self.REPLAY_STATUSES,
+            ("fix_replay_jobs", "session_status"): self.ENGINE_STATUSES,
         }
 
     def _pane_table(self, spec, toml_config):
@@ -1726,6 +1782,7 @@ class TestHelpMenu:
         assert menu["items"] == [
             {"label": "Macro Language", "action": "pane.show", "args": "help-viewer"},
             {"label": "Macro Editor Keys", "action": "dialog.open", "args": "macro_keys"},
+            {"label": "Replaying a Log", "action": "pane.show", "args": "help-replay"},
             {"sep": True},
             {"label": "Keyboard Shortcuts", "action": "dialog.open", "args": "shortcuts"},
             {"sep": True},

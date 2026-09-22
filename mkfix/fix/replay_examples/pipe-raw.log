@@ -1,0 +1,8 @@
+# Three client messages, pipe-delimited, no timestamp prefix
+#
+# Whole messages with their original header: SendingTime(52) paces the
+# replay, and the session's own CompIDs, sequence numbers and times
+# replace the logged ones on the wire.
+8=FIX.4.4|9=139|35=D|49=PRODCLI|56=PRODVENUE|34=501|52=20260921-09:30:00.000|11=RAW-1|21=1|55=IBM|54=1|38=100|40=2|44=150.25|59=0|60=20260921-09:30:00.000|10=203
+8=FIX.4.4|9=130|35=D|49=PRODCLI|56=PRODVENUE|34=502|52=20260921-09:30:01.250|11=RAW-2|21=1|55=MSFT|54=2|38=250|40=1|59=0|60=20260921-09:30:01.250|10=107
+8=FIX.4.4|9=124|35=F|49=PRODCLI|56=PRODVENUE|34=503|52=20260921-09:30:03.000|11=RAW-3|41=RAW-2|55=MSFT|54=2|38=250|60=20260921-09:30:03.000|10=211
