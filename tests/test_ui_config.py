@@ -120,6 +120,9 @@ def _walk_dicts(obj):
 
 
 def _find_dialog(app_config: dict, op: str) -> dict:
+    """The first dialog submitting `op`: for send_new_order the New dialog,
+    which precedes the Clone dialogs that submit the same op (the button
+    order tests pin that); `_clone_button` finds those."""
     dialog = next(
         (node for node in _walk_dicts(app_config)
          if node.get("submit", {}).get("op") == op),
@@ -127,6 +130,13 @@ def _find_dialog(app_config: dict, op: str) -> dict:
     )
     assert dialog, f"no {op} dialog in app.json"
     return dialog
+
+
+def _clone_button(app_config: dict, pane_id: str) -> dict:
+    buttons = app_config["panes"][pane_id]["buttons"]
+    button = next((b for b in buttons if b["label"] == "Clone"), None)
+    assert button, f"no Clone button on {pane_id}"
+    return button
 
 
 def _session_button(app_config: dict, label: str) -> dict:
@@ -513,14 +523,14 @@ class TestServiceReferences:
         a reorder that swaps actions under the labels would be worse than the
         old order."""
         buttons = app_config["panes"]["order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["New", "Replace", "Cancel", "History"]
+        assert [b["label"] for b in buttons] == ["New", "Clone", "Replace", "Cancel", "History"]
         ops = {
             b["label"]: b["action"].get("op")
             or b["action"]["dialog"]["submit"]["op"]
             for b in buttons if b["action"]["type"] != "action"
         }
-        assert ops == {"New": "send_new_order", "Replace": "send_cancel_replace",
-                       "Cancel": "send_cancel"}
+        assert ops == {"New": "send_new_order", "Clone": "send_new_order",
+                       "Replace": "send_cancel_replace", "Cancel": "send_cancel"}
 
     def test_order_blotters_show_the_request_slot(self, app_config, toml_config):
         """Both sides show what is pending and under which ClOrdID — the
@@ -553,7 +563,8 @@ class TestServiceReferences:
         unsolicited cancel and the restatement gate on status only — a
         pending request must not block them on the still-working order."""
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "History"]
+        assert [b["label"] for b in buttons] == \
+            ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Clone", "History"]
         by = {b["label"]: b for b in buttons}
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
         assert _conditions(by["Accept"]["enable"]["when"]) == pending
@@ -2702,7 +2713,7 @@ class TestTemplates:
         assert spec["type"] == "mkio-table" and spec["service"] == "templates_query"
         assert "filter" not in spec, "every scope in the one pane"
         assert toml_config["services"]["templates_query"]["primary_table"] == "fix_templates"
-        assert [b["label"] for b in spec["buttons"]] == ["Edit", "Delete"]
+        assert [b["label"] for b in spec["buttons"]] == ["Edit", "Clone", "Delete"]
         config = next(m for m in app_config["menubar"] if m["label"] == "Config")
         assert config["items"][0] == {"label": "Templates", "action": "pane.show", "args": "templates"}
         assert _menubar_pane_ids(app_config["menubar"]).count("templates") == 1
@@ -2788,3 +2799,96 @@ class TestClientColumn:
         cancel = _find_dialog(app_config, "send_cancel")
         assert cancel["rowData"]["client"] == "${row.client}"
         assert "client" in app_config["panes"]["templates"]["columns"]
+
+
+class TestClone:
+    """Clone: a row as a template. Sent Orders and Received Orders open the
+    New dialog prefilled from the selected order, on either side (a received
+    order cloned goes out as our own, the session retargeted in the form);
+    the Templates pane opens Edit's form under a new name and inserts it.
+    Exactly one row (mkui's `unit: "row"`), any status: a rejected or
+    cancelled order is a fine template. No Template dropdown — a remembered
+    pick would re-run its fill at open and overwrite the row's terms."""
+
+    ORDER_PANES = {"order-blotter": "sent_text", "market-order-blotter": "text"}
+
+    @staticmethod
+    def _fields(dialog):
+        return {f["name"]: f for item in dialog["fields"] for f in _leaves(item) if f.get("name")}
+
+    @staticmethod
+    def _shape(dialog, drop=("value", "parse")):
+        """A dialog's fields with the prefills stripped, to compare forms."""
+        def strip(item):
+            if "row" in item:
+                return {**item, "row": [strip(f) for f in item["row"]]}
+            if "group" in item:
+                return {**item, "fields": [strip(f) for f in item["fields"]]}
+            return {k: v for k, v in item.items() if k not in drop or "name" not in item}
+        return [strip(item) for item in dialog["fields"]]
+
+    def test_clone_takes_one_row_of_any_state(self, app_config):
+        for pane_id in (*self.ORDER_PANES, "templates"):
+            button = _clone_button(app_config, pane_id)
+            assert button["unit"] == "row", pane_id
+            assert button["enable"] == {"connected": True}, f"{pane_id}: no status gate"
+            assert button["action"]["type"] == "dialog"
+            dialog = button["action"]["dialog"]
+            assert "rowData" not in dialog or pane_id == "templates"
+            assert "submitPerRow" not in dialog or pane_id == "templates"
+
+    def test_clone_order_is_new_prefilled_from_the_row(self, app_config, toml_config):
+        """Every New field, prefilled from the row's as-entered terms the way
+        Replace prefills (`ENTERED_COLS`), plus the session — editable, so a
+        clone can go out elsewhere — and the row's Text: what we sent on a
+        sent order, what arrived on a received one. The New dialog itself is
+        untouched (`_find_dialog` still finds it first)."""
+        new = _find_dialog(app_config, "send_new_order")
+        assert new["title"] == "New Order"
+        columns = set(toml_config["tables"]["fix_orders"]["columns"])
+        for pane_id, text_column in self.ORDER_PANES.items():
+            dialog = _clone_button(app_config, pane_id)["action"]["dialog"]
+            assert dialog["title"] == "Clone ${row.cl_ord_id}"
+            assert dialog["submit"] == new["submit"]
+            assert dialog.get("pin") == "keep"
+            assert _dialog_field_names(dialog) == _dialog_field_names(new) - {"_template"}
+            assert self._shape(dialog) == self._shape(new)[1:], \
+                f"{pane_id}: the Clone form must be the New form minus the template pick"
+            fields = self._fields(dialog)
+            expected = {
+                "session_id": "session_id", "client": "client", "symbol": "symbol",
+                "side": "side_code", "qty": "entered_qty", "ord_type": "ord_type_code",
+                "price": "entered_price", "tif": "tif_code", "extra_tags": "extra_tags",
+                "text": text_column,
+            }
+            for name, column in expected.items():
+                assert fields[name].get("value") == "${row.%s}" % column, \
+                    f"{pane_id}: Clone field {name!r} must prefill from row.{column}"
+                assert column in columns
+            assert fields["handl_inst"]["value"] == \
+                "${IF(row.handl_inst_code != '', row.handl_inst_code, '1')}"
+            assert fields["expire_time"]["value"] == \
+                "${IF(row.expire_time != '', row.expire_time, row.expire_date)}"
+            assert fields["expire_time"]["parse"] == \
+                ["%Y%m%d-%H:%M:%S.%f", "%Y%m%d-%H:%M:%S", "%Y%m%d"]
+            assert "value" not in fields["save_as"], "saving the clone as a template stays optional"
+
+    def test_clone_template_is_edit_under_a_new_name(self, app_config, toml_config):
+        """Edit's form, the name proposed as `<name> copy`, inserted through
+        the `templates` add op with the row's kind riding as rowData. A name
+        the scope already holds fails on the unique index — nothing is
+        written — as a rename through Edit does."""
+        buttons = app_config["panes"]["templates"]["buttons"]
+        edit = next(b for b in buttons if b["label"] == "Edit")["action"]["dialog"]
+        clone = _clone_button(app_config, "templates")["action"]["dialog"]
+        assert clone["title"] == "Clone Template ${row.name}"
+        assert clone["submit"] == {"label": "Save Template", "service": "templates", "op": "add"}
+        assert clone["rowData"] == {"scope": "${row.scope}"} and clone["submitPerRow"]
+        assert self._shape(clone) == self._shape(edit)
+        assert self._fields(clone)["name"]["value"] == "${row.name} copy"
+        assert self._fields(clone)["name"].get("required")
+        for name, field in self._fields(edit).items():
+            if name != "name":
+                assert self._fields(clone)[name] == field, name
+        add = toml_config["services"]["templates"]["ops"]["add"][0]
+        assert {"scope", "name"} <= set(add["fields"]) and "scope" not in add.get("defaults", {})

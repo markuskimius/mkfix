@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.52",
+    "version": "0.53",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -773,7 +773,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.52"
+        "text": "mkfix v0.53"
       }
     ],
     "bindStyle": {
@@ -1920,6 +1920,262 @@
                           "type": "datetime",
                           "time": "optional",
                           "step": 1
+                        }
+                      ]
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Order",
+                "service": "fix_cmd",
+                "op": "send_new_order"
+              }
+            }
+          }
+        },
+        {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone ${row.cl_ord_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "width": 0.5,
+                      "required": true,
+                      "value": "${row.symbol}"
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "value": "${row.side_code}"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "100",
+                      "min": 1,
+                      "width": 0.5,
+                      "required": true,
+                      "value": "${row.entered_qty}"
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "value": "${row.ord_type_code}"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['5', 'B'], ord_type)",
+                  "value": "Defined through FIX 4.3 (and again in 5.0). Elsewhere it is a non-standard OrdType, allowed for testing."
+                },
+                {
+                  "row": [
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "placeholder": "0.00",
+                      "step": "0.01",
+                      "width": 0.5,
+                      "value": "${row.entered_price}"
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.tif_code}"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "tif == '7'",
+                  "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
+                },
+                {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "value": "${IF(row.handl_inst_code != '', row.handl_inst_code, '1')}",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.sent_text}"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "row": [
+                        {
+                          "name": "expire_time",
+                          "label": "Expire (126/432; local, time optional)",
+                          "type": "datetime",
+                          "time": "optional",
+                          "step": 1,
+                          "value": "${IF(row.expire_time != '', row.expire_time, row.expire_date)}",
+                          "parse": [
+                            "%Y%m%d-%H:%M:%S.%f",
+                            "%Y%m%d-%H:%M:%S",
+                            "%Y%m%d"
+                          ]
                         }
                       ]
                     },
@@ -3244,6 +3500,262 @@
           }
         },
         {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone ${row.cl_ord_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "width": 0.5,
+                      "required": true,
+                      "value": "${row.symbol}"
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "value": "${row.side_code}"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "100",
+                      "min": 1,
+                      "width": 0.5,
+                      "required": true,
+                      "value": "${row.entered_qty}"
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "value": "${row.ord_type_code}"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['5', 'B'], ord_type)",
+                  "value": "Defined through FIX 4.3 (and again in 5.0). Elsewhere it is a non-standard OrdType, allowed for testing."
+                },
+                {
+                  "row": [
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "placeholder": "0.00",
+                      "step": "0.01",
+                      "width": 0.5,
+                      "value": "${row.entered_price}"
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.tif_code}"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "tif == '7'",
+                  "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
+                },
+                {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "value": "${IF(row.handl_inst_code != '', row.handl_inst_code, '1')}",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.text}"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "row": [
+                        {
+                          "name": "expire_time",
+                          "label": "Expire (126/432; local, time optional)",
+                          "type": "datetime",
+                          "time": "optional",
+                          "step": 1,
+                          "value": "${IF(row.expire_time != '', row.expire_time, row.expire_date)}",
+                          "parse": [
+                            "%Y%m%d-%H:%M:%S.%f",
+                            "%Y%m%d-%H:%M:%S",
+                            "%Y%m%d"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Order",
+                "service": "fix_cmd",
+                "op": "send_new_order"
+              }
+            }
+          }
+        },
+        {
           "label": "History",
           "unit": "row",
           "enable": {
@@ -4237,6 +4749,372 @@
           }
         },
         {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone Template ${row.name}",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "name",
+                  "label": "Template Name",
+                  "type": "text",
+                  "required": true,
+                  "value": "${row.name} copy"
+                },
+                {
+                  "label": "Kind",
+                  "type": "readonly",
+                  "value": "${row.scope}"
+                },
+                {
+                  "name": "session_id",
+                  "label": "Session (blank = ask)",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "compute": "row.session_id",
+                  "showWhen": "row.scope == 'order'"
+                },
+                {
+                  "name": "client",
+                  "label": "Client",
+                  "type": "text",
+                  "value": "${row.client}",
+                  "showWhen": "row.scope == 'order'"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.symbol}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "value": "${row.side}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "${IF(row.scope == 'order', 'Quantity (38)', IF(row.scope == 'restate', 'Order Qty (38; blank = ask)', 'Last Qty (32; blank = ask)'))}",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.qty}",
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate'], row.scope)"
+                    },
+                    {
+                      "name": "price",
+                      "label": "${IF(row.scope == 'order', 'Price (44)', IF(row.scope == 'restate', 'Price (44; blank = ask)', 'Last Px (31; blank = ask)'))}",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.price}",
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate'], row.scope)"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "value": "${row.ord_type}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.tif}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "name": "dk_reason",
+                  "label": "DK Reason (127)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "A",
+                      "label": "A - Unknown symbol"
+                    },
+                    {
+                      "value": "B",
+                      "label": "B - Wrong side"
+                    },
+                    {
+                      "value": "C",
+                      "label": "C - Quantity exceeds order"
+                    },
+                    {
+                      "value": "D",
+                      "label": "D - No matching order"
+                    },
+                    {
+                      "value": "E",
+                      "label": "E - Price exceeds limit"
+                    },
+                    {
+                      "value": "F",
+                      "label": "F - Calculation difference (FIX 4.4+)"
+                    },
+                    {
+                      "value": "G",
+                      "label": "G - No matching execution report (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "Z",
+                      "label": "Z - Other"
+                    }
+                  ],
+                  "value": "${row.dk_reason}",
+                  "showWhen": "row.scope == 'dk'"
+                },
+                {
+                  "name": "restate_reason",
+                  "label": "Restatement Reason (378)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": " - (none: withhold 378)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - GT corporate action"
+                    },
+                    {
+                      "value": "1",
+                      "label": "1 - GT renewal / restatement"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Verbal change"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Repricing of order"
+                    },
+                    {
+                      "value": "4",
+                      "label": "4 - Broker option"
+                    },
+                    {
+                      "value": "5",
+                      "label": "5 - Partial decline of OrderQty"
+                    },
+                    {
+                      "value": "6",
+                      "label": "6 - Cancel on trading halt (FIX 4.3+)"
+                    },
+                    {
+                      "value": "7",
+                      "label": "7 - Cancel on system failure (FIX 4.3+)"
+                    },
+                    {
+                      "value": "8",
+                      "label": "8 - Market (exchange) option (FIX 4.3+)"
+                    },
+                    {
+                      "value": "9",
+                      "label": "9 - Canceled, not best (FIX 4.4+)"
+                    },
+                    {
+                      "value": "10",
+                      "label": "10 - Warehouse recap (FIX 4.4+)"
+                    },
+                    {
+                      "value": "11",
+                      "label": "11 - Peg refresh (FIX 5.0+)"
+                    },
+                    {
+                      "value": "12",
+                      "label": "12 - Cancel on connection loss (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "13",
+                      "label": "13 - Cancel on logout (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "14",
+                      "label": "14 - Assign time priority (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "15",
+                      "label": "15 - Cancelled for trade price violation (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "16",
+                      "label": "16 - Cancelled for cross imbalance (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "17",
+                      "label": "17 - Cancelled, SMP (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "18",
+                      "label": "18 - Cancelled, SMP aggressive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "19",
+                      "label": "19 - Cancelled, SMP passive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "20",
+                      "label": "20 - Cancelled, SMP aggressive and passive (FIX 5.0SP2)"
+                    },
+                    {
+                      "value": "99",
+                      "label": "99 - Other (FIX 4.4+)"
+                    }
+                  ],
+                  "value": "${row.restate_reason}",
+                  "showWhen": "row.scope == 'restate'"
+                },
+                {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ],
+                  "value": "${row.handl_inst}",
+                  "showWhen": "row.scope == 'order'"
+                },
+                {
+                  "name": "text",
+                  "label": "${IF(row.scope == 'reject', 'Reason (58)', 'Text (58)')}",
+                  "type": "text",
+                  "value": "${row.text}"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "value": "${row.extra_tags}",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Save Template",
+                "service": "templates",
+                "op": "add"
+              },
+              "submitPerRow": true,
+              "rowData": {
+                "scope": "${row.scope}"
+              }
+            }
+          }
+        },
+        {
           "label": "Delete",
           "unit": "row",
           "enable": {
@@ -4989,7 +5867,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.52",
+      "version": "0.53",
       "mkio": "1.5",
       "expr": "2"
     },

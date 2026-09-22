@@ -44,10 +44,15 @@ A FIX protocol testing engine for capital markets connectivity, built on
   displayed follow the bound dictionary.
 - **Sent Orders & Received Trades Blotters** -- Live order state machine driven by
   ExecutionReports; fill and partial fill records. Send NewOrderSingle from
-  the blotter's New dialog; Replace (Cancel/Replace) and Cancel working orders
-  directly from the blotter -- the Replace dialog opens on the order's full
-  form, prefilled with the terms last accepted (the New dialog's or the last
-  accepted replace's -- a rejected replace leaves them alone) -- and a fully filled order can still be replaced up to revive it.
+  the blotter's New dialog, or Clone an order in any state -- the New form
+  prefilled from the selected order, session included, ready to edit and
+  send (the Clone on Received Orders sends a counterparty's order back out
+  as your own, retargeted to any session); Replace (Cancel/Replace) and
+  Cancel working orders directly from the blotter -- the Replace dialog
+  opens on the order's full form, prefilled with the terms last accepted
+  (the New dialog's or the last accepted replace's -- a rejected replace
+  leaves them alone) -- and a fully filled order can still be replaced up
+  to revive it.
   A Replace or Cancel stays on the row as Pending -- with the request's
   ClOrdID and terms under Pending ID, New Qty and New Px -- until the
   counterparty answers it: an accepting ExecutionReport moves the order to the request's
@@ -145,8 +150,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   and the dialog's pin keeps it open for a run: after each send the form
   keeps the terms as entered (only the Save-as name clears, so a template
   is saved once), ready for the next order to vary one of them. The
-  Templates pane under the Config menu lists every kind for editing and
-  deleting. Templates live in
+  Templates pane under the Config menu lists every kind for editing,
+  cloning (Edit's form under a new name, `<name> copy` proposed) and
+  deleting; an order's Clone button with "Save as template" makes a
+  template of an order already sent. Templates live in
   the database and are shared by everyone on the server, like layouts.
   No dialog blocks the application: it floats over a workspace that stays
   live, so you can scroll a blotter, open Details, or raise a second dialog
