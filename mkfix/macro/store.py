@@ -220,10 +220,31 @@ class MacroManager:
         return result
 
     async def delete(self, name: str) -> None:
-        live = len(self.live_runs(name))
-        if live:
+        await self.delete_many([name])
+
+    async def delete_many(self, names: list[str]) -> dict[str, Any]:
+        """Delete macros, whole or not at all: a name that is not a macro, or
+        one with a live run, refuses the list before anything is written —
+        what the editor's Delete of a selection expects, like Pause… and
+        Stop… over their lists of runs."""
+        wanted = [n for n in dict.fromkeys(" ".join(str(n).split()) for n in names) if n]
+        if not wanted:
+            raise ValueError("Name a macro to delete")
+        rows = await self._fetch(f"SELECT name FROM fix_macros WHERE name IN ({','.join('?' * len(wanted))})", tuple(wanted))
+        have = {r["name"] for r in rows}
+        for name in wanted:
+            if name not in have:
+                raise ValueError(f"No macro named {name!r}")
+        busy = [(name, len(self.live_runs(name))) for name in wanted]
+        busy = [(name, live) for name, live in busy if live]
+        if len(busy) == 1:
+            name, live = busy[0]
             raise ValueError(f"{name!r} has {live} live run{'s' if live > 1 else ''}: stop {'them' if live > 1 else 'it'} first")
-        await self._write("delete_macro", (name,))
+        if busy:
+            raise ValueError(f"{', '.join(repr(name) for name, _ in busy)} have live runs: stop them first")
+        for name in wanted:
+            await self._write("delete_macro", (name,))
+        return {"deleted": len(wanted)}
 
     async def load(self, name: str) -> dict[str, Any]:
         rows = await self._fetch("SELECT * FROM fix_macros WHERE name = ?", (name,))
@@ -326,6 +347,20 @@ class MacroManager:
         for run in runs:
             await self.stop_run(self._run_rows[run])
         return {"stopped": len(runs)}
+
+    async def pause_macro(self, name: str) -> dict[str, Any]:
+        """Pause every playing run of one macro (the editor's ⏸)."""
+        runs = [r for r in self.live_runs(name) if not r.paused]
+        for run in runs:
+            await self.pause_run(self._run_rows[run])
+        return {"paused": len(runs)}
+
+    async def resume_macro(self, name: str) -> dict[str, Any]:
+        """Resume every paused run of one macro (⏸ again, once all are paused)."""
+        runs = [r for r in self.live_runs(name) if r.paused]
+        for run in runs:
+            await self.resume_run(self._run_rows[run])
+        return {"resumed": len(runs)}
 
     def _run(self, run_id: Any) -> Run:
         run = self._runs_by_row.get(int(run_id))

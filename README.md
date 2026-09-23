@@ -232,7 +232,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   Macros** and **Market Macros** are editors that check as you type -- a misspelt
   column or an action on the wrong side of an order is underlined before
   anything runs -- completes words in context (Ctrl+Space), explains a word
-  under the mouse or the cursor (hover, F1), folds blocks, and has an optional vim mode. Each
+  under the mouse or the cursor (hover, F1), folds blocks, has an optional vim mode, and lists
+  the macros in a panel whose edge drags (double-click fits the longest name). Each
   side's **Macro Runs**, **Macro Orders** and **Macro Log** panes show its runs and each
   order's macro, the line it is on and what it is waiting for, with Pause,
   Stop and Detach, and the order blotters name the macro that took an
@@ -240,23 +241,27 @@ A FIX protocol testing engine for capital markets connectivity, built on
   -- first armed, first offered -- which **Move Up**/**Move Down** change; the
   same market macro can be armed once per session. `run` may name its
   session (`run on SESSION`) or leave it to Run…, so one client macro runs
-  on several sessions at once; **Stop all** in the editor stops every live
-  run of a macro, and editing one leaves its live runs on the version they
-  started with. Seventeen
+  on several sessions at once. Each editor carries its side's deck -- **●**
+  record, **▶** play (Run… or Arm…), **⏸** pause and **■** stop, about the
+  open macro: ■ stops every live run of it, ⏸ pauses them and, pressed again,
+  resumes them -- and editing a macro leaves its live runs on the version
+  they started with. **Clone** saves the text shown under a new name; **Delete**
+  takes the macros selected in the list (Ctrl-click, Shift-click), whole or
+  not at all. Seventeen
   bundled examples -- an auto-acknowledge, a cancel/replace desk, a dispute
   desk, a deliberately misbehaving counterparty; a single order's lifecycle,
   a replace chase, a seeded burst of twenty orders, a DK policy, a regression
   suite with verdicts, a minder for hand-sent orders; and a loopback venue and
   client that together play both sides -- open as copies from each editor's
-  **From example…**, and the language reference is under **Help**. The client
+  **Example…**, and the language reference is under **Help**. The client
   examples run over two loopback sessions, this server talking to itself:
   **Help › Macro Language › Macro Examples › Set up loopback sessions**
   creates and starts them, and **Run the loopback tour** also arms the venue
   and runs the client, so the tour is one click on a fresh install. Sent Orders and Received Orders carry their side's macro
-  controls as four symbols -- **▶** play (macros ticked from a list, and paused runs to
+  controls as four symbols -- **●** record, red while it records, **▶** play (macros ticked from a list, and paused runs to
   resume), **⏸** pause and **■** stop (runs ticked from a list: one, several
-  or all), and **●** record, red while it records -- and the status bar says what the macros are doing:
-  recording, playing, paused, or how the last run ended. **Record…**, there or in either editor, writes the
+  or all) -- and the status bar says what the macros are doing:
+  recording, playing, paused, or how the last run ended. **●**, there or in either editor, writes the
   first draft for you: work orders by hand -- accept, fill, answer a cancel
   on one side; send, replace, cancel, DK on the other -- and Stop recording
   opens the macro that would have done the same, ready to run and to

@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.56",
+    "version": "0.57",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -745,6 +745,10 @@
           "value": "Indent or outdent the selection — blocks are indentation"
         },
         {
+          "label": "Click / Ctrl/Cmd+Click / Shift+Click",
+          "value": "In the list: open a macro; add one to the selection or take it out; select a range — Delete takes the selection, whole or not at all"
+        },
+        {
           "label": "vim",
           "value": "The checkbox in the toolbar; remembered by this browser"
         }
@@ -778,7 +782,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.56"
+        "text": "mkfix v0.57"
       }
     ],
     "bindStyle": {
@@ -6262,7 +6266,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.56",
+      "version": "0.57",
       "mkio": "1.5",
       "expr": "2"
     },

@@ -88,8 +88,11 @@ class FixCommandService(Service):
         elif command == "save_macro":
             return {"ok": True, **await macros.save(data["name"], data.get("source", ""), data.get("side", ""))}
         elif command == "delete_macro":
-            await macros.delete(data["name"])
-            return {"ok": True}
+            # One name, or a selection: `names` as a list, or joined by commas
+            # (a name can hold none). The list goes whole or not at all.
+            names = data.get("names")
+            names = [data["name"]] if names is None else names.split(",") if isinstance(names, str) else list(names)
+            return {"ok": True, **await macros.delete_many(names)}
         elif command == "macro_vocab":
             from mkfix.macro import vocabulary
             return {"ok": True, "vocabulary": vocabulary()}
@@ -106,6 +109,10 @@ class FixCommandService(Service):
                 speed=float(data.get("speed") or 1.0))}
         elif command == "stop_macro":
             return {"ok": True, **await macros.stop_macro(data["name"])}
+        elif command == "pause_macro":
+            return {"ok": True, **await macros.pause_macro(data["name"])}
+        elif command == "resume_macro":
+            return {"ok": True, **await macros.resume_macro(data["name"])}
         elif command == "move_run":
             await macros.move_run(data["run_id"], data.get("direction", "up"))
             return {"ok": True}

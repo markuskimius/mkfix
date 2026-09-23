@@ -5,7 +5,7 @@
 //     recording lives in the server, and may have been started elsewhere;
 //   - shows what the macros are doing in the status bar, each item a link to
 //     the pane it is about;
-//   - puts ▶ ⏸ ■ ● — play, pause, stop, record; symbols only, the words in
+//   - puts ● ▶ ⏸ ■ — record, play, pause, stop; symbols only, the words in
 //     their tooltips — in the toolbars of the two order blotters (mkio-table's
 //     `_toolbar` slot). mkui's declared buttons cannot
 //     follow app state, and these must: enabled by what is live, the record
@@ -88,14 +88,15 @@ registerWidget("macro-status", (spec, app, host) => {
       const extras = slot.extras();
       if (controls.get(paneId)?.group.isConnected && extras.contains(controls.get(paneId).group)) continue;
       const context = { row: { side, Side: Side(side) } };
+      // In the order the editors' toolbars have them: record, play, pause, stop.
       const buttons = {
-        play: button("▶", `Play a ${side} macro, or resume a paused run…`, () => app.dialog("play_macro", context)),
-        pause: button("⏸", `Pause ${side} macro runs…`, () => app.dialog("pause_runs", context)),
-        stop: button("■", `Stop ${side} macro runs…`, () => app.dialog("stop_runs", context)),
         // Stop suggests the name at the click, not at mount: the side, then the time Stop was pressed
         record: button("●", "", () => (app.state.get("macros")?.[side]?.recording
           ? app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })
           : app.dialog("record_macro", context))),
+        play: button("▶", `Play a ${side} macro, or resume a paused run…`, () => app.dialog("play_macro", context)),
+        pause: button("⏸", `Pause ${side} macro runs…`, () => app.dialog("pause_runs", context)),
+        stop: button("■", `Stop ${side} macro runs…`, () => app.dialog("stop_runs", context)),
       };
       const group = document.createElement("span");
       group.className = "macro-controls";

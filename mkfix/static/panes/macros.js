@@ -19,6 +19,8 @@ const { registerPaneType } = window.Mkui;
 
 const ACE = "/static/vendor/ace";
 const VIM_PREF = "mkfix.macro.vim";
+const LIST_PREF = "mkfix.macro.list";       // the list's width, px — one for both editors
+const LIST_MIN = 80;
 const TEMPLATE_SCOPES = {
   new: "order", replace: "order", cancel: "cancel", accept: "accept", reject: "reject", fill: "fill",
   "unsol cxl": "unsolicited", restate: "restate", dk: "dk", correct: "correct", bust: "bust", renotify: "renotify",
@@ -120,21 +122,26 @@ registerPaneType("macros", async (spec, app, host) => {
     <div class="macro-pane">
       <div class="mkfix-toolbar macro-toolbar">
         <button class="mkui-btn" data-act="new">New</button>
-        <button class="mkui-btn" data-act="example">From example…</button>
+        <button class="mkui-btn" data-act="clone" disabled title="A new macro with this text — the original stays as saved">Clone</button>
         <button class="mkui-btn" data-act="save" disabled>Save</button>
-        <button class="mkui-btn" data-act="arm" disabled>${startWord}…</button>
-        <button class="mkui-btn" data-act="stop" disabled>Stop all</button>
-        <button class="mkui-btn" data-act="record" title="Work orders by hand and get the macro that would have done it">Record…</button>
+        <button class="mkui-btn" data-act="delete" disabled>Delete</button>
         <button class="mkui-btn" data-act="history" disabled title="Every Save of this macro: look at one, compare it, bring it back">History</button>
+        <span class="macro-controls">
+          <button class="mkui-btn macro-control" data-act="record">●</button>
+          <button class="mkui-btn macro-control" data-act="play" disabled>▶</button>
+          <button class="mkui-btn macro-control" data-act="pause" disabled>⏸</button>
+          <button class="mkui-btn macro-control" data-act="stop" disabled>■</button>
+        </span>
         <span class="macro-gap"></span>
+        <button class="mkui-btn" data-act="example">Example…</button>
         <button class="mkui-btn" data-act="import">Import</button>
         <button class="mkui-btn" data-act="export" disabled>Export</button>
-        <button class="mkui-btn" data-act="delete" disabled>Delete</button>
         <label class="macro-vim"><input type="checkbox" data-act="vim"> vim</label>
         <button class="mkui-btn" data-act="help" title="The language reference (F1 on a word)">?</button>
       </div>
       <div class="macro-body">
         <div class="macro-list" tabindex="0"></div>
+        <div class="macro-splitter" title="Drag to widen the list; double-click to fit the longest name"></div>
         <div class="macro-main">
           <div class="macro-editor"></div>
           <div class="macro-status"></div>
@@ -165,6 +172,8 @@ registerPaneType("macros", async (spec, app, host) => {
   const runs = new Map();               // run id -> row
   const instances = new Map();          // instance id -> row
   let current = null;                   // the name open in the editor
+  const selected = new Set();           // names ticked in the list (Ctrl/Shift-click): what Delete takes
+  let anchor = null;                    // where a Shift-click's range starts: the last plain click
   let saved = "";                       // its text as last saved
   let problems = 0;
   let checked = { needs_session: false, session: "" };
@@ -196,28 +205,53 @@ registerPaneType("macros", async (spec, app, host) => {
       const what = live.length > 1 ? `${live.length} runs` : side === "client" && state === "armed" ? "running" : state;
       const badge = live.length ? `<span class="macro-badge macro-${state}">${what}${working ? ` · ${working}` : ""}</span>`
         : row.problems ? `<span class="macro-badge macro-problems">${row.problems} problem${row.problems === 1 ? "" : "s"}</span>` : "";
-      return `<div class="macro-item${name === current ? " macro-current" : ""}" data-name="${name.replace(/"/g, "&quot;")}">
+      return `<div class="macro-item${name === current ? " macro-current" : ""}${selected.has(name) ? " macro-selected" : ""}" data-name="${name.replace(/"/g, "&quot;")}">
         <span class="macro-name"></span>${badge}</div>`;
     }).join("") || `<div class="macro-empty">No ${side} macros yet — a ${side} macro ${side === "client"
-      ? "sends orders and acts on them" : "acts on the orders you receive"}. <b>New</b> starts one; <b>From example…</b> copies a bundled one.</div>`;
+      ? "sends orders and acts on them" : "acts on the orders you receive"}. <b>New</b> starts one; <b>Example…</b> copies a bundled one.</div>`;
     listEl.querySelectorAll(".macro-item").forEach((el) => { el.querySelector(".macro-name").textContent = el.dataset.name; });
   }
 
+  // What Delete takes: the list's selection, else the open macro.
+  const targets = () => (selected.size ? [...selected] : current ? [current] : []);
+  const count = (n) => `${n} run${n === 1 ? "" : "s"}`;
+
   function renderButtons() {
     const live = current ? liveRuns(current) : [];
+    const playing = live.filter((r) => r.status !== "paused");
+    const paused = live.length - playing.length;
     button("save").disabled = !dirty() || !!viewing;
+    button("clone").disabled = !current;
     button("history").disabled = !current;
-    // A live run is no bar to another: a client macro runs as often as asked,
-    // a market macro is armed once per session (the server refuses a repeat).
-    button("arm").disabled = !current || dirty() || problems > 0 || !!viewing;
-    button("stop").disabled = !live.length;
-    button("stop").textContent = live.length > 1 ? `Stop all (${live.length})` : "Stop run";
     button("export").disabled = !current;
-    button("delete").disabled = !current || live.length > 0;
-    button("delete").title = live.length ? "Stop its runs first" : "";
-    button("arm").title = !current ? "" : viewing ? "Back to the macro first" : dirty() ? "Save first" : problems ? "Fix the problems first"
-      : side === "client" ? `Send this macro's orders${live.length ? " — another run beside the " + live.length + " live" : ""}`
-        : "Let this macro take matching orders";
+    const names = targets();
+    const busy = names.filter((n) => liveRuns(n).length);
+    button("delete").disabled = !names.length || busy.length > 0;
+    button("delete").textContent = names.length > 1 ? `Delete (${names.length})` : "Delete";
+    button("delete").title = busy.length ? `Stop the runs of ${busy.join(", ")} first`
+      : names.length > 1 ? `Delete ${names.length} macros: ${names.join(", ")}` : "";
+    // Like the blotters' tape deck: symbols, the words in the tooltip, lit by
+    // what the open macro is doing. A live run is no bar to another: a
+    // client macro runs as often as asked, a market macro is armed once per
+    // session (the server refuses a repeat).
+    const play = button("play"), pause = button("pause"), stop = button("stop");
+    play.disabled = !current || dirty() || problems > 0 || !!viewing;
+    play.classList.toggle("macro-playing", playing.length > 0);
+    play.title = !current ? "Open a macro to play it" : viewing ? "Back to the macro first" : dirty() ? "Save first"
+      : problems ? "Fix the problems first"
+        : (playing.length ? `Playing: ${count(playing.length)}. ` : "")
+          + (side === "client" ? `${startWord}… — send this macro's orders${live.length ? ", another run beside the " + count(live.length) + " live" : ""}`
+            : `${startWord}… — let this macro take matching orders`);
+    pause.disabled = !live.length;
+    pause.classList.toggle("macro-paused", paused > 0);
+    pause.title = !live.length ? (current ? "No run of this macro is live" : "") : playing.length
+      ? `Pause ${count(playing.length)} of this macro${paused ? ` (${count(paused)} already paused)` : ""}`
+      : `Paused: ${count(paused)} — press again to resume`;
+    stop.disabled = !live.length;
+    stop.title = live.length ? `Stop ${live.length > 1 ? "all " : ""}${count(live.length)} of this macro` : current ? "No run of this macro is live" : "";
+    for (const b of [play, pause, stop]) b.setAttribute("aria-label", b.title);
+    play.setAttribute("aria-pressed", String(playing.length > 0));
+    pause.setAttribute("aria-pressed", String(paused > 0));
   }
 
   function status(text, kind = "") {
@@ -424,6 +458,9 @@ registerPaneType("macros", async (spec, app, host) => {
     versions = null;
     current = name;
     saved = source;
+    selected.clear();                   // the macro opened is the selection, whichever way it was opened
+    selected.add(name);
+    anchor = name;
     editor.setReadOnly(false);
     editor.setValue(source, -1);
     editor.getSession().getUndoManager().reset();
@@ -467,7 +504,11 @@ registerPaneType("macros", async (spec, app, host) => {
   function renderRecord() {
     const b = button("record");
     b.classList.toggle("macro-recording", !!recording);
-    b.textContent = recording ? `Stop recording · ${recording.actions} action${recording.actions === 1 ? "" : "s"}` : "Record…";
+    // The dot alone, red while it records; the count is in the tooltip.
+    b.title = recording ? `Recording — ${recording.actions} action${recording.actions === 1 ? "" : "s"} so far. Stop recording and save the macro…`
+      : "Record… — work orders by hand and get the macro that would have done it";
+    b.setAttribute("aria-label", b.title);
+    b.setAttribute("aria-pressed", String(!!recording));
     clearInterval(recordTimer);
     if (recording) recordTimer = setInterval(pollRecord, 1500);
   }
@@ -550,6 +591,70 @@ registerPaneType("macros", async (spec, app, host) => {
     }
   }
 
+  // Clone is a Save As: the text shown — the macro, its unsaved edits, or the
+  // version being looked at — becomes a new macro, and the original stays as
+  // it is saved. Nothing is discarded, so nothing is asked but the name.
+  async function clone() {
+    if (current === null) return;
+    const source = viewing ? viewing.source : editor.getValue();
+    const base = current.replace(/ copy( \d+)?$/, "");         // a clone of a clone counts up, not "copy copy"
+    let suggested = `${base} copy`;
+    for (let n = 2; macros.has(suggested); n++) suggested = `${base} copy ${n}`;
+    const name = await askName(suggested);
+    if (!name) return;
+    if (macros.has(name)) { status(`${name} already exists`, "error"); return; }
+    try {
+      await cmd("save_macro", { name, source, side });
+      open(name, source);
+    } catch (err) {
+      status(String(err.message ?? err), "error");
+    }
+  }
+
+  // The list: a plain click opens a macro and is the whole selection;
+  // Ctrl/Cmd-click adds one or takes it out; Shift-click selects from the
+  // last plain click to here. Delete takes the selection.
+  function pick(name, e) {
+    const names = [...listEl.querySelectorAll(".macro-item")].map((el) => el.dataset.name);
+    if (e.shiftKey && (anchor ?? current) !== null && names.includes(anchor ?? current)) {
+      const [a, b] = [names.indexOf(anchor ?? current), names.indexOf(name)].sort((x, y) => x - y);
+      selected.clear();
+      names.slice(a, b + 1).forEach((n) => selected.add(n));
+    } else if (e.ctrlKey || e.metaKey) {
+      if (selected.has(name)) selected.delete(name); else selected.add(name);
+      anchor = name;
+    } else {
+      return select(name);              // open() makes it the selection; a refused leave changes nothing
+    }
+    renderList(); renderButtons();
+  }
+
+  async function deleteSelected() {
+    const names = targets();
+    if (!names.length) return;
+    const question = names.length === 1 ? `Delete ${names[0]}? Its saved versions go with it.`
+      : `Delete ${names.length} macros — ${names.join(", ")}? Their saved versions go with them.`;
+    if (!(await app.confirm(question, { title: names.length === 1 ? "Delete macro" : "Delete macros", kind: "danger", ok: "Delete" }))) return;
+    try {
+      await cmd("delete_macro", { names });
+      // The rows' deletion may reach the subscription before this answer does,
+      // and its handler (below) has then already closed the open macro.
+      names.forEach((n) => { macros.delete(n); selected.delete(n); });
+      if (names.includes(current)) closeCurrent();
+      status(names.length > 1 ? `Deleted ${names.length} macros` : "", "ok");
+    } catch (err) { status(String(err.message ?? err), "error"); }
+    renderList(); renderButtons();
+  }
+
+  // The open macro is gone (deleted here, or elsewhere): an empty, read-only editor.
+  function closeCurrent() {
+    clearDiff();
+    current = null; saved = ""; viewing = null; versions = null; draft = "";
+    renderHistory();
+    editor.setValue("", -1);
+    editor.setReadOnly(true);
+  }
+
   // `option` = a tick box beside the name ({ label, title }): the answer is then { name, ticked }.
   function askName(suggested, option = null) {
     return new Promise((resolve) => {
@@ -600,7 +705,7 @@ registerPaneType("macros", async (spec, app, host) => {
   host.addEventListener("click", async (e) => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     const item = e.target.closest(".macro-item");
-    if (item) return select(item.dataset.name);
+    if (item) return pick(item.dataset.name, e);
     const version = e.target.closest(".macro-version");
     if (version) return view(Number(version.dataset.version));
     if (!act || e.target.disabled) return;
@@ -609,8 +714,10 @@ registerPaneType("macros", async (spec, app, host) => {
     if (act === "restore") return restore();
     if (act === "back") return backToScript();
     if (act === "new") return createNamed("my-macro", null);
+    if (act === "clone") return clone();
     if (act === "example") return fromExample();
     if (act === "save") return save();
+    if (act === "delete") return deleteSelected();
     if (act === "help") return app.fireAction("pane.show", "help-viewer");
     if (act === "import") return fileEl.click();
     if (act === "export") {
@@ -620,27 +727,20 @@ registerPaneType("macros", async (spec, app, host) => {
       URL.revokeObjectURL(a.href);
       return;
     }
-    if (act === "arm") {
+    if (act === "play") {
       const context = { row: { name: current, ...checked } };
       return side === "client" ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);
+    }
+    if (act === "pause") {
+      // Every playing run of the open macro; once all are paused, the same button resumes them.
+      const playing = liveRuns(current).some((r) => r.status !== "paused");
+      cmd(playing ? "pause_macro" : "resume_macro", { name: current }).catch((err) => status(String(err.message ?? err), "error"));
+      return;
     }
     if (act === "stop") {
       // One run of several is stopped from the Macro Runs pane; this stops the macro.
       cmd("stop_macro", { name: current }).catch((err) => status(String(err.message ?? err), "error"));
       return;
-    }
-    if (act === "delete") {
-      if (!(await app.confirm(`Delete ${current}? Its saved versions go with it.`, { title: "Delete macro", kind: "danger", ok: "Delete" }))) return;
-      try {
-        await cmd("delete_macro", { name: current });
-        clearDiff();
-        current = null; saved = ""; viewing = null; versions = null; draft = "";
-        renderHistory();
-        editor.setValue("", -1);
-        editor.setReadOnly(true);
-        status("");
-      } catch (err) { status(String(err.message ?? err), "error"); }
-      renderList(); renderButtons();
     }
   });
 
@@ -650,6 +750,32 @@ registerPaneType("macros", async (spec, app, host) => {
     if (!file) return;
     const text = await file.text();
     createNamed(file.name.replace(/\.[^.]+$/, ""), text);
+  });
+
+  // The list's width: dragged, remembered by this browser; a double-click
+  // fits the longest name, badge included.
+  function setListWidth(px) {
+    const w = Math.max(LIST_MIN, Math.min(Math.round(px), host.clientWidth - 200));
+    listEl.style.width = `${w}px`;
+    try { localStorage.setItem(LIST_PREF, String(w)); } catch { /* private mode */ }
+  }
+  try { const w = parseInt(localStorage.getItem(LIST_PREF), 10); if (w >= LIST_MIN) listEl.style.width = `${w}px`; } catch { /* private mode */ }
+  const splitter = $(".macro-splitter");
+  splitter.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = listEl.getBoundingClientRect().width;
+    const onMove = (ev) => setListWidth(startW + ev.clientX - startX);
+    const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+  splitter.addEventListener("dblclick", () => {
+    const items = [...listEl.querySelectorAll(".macro-item")];
+    if (!items.length) return;
+    const style = getComputedStyle(items[0]);
+    const chrome = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.columnGap || style.gap || 0) + 1;
+    const widest = Math.max(...items.map((el) => el.querySelector(".macro-name").scrollWidth + (el.querySelector(".macro-badge")?.offsetWidth ?? 0)));
+    setListWidth(widest + chrome + 2);
   });
 
   const vim = button("vim");
@@ -727,12 +853,9 @@ registerPaneType("macros", async (spec, app, host) => {
   function followAll() {
   const mine = `side == '${side}'`;
   follow("macros_query", macros, "name", () => {
-    if (current !== null && !macros.has(current)) {
-      clearDiff();
-      current = null; viewing = null; versions = null; draft = "";
-      editor.setReadOnly(true);
-      renderHistory();
-    }
+    for (const name of [...selected]) if (!macros.has(name)) selected.delete(name);
+    if (anchor !== null && !macros.has(anchor)) anchor = null;
+    if (current !== null && !macros.has(current)) closeCurrent();
     renderList(); renderButtons();
   }, mine);
   follow("macro_runs_query", runs, "id", () => { renderList(); renderButtons(); renderLive(); announceRun(); renderHistory(); }, mine);

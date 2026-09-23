@@ -517,10 +517,16 @@
 .macro-toolbar .macro-gap { flex: 1; }
 .macro-vim { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--mkui-fg-mute, #858585); cursor: pointer; }
 .macro-body { display: flex; flex: 1; min-height: 0; }
-.macro-list { width: 190px; flex: none; overflow-y: auto; border-right: 1px solid var(--mkui-border, #333); font-size: 12px; }
+.macro-list { width: 190px; max-width: calc(100% - 200px); flex: none; overflow-y: auto; font-size: 12px; }   /* a remembered width leaves the editor room in a narrow pane */
+/* The list's edge, draggable (the border between list and editor lives here). */
+.macro-splitter { flex: none; width: 5px; margin-right: -2px; border-left: 1px solid var(--mkui-border, #333); cursor: col-resize; z-index: 1; }
+.macro-splitter:hover { background: var(--mkui-accent, #0e639c); border-color: var(--mkui-accent, #0e639c); }
 .macro-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; }
 .macro-item:hover { background: var(--mkui-bg-hover, #2a2d2e); }
 .macro-current { background: var(--mkui-bg-alt, #252526); box-shadow: inset 2px 0 0 var(--mkui-accent, #0e639c); }
+/* Ticked for Delete (Ctrl/Shift-click); the open macro keeps its bar. */
+.macro-selected, .macro-selected:hover { background: color-mix(in srgb, var(--mkui-accent, #0e639c) 35%, transparent); }
+.macro-current.macro-selected { background: color-mix(in srgb, var(--mkui-accent, #0e639c) 35%, var(--mkui-bg-alt, #252526)); }
 .macro-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .macro-badge { font-size: 10px; padding: 0 5px; border-radius: 7px; background: var(--mkui-bg-alt, #333); color: var(--mkui-fg-mute, #858585); }
 .macro-armed { color: #1e1e1e; background: #4ec9b0; }
@@ -603,6 +609,8 @@
 /* The rule between the table's own buttons and ours. The toolbar's flex gap (6px) already stands to its
    left, so the margin makes that up to the padding on its right: 8px either side. */
 .macro-controls { display: inline-flex; gap: 4px; margin-left: 2px; padding-left: 8px; border-left: 1px solid var(--mkui-border, #3c3c3c); }
+/* The editor's toolbar gap is 4px, so the same 8px either side of its rule takes 4px of margin. */
+.macro-toolbar .macro-controls { margin-left: 4px; }
 .mkui-btn.macro-recording { color: #f44747; border-color: #f44747; }
 .mkui-btn.macro-recording::before { content: "● "; }
 .macro-ask input[type="checkbox"] { flex: none; padding: 0; }

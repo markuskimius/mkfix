@@ -605,7 +605,7 @@ class TestWiring:
         assert 'app.state.subscribe("mkio.connected"' in module and "if (!online) { runs.clear(); recordings = {}; }" in module
         assert 'b.title = "The server is away"' in module
         # symbols only on the blotters: the words are the tooltip, and what a screen reader says
-        assert [m for m in re.findall(r'button\("([^"]*)"', module)] == ["▶", "⏸", "■", "●"]
+        assert [m for m in re.findall(r'button\("([^"]*)"', module)] == ["●", "▶", "⏸", "■"], "record, play, pause, stop: the editors' order"
         assert 'b.setAttribute("aria-label", title);' in module and "buttons.record.textContent" not in module
         for action in ("macro.refresh", "macro.recorded"):
             assert f'app.registerAction("{action}"' in module, action
@@ -650,13 +650,64 @@ class TestWiring:
                      'cmd("stop_macro", { name: current })', "const mine = `side == '${side}'`"):
             assert call in pane, call
         saves = re.findall(r'cmd\("save_macro", \{([^}]*)\}', pane)
-        assert len(saves) == 3 and all(re.search(r"\bside\b", s) for s in saves), "every save says which side it is for"
+        assert len(saves) == 4 and all(re.search(r"\bside\b", s) for s in saves), "every save says which side it is for"
         for call in ('cmd("record_start", { side, session })', 'cmd("record_stop", { side, name, delays: delays ? "1" : "" })',
                      'cmd("record_status", { side })'):
             assert call in pane, call
         assert "wanted.side !== side" in pane, "an example opened for the other editor is not this one's"
         viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")
         assert 'app.fireAction("pane.show", `${side}-macros`)' in viewer
+
+    def test_the_editor_toolbar_is_ordered_like_the_blotters(self):
+        """[New] [Clone] [Save] [Delete] [History] | [●] [▶] [⏸] [■] on the
+        left, [Example…] [Import] [Export] on the right: the tape deck in the
+        blotters' order, symbols only, the words in the tooltips. Clone is a
+        Save As; Delete takes the list's selection, whole or not at all."""
+        from tests.test_ui_config import _fix_cmd_commands
+        pane = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
+        toolbar = re.search(r'<div class="mkfix-toolbar macro-toolbar">(.*?)</div>\n\s*<div class="macro-body">', pane, re.S).group(1)
+        acts = re.findall(r'data-act="(\w+)"', toolbar)
+        assert acts == ["new", "clone", "save", "delete", "history", "record", "play", "pause", "stop",
+                        "example", "import", "export", "vim", "help"], acts
+        assert toolbar.index("macro-gap") > toolbar.index('data-act="stop"') and toolbar.index("macro-gap") < toolbar.index('data-act="example"')
+        deck = re.search(r'<span class="macro-controls">(.*?)</span>', toolbar, re.S).group(1)
+        assert re.findall(r"macro-control[^>]*>(.)</button>", deck) == ["●", "▶", "⏸", "■"]
+        for act in acts:
+            assert f'act === "{act}"' in pane or act == "vim", act
+        assert "Record…</button>" not in pane and "Stop all" not in pane and "From example" not in pane
+        # the same lit states as the blotters' deck, from the open macro's runs
+        for cls, when in (("macro-playing", "playing.length > 0"), ("macro-paused", "paused > 0"), ("macro-recording", "!!recording")):
+            assert f'classList.toggle("{cls}", {when})' in pane, cls
+        assert 'cmd(playing ? "pause_macro" : "resume_macro", { name: current })' in pane
+        assert {"pause_macro", "resume_macro", "stop_macro", "delete_macro"} <= _fix_cmd_commands()
+        # Clone: the text shown, the original untouched, so no discard question
+        assert "const source = viewing ? viewing.source : editor.getValue();" in pane and "`${base} copy`" in pane and 'current.replace(/ copy( \\d+)?$/, "")' in pane
+        # Delete: Ctrl/Cmd-click and Shift-click build the selection, sent as one list
+        assert 'cmd("delete_macro", { names })' in pane and "e.shiftKey" in pane and "e.ctrlKey || e.metaKey" in pane
+        assert "selected.size ? [...selected] : current ? [current] : []" in pane
+        css = (STATIC / "mkfix.css").read_text(encoding="utf-8")
+        assert ".macro-selected" in css and ".macro-toolbar .macro-controls" in css
+        # the editor's own gap (4px) plus its margin is the deck rule's padding, as on the blotters
+        gap = int(re.search(r"\.mkfix-toolbar \{[^}]*?\bgap: (\d+)px", css).group(1))
+        margin = int(re.search(r"\.macro-toolbar \.macro-controls \{[^}]*?margin-left: (\d+)px", css).group(1))
+        padding = int(re.search(r"\.macro-controls \{[^}]*?padding-left: (\d+)px", css).group(1))
+        assert gap + margin == padding, (gap, margin, padding)
+        keys = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))["dialogs"]["macro_keys"]["facts"]
+        assert any("Ctrl/Cmd+Click" in f["label"] and "Shift+Click" in f["label"] for f in keys), "the list's selection is a documented key"
+
+    def test_the_list_is_resizable_and_remembers_its_width(self):
+        """A long name is cut short at 190px: the list's edge drags, a
+        double-click fits the longest name, and the width is a browser pref
+        like vim mode."""
+        pane = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
+        assert '<div class="macro-splitter"' in pane and 'const LIST_PREF = "mkfix.macro.list"' in pane
+        assert 'splitter.addEventListener("mousedown"' in pane and 'splitter.addEventListener("dblclick"' in pane
+        assert "localStorage.setItem(LIST_PREF, String(w))" in pane and "localStorage.getItem(LIST_PREF)" in pane
+        assert 'el.querySelector(".macro-name").scrollWidth' in pane, "fit measures the name, not the cell"
+        css = (STATIC / "mkfix.css").read_text(encoding="utf-8")
+        assert re.search(r"\.macro-splitter \{[^}]*cursor: col-resize", css)
+        assert re.search(r"\.macro-list \{[^}]*width: 190px", css) and not re.search(r"\.macro-list \{[^}]*border-right", css), \
+            "the border moved to the splitter, or a dragged list would show two"
 
     def test_the_run_panes_send_commands_that_exist(self):
         from tests.test_ui_config import _fix_cmd_commands

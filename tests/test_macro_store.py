@@ -254,6 +254,54 @@ class TestRuns:
         await manager.delete("slow")
 
     @pytest.mark.asyncio
+    async def test_the_editor_pauses_and_resumes_a_macro_by_name(self, kit):
+        """The editor's ⏸ is every playing run of the open macro; once all
+        are paused, the same button resumes them."""
+        db, engine, stub, manager, clock = kit
+        await manager.save("slow", SLOW)
+        first = (await manager.arm("slow"))["run_id"]
+        second = (await manager.arm("slow", session="S1"))["run_id"]
+        status = lambda: _fetch_all(db, "SELECT id, status FROM fix_macro_runs ORDER BY id")
+        await manager.pause_run(first)
+        assert await manager.pause_macro("slow") == {"paused": 1}, "only the run still playing"
+        assert [r["status"] for r in await status()] == ["paused", "paused"]
+        assert await manager.pause_macro("slow") == {"paused": 0}
+        assert await manager.resume_macro("slow") == {"resumed": 2}
+        assert [r["status"] for r in await status()] == ["armed", "armed"]
+        assert await manager.resume_macro("slow") == {"resumed": 0}
+        assert await manager.pause_macro("no-such") == {"paused": 0}, "no live run, nothing to say"
+        await manager.stop_macro("slow")
+        assert (first, second) == tuple(r["id"] for r in await status())
+
+    @pytest.mark.asyncio
+    async def test_a_selection_is_deleted_whole_or_not_at_all(self, kit):
+        """The editor's Delete of several macros: one that is live, or not a
+        macro, refuses the list before anything is written."""
+        db, engine, stub, manager, clock = kit
+        for name in ("a", "b", "c"):
+            await manager.save(name, SLOW)
+        run_id = (await manager.arm("b"))["run_id"]
+        names = lambda: _fetch_all(db, "SELECT name FROM fix_macros ORDER BY name")
+        with pytest.raises(ValueError, match="'b' has 1 live run: stop it first"):
+            await manager.delete_many(["a", "b", "c"])
+        with pytest.raises(ValueError, match="No macro named 'd'"):
+            await manager.delete_many(["a", "d"])
+        with pytest.raises(ValueError, match="Name a macro to delete"):
+            await manager.delete_many(["", "  "])
+        assert [r["name"] for r in await names()] == ["a", "b", "c"], "nothing of a refused list went"
+        await manager.arm("c")
+        with pytest.raises(ValueError, match="'c', 'b' have live runs: stop them first"):
+            await manager.delete_many(["c", "a", "b"])                   # named in the order given
+        await manager.stop_run(run_id)
+        await manager.stop_macro("c")
+        assert await manager.delete_many(["a", " b ", "a"]) == {"deleted": 2}, "trimmed, once each"
+        assert [r["name"] for r in await names()] == ["c"]
+        await manager.delete("c")
+        assert await names() == []
+        with pytest.raises(ValueError, match="No macro named 'c'"):
+            await manager.delete("c")
+
+    @pytest.mark.asyncio
     async def test_a_restart_stops_every_macro_and_plays_nothing_again(self, kit):
         """Found in use: ▶ stayed lit after a restart, because a macro that
         only waits for orders used to be armed again. A run is something a
@@ -700,12 +748,21 @@ class TestCommands:
         run_id = (await ask("arm_macro", {"name": "auto-ack", "speed": "2", "seed": ""}))["run_id"]
         await _order(engine, stub, manager)
         (inst,) = await _fetch_all(db, "SELECT * FROM fix_macro_orders")
+        assert await ask("pause_macro", {"name": "auto-ack"}) == {"ok": True, "paused": 1}
+        assert await ask("resume_macro", {"name": "auto-ack"}) == {"ok": True, "resumed": 1}
         for command, data in [("pause_run", {"run_id": run_id}), ("resume_run", {"run_id": str(run_id)}),
-                              ("detach_order", {"order_row": inst["order_row"]}), ("stop_run", {"run_id": run_id}),
-                              ("delete_macro", {"name": "auto-ack"})]:
+                              ("detach_order", {"order_row": inst["order_row"]}), ("stop_run", {"run_id": run_id})]:
             assert await ask(command, data) == {"ok": True}, command
+        assert await ask("delete_macro", {"name": "auto-ack"}) == {"ok": True, "deleted": 1}
         with pytest.raises(ValueError, match="No macro named"):
             await ask("arm_macro", {"name": "auto-ack"})
+        with pytest.raises(ValueError, match="No macro named 'auto-ack'"):
+            await ask("delete_macro", {"names": ["auto-ack"]})
+        # the editor sends a list; a comma-joined string (a name holds no comma) is taken too
+        for name in ("x", "y"):
+            await ask("save_macro", {"name": name, "source": source})
+        assert await ask("delete_macro", {"names": "x, y"}) == {"ok": True, "deleted": 2}
+        assert await _fetch_all(db, "SELECT name FROM fix_macros") == []
 
 
 class TestSendingRuns:
