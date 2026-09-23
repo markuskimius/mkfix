@@ -156,7 +156,7 @@ class Recorder:
             self._unsubscribe = None
         lines = [line for line in self.timelines.values() if self.side == "client" or line.steps]
         sessions = sorted({line.order["session_id"] for line in lines})
-        head = [f"# Recorded {self.started_at[:4]}-{self.started_at[4:6]}-{self.started_at[6:8]} "
+        head = [f"# {self.side.capitalize()} side, recorded {self.started_at[:4]}-{self.started_at[4:6]}-{self.started_at[6:8]} "
                 f"{self.started_at[9:17]} UTC" + (f" on {', '.join(sessions)}" if sessions else "")
                 + f": {len(lines)} order{'s' if len(lines) != 1 else ''}, {self.actions} action{'s' if self.actions != 1 else ''}.",
                 "# A first draft, literal about what happened: read it, and loosen what is too exact —",

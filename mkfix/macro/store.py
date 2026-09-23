@@ -37,9 +37,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# What may name a macro: it is a file name on export (`<name>.macro`) and
-# what runs, the log and an order's Macro column name it by.
-NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]*")
+# What may name a macro. Runs, the log and an order's Macro column name it by
+# name alone, and Play… joins the names it was given with commas, so a comma
+# is out; a colon (the recorder's `Market 2026-09-22 14:30:15`) is in, and
+# Export writes it as a dot in the file name.
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:-]*")
 
 EXAMPLES = Path(__file__).parent / "examples"
 
@@ -204,7 +206,7 @@ class MacroManager:
         if not name:
             raise ValueError("A macro needs a name")
         if not NAME.fullmatch(name):
-            raise ValueError(f"{name!r} cannot name a macro: letters, digits, spaces, `.`, `_` and `-` only, "
+            raise ValueError(f"{name!r} cannot name a macro: letters, digits, spaces, `.`, `_`, `-` and `:` only, "
                              "starting with a letter or digit")
         result = await self.check(source, side)
         side = result["side"] = result["side"] or "market"

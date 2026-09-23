@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.55",
+    "version": "0.56",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -680,7 +680,7 @@
           "label": "Save the macro as",
           "type": "text",
           "required": true,
-          "value": "recorded"
+          "value": "${row.name}"
         },
         {
           "name": "delays",
@@ -778,7 +778,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.55"
+        "text": "mkfix v0.56"
       }
     ],
     "bindStyle": {
@@ -6262,7 +6262,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.55",
+      "version": "0.56",
       "mkio": "1.5",
       "expr": "2"
     },

@@ -179,6 +179,48 @@ class TestHover:
 
 
 @needs_node
+@needs_node
+class TestRecordingNames:
+    """What Stop suggests and what Export writes, both pure functions of the
+    language module so a browser is not needed to hold them."""
+
+    def test_the_suggestion_is_the_side_then_the_local_date_and_time(self, tmp_path):
+        assert run_js(tmp_path, 'L.recordingName("market", new Date(2026, 8, 22, 14, 30, 5))') == "Market 2026-09-22 14:30:05"
+        assert run_js(tmp_path, 'L.recordingName("client", new Date(2026, 0, 1, 0, 0, 0))') == "Client 2026-01-01 00:00:00"
+        assert run_js(tmp_path, 'L.recordingName("client", new Date(2026, 11, 31, 23, 59, 59))') == "Client 2026-12-31 23:59:59"
+        now = run_js(tmp_path, 'L.recordingName("market")')
+        assert re.fullmatch(r"Market \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", now), now
+        from mkfix.macro.store import NAME
+        assert NAME.fullmatch(now), "what Stop suggests is a name save accepts"
+
+    def test_export_writes_a_colon_as_a_dot(self, tmp_path):
+        assert run_js(tmp_path, 'L.exportFileName("Market 2026-09-22 14:30:15")') == "Market 2026-09-22 14.30.15.macro"
+        assert run_js(tmp_path, 'L.exportFileName("slow-fill")') == "slow-fill.macro"
+        assert run_js(tmp_path, 'L.exportFileName("a:b:c d.e_f-g")') == "a.b.c d.e_f-g.macro"
+        # every name save accepts becomes a file name Windows and macOS accept
+        from mkfix.macro.store import NAME
+        for name in ("Market 2026-09-22 14:30:15", "my macro-2.b", "x:y"):
+            assert NAME.fullmatch(name)
+            out = run_js(tmp_path, f"L.exportFileName({json.dumps(name)})")
+            assert not re.search(r'[<>:"/\\|?*]', out) and out.endswith(".macro"), out
+
+    def test_both_stops_suggest_it_and_export_writes_it(self):
+        """Two paths end a recording: the editor's Stop and the blotter toolbar's ● Stop,
+        whose dialog lives in app.json. Both must offer the stamped name."""
+        pane = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
+        assert "recordingName(side)" in pane and "download: exportFileName(current)" in pane
+        assert "exportFileName, helpAt, hoverAt, recordingName" in pane
+        assert '"recorded"' not in pane and "recorded-${n}" not in pane, "the counter gave way to the stamp"
+        toolbar = (STATIC / "macro-status.js").read_text(encoding="utf-8")
+        assert 'import { recordingName } from "/static/macro-lang.js";' in toolbar
+        assert 'app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })' in toolbar, \
+            "computed at the click, not at mount"
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        name = next(f for f in app["dialogs"]["stop_recording"]["fields"] if f.get("name") == "name")
+        assert name["value"] == "${row.name}" and name["required"] is True
+        assert not [f for f in app["dialogs"]["stop_recording"]["fields"] if f.get("value") == "recorded"]
+
+
 class TestMacroStatus:
     """What the status bar says and what enables the order blotters' macro
     controls: one state, worked out from the runs table and the recordings."""
@@ -493,7 +535,9 @@ class TestWiring:
                "record_macro": "record_start", "stop_recording": "record_stop"}
         for dialog, op in ops.items():
             spec = app["dialogs"][dialog]
-            assert f'app.dialog("{dialog}", context)' in module, dialog
+            opened = ('app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })'
+                      if dialog == "stop_recording" else f'app.dialog("{dialog}", context)')
+            assert opened in module, dialog
             assert spec["submit"]["service"] == "fix_cmd" and spec["submit"]["op"] == op and op in _fix_cmd_commands()
             assert spec["fields"][0] == {"name": "side", "type": "hidden", "value": "${row.side}"}
             assert "modal" not in spec

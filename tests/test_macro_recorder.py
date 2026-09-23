@@ -94,7 +94,7 @@ class TestMarketRecording:
         assert "# Each action runs the moment what it answered comes" in result["source"]
         assert "two.\n\non order where" in result["source"], "a blank line between the header comment and the first block"
         assert "macro venue" not in result["source"], "the text carries no name: it is named where it is saved"
-        assert result["source"].startswith("# Recorded 20") and " on LOOP-MKT: 1 order, 4 actions." in result["source"]
+        assert result["source"].startswith("# Market side, recorded 20") and " on LOOP-MKT: 1 order, 4 actions." in result["source"]
 
     @pytest.mark.asyncio
     async def test_the_recording_checks_clean_and_does_it_again(self, hand):
@@ -463,6 +463,7 @@ class TestThroughTheManager:
             assert (await ask("record_status", {"side": "market"}))["actions"] == 1
             venue = await ask("record_stop", {"side": "market", "name": "  my   venue "})
             assert venue["orders"] == 1 and venue["name"] == "my venue" and "macro my venue" not in venue["source"]
+            assert venue["source"].startswith("# Market side, recorded "), "a renamed file still says which editor it belongs in"
             saved = await ask("save_macro", {"name": "my venue", "source": venue["source"], "side": "market"})
             assert saved["errors"] == 0
             with pytest.raises(ValueError, match="No market recording is under way"):

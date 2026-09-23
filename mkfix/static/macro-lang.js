@@ -241,3 +241,19 @@ export function hoverAt(vocab, lines, row, col) {
   }
   return null;
 }
+
+// What Stop suggests calling a recording: the side, then the local date and
+// time Stop was pressed — sorts by side, then by time, and the seconds keep
+// two stops in one minute apart (a taken name leaves the recording running).
+export function recordingName(side, date = new Date()) {
+  const two = (n) => String(n).padStart(2, "0");
+  return `${side[0].toUpperCase()}${side.slice(1)} ${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
+    + ` ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}
+
+// The file Export writes: a colon is the one character a name may hold that
+// a file name may not, so it becomes a dot. Import names a macro after its
+// file and never guesses the dots back.
+export function exportFileName(name) {
+  return `${name.replace(/:/g, ".")}.macro`;
+}

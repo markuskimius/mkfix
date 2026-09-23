@@ -37,7 +37,7 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 
 ## The shape of a macro
 
-- Its name is the one it is saved under: the text does not carry it, so a copy renames freely.
+- Its name is the one it is saved under: the text does not carry it, so a copy renames freely. A name is letters, digits, spaces and `. _ - :`; **Export** writes it as `NAME.macro` with each colon as a dot, and **Import** names the macro after the file. A recording is offered as `Market 2026-09-22 14:30:15` (its side, then the local date and time you pressed Stop).
 - `seed N` makes a run repeat exactly: the same `RANDOM()` numbers and the same timing jitter.
 - `on error continue` turns a refused action into an `error` event instead of failing the order's macro.
 - Then one or more blocks. Lines inside a block are indented, with spaces; deeper blocks indent further. `#` starts a comment.

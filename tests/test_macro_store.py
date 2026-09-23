@@ -120,12 +120,13 @@ class TestScripts:
         assert "name" not in await manager.check(SLOW)
         with pytest.raises(ValueError, match="needs a name"):
             await manager.save("  ", SLOW)
-        for bad in ("a:b", "-lead", "x/y", "q?"):
+        for bad in ("a,b", "-lead", "x/y", "q?", ":x", "a|b"):
             with pytest.raises(ValueError, match="cannot name a macro"):
                 await manager.save(bad, SLOW)
         await manager.save("Desk 2026-09-22 14.30.15_v2", SLOW)
-        with pytest.raises(ValueError, match="No macro named 'a:b'"):
-            await manager.load("a:b")
+        await manager.save("Market 2026-09-22 14:30:15", SLOW), "what Stop suggests: colons and all"
+        with pytest.raises(ValueError, match="No macro named 'a,b'"):
+            await manager.load("a,b")
 
     @pytest.mark.asyncio
     async def test_an_armed_run_knows_its_macro_by_the_saved_name(self, kit):
@@ -564,10 +565,15 @@ class TestBlotterControls:
         client = await _ask_sql(db, "macro_play_options", side="client")
         assert [(o["value"], o["label"]) for o in client] == [
             ("macro:named", "named"), ("needs:send", "send  (asks for a session)")]
-        # the dialog tells a macro that needs a session by its value alone, and ticked values are joined
-        # by commas: a name must never hold either mark
+        # ticked values are joined by commas, so a name never holds one; the kind mark is split off at the
+        # first colon, so a name may hold colons (the recorder's suggestion does)
         from mkfix.macro.store import NAME
-        assert not NAME.fullmatch("a:b") and not NAME.fullmatch("a,b") and NAME.fullmatch("my macro-2.b")
+        assert not NAME.fullmatch("a,b") and NAME.fullmatch("a:b") and NAME.fullmatch("my macro-2.b")
+        await manager.save("Market 2026-09-22 14:30:15", SLOW)
+        stamped = await _ask_sql(db, "macro_play_options", side="market")
+        assert ("macro:Market 2026-09-22 14:30:15", "Market 2026-09-22 14:30:15") in [(o["value"], o["label"]) for o in stamped]
+        played = await _ask(engine)("play_macro", {"side": "market", "what": "macro:Market 2026-09-22 14:30:15,macro:other"})
+        assert played["started"] == 2 and [r.macro.name for r in manager.live_runs("Market 2026-09-22 14:30:15")] == ["Market 2026-09-22 14:30:15"]
 
     @pytest.mark.asyncio
     async def test_play_starts_a_macro_or_resumes_what_is_paused(self, three):

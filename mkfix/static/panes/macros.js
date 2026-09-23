@@ -12,7 +12,7 @@
 // scripts loaded on first use, no build step.
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
-import { aceRules, completionsAt, helpAt, hoverAt } from "/static/macro-lang.js";
+import { aceRules, completionsAt, exportFileName, helpAt, hoverAt, recordingName } from "/static/macro-lang.js";
 import { diffMarks, splitLines } from "/static/line-diff.js";
 
 const { registerPaneType } = window.Mkui;
@@ -510,8 +510,9 @@ registerPaneType("macros", async (spec, app, host) => {
           : "Recording: work the orders that arrive in Received Orders and Sent Trades. Stop recording writes the macro.", "live");
         return;
       }
-      let suggested = "recorded";
-      for (let n = 2; macros.has(suggested); n++) suggested = `recorded-${n}`;
+      const stamped = recordingName(side);
+      let suggested = stamped;
+      for (let n = 2; macros.has(suggested); n++) suggested = `${stamped}-${n}`;
       const asked = await askName(suggested, { label: "Keep my delays",
         title: "Off: each action runs the moment what it answered comes. On: it also waits the time you took to answer." });
       if (!asked) return;                                  // still recording: nothing is lost by changing your mind
@@ -614,7 +615,7 @@ registerPaneType("macros", async (spec, app, host) => {
     if (act === "import") return fileEl.click();
     if (act === "export") {
       const blob = new Blob([editor.getValue()], { type: "text/plain" });
-      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `${current}.macro` });
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: exportFileName(current) });
       a.click();
       URL.revokeObjectURL(a.href);
       return;

@@ -8,7 +8,7 @@ A small language for acting on orders as events arrive. This directory holds the
 
 ## Shape of a macro
 
-Optional `seed N` and `on error continue`, then blocks. The text carries no name: a macro is named where it is saved (`Macro.name` is set by `_armable` from the row), so the file, the editor's New and Import, and the recorder never write one. Through 0.54 every macro opened with `macro NAME`; the parser now refuses that line by name, and `upgrade.retire_macro_lines` strips it from saved rows at startup. Blocks by indentation (spaces only), one statement per line, `#` comments. Three kinds of block, `Block.kind`:
+Optional `seed N` and `on error continue`, then blocks. The text carries no name: a macro is named where it is saved (`Macro.name` is set by `_armable` from the row), so the file, the editor's New and Import, and the recorder never write one. Through 0.54 every macro opened with `macro NAME`; the parser now refuses that line by name, and `upgrade.retire_macro_lines` strips it from saved rows at startup. The name rule is `store.NAME` (letters, digits, spaces, `. _ - :`, leading alphanumeric): a comma is out because Play…'s checklist joins its choices with commas (`macro:NAME`, split at the first colon, so colons in names are fine), and Export (`exportFileName` in macro-lang.js) writes a colon as a dot in `<name>.macro`. Stop suggests `recordingName(side)` — `Market 2026-09-22 14:30:15`, local time — and the recorder's header comment names the side, so a renamed file still says which editor it belongs in. Blocks by indentation (spaces only), one statement per line, `#` comments. Three kinds of block, `Block.kind`:
 
 | Header | kind | The order is |
 |---|---|---|

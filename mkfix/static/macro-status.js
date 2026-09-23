@@ -15,6 +15,7 @@
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
 import { SIDES, macroState, statusItems } from "/static/macro-status-lib.js";
+import { recordingName } from "/static/macro-lang.js";
 
 const { registerWidget } = window.Mkui;
 
@@ -91,8 +92,10 @@ registerWidget("macro-status", (spec, app, host) => {
         play: button("▶", `Play a ${side} macro, or resume a paused run…`, () => app.dialog("play_macro", context)),
         pause: button("⏸", `Pause ${side} macro runs…`, () => app.dialog("pause_runs", context)),
         stop: button("■", `Stop ${side} macro runs…`, () => app.dialog("stop_runs", context)),
+        // Stop suggests the name at the click, not at mount: the side, then the time Stop was pressed
         record: button("●", "", () => (app.state.get("macros")?.[side]?.recording
-          ? app.dialog("stop_recording", context) : app.dialog("record_macro", context))),
+          ? app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })
+          : app.dialog("record_macro", context))),
       };
       const group = document.createElement("span");
       group.className = "macro-controls";

@@ -260,7 +260,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   first draft for you: work orders by hand -- accept, fill, answer a cancel
   on one side; send, replace, cancel, DK on the other -- and Stop recording
   opens the macro that would have done the same, ready to run and to
-  loosen. It is triggered by events, not the clock: each action waits for
+  loosen, offered as `Market 2026-09-22 14:30:15` (its side, then the time
+  you pressed Stop; Export writes the colons as dots). It is triggered by events, not the clock: each action waits for
   what you heard before you took it, a request you always answered the same
   way becomes a `when` handler, and time is written only where nothing came
   between two of your actions (or everywhere, with **Keep my delays**). Macros are versioned
