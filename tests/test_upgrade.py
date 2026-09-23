@@ -390,3 +390,56 @@ class TestStripRetired:
         from mkfix.upgrade import strip_retired
         archive = self._archive(tmp_path, with_scenarios=False)
         assert strip_retired(archive) == archive
+
+
+# -- 0.55: a macro is named where it is saved, not in its text -----------------------
+
+class TestRetireMacroLines:
+    def _db(self, path: Path) -> None:
+        conn = sqlite3.connect(path)
+        conn.executescript("""
+            CREATE TABLE fix_macros (id INTEGER PRIMARY KEY, name TEXT, side TEXT, source TEXT, _mkio_version INTEGER);
+            CREATE TABLE fix_macros__history (_mkio_version INTEGER, id INTEGER, name TEXT, source TEXT);
+            INSERT INTO fix_macros VALUES
+                (1, 'slow', 'market', '# Slow' || char(10) || char(10) || 'macro slow' || char(10) || char(10)
+                    || 'on order' || char(10) || '    accept' || char(10), 3),
+                (2, 'tight', 'market', 'macro tight  # was named here' || char(10) || 'seed 1' || char(10)
+                    || 'on order' || char(10) || '    accept' || char(10), 1),
+                (3, 'fresh', 'client', 'run' || char(10) || '    new symbol: ''A'', side: buy, qty: 1' || char(10), 1),
+                (4, 'blank', 'market', '', 1);
+            INSERT INTO fix_macros__history VALUES (3, 1, 'slow', 'macro slow' || char(10));
+        """)
+        conn.commit()
+        conn.close()
+
+    def test_strips_the_line_and_the_blank_after_it_and_leaves_the_rest(self, tmp_path, capsys):
+        from mkfix.upgrade import retire_macro_lines
+        db = tmp_path / "m.db"
+        self._db(db)
+        assert retire_macro_lines(str(db)) == ["slow", "tight"]
+        assert "dropped the `macro NAME` line from slow, tight" in capsys.readouterr().out
+        conn = sqlite3.connect(db)
+        rows = dict(conn.execute("SELECT name, source FROM fix_macros").fetchall())
+        assert rows == {"slow": "# Slow\n\non order\n    accept\n", "tight": "seed 1\non order\n    accept\n",
+                        "fresh": "run\n    new symbol: 'A', side: buy, qty: 1\n", "blank": ""}
+        assert conn.execute("SELECT _mkio_version FROM fix_macros ORDER BY id").fetchall() == [(3,), (1,), (1,), (1,)]
+        assert conn.execute("SELECT source FROM fix_macros__history").fetchall() == [("macro slow\n",)], "history is the record"
+        conn.close()
+        from mkfix import macro
+        for text in rows.values():
+            assert not [d for d in macro.check(text)[1] if "no longer a word" in d.message], text
+
+    def test_once_and_never_on_a_current_or_missing_database(self, tmp_path, capsys):
+        from mkfix.upgrade import retire_macro_lines
+        db = tmp_path / "m.db"
+        self._db(db)
+        retire_macro_lines(str(db))
+        capsys.readouterr()
+        assert retire_macro_lines(str(db)) == [] and capsys.readouterr().out == ""
+        assert retire_macro_lines(":memory:") == [] and retire_macro_lines(str(tmp_path / "none.db")) == []
+        _current_db(tmp_path / "c.db")
+        assert retire_macro_lines(str(tmp_path / "c.db")) == [], "no fix_macros table at all"
+
+    def test_runs_at_startup_before_the_app_is_built(self):
+        main = (ROOT / "mkfix" / "__main__.py").read_text(encoding="utf-8")
+        assert main.index('retire_macro_lines(cfg["db_path"])') < main.index("app = create_app(cfg)")

@@ -70,8 +70,7 @@ async def pair(stack):
     await p.runner.settle()
 
 
-MARKET = """macro venue
-on order
+MARKET = """on order
     after 100ms
     accept
     when cancel
@@ -89,7 +88,7 @@ class TestSending:
     @pytest.mark.asyncio
     async def test_one_order_from_new_to_filled(self, pair):
         pair.arm(MARKET)
-        run = pair.arm("macro one\nrun on LOOP-CLI\n"
+        run = pair.arm("run on LOOP-CLI\n"
                        "    new symbol: 'IBM', side: buy, qty: 250, type: limit, price: 100.5, client: 'ACME', text: 'hello'\n"
                        "    expect ack within 1s\n"
                        "    log 'acked ${order.cl_ord_id} as ${order.status}'\n"
@@ -106,8 +105,8 @@ class TestSending:
     @pytest.mark.asyncio
     async def test_the_acknowledgement_inside_the_send_is_heard(self, pair):
         # The venue accepts at once, so the ER reaches the engine inside send_new_order.
-        pair.arm("macro instant\non order\n    accept\n")
-        run = pair.arm("macro one\nrun on LOOP-CLI\n    new symbol: 'IBM', side: sell, qty: 10, price: 5\n"
+        pair.arm("on order\n    accept\n")
+        run = pair.arm("run on LOOP-CLI\n    new symbol: 'IBM', side: sell, qty: 10, price: 5\n"
                        "    expect ack within 1s else fail 'the ack was lost'\n    pass\n")
         await pair.runner.settle()
         assert [i.status for i in run.instances] == [PASSED]
@@ -115,7 +114,7 @@ class TestSending:
     @pytest.mark.asyncio
     async def test_a_burst_is_one_script_per_order_paced(self, pair):
         pair.arm(MARKET)
-        run = pair.arm("macro burst\nseed 3\nrun on LOOP-CLI\n    let lot = 100\n"
+        run = pair.arm("seed 3\nrun on LOOP-CLI\n    let lot = 100\n"
                        "    repeat 6 at 2/s with sym = ['IBM', 'MSFT', 'AAPL']\n"
                        "        new symbol: sym, side: buy, qty: lot * (n + 1), price: 10\n"
                        "        expect ack within 1s\n        pass '${sym} #${n}'\n")
@@ -133,7 +132,7 @@ class TestSending:
     @pytest.mark.asyncio
     async def test_replace_keeps_the_terms_left_out_and_cancel_is_answered(self, pair):
         pair.arm(MARKET)
-        run = pair.arm("macro chase\nrun on LOOP-CLI\n"
+        run = pair.arm("run on LOOP-CLI\n"
                        "    new symbol: 'IBM', side: buy, qty: 1000, price: 100, extra: '9001=x'\n"
                        "    expect ack within 1s\n"
                        "    replace price: TICK(order.price + 0.05, 0.01)\n"
@@ -153,8 +152,8 @@ class TestSending:
 
     @pytest.mark.asyncio
     async def test_cancel_rejected_and_the_pending_guard(self, pair):
-        pair.arm("macro strict\non order\n    accept\n    when cancel or replace\n        reject text: 'not today'\n")
-        run = pair.arm("macro ask\nrun on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 1\n"
+        pair.arm("on order\n    accept\n    when cancel or replace\n        reject text: 'not today'\n")
+        run = pair.arm("run on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 1\n"
                        "    expect ack within 1s\n    replace qty: 20\n"
                        "    wait replaced or cancel rejected or timeout 1s\n"
                        "    pass '${event.kind}/${event.response_to}/${event.text} pending=${order.pending_action} qty=${order.entered_qty}'\n")
@@ -163,9 +162,9 @@ class TestSending:
 
     @pytest.mark.asyncio
     async def test_dk_a_fill_and_tell_a_renotification_from_a_fill(self, pair):
-        pair.arm("macro desk\non order\n    accept\n    fill qty: 10, price: order.price + 1\n"
+        pair.arm("on order\n    accept\n    fill qty: 10, price: order.price + 1\n"
                  "    when dk\n        renotify\n")
-        run = pair.arm("macro policy\nrun on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n"
+        run = pair.arm("run on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n"
                        "    let real = 0\n    let restated = 0\n"
                        "    when fill and event.prev.cum_qty < order.cum_qty\n"
                        "        let real = real + 1\n        dk reason: 'Price exceeds limit', text: 'through ${order.price}'\n"
@@ -180,18 +179,18 @@ class TestSending:
 
     @pytest.mark.asyncio
     async def test_what_a_sending_script_may_not_do(self, pair):
-        run = pair.arm("macro twice\nrun on LOOP-CLI\n    new symbol: 'A', side: buy, qty: 1, price: 1\n"
+        run = pair.arm("run on LOOP-CLI\n    new symbol: 'A', side: buy, qty: 1, price: 1\n"
                        "    new symbol: 'B', side: buy, qty: 1, price: 1\n")
         await pair.runner.settle()
-        assert "line 4: this macro has already sent its order" in run.instances[0].message
-        early = pair.arm("macro early\nrun on LOOP-CLI\n    if n == 0\n        cancel\n"
+        assert "line 3: this macro has already sent its order" in run.instances[0].message
+        early = pair.arm("run on LOOP-CLI\n    if n == 0\n        cancel\n"
                          "    new symbol: 'A', side: buy, qty: 1, price: 1\n")
         await pair.runner.settle()
-        assert "line 4: `cancel` before `new`" in early.instances[0].message
+        assert "line 3: `cancel` before `new`" in early.instances[0].message
 
     @pytest.mark.asyncio
     async def test_a_send_that_fails_fails_the_script(self, pair):
-        run = pair.arm("macro down\nrun on LOOP-CLI\n    after 1s\n    new symbol: 'A', side: buy, qty: 1, price: 1\n")
+        run = pair.arm("run on LOOP-CLI\n    after 1s\n    new symbol: 'A', side: buy, qty: 1, price: 1\n")
         pair.cli.is_active = False                     # the session drops while the script waits
         await pair.advance(2)
         assert run.instances[0].status == FAILED and "not active" in run.instances[0].message
@@ -201,7 +200,7 @@ class TestSending:
     async def test_a_session_that_is_down_is_refused_before_anything_starts(self, pair):
         from mkfix.macro.runner import MacroError
         pair.cli.is_active = False
-        sc, _ = macro.check("macro down\nrun on LOOP-CLI\n    new symbol: 'A', side: buy, qty: 1, price: 1\n")
+        sc, _ = macro.check("run on LOOP-CLI\n    new symbol: 'A', side: buy, qty: 1, price: 1\n")
         with pytest.raises(MacroError, match="`run` on LOOP-CLI: the session is not active"):
             pair.runner.arm(sc)
         assert pair.runner.runs == [] and not pair.engine.events.active
@@ -213,8 +212,8 @@ class TestSending:
         cli2, mkt2 = LinkedSession(engine, "CLI-2"), LinkedSession(engine, "MKT-2")
         cli2.peer, mkt2.peer = mkt2, cli2
         engine.sessions.update({"CLI-2": cli2, "MKT-2": mkt2})
-        text = "macro open\nrun\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n    expect ack within 1s\n    pass\n"
-        pair.arm("macro instant\non order\n    accept\n")
+        text = "run\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n    expect ack within 1s\n    pass\n"
+        pair.arm("on order\n    accept\n")
         sc, _ = macro.check(text)
         runs = [pair.runner.arm(sc, session="LOOP-CLI"), pair.runner.arm(sc, session="CLI-2"),
                 pair.runner.arm(sc, session="CLI-2")]
@@ -229,7 +228,7 @@ class TestSending:
         cli2, mkt2 = LinkedSession(engine, "CLI-2"), LinkedSession(engine, "MKT-2")
         cli2.peer, mkt2.peer = mkt2, cli2
         engine.sessions.update({"CLI-2": cli2, "MKT-2": mkt2})
-        sc, _ = macro.check("macro named\nrun on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n")
+        sc, _ = macro.check("run on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 5\n")
         pair.runner.arm(sc)
         pair.runner.arm(sc, session="CLI-2")
         await pair.runner.settle()
@@ -243,7 +242,7 @@ class TestSending:
     @pytest.mark.asyncio
     async def test_many_runs_of_one_script_at_once_each_with_its_own_orders(self, pair):
         pair.arm(MARKET)
-        text = ("macro many\nrun\n    repeat 3 at 10/s\n        new symbol: 'IBM', side: buy, qty: 100, price: 10\n"
+        text = ("run\n    repeat 3 at 10/s\n        new symbol: 'IBM', side: buy, qty: 100, price: 10\n"
                 "        wait filled or timeout 5s\n        pass '${order.cum_qty}'\n")
         runs = [pair.arm(text, seed=n) for n in range(4)]
         await pair.advance(6)
@@ -253,7 +252,7 @@ class TestSending:
 
     @pytest.mark.asyncio
     async def test_armed_but_not_started_until_told(self, pair):
-        sc, _ = macro.check("macro later\nrun on LOOP-CLI\n    new symbol: 'A', side: buy, qty: 1, price: 1\n")
+        sc, _ = macro.check("run on LOOP-CLI\n    new symbol: 'A', side: buy, qty: 1, price: 1\n")
         run = pair.runner.arm(sc, start=False)
         await pair.runner.settle()
         assert run.instances == [] and pair.cli.sent == [] and run.status == "armed"
@@ -264,7 +263,7 @@ class TestSending:
     @pytest.mark.asyncio
     async def test_stopping_a_burst_stops_the_orders_to_come(self, pair):
         pair.arm(MARKET)
-        run = pair.arm("macro burst\nrun on LOOP-CLI\n    repeat 100 every 1s\n"
+        run = pair.arm("run on LOOP-CLI\n    repeat 100 every 1s\n"
                        "        new symbol: 'IBM', side: buy, qty: 1, price: 1\n        wait filled\n")
         await pair.advance(2.5)
         pair.runner.stop(run)
@@ -279,8 +278,8 @@ class TestLateAnswers:
         gave up waiting for `replaced`, then cancelled under the ClOrdID the
         venue had already replaced away. The venue's automatic reject says
         UnknownOrder, so its 39=8 is about no order of ours."""
-        pair.arm("macro v\non order\n    accept\n")
-        run = pair.arm("macro c\nrun on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 1\n"
+        pair.arm("on order\n    accept\n")
+        run = pair.arm("run on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 10, price: 1\n"
                        "    expect ack within 1s\n    wait cancel rejected or timeout 5s\n"
                        "    pass '${event.reason} status=${order.status}'\n")
         await pair.runner.settle()
@@ -298,7 +297,7 @@ class TestAttached:
     @pytest.mark.asyncio
     async def test_an_order_sent_by_hand_is_taken_over(self, pair):
         pair.arm(MARKET)
-        run = pair.arm("macro minder\non sent order where symbol == 'IBM'\n"
+        run = pair.arm("on sent order where symbol == 'IBM'\n"
                        "    expect ack within 1s else fail 'no ack'\n"
                        "    after 2s\n    if order.leaves_qty > 0\n        cancel\n"
                        "        expect canceled or filled within 2s\n    pass 'left ${order.leaves_qty}'\n")
@@ -314,15 +313,15 @@ class TestAttached:
 
     @pytest.mark.asyncio
     async def test_a_scripts_own_order_is_not_taken_by_an_attached_block(self, pair):
-        pair.arm("macro instant\non order\n    accept\n")
-        both = pair.arm("macro both\non sent order\n    fail 'took an order that had a script'\n"
+        pair.arm("on order\n    accept\n")
+        both = pair.arm("on sent order\n    fail 'took an order that had a script'\n"
                         "run on LOOP-CLI\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    expect ack within 1s\n    pass\n")
         await pair.runner.settle()
         assert [(i.block.kind, i.status) for i in both.instances] == [("client", PASSED)]
 
     @pytest.mark.asyncio
     async def test_a_replayed_order_is_taken_at_its_first_report(self, pair):
-        run = pair.arm("macro replayed\non sent order\n    wait fill or timeout 5s\n    pass '${event.kind} ${order.cl_ord_id}'\n")
+        run = pair.arm("on sent order\n    wait fill or timeout 5s\n    pass '${event.kind} ${order.cl_ord_id}'\n")
         report = "8=FIX.4.2|35=8|11=R1|37=M1|17=E1|20=0|150=0|39=0|55=IBM|54=1|38=10|14=0|6=0|151=10"
         await pair.engine.on_app_message(pair.cli, "8", parse_fix(report))
         await pair.engine.on_app_message(pair.cli, "8", parse_fix(
@@ -343,7 +342,7 @@ class TestExamples:
 
     @pytest.mark.asyncio
     async def test_single_order_lifecycle_cancels_what_is_left(self, pair):
-        pair.arm("macro slow\non order\n    accept\n    when cancel\n        accept\n    after 1s\n    fill qty: 100, price: order.price\n")
+        pair.arm("on order\n    accept\n    when cancel\n        accept\n    after 1s\n    fill qty: 100, price: order.price\n")
         run = pair.arm("single-order-lifecycle")
         await pair.advance(8)
         assert run.instances[0].message == "done 100 of 300" and (await pair.orders("TX"))[0]["status"] == "Canceled"
@@ -400,7 +399,7 @@ class TestExamples:
         failing = pair.arm("regression-suite")
         await pair.advance(15)
         assert failing.verdict == FAILED and failing.counts() == {FAILED: 3}
-        assert failing.instances[0].message == "line 20: only 0 of 100 after 10s"
+        assert failing.instances[0].message == "line 18: only 0 of 100 after 10s"
 
     @pytest.mark.asyncio
     async def test_take_over(self, pair):

@@ -9,8 +9,6 @@
 # Outcome: a price dispute busts the trade; any other dispute is answered by
 #          re-notifying once, and a second dispute busts it
 
-macro dispute-desk
-
 on order
     accept
     fill qty: order.order_qty, price: order.price

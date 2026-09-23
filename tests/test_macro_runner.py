@@ -76,7 +76,7 @@ async def desk(stack):
 
 def script(body, header="on order", top=""):
     lines = "\n".join("    " + l if l.strip() else l for l in body.strip("\n").splitlines())
-    return f"macro t\n{top}{header}\n{lines}\n"
+    return f"{top}{header}\n{lines}\n"
 
 
 # -- the examples, to their stated outcomes ----------------------------------------------
@@ -301,7 +301,7 @@ class TestSemantics:
         run = desk.arm(script("accept\nexpect cancel within 2s else fail 'no cancel for ${order.cl_ord_id}'\n"))
         await desk.order()
         await desk.advance(3)
-        assert (run.instances[0].status, run.instances[0].message) == (FAILED, "line 4: no cancel for C100")
+        assert (run.instances[0].status, run.instances[0].message) == (FAILED, "line 3: no cancel for C100")
         other = desk.arm(script("accept\nexpect cancel within 2s\npass\n"))
         desk.runner.stop(run)
         await desk.order("C2")
@@ -313,7 +313,7 @@ class TestSemantics:
         strict = desk.arm(script("accept\nbust last trade\n"))
         await desk.order("C1")
         inst = strict.instances[0]
-        assert inst.status == FAILED and "line 4: `bust last trade`: this order has no live trade" in inst.message
+        assert inst.status == FAILED and "line 3: `bust last trade`: this order has no live trade" in inst.message
         desk.runner.stop(strict)
         lenient = desk.arm(script("when error\n    log 'heard ${event.op}: ${event.text}'\n"
                                   "accept\nrestate qty: 1, price: 1\nfill qty: 5, price: 1\n"
@@ -330,7 +330,7 @@ class TestSemantics:
     async def test_an_expression_that_fails_names_its_line(self, desk):
         run = desk.arm(script("accept\nfill qty: 1 / order.cum_qty, price: 1\n"))
         await desk.order()
-        assert run.instances[0].message == "line 4: Division by zero — in `1 / order.cum_qty`"
+        assert run.instances[0].message == "line 3: Division by zero — in `1 / order.cum_qty`"
 
     @pytest.mark.asyncio
     async def test_let_is_one_flat_scope_and_repeat_counts(self, desk):
@@ -425,7 +425,7 @@ class TestRunner:
 
     @pytest.mark.asyncio
     async def test_blocks_are_tried_in_order_within_a_script(self, desk):
-        run = desk.arm("macro t\non order where order_qty >= 1000\n    reject text: 'big'\non order\n    accept\n")
+        run = desk.arm("on order where order_qty >= 1000\n    reject text: 'big'\non order\n    accept\n")
         await desk.order("A", qty=5000)
         await desk.order("B", qty=10)
         assert [m.get("150") for m in desk.sent()] == ["8", "0"] and len(run.instances) == 2
@@ -483,15 +483,15 @@ class TestRunner:
 
     @pytest.mark.asyncio
     async def test_what_cannot_be_armed(self, desk):
-        sc, _ = macro.check("macro t\nrun on NOPE\n    new symbol: 'A', side: buy, qty: 1\n")
+        sc, _ = macro.check("run on NOPE\n    new symbol: 'A', side: buy, qty: 1\n")
         with pytest.raises(MacroError, match="`run` on NOPE: no such session"):
             desk.runner.arm(sc)
-        open_, _ = macro.check("macro t\nrun\n    new symbol: 'A', side: buy, qty: 1\n")
-        with pytest.raises(MacroError, match="line 2: `run` names no session, so choose the one to send on"):
+        open_, _ = macro.check("run\n    new symbol: 'A', side: buy, qty: 1\n")
+        with pytest.raises(MacroError, match="line 1: `run` names no session, so choose the one to send on"):
             desk.runner.arm(open_)
         assert desk.runner.runs == [], "a refused run leaves nothing behind"
         with pytest.raises(MacroError, match="has no block to run"):
-            desk.runner.arm(macro.check("macro t\n")[0])
+            desk.runner.arm(macro.check("")[0])
         with pytest.raises(MacroError, match="speed"):
             desk.arm("auto-ack", speed=0)
 
@@ -502,7 +502,7 @@ class TestRunner:
         desk.arm(script("after 1s\naccept\n"))
         await desk.order()
         await desk.advance(1)
-        assert seen == [(RUNNING, 3, "after 1s"), (COMPLETED, 4, "")]
+        assert seen == [(RUNNING, 2, "after 1s"), (COMPLETED, 3, "")]
 
     @pytest.mark.asyncio
     async def test_too_many_live_scripts_for_the_server(self, desk):

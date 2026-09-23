@@ -9,7 +9,7 @@
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alt = (words) => [...words].sort((a, b) => b.length - a.length).map((w) => esc(w).replace(/ /g, "\\s+")).join("|");
 
-const HEADERS = ["macro", "seed", "on error", "on sent order", "on order", "run"];
+const HEADERS = ["seed", "on error", "on sent order", "on order", "run"];
 // A macro is for one side, so an editor offers only its side's blocks.
 const SIDE_BLOCKS = { market: ["on order"], client: ["run", "on sent order"] };
 const BLOCKS = Object.values(SIDE_BLOCKS).flat();

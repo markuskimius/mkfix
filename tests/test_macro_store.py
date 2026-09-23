@@ -14,8 +14,7 @@ from mkfix.services.fix_command import FixCommandService
 
 from tests.test_engine import StubSession, _fetch_all, stack  # noqa: F401
 
-SLOW = """macro slow
-on order
+SLOW = """on order
     accept
     log 'working ${order.cl_ord_id}'
     while order.leaves_qty > 0
@@ -59,8 +58,8 @@ class TestScripts:
     async def test_save_check_load_delete(self, kit):
         db, engine, stub, manager, clock = kit
         result = await manager.save("slow", SLOW)
-        assert (result["name"], result["errors"], result["diagnostics"]) == ("slow", 0, [])
-        assert result["blocks"] == [{"kind": "market", "line": 2, "session": ""}]
+        assert (result["errors"], result["diagnostics"]) == (0, [])
+        assert result["blocks"] == [{"kind": "market", "line": 1, "session": ""}]
         assert (await manager.load("slow"))["source"] == SLOW
         await manager.save("slow", SLOW.replace("50", "25"))
         versions = await _fetch_all(db, "SELECT _mkio_version FROM fix_macros__history ORDER BY _mkio_version")
@@ -79,10 +78,10 @@ class TestScripts:
         db, engine, stub, manager, clock = kit
         toml = tomllib.loads((Path(mkfix.__file__).parent / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
         sql = toml["services"]["macro_versions"]["sql"]
-        texts = [SLOW, SLOW + "# two\n", "macro slow\non order\n    nonsense\n"]
+        texts = [SLOW, SLOW + "# two\n", "on order\n    nonsense\n"]
         for text in texts:
             await manager.save("slow", text)
-        await manager.save("other", "macro other\non order\n    accept\n")
+        await manager.save("other", "on order\n    accept\n")
         row = await manager.load("slow")
         cursor = await db.read_conn.execute(sql, {"id": row["id"]})
         got = [dict(r) for r in await cursor.fetchall()]
@@ -103,28 +102,45 @@ class TestScripts:
     @pytest.mark.asyncio
     async def test_a_draft_with_problems_is_kept_and_counted(self, kit):
         db, engine, stub, manager, clock = kit
-        result = await manager.save("draft", "macro draft\non order\n    acept\n    fill qty: 1\n")
+        result = await manager.save("draft", "on order\n    acept\n    fill qty: 1\n")
         assert result["errors"] == 2
-        assert [(d["line"], d["col"], d["severity"]) for d in result["diagnostics"]] == [(3, 4, "error"), (4, 4, "error")]
+        assert [(d["line"], d["col"], d["severity"]) for d in result["diagnostics"]] == [(2, 4, "error"), (3, 4, "error")]
         assert (await manager.load("draft"))["problems"] == 2
-        with pytest.raises(ValueError, match="'draft' has 2 problem\\(s\\); the first: line 3"):
+        with pytest.raises(ValueError, match="'draft' has 2 problem\\(s\\); the first: line 2"):
             await manager.arm("draft")
 
     @pytest.mark.asyncio
-    async def test_the_name_and_the_script_must_agree(self, kit):
+    async def test_the_name_is_the_saved_one_and_a_file_name(self, kit):
+        """The text carries no name, so the same text saves under any name;
+        the name is a file name on export, so it is held to a plain form."""
         db, engine, stub, manager, clock = kit
-        with pytest.raises(ValueError, match="calls itself 'slow'; it is being saved as 'fast'"):
-            await manager.save("fast", SLOW)
+        await manager.save("fast", SLOW)
+        await manager.save("slow", SLOW)
+        assert (await manager.load("fast"))["source"] == (await manager.load("slow"))["source"]
+        assert "name" not in await manager.check(SLOW)
         with pytest.raises(ValueError, match="needs a name"):
             await manager.save("  ", SLOW)
+        for bad in ("a:b", "-lead", "x/y", "q?"):
+            with pytest.raises(ValueError, match="cannot name a macro"):
+                await manager.save(bad, SLOW)
+        await manager.save("Desk 2026-09-22 14.30.15_v2", SLOW)
+        with pytest.raises(ValueError, match="No macro named 'a:b'"):
+            await manager.load("a:b")
+
+    @pytest.mark.asyncio
+    async def test_an_armed_run_knows_its_macro_by_the_saved_name(self, kit):
+        db, engine, stub, manager, clock = kit
+        await manager.save("venue", SLOW)
+        await manager.arm("venue")
+        assert [r.macro.name for r in manager.live_runs("venue")] == ["venue"]
 
     @pytest.mark.asyncio
     async def test_check_knows_the_sessions_and_templates_that_exist(self, kit):
         db, engine, stub, manager, clock = kit
         await engine.save_template("fill", "half", qty="50")
-        text = "macro t\non order\n    fill using 'half'\n    fill using 'hafl'\n"
+        text = "on order\n    fill using 'half'\n    fill using 'hafl'\n"
         found = (await manager.check(text))["diagnostics"]
-        assert [(d["line"], d["message"]) for d in found] == [(4, "No fill template named 'hafl' — did you mean 'half'?")]
+        assert [(d["line"], d["message"]) for d in found] == [(3, "No fill template named 'hafl' — did you mean 'half'?")]
 
     def test_examples_are_listed_by_their_headers(self):
         manager = MacroManager(MagicMock(), MagicMock())
@@ -145,7 +161,7 @@ class TestScripts:
                 manager.example(bad)
 
     def test_a_header_line_may_wrap(self):
-        head = example_header("# T\n#\n# Shows:   one\n#          two\n# Needs:   n\n\nmacro t\n")
+        head = example_header("# T\n#\n# Shows:   one\n#          two\n# Needs:   n\n\non order\n")
         assert head == {"title": "T", "shows": "one two", "needs": "n"}
 
 
@@ -180,12 +196,12 @@ class TestRuns:
         await _order(engine, stub, manager)
         (inst,) = await _fetch_all(db, "SELECT * FROM fix_macro_orders")
         assert (inst["run_id"], inst["macro"], inst["cl_ord_id"], inst["symbol"], inst["block_line"]) == (
-            run_id, "slow", "C1", "AAPL", 2)
-        assert (inst["status"], inst["line"], inst["waiting_for"]) == ("running", 6, "after 1s")
+            run_id, "slow", "C1", "AAPL", 1)
+        assert (inst["status"], inst["line"], inst["waiting_for"]) == ("running", 5, "after 1s")
         order = (await _fetch_all(db, "SELECT * FROM fix_orders"))[0]
         assert order["macro"] == f"slow #{run_id}" and inst["order_row"] == order["id"]
         assert [(l["line"], l["text"], l["cl_ord_id"]) for l in await _fetch_all(db, "SELECT * FROM fix_macro_log")] == [
-            (4, "working C1", "C1")]
+            (3, "working C1", "C1")]
         (run,) = await _fetch_all(db, "SELECT * FROM fix_macro_runs")
         assert (run["orders"], run["live"], run["passed"], run["verdict"]) == (1, 1, 0, "")
 
@@ -278,7 +294,7 @@ class TestRuns:
         await manager.save("slow", SLOW)
         await manager.arm("slow")
         await manager.stop()
-        await manager._write("upsert_macro", ("slow", "market", 0, "macro slow\non order\n    nonsense\n", 1, "", "", None))
+        await manager._write("upsert_macro", ("slow", "market", 0, "on order\n    nonsense\n", 1, "", "", None))
         manager2, _ = await _manager(engine)
         try:
             assert [r["status"] for r in await _fetch_all(db, "SELECT status FROM fix_macro_runs")] == ["interrupted"]
@@ -298,8 +314,8 @@ class TestRuns:
         await engine.check_archive({"fix_orders": [{"id": 1}], "fix_macro_runs": [{"id": run_id}]})
 
 
-CLIENT = "macro send\nrun\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    wait filled\n"
-MINDER = "macro mind\non sent order\n    wait filled\n"
+CLIENT = "run\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    wait filled\n"
+MINDER = "on sent order\n    wait filled\n"
 
 
 class TestSides:
@@ -324,10 +340,10 @@ class TestSides:
         wrong = await manager.save("send", CLIENT, "market")
         assert wrong["side"] == "market" and wrong["errors"] == 1
         assert "This is a market macro" in wrong["diagnostics"][0]["message"]
-        empty = await manager.save("blank", "macro blank\n", "client")
+        empty = await manager.save("blank", "", "client")
         assert empty["side"] == "client"
         with pytest.raises(ValueError, match="client side or the market side, not 'both'"):
-            await manager.save("x", "macro x\n", "both")
+            await manager.save("x", "", "both")
         with pytest.raises(ValueError, match="has 1 problem"):
             await manager.arm("send")
 
@@ -442,7 +458,7 @@ class TestManyRuns:
         db, engine, stub, manager, clock = kit
         ask = _ask(engine)
         for name, body in (("a", "reject text: 'a'"), ("b", "accept"), ("c", "reject text: 'c'")):
-            await manager.save(name, f"macro {name}\non order\n    {body}\n")
+            await manager.save(name, f"on order\n    {body}\n")
             await manager.arm(name)
         await manager.save("mind", MINDER)
         await manager.save("send", CLIENT)
@@ -533,10 +549,10 @@ class TestBlotterControls:
     async def three(self, kit):
         db, engine, stub, manager, clock = kit
         await manager.save("slow", SLOW)
-        await manager.save("other", "macro other\non order where symbol == 'ZZ'\n    accept\n")
+        await manager.save("other", "on order where symbol == 'ZZ'\n    accept\n")
         await manager.save("send", CLIENT)
-        await manager.save("named", CLIENT.replace("macro send", "macro named").replace("run\n", "run on S1\n"))
-        await manager.save("draft", "macro draft\non order\n    acept\n")
+        await manager.save("named", CLIENT.replace("run\n", "run on S1\n"))
+        await manager.save("draft", "on order\n    acept\n")
         return kit
 
     @pytest.mark.asyncio
@@ -550,8 +566,8 @@ class TestBlotterControls:
             ("macro:named", "named"), ("needs:send", "send  (asks for a session)")]
         # the dialog tells a macro that needs a session by its value alone, and ticked values are joined
         # by commas: a name must never hold either mark
-        from mkfix.macro.parser import _NAME
-        assert not _NAME.fullmatch("a:b") and not _NAME.fullmatch("a,b") and _NAME.fullmatch("my macro-2.b")
+        from mkfix.macro.store import NAME
+        assert not NAME.fullmatch("a:b") and not NAME.fullmatch("a,b") and NAME.fullmatch("my macro-2.b")
 
     @pytest.mark.asyncio
     async def test_play_starts_a_macro_or_resumes_what_is_paused(self, three):
@@ -564,7 +580,7 @@ class TestBlotterControls:
         await manager.flush()
         assert len(stub.sent) == 1
         for data, why in (({"side": "client", "what": "macro:slow"}, "'slow' is a market macro"),
-                          ({"side": "client", "what": "needs:send"}, "send: line 2: `run` names no session"),
+                          ({"side": "client", "what": "needs:send"}, "send: line 1: `run` names no session"),
                           ({"side": "market", "what": ""}, "Choose a macro to play"),
                           ({"side": "market", "what": "nonsense"}, "Choose a macro to play"),
                           ({"what": "macro:slow"}, "Say which side")):
@@ -673,7 +689,7 @@ class TestCommands:
         assert any(e["name"] == "slow-fill" for e in (await ask("list_examples", {}))["examples"])
         source = (await ask("get_example", {"name": "auto-ack"}))["source"]
         assert (await ask("check_macro", {"source": source}))["errors"] == 0
-        assert (await ask("check_macro", {"source": "macro x\non order\n    acept\n"}))["errors"] == 1
+        assert (await ask("check_macro", {"source": "on order\n    acept\n"}))["errors"] == 1
         assert (await ask("save_macro", {"name": "auto-ack", "source": source}))["ok"]
         run_id = (await ask("arm_macro", {"name": "auto-ack", "speed": "2", "seed": ""}))["run_id"]
         await _order(engine, stub, manager)
@@ -690,7 +706,7 @@ class TestSendingRuns:
     @pytest.mark.asyncio
     async def test_a_run_that_only_sends_is_mirrored_and_ends_itself(self, kit):
         db, engine, stub, manager, clock = kit
-        await manager.save("one", "macro one\nrun on S1\n    repeat 2 every 1s\n"
+        await manager.save("one", "run on S1\n    repeat 2 every 1s\n"
                                   "        new symbol: 'IBM', side: buy, qty: 10 * (n + 1), price: 5\n"
                                   "        after 1s\n        pass 'sent ${order.cl_ord_id}'\n")
         run_id = (await manager.arm("one"))["run_id"]
@@ -721,7 +737,7 @@ class TestSendingRuns:
         async def refuse(msg):
             raise ConnectionError("socket closed")
         stub.send_message = refuse
-        await manager.save("one", "macro one\nrun on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    pass\n")
+        await manager.save("one", "run on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    pass\n")
         run_id = (await manager.arm("one"))["run_id"]
         await manager.flush()
         (run,) = await _fetch_all(db, "SELECT * FROM fix_macro_runs")
@@ -729,7 +745,7 @@ class TestSendingRuns:
         (script,) = await _fetch_all(db, "SELECT * FROM fix_macro_orders")
         (order,) = await _fetch_all(db, "SELECT * FROM fix_orders")
         assert (order["status"], order["text"]) == ("Rejected", "Send failed: socket closed")
-        assert (script["status"], script["order_row"], script["session_id"], script["line"]) == ("failed", order["id"], "S1", 3)
+        assert (script["status"], script["order_row"], script["session_id"], script["line"]) == ("failed", order["id"], "S1", 2)
         assert "`new` was refused: socket closed" in script["message"]
         log = [r["text"] for r in await _fetch_all(db, "SELECT text FROM fix_macro_log")]
         assert any("`new` was refused" in line for line in log)
@@ -739,7 +755,7 @@ class TestSendingRuns:
     @pytest.mark.asyncio
     async def test_a_script_that_never_got_an_order_is_still_a_row(self, kit):
         db, engine, stub, manager, clock = kit
-        await manager.save("one", "macro one\nrun on S1\n    after 1s\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n")
+        await manager.save("one", "run on S1\n    after 1s\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n")
         await manager.arm("one")
         stub.is_active = False                                 # the session drops while the script waits
         await clock.advance(2)
@@ -754,7 +770,7 @@ class TestSendingRuns:
     async def test_a_sending_script_is_not_started_on_a_session_that_is_down(self, kit):
         db, engine, stub, manager, clock = kit
         stub.is_active = False
-        await manager.save("one", "macro one\nrun on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n")
+        await manager.save("one", "run on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n")
         with pytest.raises(Exception, match="`run` on S1: the session is not active"):
             await manager.arm("one")
         assert await _fetch_all(db, "SELECT * FROM fix_macro_runs") == [] and manager.live_runs() == []
@@ -770,7 +786,7 @@ class TestSendingRuns:
     @pytest.mark.asyncio
     async def test_a_restart_never_sends_again(self, kit):
         db, engine, stub, manager, clock = kit
-        await manager.save("both", "macro both\non sent order\n    wait filled\nrun on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    wait filled\n")
+        await manager.save("both", "on sent order\n    wait filled\nrun on S1\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    wait filled\n")
         await manager.arm("both")
         await manager.flush()
         assert len(stub.sent) == 1
@@ -786,7 +802,7 @@ class TestSendingRuns:
     @pytest.mark.asyncio
     async def test_run_on_a_session_that_is_not_there(self, kit):
         db, engine, stub, manager, clock = kit
-        await manager.save("lost", "macro lost\nrun on NOWHERE\n    new symbol: 'A', side: buy, qty: 1\n")
+        await manager.save("lost", "run on NOWHERE\n    new symbol: 'A', side: buy, qty: 1\n")
         with pytest.raises(ValueError, match="'lost' has 1 problem.*No session named 'NOWHERE'"):
             await manager.arm("lost")
         assert await _fetch_all(db, "SELECT * FROM fix_macro_runs") == []

@@ -208,8 +208,6 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the same few lines handle one order or a thousand.
 
   ```
-  macro slow-fill
-
   on order where symbol in ['IBM', 'MSFT']
       after 200ms
       accept
@@ -340,9 +338,15 @@ pip install mkfix
 saved scenarios, their runs and logs from an existing database (it says so),
 and `mkfix restore` leaves them out of an older archive. Orders, trades and
 messages are untouched. To keep a scenario, **Export** it from the editor
-before upgrading, change its first line from `scenario NAME` to `macro NAME`,
-and **Import** it into Client Macros or Market Macros. Saved window layouts
-that name the old scenario panes lose those panes.
+before upgrading, delete its `scenario NAME` line, and **Import** it into
+Client Macros or Market Macros. Saved window layouts that name the old
+scenario panes lose those panes.
+
+**Upgrading from 0.51-0.54.** A macro no longer names itself: the `macro
+NAME` line those releases opened every macro with is gone from the language,
+and a macro is named where it is saved. On its first start 0.55 deletes the
+line from every saved macro (it says so); an exported file still carrying
+one is refused at the line, which says to delete it.
 
 Runs on Linux, macOS and Windows with the standard CPython 3.11+
 interpreter. On Windows, Ctrl+C stops the server the same way as

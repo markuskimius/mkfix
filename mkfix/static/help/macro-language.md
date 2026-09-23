@@ -20,8 +20,6 @@ The rest of the language — waiting, `when`, events, control, expressions — i
 ## A first macro
 
 ```macro
-macro slow-fill
-
 on order where symbol in ['IBM', 'MSFT']
     after 200ms
     accept
@@ -39,7 +37,7 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 
 ## The shape of a macro
 
-- The first line names it: `macro NAME`. The name is the one it is saved under.
+- Its name is the one it is saved under: the text does not carry it, so a copy renames freely.
 - `seed N` makes a run repeat exactly: the same `RANDOM()` numbers and the same timing jitter.
 - `on error continue` turns a refused action into an `error` event instead of failing the order's macro.
 - Then one or more blocks. Lines inside a block are indented, with spaces; deeper blocks indent further. `#` starts a comment.
@@ -67,8 +65,6 @@ The macro at the top of this page is one: `on order` blocks, armed with **Arm…
 ## Client macros
 
 ```macro
-macro burst
-
 run
     let clients = ['ACME', 'GLOBEX']
     repeat 20 at 5/s with sym = ['IBM', 'MSFT']
@@ -118,7 +114,6 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 `correct`, `bust`, `renotify` and `dk` act on a trade, so they say which:
 
 ```macro
-macro which-trade
 on order
     accept
     fill qty: 100, price: order.price
@@ -144,7 +139,6 @@ An event that arrived before the `wait` started is not missed: a `wait` looks at
 ## Reacting: when
 
 ```macro
-macro desk
 on order
     accept
     when replace and order.pending_qty < order.cum_qty

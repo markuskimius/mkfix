@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +36,10 @@ if TYPE_CHECKING:
     from mkfix.fix.engine import FixEngine
 
 log = logging.getLogger(__name__)
+
+# What may name a macro: it is a file name on export (`<name>.macro`) and
+# what runs, the log and an order's Macro column name it by.
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]*")
 
 EXAMPLES = Path(__file__).parent / "examples"
 
@@ -178,7 +183,7 @@ class MacroManager:
         side = self._side(side)
         macro, diagnostics = check(source, side=side or None, **await self.known())
         named = {b.session for b in macro.blocks if b.kind == vocab.CLIENT}
-        return {"name": macro.name, "side": side or macro.side,
+        return {"side": side or macro.side,
                 "diagnostics": [_diagnostic(d) for d in diagnostics], "errors": len(errors(diagnostics)),
                 "needs_session": macro.needs_session,
                 # What Run… opens on: the one session every `run` block names.
@@ -198,10 +203,10 @@ class MacroManager:
         name = " ".join(str(name).split())
         if not name:
             raise ValueError("A macro needs a name")
+        if not NAME.fullmatch(name):
+            raise ValueError(f"{name!r} cannot name a macro: letters, digits, spaces, `.`, `_` and `-` only, "
+                             "starting with a letter or digit")
         result = await self.check(source, side)
-        if result["name"] and result["name"] != name:
-            raise ValueError(f"The macro calls itself {result['name']!r}; it is being saved as {name!r}. "
-                             "Make the two agree")
         side = result["side"] = result["side"] or "market"
         # One namespace for both sides: a run, an order's Macro column and
         # the log name a macro by name alone.
@@ -273,6 +278,7 @@ class MacroManager:
         """The saved macro and its parsed form, or why it cannot be started."""
         row = await self.load(name)
         macro, diagnostics = check(row["source"], side=row.get("side") or None, **await self.known())
+        macro.name = name
         bad = errors(diagnostics)
         if bad:
             raise ValueError(f"{name!r} has {len(bad)} problem(s); the first: {bad[0]}")

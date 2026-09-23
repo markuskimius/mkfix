@@ -10,7 +10,6 @@
 #          apart; the first replace of an order is accepted and later ones are
 #          refused; cancels are honoured; a disputed trade is re-notified
 
-macro loopback-venue
 on error continue
 
 on order where session_id == 'LOOP-MKT'

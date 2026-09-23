@@ -10,8 +10,6 @@
 #          trade, and whatever is left is cancelled; the macro passes if every
 #          answer came in time
 
-macro single-order-lifecycle
-
 run
     new symbol: 'IBM', side: buy, qty: 300, type: limit, price: 100.00, tif: day, text: 'lifecycle'
 

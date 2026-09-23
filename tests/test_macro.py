@@ -23,7 +23,7 @@ EXAMPLES = sorted((ROOT / "mkfix" / "macro" / "examples").glob("*.macro"))
 
 def market(body: str, header: str = "on order") -> str:
     lines = "\n".join("    " + line if line.strip() else line for line in body.strip("\n").splitlines())
-    return f"macro t\n{header}\n{lines}\n"
+    return f"{header}\n{lines}\n"
 
 
 def problems(text: str, **known) -> list[tuple[int, int, str]]:
@@ -50,12 +50,12 @@ def scenario_free_vocabulary() -> str:
 
 class TestParser:
     def test_header(self):
-        sc = clean("# a comment\nmacro slow fill-2.b   # trailing\nseed 42\non error continue\n\non order\n    accept\n")
-        assert (sc.name, sc.seed, sc.on_error) == ("slow fill-2.b", 42, "continue")
-        assert clean("macro t\non order\n    accept\n").on_error == "fail"
+        sc = clean("# a comment\nseed 42   # trailing\non error continue\n\non order\n    accept\n")
+        assert (sc.name, sc.seed, sc.on_error) == ("", 42, "continue")
+        assert clean("on order\n    accept\n").on_error == "fail"
 
     def test_three_kinds_of_block(self):
-        sc, _ = macro.parse("macro t\n"
+        sc, _ = macro.parse(""
                                "on order where symbol in ['IBM'] and order.order_qty > 0\n    accept\n"
                                "on sent order where client == 'ACME'\n    cancel\n"
                                "run on BROKER-1.a\n    new symbol: 'IBM', side: buy, qty: 100\n"
@@ -65,18 +65,18 @@ class TestParser:
             (vocab.ATTACHED, None, "client == 'ACME'"),
             (vocab.CLIENT, "BROKER-1.a", None),
             (vocab.CLIENT, None, None)]
-        assert clean("macro t\non order\n    accept\n").blocks[0].where is None
+        assert clean("on order\n    accept\n").blocks[0].where is None
 
     def test_run_may_leave_its_session_to_be_chosen(self):
-        named = clean("macro t\nrun on S\n    new symbol: 'A', side: buy, qty: 1\n")
-        open_ = clean("macro t\nrun\n    new symbol: 'A', side: buy, qty: 1\n")
-        both = clean("macro t\nrun on S\n    new symbol: 'A', side: buy, qty: 1\n"
+        named = clean("run on S\n    new symbol: 'A', side: buy, qty: 1\n")
+        open_ = clean("run\n    new symbol: 'A', side: buy, qty: 1\n")
+        both = clean("run on S\n    new symbol: 'A', side: buy, qty: 1\n"
                      "run\n    new symbol: 'A', side: buy, qty: 1\n")
         assert (named.needs_session, open_.needs_session, both.needs_session) == (False, True, True)
-        assert not clean("macro t\non sent order\n    cancel\n").needs_session
+        assert not clean("on sent order\n    cancel\n").needs_session
         # `run` is a word of its own, not the start of another
-        assert any(m.startswith("Expected `macro`") and "'running'" in m
-                   for _, _, m in problems("macro t\nrunning\n    accept\n"))
+        assert any(m.startswith("Expected `seed`") and "'running'" in m
+                   for _, _, m in problems("running\n    accept\n"))
 
     def test_after_and_jitter(self):
         plain, jitter, ascii_jitter, computed = body_of(market(
@@ -87,7 +87,7 @@ class TestParser:
         assert computed.delay.source == "100ms * n + elapsed" and isinstance(computed, After)
 
     def test_wait_and_expect(self):
-        text = ("macro t\non sent order\n"
+        text = ("on sent order\n"
                 "    wait fill\n"
                 "    wait replaced or cancel rejected or timeout 2s\n"
                 "    wait fill where trade.last_qty > 100 or order.leaves_qty == 0 or timeout 1.5m\n"
@@ -104,7 +104,7 @@ class TestParser:
         assert e2.message.template is True
 
     def test_longest_event_name_wins(self):
-        (w,) = body_of("macro t\non sent order\n    wait cancel rejected or done for day or session down\n")
+        (w,) = body_of("on sent order\n    wait cancel rejected or done for day or session down\n")
         assert w.events == ["cancel rejected", "done for day", "session down"]
 
     def test_when_with_guard_and_body(self):
@@ -128,7 +128,7 @@ class TestParser:
         assert isinstance(done, Finish) and (done.verdict, done.message) == ("pass", None)
 
     def test_repeat_forms(self):
-        text = ("macro t\nrun on S\n    new symbol: 'A', side: buy, qty: 1\n"
+        text = ("run on S\n    new symbol: 'A', side: buy, qty: 1\n"
                 "    repeat 50 at 10/s with sym = ['IBM', 'MSFT']\n        log sym\n"
                 "    repeat 3 every 250ms\n        cancel\n"
                 "    repeat n + 1\n        cancel\n"
@@ -158,7 +158,7 @@ class TestParser:
         assert name.terms[1].value.node.value == "Broker Option" and computed.terms[1].word is None
 
     def test_an_enum_word_is_only_one_when_it_stands_alone(self):
-        text = "macro t\nrun on S\n    let buy = '2'\n    new symbol: 'A', side: buy, qty: 1\n    new symbol: 'A', side: IF(n > 0, buy, '1'), qty: 1\n"
+        text = "run on S\n    let buy = '2'\n    new symbol: 'A', side: buy, qty: 1\n    new symbol: 'A', side: IF(n > 0, buy, '1'), qty: 1\n"
         _, plain, computed = body_of(text)
         assert plain.terms[1].word == "buy" and computed.terms[1].word is None
 
@@ -171,46 +171,46 @@ class TestParser:
         assert wh.events == ["cancel"] and wh.body[0].terms[0].name == "text"
 
     @pytest.mark.parametrize("text, line, col, message", [
-        ("on order\n    accept\n", 1, 0, "A macro starts with `macro NAME`"),
-        ("macro a\nmacro b\non order\n    accept\n", 2, 0, "A macro names itself once"),
-        ("macro t\nseed x\non order\n    accept\n", 2, 5, "Expected a whole number"),
-        ("macro t\non error maybe\non order\n    accept\n", 2, 9, "Expected `continue` or `fail`"),
-        ("macro t\nbanana\n", 2, 0, "Expected `macro`, `seed`, `on error`, or a block"),
-        ("macro t\n    accept\n", 2, 0, "Unexpected indent: this line belongs to no block"),
-        ("macro t\non order\naccept\n", 2, 0, "Expected an indented block under this line"),
-        ("macro t\nrun on\n    cancel\n", 2, 6, "Expected a session name"),
-        ("macro t\non order where\n    accept\n", 2, 14, "Expected an expression"),
-        ("macro t\non order where symbol ==\n    accept\n", 2, 24, "Unexpected end of expression"),
-        ("macro t\non order\n\taccept\n", 3, 0, "Indent with spaces, not tabs"),
-        (market("accept\n    reject\n"), 4, 0, "Unexpected indent"),
-        (market("if order.cum_qty\n        accept\n    reject\n"), 5, 0, "This indent matches no enclosing block"),
-        (market("when cancel\naccept\n"), 3, 4, "Expected an indented block under this line"),
-        (market("else\n    accept\n"), 3, 4, "`else` must follow an `if` at the same indent"),
-        (market("if 1\n    accept\nelse\n    reject\nelse\n    reject\n"), 7, 4, "`else` must follow"),
-        (market("acept\n"), 3, 4, "Unknown statement 'acept' — did you mean 'accept'?"),
-        (market("macro x\n"), 3, 4, "`macro` belongs at the start of a line"),
-        (market("after\n"), 3, 9, "Expected a duration"),
-        (market("after 5min\n"), 3, 10, "Bad number literal: 5m"),
-        (market("after 1s ± \n"), 3, 14, "Expected a duration"),
-        (market("after 1s extra\n"), 3, 13, "Unexpected 'extra'"),
-        (market("wait\n"), 3, 8, "Expected an event, got the end of the line"),
-        (market("wait cancle\n"), 3, 9, "Expected an event, got 'cancle' — did you mean 'cancel"),
-        (market("wait cancel or\n"), 3, 18, "Expected an event"),
-        (market("expect cancel\n"), 3, 17, "Expected `within DURATION`"),
-        (market("expect cancel within 2s else stop\n"), 3, 33, "Expected `fail 'WHY'`"),
-        (market("fail\n"), 3, 8, "Expected the reason: fail 'WHY'"),
-        (market("let = 1\n"), 3, 8, "Expected a name"),
-        (market("let x 1\n"), 3, 10, "Expected `=`"),
-        (market("let order = 1\n"), 3, 8, "'order' is the macro's own name for something"),
-        (market("repeat 3 at fast\n    accept\n"), 3, 16, "Expected a rate such as 10/s"),
-        (market("repeat 3 at 0/s\n    accept\n"), 3, 16, "A rate must be more than zero"),
-        (market("repeat 3 with n = [1]\n    accept\n"), 3, 18, "'n' is the macro's own name"),
-        (market("fill qty 100\n"), 3, 13, "Expected `:` after 'qty'"),
-        (market("fill qty: , price: 1\n"), 3, 14, "Unexpected token: ','"),
-        (market("fill qty: (1 + , price: 1\n"), 3, 19, "Unexpected token: ','"),
-        (market("fill using half\n"), 3, 15, "A template is named in quotes"),
-        (market("reject text: 'open\n"), 3, 17, "Unterminated string literal"),
-        (market("bust trade where\n"), 3, 20, "Expected a condition"),
+        ("macro b\non order\n    accept\n", 1, 0, "`macro` is no longer a word: a macro is named where it is saved. Delete this line"),
+        ("seed x\non order\n    accept\n", 1, 5, "Expected a whole number"),
+        ("on error maybe\non order\n    accept\n", 1, 9, "Expected `continue` or `fail`"),
+        ("banana\n", 1, 0, "Expected `seed`, `on error`, or a block"),
+        ("    accept\n", 1, 0, "Unexpected indent: this line belongs to no block"),
+        ("on order\naccept\n", 1, 0, "Expected an indented block under this line"),
+        ("run on\n    cancel\n", 1, 6, "Expected a session name"),
+        ("on order where\n    accept\n", 1, 14, "Expected an expression"),
+        ("on order where symbol ==\n    accept\n", 1, 24, "Unexpected end of expression"),
+        ("on order\n\taccept\n", 2, 0, "Indent with spaces, not tabs"),
+        (market("accept\n    reject\n"), 3, 0, "Unexpected indent"),
+        (market("if order.cum_qty\n        accept\n    reject\n"), 4, 0, "This indent matches no enclosing block"),
+        (market("when cancel\naccept\n"), 2, 4, "Expected an indented block under this line"),
+        (market("else\n    accept\n"), 2, 4, "`else` must follow an `if` at the same indent"),
+        (market("if 1\n    accept\nelse\n    reject\nelse\n    reject\n"), 6, 4, "`else` must follow"),
+        (market("acept\n"), 2, 4, "Unknown statement 'acept' — did you mean 'accept'?"),
+        (market("macro x\n"), 2, 4, "Unknown statement 'macro'"),
+        (market("seed 1\n"), 2, 4, "`seed` belongs at the start of a line"),
+        (market("after\n"), 2, 9, "Expected a duration"),
+        (market("after 5min\n"), 2, 10, "Bad number literal: 5m"),
+        (market("after 1s ± \n"), 2, 14, "Expected a duration"),
+        (market("after 1s extra\n"), 2, 13, "Unexpected 'extra'"),
+        (market("wait\n"), 2, 8, "Expected an event, got the end of the line"),
+        (market("wait cancle\n"), 2, 9, "Expected an event, got 'cancle' — did you mean 'cancel"),
+        (market("wait cancel or\n"), 2, 18, "Expected an event"),
+        (market("expect cancel\n"), 2, 17, "Expected `within DURATION`"),
+        (market("expect cancel within 2s else stop\n"), 2, 33, "Expected `fail 'WHY'`"),
+        (market("fail\n"), 2, 8, "Expected the reason: fail 'WHY'"),
+        (market("let = 1\n"), 2, 8, "Expected a name"),
+        (market("let x 1\n"), 2, 10, "Expected `=`"),
+        (market("let order = 1\n"), 2, 8, "'order' is the macro's own name for something"),
+        (market("repeat 3 at fast\n    accept\n"), 2, 16, "Expected a rate such as 10/s"),
+        (market("repeat 3 at 0/s\n    accept\n"), 2, 16, "A rate must be more than zero"),
+        (market("repeat 3 with n = [1]\n    accept\n"), 2, 18, "'n' is the macro's own name"),
+        (market("fill qty 100\n"), 2, 13, "Expected `:` after 'qty'"),
+        (market("fill qty: , price: 1\n"), 2, 14, "Unexpected token: ','"),
+        (market("fill qty: (1 + , price: 1\n"), 2, 19, "Unexpected token: ','"),
+        (market("fill using half\n"), 2, 15, "A template is named in quotes"),
+        (market("reject text: 'open\n"), 2, 17, "Unterminated string literal"),
+        (market("bust trade where\n"), 2, 20, "Expected a condition"),
     ])
     def test_problems_are_placed(self, text, line, col, message):
         found = problems(text)
@@ -218,28 +218,35 @@ class TestParser:
 
     def test_every_problem_is_reported_not_the_first(self):
         found = problems(market("acept\nafter\nwait nothing\naccept\n"))
-        assert [l for l, _, _ in found] == [3, 4, 5]
+        assert [l for l, _, _ in found] == [2, 3, 4]
         sc, _ = macro.check(market("acept\naccept\n"))
         assert [s.verb for s in sc.blocks[0].body] == ["accept"], "the good lines still parse"
 
     def test_a_bad_compound_line_takes_its_body_with_it(self):
         found = problems(market("when nonsense\n    accept\n    fill qty: 1, price: 1\nreject\n"))
-        assert [l for l, _, _ in found] == [3]
+        assert [l for l, _, _ in found] == [2]
 
     def test_an_expression_cannot_run_onto_the_next_line(self):
         found = problems(market("if order.cum_qty > 0 and\n    accept\n"))
-        assert (3, 28, "Unexpected end of expression") in found
+        assert (2, 28, "Unexpected end of expression") in found
 
-    def test_a_macro_is_named_by_the_word_macro_and_no_other(self):
-        assert clean("macro t\non order\n    accept\n").name == "t"
+    def test_the_text_carries_no_name(self):
+        """A macro is named where it is saved. Through 0.54 it opened with
+        `macro NAME`, and 0.48-0.50 with `scenario NAME`: both are refused
+        by name, so an old file says what to delete, and neither word is
+        in the vocabulary."""
+        assert clean("on order\n    accept\n").name == ""
         found = [m for _, _, m in problems("scenario t\non order\n    accept\n")]
-        assert any("'scenario'" in m for m in found) and "A macro starts with `macro NAME`" in found
-        assert "scenario" not in scenario_free_vocabulary()
+        assert any("'scenario'" in m for m in found)
+        (only,) = problems("macro t\n\non order\n    accept\n")
+        assert only == (1, 0, "`macro` is no longer a word: a macro is named where it is saved. Delete this line")
+        vocabulary = scenario_free_vocabulary()
+        assert "scenario" not in vocabulary and '"macro name"' not in vocabulary
+        assert "macro" not in macro.vocabulary()["statements"]
 
     def test_empty_text(self):
         assert [m for _, _, m in problems("")] == [
-            "A macro needs at least one block: `on order`, `on sent order` or `run`",
-            "A macro starts with `macro NAME`"]
+            "A macro needs at least one block: `on order`, `on sent order` or `run`"]
 
 
 # -- meaning ------------------------------------------------------------------------
@@ -247,30 +254,30 @@ class TestParser:
 class TestSides:
     """A script is for the client side or the market side, never both."""
 
-    CLIENT = "macro t\nrun\n    new symbol: 'A', side: buy, qty: 1\non sent order\n    cancel\n"
-    MARKET = "macro t\non order\n    accept\non order where symbol == 'A'\n    reject\n"
+    CLIENT = "run\n    new symbol: 'A', side: buy, qty: 1\non sent order\n    cancel\n"
+    MARKET = "on order\n    accept\non order where symbol == 'A'\n    reject\n"
 
     def test_the_blocks_say_which(self):
         assert clean(self.CLIENT).side == "client" and clean(self.MARKET).side == "market"
-        assert clean("macro t\non sent order\n    cancel\n").side == "client"
-        assert macro.parse("macro t\n")[0].side == ""
+        assert clean("on sent order\n    cancel\n").side == "client"
+        assert macro.parse("")[0].side == ""
 
     @pytest.mark.parametrize("second", ["run\n    new symbol: 'A', side: buy, qty: 1\n", "on sent order\n    cancel\n"])
     def test_a_script_of_both_is_a_problem_at_the_block_that_does_not_belong(self, second):
-        found = problems("macro t\non order\n    accept\n" + second)
-        assert [(line, col) for line, col, _ in found] == [(4, 0)]
+        found = problems("on order\n    accept\n" + second)
+        assert [(line, col) for line, col, _ in found] == [(3, 0)]
         assert found[0][2].startswith("This is a market macro, and this block belongs in a client macro")
         (line, _, message), = problems(self.CLIENT + "on order\n    accept\n")
-        assert line == 6 and "This is a client macro" in message and "move this to a market macro" in message
+        assert line == 5 and "This is a client macro" in message and "move this to a market macro" in message
 
     def test_the_pane_it_is_edited_in_decides(self):
         """Market Macros checks with side="market": a client script there
         is wrong from its first block, not only where the sides first differ."""
         _, diags = macro.check(self.CLIENT, side="market")
-        assert [d.line for d in diags] == [2, 4] and all("This is a market macro" in d.message for d in diags)
+        assert [d.line for d in diags] == [1, 3] and all("This is a market macro" in d.message for d in diags)
         assert macro.check(self.CLIENT, side="client")[1] == []
         assert macro.check(self.MARKET, side="market")[1] == []
-        assert [d.line for d in macro.check(self.MARKET, side="client")[1]] == [2, 4]
+        assert [d.line for d in macro.check(self.MARKET, side="client")[1]] == [1, 3]
 
     def test_every_block_kind_has_a_side(self):
         assert {k: vocab.side_of(k) for k in vocab.SIDES} == {
@@ -280,37 +287,37 @@ class TestSides:
 
 class TestChecker:
     @pytest.mark.parametrize("text, line, col, message", [
-        (market("new symbol: 'A', side: buy, qty: 1\n"), 3, 4, "`new` belongs in a `run` block, not an `on order` block"),
-        (market("cancel\n"), 3, 4, "`cancel` belongs in a `run` block or an `on sent order` block"),
-        ("macro t\non sent order\n    accept\n", 3, 4, "`accept` belongs in an `on order` block"),
-        ("macro t\non sent order\n    new symbol: 'A', side: buy, qty: 1\n", 3, 4, "one order per macro"),
-        ("macro t\nrun on S\n    cancel\n", 2, 0, "A `run` block sends its own orders: it needs a `new`"),
-        ("macro t\nrun on S\n    expect ack within 1s\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",
-         3, 4, "This line runs before any order exists: move it inside the `repeat` that sends"),
-        ("macro t\nrun on S\n    if n == 0\n        cancel\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",
-         4, 8, "This line runs before any order exists"),
-        (market("wait ack\n"), 3, 4, "`ack` never happens in an `on order` block. Events there: cancel, dk"),
-        ("macro t\non sent order\n    when replace\n        cancel\n", 3, 4, "`replace` never happens in an `on sent order` block"),
-        (market("fill qty: 1\n"), 3, 4, "`fill` needs price"),
-        (market("fill\n"), 3, 4, "`fill` needs qty, price"),
-        (market("fill qty: 1, price: 2, size: 3\n"), 3, 27, "`fill` has no term 'size'. It takes: qty, price, text, extra"),
-        (market("fill qty: 1, price: 2, prise: 3\n"), 3, 27, "did you mean 'price'?"),
-        (market("fill qty: 1, qty: 2, price: 3\n"), 3, 17, "'qty' is given twice"),
-        (market("bust\n"), 3, 4, "Which trade? `bust last trade`"),
-        (market("accept last trade\n"), 3, 11, "`accept` acts on the order, not on a trade"),
-        (market("when cancel\n    bust\n"), 4, 8, "Which trade?"),
-        (market("when dk or cancel\n    bust\n"), 4, 8, "Which trade?"),
-        (market("if order.leave_qty > 0\n    accept\n"), 3, 13, "Unknown field: 'order.leave_qty'. order has:"),
-        (market("fill qty: MIN(100, order.leave_qty), price: 1\n"), 3, 29, "Unknown field: 'order.leave_qty'"),
-        (market("if COUNT(history, h -> h.pendng_action == 'x') > 0\n    accept\n"), 3, 29, "Unknown field: 'history.*.pendng_action'"),
-        (market("if trades[0].last_px > 1\n    accept\n"), 3, 17, "Unknown field: 'trades.*.last_px'"),
-        (market("if event.prev.cumqty > 1\n    accept\n"), 3, 18, "Unknown field: 'event.prev.cumqty'"),
-        (market("if ordr.cum_qty > 1\n    accept\n"), 3, 7, "Unknown field: 'ordr'. Available fields:"),
-        (market("if NOPE(1)\n    accept\n"), 3, 7, "Unknown function: NOPE"),
-        (market("reject text: 'qty ${order.qty}'\n"), 3, 17, "In the text's ${…}: Unknown field: 'order.qty'"),
-        (market("reject text: 'qty ${1 +}'\n"), 3, 17, "In the text's ${…}:"),
-        ("macro t\non order where symbl == 'IBM'\n    accept\n", 2, 15, "Unknown field: 'symbl'"),
-        (market("bust trade where trade.px > 1\n"), 3, 27, "Unknown field: 'trade.px'"),
+        (market("new symbol: 'A', side: buy, qty: 1\n"), 2, 4, "`new` belongs in a `run` block, not an `on order` block"),
+        (market("cancel\n"), 2, 4, "`cancel` belongs in a `run` block or an `on sent order` block"),
+        ("on sent order\n    accept\n", 2, 4, "`accept` belongs in an `on order` block"),
+        ("on sent order\n    new symbol: 'A', side: buy, qty: 1\n", 2, 4, "one order per macro"),
+        ("run on S\n    cancel\n", 1, 0, "A `run` block sends its own orders: it needs a `new`"),
+        ("run on S\n    expect ack within 1s\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",
+         2, 4, "This line runs before any order exists: move it inside the `repeat` that sends"),
+        ("run on S\n    if n == 0\n        cancel\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",
+         3, 8, "This line runs before any order exists"),
+        (market("wait ack\n"), 2, 4, "`ack` never happens in an `on order` block. Events there: cancel, dk"),
+        ("on sent order\n    when replace\n        cancel\n", 2, 4, "`replace` never happens in an `on sent order` block"),
+        (market("fill qty: 1\n"), 2, 4, "`fill` needs price"),
+        (market("fill\n"), 2, 4, "`fill` needs qty, price"),
+        (market("fill qty: 1, price: 2, size: 3\n"), 2, 27, "`fill` has no term 'size'. It takes: qty, price, text, extra"),
+        (market("fill qty: 1, price: 2, prise: 3\n"), 2, 27, "did you mean 'price'?"),
+        (market("fill qty: 1, qty: 2, price: 3\n"), 2, 17, "'qty' is given twice"),
+        (market("bust\n"), 2, 4, "Which trade? `bust last trade`"),
+        (market("accept last trade\n"), 2, 11, "`accept` acts on the order, not on a trade"),
+        (market("when cancel\n    bust\n"), 3, 8, "Which trade?"),
+        (market("when dk or cancel\n    bust\n"), 3, 8, "Which trade?"),
+        (market("if order.leave_qty > 0\n    accept\n"), 2, 13, "Unknown field: 'order.leave_qty'. order has:"),
+        (market("fill qty: MIN(100, order.leave_qty), price: 1\n"), 2, 29, "Unknown field: 'order.leave_qty'"),
+        (market("if COUNT(history, h -> h.pendng_action == 'x') > 0\n    accept\n"), 2, 29, "Unknown field: 'history.*.pendng_action'"),
+        (market("if trades[0].last_px > 1\n    accept\n"), 2, 17, "Unknown field: 'trades.*.last_px'"),
+        (market("if event.prev.cumqty > 1\n    accept\n"), 2, 18, "Unknown field: 'event.prev.cumqty'"),
+        (market("if ordr.cum_qty > 1\n    accept\n"), 2, 7, "Unknown field: 'ordr'. Available fields:"),
+        (market("if NOPE(1)\n    accept\n"), 2, 7, "Unknown function: NOPE"),
+        (market("reject text: 'qty ${order.qty}'\n"), 2, 17, "In the text's ${…}: Unknown field: 'order.qty'"),
+        (market("reject text: 'qty ${1 +}'\n"), 2, 17, "In the text's ${…}:"),
+        ("on order where symbl == 'IBM'\n    accept\n", 1, 15, "Unknown field: 'symbl'"),
+        (market("bust trade where trade.px > 1\n"), 2, 27, "Unknown field: 'trade.px'"),
     ])
     def test_problems(self, text, line, col, message):
         found = problems(text)
@@ -318,19 +325,19 @@ class TestChecker:
 
     def test_a_trade_verb_under_a_trade_event_needs_no_target(self):
         clean(market("when dk\n    if trade.dk_reason == 'Other'\n        bust\n    else\n        renotify\n"))
-        clean("macro t\non sent order\n    when fill or filled and trade.last_price > 1\n        dk reason: wrong_side\n")
+        clean("on sent order\n    when fill or filled and trade.last_price > 1\n        dk reason: wrong_side\n")
 
     def test_a_template_may_supply_the_required_terms(self):
         clean(market("fill using 'half'\n"))
 
     def test_let_and_with_names_are_known_block_wide(self):
         clean(market("let cap = 5\nwhen cancel and order.cum_qty > cap\n    reject\nif cap.anything\n    accept\n"))
-        clean("macro t\nrun on S\n    repeat 2 with sym = ['A']\n        new symbol: sym, side: buy, qty: n + 1\n")
-        found = problems("macro t\non order\n    let cap = 5\n    accept\non order\n    if cap > 1\n        accept\n")
-        assert [(l, m.split('.')[0]) for l, _, m in found] == [(6, "Unknown field: 'cap'")], "one block's names are not another's"
+        clean("run on S\n    repeat 2 with sym = ['A']\n        new symbol: sym, side: buy, qty: n + 1\n")
+        found = problems("on order\n    let cap = 5\n    accept\non order\n    if cap > 1\n        accept\n")
+        assert [(l, m.split('.')[0]) for l, _, m in found] == [(5, "Unknown field: 'cap'")], "one block's names are not another's"
 
     def test_event_tags_and_undescribed_values_pass(self):
-        clean("macro t\non sent order\n    wait er where event.tag['150'] == 'F' and event.tag.39 in ['1', '2']\n    cancel\n")
+        clean("on sent order\n    wait er where event.tag['150'] == 'F' and event.tag.39 in ['1', '2']\n    cancel\n")
         clean(market("if order.symbol.anything.at.all\n    accept\n"))
 
     def test_macro_only_functions(self):
@@ -339,24 +346,24 @@ class TestChecker:
             expr.compile("TICK(1, 1)")
 
     def test_known_sessions_and_templates_are_checked_when_given(self):
-        text = "macro t\nrun on BROKR\n    new using 'ibm-buy'\n"
+        text = "run on BROKR\n    new using 'ibm-buy'\n"
         assert problems(text) == []
         found = problems(text, sessions=["BROKER", "OTHER"], templates={"order": ["ibm-buys"], "fill": ["ibm-buy"]})
-        assert found == [(2, 0, "No session named 'BROKR' — did you mean 'BROKER'?"),
-                         (3, 4, "No order template named 'ibm-buy' — did you mean 'ibm-buys'?")]
+        assert found == [(1, 0, "No session named 'BROKR' — did you mean 'BROKER'?"),
+                         (2, 4, "No order template named 'ibm-buy' — did you mean 'ibm-buys'?")]
         assert problems(text, sessions=["BROKR"], templates={"order": ["ibm-buy"]}) == []
 
     def test_an_unknown_enum_name_is_a_warning_and_a_code_is_fine(self):
         text = market("restate qty: 1, reason: 'Reprising'\nrestate qty: 1, reason: '3'\nrestate qty: 1, reason: '99'\n")
         sc, diags = macro.check(text)
-        assert [(d.line, d.severity) for d in diags] == [(3, "warning")] and "did you mean 'repricing'" in diags[0].message
+        assert [(d.line, d.severity) for d in diags] == [(2, "warning")] and "did you mean 'repricing'" in diags[0].message
         assert macro.errors(diags) == []
 
     def test_diagnostics_are_sorted_and_carry_a_span(self):
         _, diags = macro.check(market("fill qty: 1, size: 2\nacept\n"))
         assert [(d.line, d.col) for d in diags] == sorted((d.line, d.col) for d in diags)
         assert all(d.end > d.col for d in diags)
-        assert str(diags[0]).startswith("line 3, col 5: ")
+        assert str(diags[0]).startswith("line 2, col 5: ")
 
 
 # -- the words ------------------------------------------------------------------------
@@ -442,7 +449,6 @@ class TestExamples:
         text = path.read_text(encoding="utf-8")
         sc, diags = macro.check(text)
         assert diags == [], [str(d) for d in diags]
-        assert sc.name == path.stem, "an example is named for its file"
         m = HEADER.match(text)
         assert m, "an example opens with `# Title`, a bare `#`, then its Shows/Needs/Watch/Outcome lines"
         labels = re.findall(r"^# (\w+):", m.group("fields"), re.M)

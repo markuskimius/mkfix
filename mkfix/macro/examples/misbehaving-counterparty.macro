@@ -7,7 +7,6 @@
 # Outcome: each order is accepted, overfilled by 10%, then sent a report
 #          with a missing TransactTime, a custom tag and a bad checksum
 
-macro misbehaving-counterparty
 on error continue          # a refused action is an `error` event, not the end
 
 on order

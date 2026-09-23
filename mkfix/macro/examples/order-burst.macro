@@ -10,7 +10,6 @@
 #          drawn from the seed, each its own macro that expects its
 #          acknowledgement and passes or fails on it
 
-macro order-burst
 seed 20260920                   # the same twenty orders every run
 
 run

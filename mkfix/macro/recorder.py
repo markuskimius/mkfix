@@ -163,8 +163,7 @@ class Recorder:
                 "# a quantity, a bound, the `where`. It checks clean, so it runs as it stands.",
                 ("# Each action runs when what it answered comes, after the time you took to answer it."
                  if self.delays else
-                 "# Each action runs the moment what it answered comes; `after` is only where nothing came between two."), "",
-                f"macro {name}", ""]
+                 "# Each action runs the moment what it answered comes; `after` is only where nothing came between two."), ""]
         if not lines:
             head += ["# Nothing was recorded: no order "
                      + ("arrived and was worked" if self.side == "market" else "was sent by hand") + " while recording.", ""]

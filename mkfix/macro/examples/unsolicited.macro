@@ -7,8 +7,6 @@
 # Outcome: day orders are cut to half after 3 s and pulled after 10 s;
 #          good-till-cancel orders are repriced once and left working
 
-macro unsolicited
-
 on order
     accept
 

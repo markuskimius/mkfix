@@ -83,7 +83,7 @@ class TestColouring:
 
 @needs_node
 class TestCompletion:
-    LINES = ["macro t", "on order", "    ", "    when ", "    fill ", "    fill qty: 1, ", "    restate qty: 1, reason: ",
+    LINES = ["on order", "    ", "    when ", "    fill ", "    fill qty: 1, ", "    restate qty: 1, reason: ",
              "    if order.", "    bust ", "    fill using '", "run on ", "", "on sent order", "    ", "    when cancel rejected and event.",
              "run ", "    "]
 
@@ -96,32 +96,32 @@ class TestCompletion:
         return got[:limit] if limit else got
 
     def test_a_line_starts_with_what_the_block_allows(self, tmp_path):
-        market = self.names(tmp_path, 2)
+        market = self.names(tmp_path, 1)
         assert {"accept", "fill", "unsol cxl", "when", "after"} <= set(market) and "new" not in market and "cancel" not in market
-        sending = self.names(tmp_path, 13)
+        sending = self.names(tmp_path, 12)
         assert {"replace", "cancel", "dk"} <= set(sending) and "accept" not in sending and "new" not in sending
 
     def test_events_for_the_side(self, tmp_path):
-        assert self.names(tmp_path, 3, 3) == ["cancel", "replace", "dk"] and "ack" not in self.names(tmp_path, 3)
+        assert self.names(tmp_path, 2, 3) == ["cancel", "replace", "dk"] and "ack" not in self.names(tmp_path, 2)
 
     def test_terms_then_the_ones_left(self, tmp_path):
-        assert self.names(tmp_path, 4) == ["qty", "price", "text", "extra", "using"]
-        assert self.names(tmp_path, 5) == ["price", "text", "extra"]
+        assert self.names(tmp_path, 3) == ["qty", "price", "text", "extra", "using"]
+        assert self.names(tmp_path, 4) == ["price", "text", "extra"]
 
     def test_words_for_a_term_templates_sessions_fields_targets_headers(self, tmp_path):
-        assert "repricing" in self.names(tmp_path, 6)
-        assert {"leaves_qty", "pending_action", "cxl_rej_reason"} <= set(self.names(tmp_path, 7))
-        assert self.names(tmp_path, 8, 3) == ["last trade", "first trade", "trade where"]
-        assert self.names(tmp_path, 9) == ["half", "all"]
-        assert self.names(tmp_path, 10) == ["S1", "S2"]
-        assert self.names(tmp_path, 11) == ["macro", "seed", "on error", "on sent order", "on order", "run"]
-        assert self.names(tmp_path, 15) == ["on"], "`run` may name its session, or leave it to Run…"
-        assert "new" in self.names(tmp_path, 16), "a bare `run` opens a client block"
+        assert "repricing" in self.names(tmp_path, 5)
+        assert {"leaves_qty", "pending_action", "cxl_rej_reason"} <= set(self.names(tmp_path, 6))
+        assert self.names(tmp_path, 7, 3) == ["last trade", "first trade", "trade where"]
+        assert self.names(tmp_path, 8) == ["half", "all"]
+        assert self.names(tmp_path, 9) == ["S1", "S2"]
+        assert self.names(tmp_path, 10) == ["seed", "on error", "on sent order", "on order", "run"]
+        assert self.names(tmp_path, 14) == ["on"], "`run` may name its session, or leave it to Run…"
+        assert "new" in self.names(tmp_path, 15), "a bare `run` opens a client block"
 
     def test_an_editor_offers_only_its_own_sides_blocks(self, tmp_path):
-        assert self.names(tmp_path, 11, side="market") == ["macro", "seed", "on error", "on order"]
-        assert self.names(tmp_path, 11, side="client") == ["macro", "seed", "on error", "on sent order", "run"]
-        assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 14))
+        assert self.names(tmp_path, 10, side="market") == ["seed", "on error", "on order"]
+        assert self.names(tmp_path, 10, side="client") == ["seed", "on error", "on sent order", "run"]
+        assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 13))
 
     def test_help_for_the_word_under_the_cursor(self, tmp_path):
         line = ["    expect cancel rejected within 2s"]
@@ -285,8 +285,8 @@ class TestLineDiff:
         assert sum(o["op"] == "same" for o in got) >= len(" quick brown ")
 
     def test_marks_are_on_the_versions_own_rows(self, tmp_path):
-        old = ["macro t", "on order", "    after 250ms", "    accept"]
-        new = ["macro t", "on order where symbol == 'IBM'", "    accept", "    when cancel", "        accept"]
+        old = ["# t", "on order", "    after 250ms", "    accept"]
+        new = ["# t", "on order where symbol == 'IBM'", "    accept", "    when cancel", "        accept"]
         assert self.marks(tmp_path, old, new) == {
             "only": [1, 2], "removed": 2, "added": 3,
             # the line that replaced rows 1-2 belongs after them; a gap past the last row is after the text

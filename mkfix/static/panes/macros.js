@@ -24,9 +24,9 @@ const TEMPLATE_SCOPES = {
   "unsol cxl": "unsolicited", restate: "restate", dk: "dk", correct: "correct", bust: "bust", renotify: "renotify",
 };
 const STARTER = {
-  market: (name) => `macro ${name}\n\non order\n    after 250ms\n    accept\n`,
-  client: (name) => `macro ${name}\n\nrun\n    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 100.00\n`
-    + `    expect ack within 2s\n    pass\n`,
+  market: "on order\n    after 250ms\n    accept\n",
+  client: "run\n    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 100.00\n"
+    + "    expect ack within 2s\n    pass\n",
 };
 const LIVE = ["armed", "paused"];
 
@@ -540,7 +540,7 @@ registerPaneType("macros", async (spec, app, host) => {
     if (!name) return;
     if (macros.has(name)) { status(`${name} already exists`, "error"); return; }
     if (!(await leaveCurrent())) return;
-    const text = source ? source.replace(/^(\s*macro\s+).*$/m, `$1${name}`) : STARTER[side](name);
+    const text = source ?? STARTER[side];
     try {
       await cmd("save_macro", { name, source: text, side });
       open(name, text);
@@ -648,8 +648,7 @@ registerPaneType("macros", async (spec, app, host) => {
     fileEl.value = "";
     if (!file) return;
     const text = await file.text();
-    const named = /^\s*macro\s+(.+?)\s*(#.*)?$/m.exec(text)?.[1] ?? file.name.replace(/\.[^.]+$/, "");
-    createNamed(named, text);
+    createNamed(file.name.replace(/\.[^.]+$/, ""), text);
   });
 
   const vim = button("vim");

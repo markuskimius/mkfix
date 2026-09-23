@@ -9,8 +9,6 @@
 #          fully filled within 10 s, never overfilled, and answered a cancel it
 #          sent after the fill with a reject
 
-macro regression-suite
-
 run
     repeat 3 every 500ms with qty = [100, 250, 400]
         new symbol: 'IBM', side: buy, qty: qty, type: limit, price: 100.00

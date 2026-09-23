@@ -10,8 +10,6 @@
 #          disputed once; the re-notification that answers it is recognised as
 #          one and left alone; after 10 s the macro passes
 
-macro dk-policy
-
 run
     new symbol: 'AAPL', side: buy, qty: 100, type: limit, price: 150.00
     expect ack within 2s

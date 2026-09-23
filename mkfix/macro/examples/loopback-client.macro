@@ -12,7 +12,6 @@
 #          passes. The run stays live, minding orders sent by hand on the same
 #          session, until you stop it
 
-macro loopback-client
 seed 1
 on error continue
 

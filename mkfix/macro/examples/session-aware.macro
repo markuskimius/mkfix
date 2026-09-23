@@ -7,7 +7,6 @@
 # Outcome: fills pause while the session is down and resume when it is back;
 #          an order whose session stays down a minute fails its macro
 
-macro session-aware
 on error continue
 
 on order

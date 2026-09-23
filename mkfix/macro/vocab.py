@@ -112,7 +112,6 @@ EVENTS: dict[str, Event] = {e.name: e for e in (
 
 # Statement keywords, each with its form and one line of help.
 STATEMENTS: dict[str, tuple[str, str]] = {
-    "macro": ("macro NAME", "Names the macro. First line of every macro."),
     "seed": ("seed N", "Seeds RANDOM() and timing jitter, so a run repeats exactly."),
     "on error": ("on error continue", "A refused action raises an `error` event instead of failing the order's macro."),
     "on order": ("on order [where EXPR]", "A block run for every received order the expression matches."),

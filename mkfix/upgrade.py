@@ -12,12 +12,18 @@ what 0.48-0.50 kept under the old names — the scripts, their runs, and the
 `scenario` column naming the script that took an order — is dropped from a
 database (`retire_scenarios`) and left out of an archive on restore
 (`strip_retired`). Orders, trades and messages are untouched.
+
+Through 0.54 every macro opened with `macro NAME`, a line the parser now
+refuses: a macro is named where it is saved. `retire_macro_lines` deletes
+the line from the saved rows so they still check; an old archive needs no
+help, since the strip runs at every start, after a restore too.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -67,6 +73,35 @@ def retire_scenarios(db_path: str) -> dict[str, list[str]]:
         print("  Scenarios are macros now, and start afresh: dropped "
               + ", ".join([*gone["tables"], *gone["columns"]]))
     return gone
+
+
+MACRO_LINE = re.compile(r"^[ \t]*macro[ \t]+[^\n]*\n?(?:[ \t]*\n)?", re.M)
+
+
+def retire_macro_lines(db_path: str) -> list[str]:
+    """Delete the `macro NAME` line (and the blank after it) from every saved
+    macro in an existing database file: the names of the rows changed, none
+    when there was nothing to do. A plain UPDATE, outside mkio's writer, so
+    the row's version and history stay as they were."""
+    if not db_path or db_path == ":memory:" or not Path(db_path).is_file():
+        return []
+    changed: list[str] = []
+    conn = sqlite3.connect(db_path)
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if "fix_macros" not in tables:
+            return []
+        for name, source in conn.execute("SELECT name, source FROM fix_macros").fetchall():
+            stripped = MACRO_LINE.sub("", source or "", count=1)
+            if stripped != source:
+                conn.execute("UPDATE fix_macros SET source = ? WHERE name = ?", (stripped, name))
+                changed.append(name)
+        conn.commit()
+    finally:
+        conn.close()
+    if changed:
+        print("  A macro no longer names itself: dropped the `macro NAME` line from " + ", ".join(changed))
+    return changed
 
 
 def retire_mirror_columns(db_path: str) -> dict[str, list[str]]:

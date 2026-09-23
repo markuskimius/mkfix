@@ -146,7 +146,7 @@ class Block:
 
 @dataclass(slots=True)
 class Macro:
-    name: str = ""
+    name: str = ""                    # the saved name, set by whoever loads it; the text carries none
     seed: int | None = None
     on_error: str = "fail"            # fail | continue
     blocks: list[Block] = field(default_factory=list)

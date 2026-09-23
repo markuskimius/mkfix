@@ -5,8 +5,6 @@
 # Watch:   Received Orders: Pending goes from New to blank, Status to New
 # Outcome: every order is accepted 250 ms after it arrives
 
-macro auto-ack
-
 on order
     after 250ms
     accept

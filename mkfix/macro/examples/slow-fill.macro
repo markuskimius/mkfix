@@ -6,7 +6,6 @@
 # Outcome: each order is worked in clips of up to 100 about once a second,
 #          at or slightly through its limit, until nothing is left
 
-macro slow-fill
 seed 7                      # the same run, the same jitter and prices
 
 on order where order_qty > 0

@@ -7,8 +7,6 @@
 # Outcome: odd lots, oversized orders and a blocked client are rejected with
 #          a reason; everything else is accepted
 
-macro reject-by-rule
-
 # Only limit orders are this macro's business: the rest stay pending for
 # a person, or for another armed macro further down the list.
 on order where ord_type_code == '2'

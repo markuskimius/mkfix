@@ -27,7 +27,6 @@ from .nodes import (
 )
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]*")
 _SESSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _RATE = re.compile(r"(\d+(?:\.\d+)?)\s*/\s*(ms|s|m|h)\b")
 _JITTER = re.compile(r"±|\+/-")
@@ -37,7 +36,7 @@ _UNIT_SECONDS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 _EVENTS = sorted(vocab.EVENTS, key=lambda name: -len(name.split()))
 _VERBS = sorted(vocab.VERBS, key=lambda name: -len(name.split()))
 _SIMPLE = ("after", "wait", "expect", "when", "if", "else", "while", "repeat", "let", "stop", "pass", "fail", "log")
-_HEADERS = ("macro", "seed", "on", "run")
+_HEADERS = ("seed", "on", "run")
 
 
 class _Problem(Exception):
@@ -184,7 +183,6 @@ class _Parser:
 
     def parse(self) -> Macro:
         macro = Macro()
-        named = False
         while self.i < len(self.lines):
             line = self.lines[self.i]
             if line.indent:
@@ -193,16 +191,12 @@ class _Parser:
                 continue
             self.i += 1
             try:
-                if line.take_phrase("macro"):
-                    m = line.take_re(_NAME)
-                    if not m:
-                        raise _Problem("Expected the macro's name", line.pos)
-                    if named:
-                        raise _Problem("A macro names itself once", line.indent, len(line.text))
-                    line.pos = m.end()
-                    line.end()
-                    macro.name, named = m.group().strip(), True
-                elif line.take_phrase("seed"):
+                if line.at_phrase("macro"):
+                    # Through 0.54 a macro opened with `macro NAME`; the name
+                    # is the one it is saved under, and nothing else.
+                    raise _Problem("`macro` is no longer a word: a macro is named where it is saved. "
+                                   "Delete this line", line.indent, len(line.text))
+                if line.take_phrase("seed"):
                     m = line.take_re(re.compile(r"\d+"))
                     if not m:
                         raise _Problem("Expected a whole number", line.pos)
@@ -219,13 +213,11 @@ class _Parser:
                 else:
                     word = (line.words_ahead(1) or [line.text.split()[0]])[0]
                     raise _Problem(
-                        f"Expected `macro`, `seed`, `on error`, or a block (`on order`, `on sent order`, "
+                        f"Expected `seed`, `on error`, or a block (`on order`, `on sent order`, "
                         f"`run`), got {word!r}", line.indent, len(line.text))
             except _Problem as p:
                 self.problem(line, p)
                 self.skip_body(line.indent)
-        if not named:
-            self.report(1, 0, 1, "A macro starts with `macro NAME`")
         return macro
 
     def block(self, line: _Line) -> Block:

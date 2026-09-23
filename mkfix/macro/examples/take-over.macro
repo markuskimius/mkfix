@@ -9,8 +9,6 @@
 #          through its limit are disputed, and whatever is open after 30 s is
 #          cancelled; orders in other symbols are left to you
 
-macro take-over
-
 # No `new` here: the order already exists. An order a `run` macro sent
 # belongs to that macro and is never taken.
 on sent order where symbol == 'IBM'

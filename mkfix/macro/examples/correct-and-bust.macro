@@ -8,8 +8,6 @@
 # Outcome: three fills; the last is repriced, the first is busted, and any
 #          trade above 150 is busted too
 
-macro correct-and-bust
-
 on order
     accept
     fill qty: order.order_qty / 4, price: order.price

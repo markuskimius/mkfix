@@ -10,8 +10,6 @@
 #          order is unfilled; a refused replace is logged and the chase goes on;
 #          what is left at the end is cancelled
 
-macro replace-chase
-
 run
     new symbol: 'MSFT', side: buy, qty: 500, type: limit, price: 50.00
     expect ack within 2s

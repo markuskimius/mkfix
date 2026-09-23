@@ -7,8 +7,6 @@
 # Outcome: the first replace is accepted, later ones refused; a cancel is
 #          accepted unless the order has finished
 
-macro cancel-replace-desk
-
 on order where symbol != ''
     after 100ms
     accept

@@ -82,7 +82,6 @@ class TestMarketRecording:
         result = await recorder.stop("venue")
         assert (result["orders"], result["actions"]) == (1, 4) and not recorder.recording
         assert body(result["source"]) == [
-            "macro venue",
             "on order where symbol == 'IBM'",
             "    when replace",                 # a request answered the same way every time is a rule
             "        accept",
@@ -93,7 +92,8 @@ class TestMarketRecording:
             "    after 2s",                     # nothing came between the accept and the fill: only time
             "    fill qty: 50, price: 10"]
         assert "# Each action runs the moment what it answered comes" in result["source"]
-        assert "\n\nmacro venue\n\non order where" in result["source"], "a blank line either side of the name"
+        assert "two.\n\non order where" in result["source"], "a blank line between the header comment and the first block"
+        assert "macro venue" not in result["source"], "the text carries no name: it is named where it is saved"
         assert result["source"].startswith("# Recorded 20") and " on LOOP-MKT: 1 order, 4 actions." in result["source"]
 
     @pytest.mark.asyncio
@@ -106,7 +106,7 @@ class TestMarketRecording:
         before = len(hand.pair.mkt.sent)
         pair = hand.pair
         pair.arm(source)
-        run = pair.arm("macro again\nrun\n    new symbol: 'IBM', side: buy, qty: 100, price: 10\n"
+        run = pair.arm("run\n    new symbol: 'IBM', side: buy, qty: 100, price: 10\n"
                        "    wait fill\n    after 1s\n    replace qty: 200\n    wait replaced\n    after 1s\n    cancel\n"
                        "    expect canceled within 2s\n    pass\n")
         await pair.advance(10)
@@ -124,7 +124,7 @@ class TestMarketRecording:
         await hand.market("accept_request", ibm, wait=1)
         await hand.market("accept_request", msft, wait=0.4)
         await hand.market("reject_request", zzzz, wait=2, text="Unknown symbol")
-        assert body((await recorder.stop())["source"])[1:] == [
+        assert body((await recorder.stop())["source"]) == [
             "on order where symbol in ['IBM', 'MSFT']", "    accept",
             "on order where symbol == 'ZZZZ'", "    reject text: 'Unknown symbol'"]
 
@@ -181,9 +181,9 @@ class TestMarketRecording:
         (sent,) = await hand.pair.trades("TX")
         await hand.do("renotify_trade", 0.5, session_id="LOOP-MKT", exec_id=sent["exec_id"], text="as booked")
         venue, disputer = (await market.stop("venue"))["source"], (await client.stop("disputer"))["source"]
-        assert body(venue)[2:] == ["    when dk", "        renotify last trade text: 'as booked'",
+        assert body(venue)[1:] == ["    when dk", "        renotify last trade text: 'as booked'",
                                    "    accept", "    after 1s", "    fill qty: 100, price: 10"]
-        assert body(disputer)[3:] == ["    expect ack within 5s", "    expect filled within 5s",
+        assert body(disputer)[2:] == ["    expect ack within 5s", "    expect filled within 5s",
                                       "    dk last trade reason: calculation_difference",
                                       "    expect filled within 5s", "    pass"], "the re-notification is heard as the fill it restates"
         assert macro.check(venue, side="market")[1] == [] and macro.check(disputer, side="client")[1] == []
@@ -203,7 +203,7 @@ class TestMarketRecording:
         recorder = hand.recorder("market", session="LOOP-MKT")
         await hand.market("accept_request", early, wait=1)             # under way before the recording began
         untouched = await hand.new(symbol="IDLE")                       # arrived, never worked
-        hand.pair.arm("macro auto\non order where symbol == 'AUTO'\n    accept\n")
+        hand.pair.arm("on order where symbol == 'AUTO'\n    accept\n")
         await hand.new(symbol="AUTO")                                   # a macro's order
         await hand.pair.runner.settle()
         result = await recorder.stop()
@@ -234,7 +234,7 @@ class TestWhatTriggersAnAction:
         await hand.replace(cl2, wait=1, qty=300)
         await hand.market("reject_request", cl2, wait=0.5, text="one replace per order")
         source = (await recorder.stop())["source"]
-        assert body(source)[2:] == ["    accept", "    wait replace", "    accept", "    wait replace",
+        assert body(source)[1:] == ["    accept", "    wait replace", "    accept", "    wait replace",
                                     "    reject text: 'one replace per order'"]
         assert macro.check(source, side="market")[1] == []
 
@@ -246,7 +246,7 @@ class TestWhatTriggersAnAction:
         await hand.cancel(cl, wait=1)                                   # heard, and ignored
         await hand.market("fill_order", cl, wait=3, qty=300, price=10)
         await hand.cancel(cl, wait=1)                                   # heard after the last thing done
-        assert body((await recorder.stop())["source"])[2:] == ["    accept", "    wait cancel", "    fill qty: 300, price: 10"], \
+        assert body((await recorder.stop())["source"])[1:] == ["    accept", "    wait cancel", "    fill qty: 300, price: 10"], \
             "two cancels, one answered by nothing: no rule — and a wait nothing follows is not written"
 
     @pytest.mark.asyncio
@@ -257,7 +257,7 @@ class TestWhatTriggersAnAction:
         await hand.cancel(cl, wait=1)
         await hand.market("reject_request", cl, wait=0.2, text="too late")
         await hand.market("fill_order", cl, wait=2, qty=300, price=10)
-        assert body((await recorder.stop())["source"])[2:] == [
+        assert body((await recorder.stop())["source"])[1:] == [
             "    when cancel", "        reject text: 'too late'", "    accept", "    after 3.2s", "    fill qty: 300, price: 10"]
 
     @pytest.mark.asyncio
@@ -268,7 +268,7 @@ class TestWhatTriggersAnAction:
             await hand.market("accept_request", cl, wait=think)
             await hand.cancel(cl, wait=1)
             await hand.market("accept_request", cl, wait=think)
-        assert body((await recorder.stop())["source"])[1:] == [
+        assert body((await recorder.stop())["source"]) == [
             "on order where symbol in ['IBM', 'MSFT']", "    when cancel", "        accept", "        stop", "    accept"]
 
     @pytest.mark.asyncio
@@ -279,7 +279,7 @@ class TestWhatTriggersAnAction:
         for wait, qty in ((1, 100), (4, 100), (1, 100)):
             await hand.market("fill_order", cl, wait=wait, qty=qty, price=10)
         source = (await recorder.stop())["source"]
-        assert body(source)[3:] == ["    expect ack within 5s", "    expect fill within 5s", "    expect fill within 12s",
+        assert body(source)[2:] == ["    expect ack within 5s", "    expect fill within 5s", "    expect fill within 12s",
                                     "    expect filled within 5s", "    pass"]
         assert macro.check(source, side="client")[1] == []
 
@@ -288,13 +288,13 @@ class TestWhatTriggersAnAction:
         market, client = hand.recorder("market"), hand.recorder("client", delays=True)
         await lifecycle(hand)
         venue = await market.stop("venue", delays=True)                 # chosen at the end: the timeline has it either way
-        assert body(venue["source"])[2:] == [
+        assert body(venue["source"])[1:] == [
             "    when replace", "        after 500ms", "        accept",
             "    when cancel", "        after 300ms", "        accept", "        stop",
             "    after 1.2s", "    accept text: 'working'", "    after 2s", "    fill qty: 50, price: 10"]
         assert "after the time you took to answer it" in venue["source"]
         chase = body((await client.stop("chase"))["source"])
-        assert chase[3:] == ["    expect ack within 5s", "    expect fill within 6s", "    after 1s", "    replace qty: 200",
+        assert chase[2:] == ["    expect ack within 5s", "    expect fill within 6s", "    after 1s", "    replace qty: 200",
                              "    expect replaced within 5s", "    after 1s", "    cancel", "    expect canceled within 5s", "    pass"]
         assert macro.check(venue["source"], side="market")[1] == []
 
@@ -322,12 +322,12 @@ class TestWhatTriggersAnAction:
         await hand.cancel(cl, wait=1)
         await hand.market("accept_request", cl, wait=0.5)
         source = (await recorder.stop("venue"))["source"]
-        assert body(source)[2:] == ["    when cancel", "        accept", "        stop", "    accept", "    after 5s",
+        assert body(source)[1:] == ["    when cancel", "        accept", "        stop", "    accept", "    after 5s",
                                     "    fill qty: 100, price: 10"]
         pair = hand.pair
         before = len(await pair.trades("TX"))
         pair.arm(source)
-        run = pair.arm("macro hasty\nrun\n    new symbol: 'IBM', side: buy, qty: 300, price: 10\n    expect ack within 5s\n"
+        run = pair.arm("run\n    new symbol: 'IBM', side: buy, qty: 300, price: 10\n    expect ack within 5s\n"
                        "    cancel\n    expect canceled within 5s\n    pass\n")
         await pair.advance(10)
         assert [i.status for i in run.instances] == [PASSED]
@@ -341,7 +341,6 @@ class TestClientRecording:
         await lifecycle(hand)
         source = (await recorder.stop("chase"))["source"]
         assert body(source) == [
-            "macro chase",
             "run",
             "    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 10, tif: day",
             "    expect ack within 5s",          # every event heard, in order, each with a generous bound
@@ -375,7 +374,7 @@ class TestClientRecording:
         await hand.new(wait=2.5, symbol="MSFT", qty=250, price=20.25, ord_type="2", tif="1", handl_inst="3")
         await hand.new(wait=0.5, symbol="AAPL", qty=10, price="", ord_type="1")
         source = (await recorder.stop())["source"]
-        assert body(source)[1:] == [
+        assert body(source) == [
             "run",
             "    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 10, tif: day, client: 'ACME', text: 'first', extra: '9001=x'",
             "run", "    after 2.5s",
@@ -394,14 +393,14 @@ class TestClientRecording:
         await hand.market("reject_request", cl, wait=0.2, text="too late")
         (trade,) = await hand.pair.trades("RX")
         await hand.do("dk_trade", 2, session_id="LOOP-CLI", exec_id=trade["exec_id"], dk_reason="E", text="through the limit")
-        assert body((await recorder.stop())["source"])[3:] == [
+        assert body((await recorder.stop())["source"])[2:] == [
             "    expect ack within 5s", "    expect filled within 5s", "    cancel", "    expect cancel rejected within 5s",
             "    dk last trade reason: price_exceeds_limit, text: 'through the limit'"]
 
     @pytest.mark.asyncio
     async def test_a_scripts_own_orders_and_the_other_side_are_not_recorded(self, hand):
         recorder = hand.recorder("client")
-        run = hand.pair.arm("macro own\nrun\n    new symbol: 'OWN', side: buy, qty: 1, price: 1\n")
+        run = hand.pair.arm("run\n    new symbol: 'OWN', side: buy, qty: 1, price: 1\n")
         await hand.pair.runner.settle()
         assert len(run.instances) == 1
         result = await recorder.stop()
@@ -423,7 +422,7 @@ class TestWriting:
 
     @pytest.mark.parametrize("text", ["it's a 'test'", "back\\slash", "50% # not a comment"])
     def test_any_text_survives_the_round_trip(self, text):
-        source = f"macro t\non order\n    accept text: {_quote(text)}\n"
+        source = f"on order\n    accept text: {_quote(text)}\n"
         sc, diags = macro.check(source)
         assert diags == [], [str(d) for d in diags]
         assert sc.blocks[0].body[0].terms[0].value.node.value == text
@@ -463,7 +462,7 @@ class TestThroughTheManager:
             await ask("accept_request", {"session_id": "LOOP-MKT", "cl_ord_id": cl})
             assert (await ask("record_status", {"side": "market"}))["actions"] == 1
             venue = await ask("record_stop", {"side": "market", "name": "  my   venue "})
-            assert venue["orders"] == 1 and "macro my venue\n" in venue["source"]
+            assert venue["orders"] == 1 and venue["name"] == "my venue" and "macro my venue" not in venue["source"]
             saved = await ask("save_macro", {"name": "my venue", "source": venue["source"], "side": "market"})
             assert saved["errors"] == 0
             with pytest.raises(ValueError, match="No market recording is under way"):

@@ -1,6 +1,6 @@
 # mkfix/macro — the macro language
 
-**Naming.** Through 0.50 these were *scenarios*, and each order's running copy a *script*; 0.51 renamed everything — the keyword (`macro NAME`; `scenario` is no longer a word), the package, tables (`fix_macros`, `fix_macro_runs`, `fix_macro_orders` — once `…_instances` — `fix_macro_log`, `fix_orders.macro`), services, `fix_cmd` commands, pane ids, UI files, CSS (`macro-`), archive aliases. Nothing was migrated: `upgrade.retire_scenarios` drops the old tables and column at startup and `strip_retired` leaves them out of an old archive on restore. In code an order's running copy is still an `Instance`; in everything a user reads it is "an order's macro", and the pane listing them is Macro Orders.
+**Naming.** Through 0.50 these were *scenarios*, and each order's running copy a *script*; 0.51 renamed everything — the package, tables (`fix_macros`, `fix_macro_runs`, `fix_macro_orders` — once `…_instances` — `fix_macro_log`, `fix_orders.macro`), services, `fix_cmd` commands, pane ids, UI files, CSS (`macro-`), archive aliases. Nothing was migrated: `upgrade.retire_scenarios` drops the old tables and column at startup and `strip_retired` leaves them out of an old archive on restore. In code an order's running copy is still an `Instance`; in everything a user reads it is "an order's macro", and the pane listing them is Macro Orders.
 
 A small language for acting on orders as events arrive. This directory holds the language — words, parser, checker, bundled examples — and what runs it: the interpreter, the runner and their clock. All three kinds of block run. The engine side it all stands on is in `../fix/CLAUDE.md`.
 
@@ -8,7 +8,7 @@ A small language for acting on orders as events arrive. This directory holds the
 
 ## Shape of a macro
 
-`macro NAME`, optional `seed N` and `on error continue`, then blocks. Blocks by indentation (spaces only), one statement per line, `#` comments. Three kinds of block, `Block.kind`:
+Optional `seed N` and `on error continue`, then blocks. The text carries no name: a macro is named where it is saved (`Macro.name` is set by `_armable` from the row), so the file, the editor's New and Import, and the recorder never write one. Through 0.54 every macro opened with `macro NAME`; the parser now refuses that line by name, and `upgrade.retire_macro_lines` strips it from saved rows at startup. Blocks by indentation (spaces only), one statement per line, `#` comments. Three kinds of block, `Block.kind`:
 
 | Header | kind | The order is |
 |---|---|---|
