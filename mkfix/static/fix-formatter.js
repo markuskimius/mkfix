@@ -73,3 +73,31 @@ export function parseRawMessage(raw) {
   }
   return { fields, fieldList };
 }
+
+const TS_RE = /^(\d{4})(\d{2})(\d{2})-(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,12}))?$/;
+
+/** Format a FIX UTC timestamp (YYYYMMDD-HH:MM:SS[.fraction]) in the given
+ * zone. The fraction is written back as stored (a Date holds only
+ * milliseconds; a zone shift never touches it), so a stamp at a session's
+ * finer `timestamp_precision` shows every digit. */
+export function formatTimestamp(value, tz) {
+  const m = TS_RE.exec(value);
+  if (!m) return null;
+  const ms = m[7] ? m[7].padEnd(3, "0").slice(0, 3) : "000";
+  const date = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +ms));
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false, timeZoneName: "short",
+    }).formatToParts(date);
+    const p = {};
+    for (const { type, value: v } of parts) p[type] = v;
+    const frac = m[7] ? `.${m[7]}` : "";
+    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}${frac} ${p.timeZoneName}`;
+  } catch {
+    return null;
+  }
+}

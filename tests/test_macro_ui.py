@@ -552,7 +552,8 @@ class TestWiring:
         # `size` on a select, which mkui reads from 1.11.0: an older one shows a dropdown and says nothing
         from mkui.__init__ import __version__ as mkui_version
         assert tuple(map(int, mkui_version.split(".")[:2])) >= (1, 11)
-        assert "mkui>=1.11.0,<2" in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        floor = re.search(r'"mkui>=(\d+)\.(\d+)\.\d+,<2"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert floor and tuple(map(int, floor.groups())) >= (1, 11), "the pyproject pin must reach the checklist field"
         import mkui
         assert 'field.type === "checklist"' in (Path(mkui.static_dir) / "src" / "widgets" / "mkui-dialog.js").read_text(encoding="utf-8")
         for dialog, every in (("pause_runs", "Every playing run"), ("stop_runs", "Every live run")):

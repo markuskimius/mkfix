@@ -307,20 +307,33 @@
 
 .mkfix-detail-table th {
   position: relative;
+  user-select: none;
+  touch-action: none;
 }
 
+/* Subtle column dividers, as mkio-table draws them, so the boundaries the
+   grips sit on are visible before hovering. */
+.mkfix-detail-table th:not(:last-child),
+.mkfix-detail-table td:not(:last-child):not([colspan]) {
+  border-right: 1px solid color-mix(in srgb, var(--mkui-border, #3c3c3c) 50%, transparent);
+}
+
+/* Column resize grip, centered on the divider at the header cell's right
+   edge and overhanging 3.5px each side; hover draws a 2px accent line on
+   the divider. */
 .mkfix-col-resizer {
   position: absolute;
   top: 0;
-  right: -3px;
+  bottom: 0;
+  right: -3.5px;
   width: 7px;
-  height: 100%;
   cursor: col-resize;
   z-index: 1;
 }
 
 .mkfix-col-resizer:hover {
-  background: var(--mkui-accent, #0e639c);
+  background: linear-gradient(to right,
+    transparent 2.5px, var(--mkui-accent, #0e639c) 2.5px 4.5px, transparent 4.5px);
 }
 
 /* ── Dictionaries pane ───────────────────────────────────────────── */

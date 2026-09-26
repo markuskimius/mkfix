@@ -33,8 +33,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Message Detail** -- Field-by-field breakdown of the message selected in
   the Messages viewer, translated through the owning session's dictionary:
   collapsible header/body/trailer sections and repeating-group trees,
-  drag-resizable columns, and UTC timestamps rendered in a selectable
-  timezone (defaulting to the browser's).
+  drag-resizable columns (double-click a divider to fit), and UTC timestamps
+  rendered in a selectable timezone (defaulting to the browser's) at the
+  precision the stamp carries.
 - **FIX Dictionaries** -- Standard FIX 4.0 through 5.0SP2 dictionaries ship
   built in; create tweaked copies per test macro -- either a delta that
   stays linked to its base version or a standalone document -- edit tag
@@ -496,9 +497,11 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.11.0, < 2 -- Web Components UI
-  framework; 1.10.0 evaluates the same language 2 in the browser, and 1.11.0
-  adds the dialog's checklist field (the Pause and Stop run lists)
+- [mkui](https://github.com/markuskimius/mkui) >= 1.14.0, < 2 -- Web Components UI
+  framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
+  adds the dialog's checklist field (the Pause and Stop run lists), and
+  1.14.0 renders time columns in the browser's zone with every fraction
+  digit the stamp carries
 
 ## Third-party code
 

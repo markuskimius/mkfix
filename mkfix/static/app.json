@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.58",
+    "version": "0.59",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -782,7 +782,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.58"
+        "text": "mkfix v0.59"
       }
     ],
     "bindStyle": {
@@ -1513,7 +1513,9 @@
       "types": {
         "timestamp": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "filters": {
@@ -1624,7 +1626,9 @@
       "types": {
         "updated_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "filters": {
@@ -2664,7 +2668,9 @@
       "types": {
         "transact_time": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "filters": {
@@ -2932,7 +2938,9 @@
       "types": {
         "updated_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "filters": {
@@ -3859,7 +3867,9 @@
       "types": {
         "transact_time": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "filters": {
@@ -4219,11 +4229,15 @@
       "types": {
         "valid_until": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         },
         "timestamp": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "styles": {
@@ -4293,7 +4307,9 @@
         },
         "timestamp": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "styles": {
@@ -4371,11 +4387,15 @@
       "types": {
         "first_time": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         },
         "last_time": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "styles": {
@@ -5575,11 +5595,15 @@
       "types": {
         "started_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         },
         "ended_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
@@ -5753,11 +5777,15 @@
       "types": {
         "started_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         },
         "updated_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
@@ -5829,7 +5857,9 @@
       "types": {
         "timestamp": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
@@ -5884,11 +5914,15 @@
       "types": {
         "started_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         },
         "ended_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
@@ -6062,11 +6096,15 @@
       "types": {
         "started_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         },
         "updated_at": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
@@ -6138,7 +6176,9 @@
       "types": {
         "timestamp": {
           "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f"
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
@@ -6268,7 +6308,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.58",
+      "version": "0.59",
       "mkio": "1.5",
       "expr": "2"
     },

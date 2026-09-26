@@ -1541,6 +1541,33 @@ class TestTimeTypedColumns:
                     f"{type_spec['parse']!r} does not match {sample!r}"
         assert checked, "no engine-stamped columns checked"
 
+    def test_timestamps_show_in_browser_zone(self, app_config):
+        """Every FIX-stamped column renders in the browser's zone (mkui 1.14
+        `format`/`zone`): a column left on the raw stamp would read as local
+        time next to the others while being UTC. A bare date has no zone."""
+        checked = 0
+        for pane_id, spec in app_config["panes"].items():
+            for col, type_spec in spec.get("types", {}).items():
+                if type_spec.get("parse") != "%Y%m%d-%H:%M:%S.%f":
+                    assert "zone" not in type_spec, \
+                        f"pane {pane_id!r} column {col!r}: only stamps take a zone"
+                    continue
+                checked += 1
+                assert type_spec.get("zone") == "local", \
+                    f"pane {pane_id!r} column {col!r} is not shown in the browser's zone"
+                fmt = type_spec.get("format", "")
+                tokens = re.findall(r"%([1-9]?)(.)", fmt)
+                # strftime writes strptime's tokens plus %Z, the zone's short name
+                assert tokens and all(t in self.TOKEN_RE or t in ("%", "Z") for _, t in tokens), \
+                    f"pane {pane_id!r} column {col!r} has a bad format {fmt!r}"
+                assert all(not w or t == "f" for w, t in tokens), \
+                    f"pane {pane_id!r} column {col!r}: only %f takes a width in {fmt!r}"
+                # a bare %f writes the fraction as stored (mkui 1.14): a wire
+                # stamp at microseconds or finer keeps every digit
+                assert "%f" in fmt and "%3f" not in fmt and fmt.endswith("%Z"), \
+                    f"pane {pane_id!r} column {col!r} should show the stamp's fraction as stored and its zone"
+        assert checked, "no stamped columns checked"
+
 
 class TestMenubar:
     """The menubar is app.json data mkui renders verbatim: an item with a

@@ -6,12 +6,13 @@
  * - Repeating groups render as collapsible sub-blocks using the dictionary's
  *   group metadata (display-only; the engine has no group model).
  * - Header/Body/Trailer sections collapse; the choice persists per browser.
- * - Columns are drag-resizable; widths persist per browser.
+ * - Columns are drag-resizable (double-click a divider fits the column
+ *   to its content); widths persist per browser.
  * - UTC timestamps render in a selectable timezone (default: browser's).
  */
 
 import { loadDictionary, defaultDictionary, parseMessageTree, splitFix } from "../fix-dictionary.js";
-import { summarizeMessage, parseRawMessage } from "../fix-formatter.js";
+import { summarizeMessage, parseRawMessage, formatTimestamp } from "../fix-formatter.js";
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
 
 const { registerPaneType } = window.Mkui;
@@ -58,31 +59,6 @@ function timezoneList() {
   return [...set];
 }
 
-const TS_RE = /^(\d{4})(\d{2})(\d{2})-(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?$/;
-
-/** Format a FIX UTC timestamp (YYYYMMDD-HH:MM:SS[.mmm]) in the given zone. */
-function formatTimestamp(value, tz) {
-  const m = TS_RE.exec(value);
-  if (!m) return null;
-  const ms = m[7] ? m[7].padEnd(3, "0").slice(0, 3) : "000";
-  const date = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +ms));
-  if (Number.isNaN(date.getTime())) return null;
-  try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: tz,
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-      hour12: false, timeZoneName: "short",
-    }).formatToParts(date);
-    const p = {};
-    for (const { type, value: v } of parts) p[type] = v;
-    const frac = m[7] ? `.${ms}` : "";
-    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}${frac} ${p.timeZoneName}`;
-  } catch {
-    return null;
-  }
-}
-
 function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -104,6 +80,7 @@ registerPaneType("message-detail", async (spec, app, host) => {
   let tz = lsGet(LS.tz, browserTz());
   const collapsedSections = lsGet(LS.sections, {});
   let colWidths = lsGet(LS.cols, [50, 170, 160]);
+  const MIN_COL_W = 30;
   const collapsedGroups = new Set();
 
   // ── session_id -> fix_version (live) ───────────────────────────────
@@ -244,7 +221,7 @@ registerPaneType("message-detail", async (spec, app, host) => {
       `<col></colgroup>`;
     html += `<thead><tr>` +
       ["Tag", "Name", "Raw", "Translated"].map((h, i) =>
-        `<th>${h}${i < 3 ? `<span class="mkfix-col-resizer" data-col="${i}"></span>` : ""}</th>`
+        `<th>${h}${i < 3 ? `<span class="mkfix-col-resizer" data-col="${i}" title="Drag to resize, double-click to fit"></span>` : ""}</th>`
       ).join("") +
       `</tr></thead><tbody>`;
 
@@ -313,28 +290,60 @@ registerPaneType("message-detail", async (spec, app, host) => {
     }
   });
 
-  host.addEventListener("mousedown", (e) => {
+  const COL_CLASSES = ["mkfix-detail-tag", "mkfix-detail-name", "mkfix-detail-raw"];
+
+  function colElements() {
+    const table = host.querySelector(".mkfix-detail-table");
+    return table ? table.querySelectorAll("colgroup col") : [];
+  }
+
+  function setColWidth(col, w, cols = colElements()) {
+    colWidths[col] = w;
+    if (cols[col]) cols[col].style.width = `${w}px`;
+  }
+
+  // Pointer events like mkio-table's grips; stopPropagation keeps the frame
+  // from treating the press as a tab-group click and a drag start.
+  host.addEventListener("pointerdown", (e) => {
+    const resizer = e.target.closest(".mkfix-col-resizer");
+    if (!resizer || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const col = parseInt(resizer.dataset.col, 10);
+    const pid = e.pointerId;
+    const startX = e.clientX;
+    const startW = colWidths[col];
+    const cols = colElements();
+
+    function onMove(ev) {
+      if (ev.pointerId !== pid) return;
+      setColWidth(col, Math.max(MIN_COL_W, startW + (ev.clientX - startX)), cols);
+    }
+    function onUp(ev) {
+      if (ev.pointerId !== pid) return;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+      lsSet(LS.cols, colWidths);
+    }
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+  });
+
+  // Double-click a divider: fit the column to its widest cell. Cells clip
+  // with overflow hidden, so scrollWidth is the content plus padding.
+  host.addEventListener("dblclick", (e) => {
     const resizer = e.target.closest(".mkfix-col-resizer");
     if (!resizer) return;
     e.preventDefault();
+    e.stopPropagation();
     const col = parseInt(resizer.dataset.col, 10);
-    const startX = e.clientX;
-    const startW = colWidths[col];
-    const table = host.querySelector(".mkfix-detail-table");
-    const cols = table ? table.querySelectorAll("colgroup col") : [];
-
-    function onMove(ev) {
-      const w = Math.max(30, startW + (ev.clientX - startX));
-      colWidths[col] = w;
-      if (cols[col]) cols[col].style.width = `${w}px`;
-    }
-    function onUp() {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      lsSet(LS.cols, colWidths);
-    }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    let w = MIN_COL_W;
+    for (const cell of host.querySelectorAll(`.${COL_CLASSES[col]}`))
+      w = Math.max(w, cell.scrollWidth + 1);
+    setColWidth(col, Math.min(w, Math.ceil(host.clientWidth * 0.8)));
+    lsSet(LS.cols, colWidths);
   });
 
   // Panes are pooled: closing a frame parks the pane and showPane() re-hosts

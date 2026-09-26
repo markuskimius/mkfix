@@ -120,3 +120,62 @@ def test_formatter_parser_prefers_soh(tmp_path):
 def test_formatter_parser_accepts_legacy_pipe_rows(tmp_path):
     parsed = parse_raw(tmp_path, "8=FIX.4.2|35=D|58=a|10=000")
     assert parsed["fields"]["58"] == "a"
+
+
+def format_stamps(tmp_path: Path, cases: list[tuple[str, str]]):
+    """Run fix-formatter's formatTimestamp (the Details pane's translation
+    of UTCTIMESTAMP values and the header stamp) under node."""
+    for name in ("fix-dictionary.js", "fix-formatter.js"):
+        (tmp_path / name).write_text((STATIC / name).read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    script = tmp_path / "run.js"
+    script.write_text(
+        f"""
+import {{ formatTimestamp }} from "./fix-formatter.js";
+console.log(JSON.stringify({json.dumps(cases)}.map(([v, tz]) => formatTimestamp(v, tz))));
+""",
+        encoding="utf-8",
+    )
+    out = subprocess.run(["node", str(script)], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_detail_timestamp_keeps_every_fraction_digit(tmp_path):
+    """A Date holds milliseconds, but a session's `timestamp_precision` can
+    stamp 52/60 finer: the translated value carries the fraction as stored."""
+    assert format_stamps(tmp_path, [
+        ("20260925-21:33:10", "UTC"),
+        ("20260925-21:33:10.5", "UTC"),
+        ("20260925-21:33:10.507", "UTC"),
+        ("20260925-21:33:10.507123", "UTC"),
+        ("20260925-21:33:10.507123456", "UTC"),
+        ("20260925-21:33:10.507123456789", "UTC"),
+    ]) == [
+        "2026-09-25 21:33:10 UTC",
+        "2026-09-25 21:33:10.5 UTC",
+        "2026-09-25 21:33:10.507 UTC",
+        "2026-09-25 21:33:10.507123 UTC",
+        "2026-09-25 21:33:10.507123456 UTC",
+        "2026-09-25 21:33:10.507123456789 UTC",
+    ]
+
+
+def test_detail_timestamp_shifts_the_zone_not_the_fraction(tmp_path):
+    assert format_stamps(tmp_path, [
+        ("20260925-21:33:10.507123456", "America/New_York"),
+        ("20260101-03:00:00.000000001", "Asia/Tokyo"),
+    ]) == [
+        "2026-09-25 17:33:10.507123456 EDT",
+        "2026-01-01 12:00:00.000000001 GMT+9",
+    ]
+
+
+def test_detail_timestamp_rejects_what_is_not_a_stamp(tmp_path):
+    """Non-stamps translate through the dictionary's enums instead: null."""
+    assert format_stamps(tmp_path, [
+        ("2026-09-25 21:33:10", "UTC"),
+        ("20260925-21:33:10.1234567890123", "UTC"),
+        ("20260925-21:33", "UTC"),
+        ("", "UTC"),
+        ("20260925-21:33:10.507", "Not/AZone"),
+    ]) == [None, None, None, None, None]
