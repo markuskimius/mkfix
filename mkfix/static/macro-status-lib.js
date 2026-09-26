@@ -47,7 +47,9 @@ export function macroState(runs, recordings, now) {
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // The status bar's items, in the order they are shown:
-// [{ kind: recording | playing | paused | passed | failed | ended, side, text, pane }].
+// [{ kind: recording | playing | paused | passed | failed | ended, side, text, pane | frame }]:
+// `pane` opens the side's editor, `frame` its Macro Runs window (the runs
+// tree over the log).
 export function statusItems(state) {
   const items = [];
   for (const side of SIDES) {
@@ -61,18 +63,18 @@ export function statusItems(state) {
     const paused = s.runs.filter((r) => r.status === "paused");
     if (playing.length) {
       const orders = playing.reduce((n, r) => n + (r.orders || 0), 0);
-      items.push({ kind: "playing", side, pane: `${side}-macro-runs`,
+      items.push({ kind: "playing", side, frame: `${side}-runs`,
         text: `▶ ${side} ${playing.length === 1 ? playing[0].macro : plural(playing.length, "run")} · ${plural(orders, "order")}` });
     }
     if (paused.length) {
-      items.push({ kind: "paused", side, pane: `${side}-macro-runs`,
+      items.push({ kind: "paused", side, frame: `${side}-runs`,
         text: `⏸ ${side} ${paused.length === 1 ? paused[0].macro : plural(paused.length, "run")} paused` });
     }
     if (s.last) {
       const r = s.last;
       const tally = r.verdict === "failed" ? ` · ${r.failed} of ${r.orders} failed` : r.verdict === "passed" ? ` · ${r.passed} of ${r.orders}` : "";
       items.push({ kind: r.verdict === "failed" ? "failed" : r.verdict === "passed" ? "passed" : "ended", side,
-        pane: `${side}-macro-runs`, text: `■ ${r.macro} ${r.verdict || r.status}${tally}` });
+        frame: `${side}-runs`, text: `■ ${r.macro} ${r.verdict || r.status}${tally}` });
     }
   }
   return items;

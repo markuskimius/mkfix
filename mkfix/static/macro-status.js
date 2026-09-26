@@ -51,8 +51,8 @@ registerWidget("macro-status", (spec, app, host) => {
       const el = document.createElement("a");
       el.className = `macro-status-item macro-status-${item.kind}`;
       el.textContent = item.text;
-      el.title = `Open ${Side(item.side)} ${item.pane.endsWith("-macros") ? "Macros" : "Macro Runs"}`;
-      el.onclick = () => app.fireAction("pane.show", item.pane);
+      el.title = `Open ${Side(item.side)} ${item.frame ? "Macro Runs" : "Macros"}`;
+      el.onclick = () => (item.frame ? app.fireAction("frame.show", item.frame) : app.fireAction("pane.show", item.pane));
       return el;
     }));
     renderControls(state);

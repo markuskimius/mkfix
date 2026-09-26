@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.59",
+    "version": "0.60",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -137,18 +137,8 @@
         },
         {
           "label": "Client Macro Runs",
-          "action": "pane.show",
-          "args": "client-macro-runs"
-        },
-        {
-          "label": "Client Macro Orders",
-          "action": "pane.show",
-          "args": "client-macro-orders"
-        },
-        {
-          "label": "Client Macro Log",
-          "action": "pane.show",
-          "args": "client-macro-log"
+          "action": "frame.show",
+          "args": "client-runs"
         }
       ]
     },
@@ -175,18 +165,8 @@
         },
         {
           "label": "Market Macro Runs",
-          "action": "pane.show",
-          "args": "market-macro-runs"
-        },
-        {
-          "label": "Market Macro Orders",
-          "action": "pane.show",
-          "args": "market-macro-orders"
-        },
-        {
-          "label": "Market Macro Log",
-          "action": "pane.show",
-          "args": "market-macro-log"
+          "action": "frame.show",
+          "args": "market-runs"
         }
       ]
     },
@@ -269,6 +249,9 @@
         },
         {
           "windows": true
+        },
+        {
+          "frames": true
         }
       ]
     },
@@ -782,7 +765,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.59"
+        "text": "mkfix v0.60"
       }
     ],
     "bindStyle": {
@@ -5555,43 +5538,107 @@
     "client-macro-runs": {
       "title": "Client Macro Runs",
       "type": "mkio-table",
-      "service": "macro_runs_query",
+      "service": "macro_runs_tree",
       "protocol": "query",
       "filter": "side == 'client'",
+      "tree": {
+        "child": "parent_key",
+        "parent": "key",
+        "expand": 1
+      },
+      "select": {
+        "state": "selected_macro_order"
+      },
+      "link": {
+        "broadcast": {
+          "client_macro_run": "run_id",
+          "client_macro_order": "order_row"
+        }
+      },
       "columns": [
-        "id",
+        "run_id",
         "macro",
         "status",
+        "cl_ord_id",
+        "symbol",
+        "session",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
         "priority",
         "verdict",
         "orders",
         "live",
         "passed",
         "failed",
-        "session",
         "speed",
         "seed",
         "version",
         "started_at",
-        "ended_at"
+        "ended_at",
+        "updated_at"
       ],
       "labels": {
-        "id": "Run",
+        "run_id": "Run",
         "macro": "Macro",
         "status": "Status",
+        "cl_ord_id": "ClOrdID",
+        "symbol": "Symbol",
+        "session": "Session",
+        "line": "Line",
+        "waiting_for": "Waiting For",
+        "message": "Message",
+        "actions": "Actions",
         "priority": "Priority",
         "verdict": "Verdict",
         "orders": "Orders",
         "live": "Live",
         "passed": "Passed",
         "failed": "Failed",
-        "session": "Session",
         "speed": "Speed",
         "seed": "Seed",
         "version": "Macro Ver",
         "started_at": "Started",
-        "ended_at": "Ended"
+        "ended_at": "Ended",
+        "updated_at": "Updated",
+        "order_id": "Order ID"
       },
+      "groups": [
+        {
+          "label": "Run",
+          "columns": [
+            "run_id",
+            "macro",
+            "status",
+            "session",
+            "priority",
+            "verdict",
+            "orders",
+            "live",
+            "passed",
+            "failed",
+            "speed",
+            "seed",
+            "version",
+            "started_at",
+            "ended_at"
+          ]
+        },
+        {
+          "label": "Order",
+          "columns": [
+            "cl_ord_id",
+            "symbol",
+            "line",
+            "waiting_for",
+            "message",
+            "actions",
+            "order_id",
+            "updated_at"
+          ]
+        }
+      ],
       "types": {
         "started_at": {
           "type": "time",
@@ -5604,10 +5651,22 @@
           "parse": "%Y%m%d-%H:%M:%S.%f",
           "format": "%Y-%m-%d %H:%M:%S.%f %Z",
           "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
         "-id"
+      ],
+      "rowStyle": [
+        {
+          "when": "kind == 'order'",
+          "italic": true
+        }
       ],
       "styles": {
         "status": [
@@ -5617,15 +5676,29 @@
             "bold": true
           },
           {
+            "when": "CONTAINS(['running', 'listening'], value)",
+            "color": "#4ec9b0"
+          },
+          {
             "when": "value == 'paused'",
             "color": "#dcdcaa"
+          },
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
           },
           {
             "when": "value == 'interrupted'",
             "color": "#ce9178"
           },
           {
-            "when": "value == 'stopped'",
+            "when": "CONTAINS(['stopped', 'detached', 'completed'], value)",
             "color": "#858585"
           }
         ],
@@ -5654,14 +5727,14 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'armed')"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed')"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "pause_run",
             "data": {
-              "run_id": "${row.id}"
+              "run_id": "${row.run_id}"
             }
           }
         },
@@ -5670,14 +5743,14 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'paused')"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'paused')"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "resume_run",
             "data": {
-              "run_id": "${row.id}"
+              "run_id": "${row.run_id}"
             }
           }
         },
@@ -5686,14 +5759,14 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> CONTAINS(['armed', 'paused'], r.status))"
+            "when": "ALL(rows, r -> r.kind == 'run' and CONTAINS(['armed', 'paused'], r.status))"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "stop_run",
             "data": {
-              "run_id": "${row.id}"
+              "run_id": "${row.run_id}"
             }
           }
         },
@@ -5703,14 +5776,14 @@
             "connected": true,
             "minSelected": 1,
             "maxSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed' and r.priority > 0)"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "move_run",
             "data": {
-              "run_id": "${row.id}",
+              "run_id": "${row.run_id}",
               "direction": "up"
             }
           }
@@ -5721,105 +5794,24 @@
             "connected": true,
             "minSelected": 1,
             "maxSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed' and r.priority > 0)"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "move_run",
             "data": {
-              "run_id": "${row.id}",
+              "run_id": "${row.run_id}",
               "direction": "down"
             }
           }
-        }
-      ]
-    },
-    "client-macro-orders": {
-      "title": "Client Macro Orders",
-      "type": "mkio-table",
-      "service": "macro_orders_query",
-      "protocol": "query",
-      "filter": "side == 'client'",
-      "select": {
-        "state": "selected_macro_order"
-      },
-      "columns": [
-        "run_id",
-        "macro",
-        "cl_ord_id",
-        "symbol",
-        "session_id",
-        "status",
-        "line",
-        "waiting_for",
-        "message",
-        "actions",
-        "order_id",
-        "started_at",
-        "updated_at"
-      ],
-      "labels": {
-        "run_id": "Run",
-        "macro": "Macro",
-        "cl_ord_id": "ClOrdID",
-        "symbol": "Symbol",
-        "session_id": "Session",
-        "status": "Status",
-        "line": "Line",
-        "waiting_for": "Waiting For",
-        "message": "Message",
-        "actions": "Actions",
-        "order_id": "Order ID",
-        "started_at": "Started",
-        "updated_at": "Updated"
-      },
-      "types": {
-        "started_at": {
-          "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f",
-          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
-          "zone": "local"
         },
-        "updated_at": {
-          "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f",
-          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
-          "zone": "local"
-        }
-      },
-      "sort": [
-        "-updated_at"
-      ],
-      "styles": {
-        "status": [
-          {
-            "when": "CONTAINS(['running', 'listening'], value)",
-            "color": "#4ec9b0"
-          },
-          {
-            "when": "value == 'passed'",
-            "color": "#6a9955",
-            "bold": true
-          },
-          {
-            "when": "value == 'failed'",
-            "color": "#f44747",
-            "bold": true
-          },
-          {
-            "when": "CONTAINS(['stopped', 'detached', 'completed', 'interrupted'], value)",
-            "color": "#858585"
-          }
-        ]
-      },
-      "buttons": [
         {
           "label": "Detach",
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> CONTAINS(['running', 'listening'], r.status))"
+            "when": "ALL(rows, r -> r.kind == 'order' and CONTAINS(['running', 'listening'], r.status))"
           },
           "action": {
             "type": "transaction",
@@ -5864,7 +5856,13 @@
       },
       "sort": [
         "-timestamp"
-      ]
+      ],
+      "link": {
+        "listen": {
+          "client_macro_run": "run_id",
+          "client_macro_order": "order_row"
+        }
+      }
     },
     "market-macros": {
       "title": "Market Macros",
@@ -5874,43 +5872,107 @@
     "market-macro-runs": {
       "title": "Market Macro Runs",
       "type": "mkio-table",
-      "service": "macro_runs_query",
+      "service": "macro_runs_tree",
       "protocol": "query",
       "filter": "side == 'market'",
+      "tree": {
+        "child": "parent_key",
+        "parent": "key",
+        "expand": 1
+      },
+      "select": {
+        "state": "selected_macro_order"
+      },
+      "link": {
+        "broadcast": {
+          "market_macro_run": "run_id",
+          "market_macro_order": "order_row"
+        }
+      },
       "columns": [
-        "id",
+        "run_id",
         "macro",
         "status",
+        "cl_ord_id",
+        "symbol",
+        "session",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
         "priority",
         "verdict",
         "orders",
         "live",
         "passed",
         "failed",
-        "session",
         "speed",
         "seed",
         "version",
         "started_at",
-        "ended_at"
+        "ended_at",
+        "updated_at"
       ],
       "labels": {
-        "id": "Run",
+        "run_id": "Run",
         "macro": "Macro",
         "status": "Status",
+        "cl_ord_id": "ClOrdID",
+        "symbol": "Symbol",
+        "session": "Session",
+        "line": "Line",
+        "waiting_for": "Waiting For",
+        "message": "Message",
+        "actions": "Actions",
         "priority": "Priority",
         "verdict": "Verdict",
         "orders": "Orders",
         "live": "Live",
         "passed": "Passed",
         "failed": "Failed",
-        "session": "Session",
         "speed": "Speed",
         "seed": "Seed",
         "version": "Macro Ver",
         "started_at": "Started",
-        "ended_at": "Ended"
+        "ended_at": "Ended",
+        "updated_at": "Updated",
+        "order_id": "Order ID"
       },
+      "groups": [
+        {
+          "label": "Run",
+          "columns": [
+            "run_id",
+            "macro",
+            "status",
+            "session",
+            "priority",
+            "verdict",
+            "orders",
+            "live",
+            "passed",
+            "failed",
+            "speed",
+            "seed",
+            "version",
+            "started_at",
+            "ended_at"
+          ]
+        },
+        {
+          "label": "Order",
+          "columns": [
+            "cl_ord_id",
+            "symbol",
+            "line",
+            "waiting_for",
+            "message",
+            "actions",
+            "order_id",
+            "updated_at"
+          ]
+        }
+      ],
       "types": {
         "started_at": {
           "type": "time",
@@ -5923,10 +5985,22 @@
           "parse": "%Y%m%d-%H:%M:%S.%f",
           "format": "%Y-%m-%d %H:%M:%S.%f %Z",
           "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
         }
       },
       "sort": [
         "-id"
+      ],
+      "rowStyle": [
+        {
+          "when": "kind == 'order'",
+          "italic": true
+        }
       ],
       "styles": {
         "status": [
@@ -5936,15 +6010,29 @@
             "bold": true
           },
           {
+            "when": "CONTAINS(['running', 'listening'], value)",
+            "color": "#4ec9b0"
+          },
+          {
             "when": "value == 'paused'",
             "color": "#dcdcaa"
+          },
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
           },
           {
             "when": "value == 'interrupted'",
             "color": "#ce9178"
           },
           {
-            "when": "value == 'stopped'",
+            "when": "CONTAINS(['stopped', 'detached', 'completed'], value)",
             "color": "#858585"
           }
         ],
@@ -5973,14 +6061,14 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'armed')"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed')"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "pause_run",
             "data": {
-              "run_id": "${row.id}"
+              "run_id": "${row.run_id}"
             }
           }
         },
@@ -5989,14 +6077,14 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'paused')"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'paused')"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "resume_run",
             "data": {
-              "run_id": "${row.id}"
+              "run_id": "${row.run_id}"
             }
           }
         },
@@ -6005,14 +6093,14 @@
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> CONTAINS(['armed', 'paused'], r.status))"
+            "when": "ALL(rows, r -> r.kind == 'run' and CONTAINS(['armed', 'paused'], r.status))"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "stop_run",
             "data": {
-              "run_id": "${row.id}"
+              "run_id": "${row.run_id}"
             }
           }
         },
@@ -6022,14 +6110,14 @@
             "connected": true,
             "minSelected": 1,
             "maxSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed' and r.priority > 0)"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "move_run",
             "data": {
-              "run_id": "${row.id}",
+              "run_id": "${row.run_id}",
               "direction": "up"
             }
           }
@@ -6040,105 +6128,24 @@
             "connected": true,
             "minSelected": 1,
             "maxSelected": 1,
-            "when": "ALL(rows, r -> r.status == 'armed' and r.priority > 0)"
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed' and r.priority > 0)"
           },
           "action": {
             "type": "transaction",
             "service": "fix_cmd",
             "op": "move_run",
             "data": {
-              "run_id": "${row.id}",
+              "run_id": "${row.run_id}",
               "direction": "down"
             }
           }
-        }
-      ]
-    },
-    "market-macro-orders": {
-      "title": "Market Macro Orders",
-      "type": "mkio-table",
-      "service": "macro_orders_query",
-      "protocol": "query",
-      "filter": "side == 'market'",
-      "select": {
-        "state": "selected_macro_order"
-      },
-      "columns": [
-        "run_id",
-        "macro",
-        "cl_ord_id",
-        "symbol",
-        "session_id",
-        "status",
-        "line",
-        "waiting_for",
-        "message",
-        "actions",
-        "order_id",
-        "started_at",
-        "updated_at"
-      ],
-      "labels": {
-        "run_id": "Run",
-        "macro": "Macro",
-        "cl_ord_id": "ClOrdID",
-        "symbol": "Symbol",
-        "session_id": "Session",
-        "status": "Status",
-        "line": "Line",
-        "waiting_for": "Waiting For",
-        "message": "Message",
-        "actions": "Actions",
-        "order_id": "Order ID",
-        "started_at": "Started",
-        "updated_at": "Updated"
-      },
-      "types": {
-        "started_at": {
-          "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f",
-          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
-          "zone": "local"
         },
-        "updated_at": {
-          "type": "time",
-          "parse": "%Y%m%d-%H:%M:%S.%f",
-          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
-          "zone": "local"
-        }
-      },
-      "sort": [
-        "-updated_at"
-      ],
-      "styles": {
-        "status": [
-          {
-            "when": "CONTAINS(['running', 'listening'], value)",
-            "color": "#4ec9b0"
-          },
-          {
-            "when": "value == 'passed'",
-            "color": "#6a9955",
-            "bold": true
-          },
-          {
-            "when": "value == 'failed'",
-            "color": "#f44747",
-            "bold": true
-          },
-          {
-            "when": "CONTAINS(['stopped', 'detached', 'completed', 'interrupted'], value)",
-            "color": "#858585"
-          }
-        ]
-      },
-      "buttons": [
         {
           "label": "Detach",
           "enable": {
             "connected": true,
             "minSelected": 1,
-            "when": "ALL(rows, r -> CONTAINS(['running', 'listening'], r.status))"
+            "when": "ALL(rows, r -> r.kind == 'order' and CONTAINS(['running', 'listening'], r.status))"
           },
           "action": {
             "type": "transaction",
@@ -6183,7 +6190,13 @@
       },
       "sort": [
         "-timestamp"
-      ]
+      ],
+      "link": {
+        "listen": {
+          "market_macro_run": "run_id",
+          "market_macro_order": "order_row"
+        }
+      }
     },
     "help-viewer": {
       "title": "Help",
@@ -6198,6 +6211,7 @@
   "frames": [
     {
       "id": "sessions",
+      "title": "Sessions",
       "x": 0.01,
       "y": 0.02,
       "w": 0.48,
@@ -6212,6 +6226,7 @@
     },
     {
       "id": "messages",
+      "title": "Messages",
       "x": 0.01,
       "y": 0.32,
       "w": 0.48,
@@ -6243,6 +6258,7 @@
     },
     {
       "id": "client-trading",
+      "title": "Client Trading",
       "x": 0.5,
       "y": 0.02,
       "w": 0.49,
@@ -6274,6 +6290,7 @@
     },
     {
       "id": "market-trading",
+      "title": "Market Trading",
       "x": 0.5,
       "y": 0.51,
       "w": 0.49,
@@ -6302,13 +6319,79 @@
           }
         ]
       }
+    },
+    {
+      "id": "client-runs",
+      "title": "Client Macro Runs",
+      "open": false,
+      "x": 0.1,
+      "y": 0.1,
+      "w": 0.8,
+      "h": 0.8,
+      "layout": {
+        "type": "split",
+        "dir": "v",
+        "ratios": [
+          0.6,
+          0.4
+        ],
+        "children": [
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "client-macro-runs"
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "client-macro-log"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "market-runs",
+      "title": "Market Macro Runs",
+      "open": false,
+      "x": 0.1,
+      "y": 0.1,
+      "w": 0.8,
+      "h": 0.8,
+      "layout": {
+        "type": "split",
+        "dir": "v",
+        "ratios": [
+          0.6,
+          0.4
+        ],
+        "children": [
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "market-macro-runs"
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "market-macro-log"
+            ]
+          }
+        ]
+      }
     }
   ],
   "mkio": {
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.59",
+      "version": "0.60",
       "mkio": "1.5",
       "expr": "2"
     },

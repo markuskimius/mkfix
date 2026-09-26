@@ -237,10 +237,12 @@ A FIX protocol testing engine for capital markets connectivity, built on
   anything runs -- completes words in context (Ctrl+Space), explains a word
   under the mouse or the cursor (hover, F1), folds blocks, has an optional vim mode, and lists
   the macros in a panel whose edge drags (double-click fits the longest name). Each
-  side's **Macro Runs**, **Macro Orders** and **Macro Log** panes show its runs and each
-  order's macro, the line it is on and what it is waiting for, with Pause,
-  Stop and Detach, and the order blotters name the macro that took an
-  order. Received orders are offered to the armed runs in their **Priority**
+  side's **Macro Runs** window shows its runs as a tree -- each run opening
+  to its orders' macros, the line each is on and what it is waiting for, with
+  Pause, Stop and Detach -- over the log, which follows the selection: click
+  a run and the log is that run's lines, click an order and it is that
+  order's, and the *Listen* chip on the log's toolbar pauses the link for
+  the whole log. The order blotters name the macro that took an order. Received orders are offered to the armed runs in their **Priority**
   -- first armed, first offered -- which **Move Up**/**Move Down** change; the
   same market macro can be armed once per session. `run` may name its
   session (`run on SESSION`) or leave it to Run…, so one client macro runs
@@ -497,7 +499,7 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.14.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.16.1, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction

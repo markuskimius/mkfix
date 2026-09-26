@@ -183,6 +183,44 @@ class TestRuns:
             await manager.delete("slow")
 
     @pytest.mark.asyncio
+    async def test_the_runs_tree_hangs_each_order_under_its_run(self, kit):
+        """`macro_runs_tree` (mkfix.toml) is the Macro Runs window's query: a
+        UNION of runs and orders in one row shape. A run row keeps the runs
+        table's `id` (mkio re-reads a changed run through the SQL by it) and
+        an order row's id is negated so the two can never collide; `key` /
+        `parent_key` are what mkui's tree nests by, and `run_id` /
+        `order_row` what the log pane's link filters by — a run-level log
+        line has no order row, so the link must carry the run too."""
+        import tomllib
+        from pathlib import Path
+        db, engine, stub, manager, clock = kit
+        toml = tomllib.loads((Path(__file__).parent.parent / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
+        service = toml["services"]["macro_runs_tree"]
+        assert (service["primary_table"], service["watch_tables"], service["key"]) == (
+            "fix_macro_runs", ["fix_macro_runs", "fix_macro_orders"], ["key"])
+        await manager.save("slow", SLOW)
+        run_id = (await manager.arm("slow"))["run_id"]
+        await _order(engine, stub, manager)
+        rows = {r["kind"]: r for r in await _fetch_all(db, service["sql"])}
+        run, order = rows["run"], rows["order"]
+        (inst,) = await _fetch_all(db, "SELECT * FROM fix_macro_orders")
+        assert (run["id"], run["key"], run["parent_key"], run["run_id"], run["order_row"]) == (run_id, f"r{run_id}", "", run_id, None)
+        assert (run["macro"], run["status"], run["orders"], run["cl_ord_id"], run["line"]) == ("slow", "armed", 1, "", 0)
+        assert (order["id"], order["key"], order["parent_key"], order["run_id"], order["order_row"]) == (
+            -inst["id"], f"o{inst['id']}", f"r{run_id}", run_id, inst["order_row"])
+        assert (order["macro"], order["status"], order["cl_ord_id"], order["symbol"], order["line"], order["waiting_for"], order["priority"]) == (
+            "slow", "running", "C1", "AAPL", 5, "after 1s", None)
+        assert set(run) == set(order)
+        # A line the run logs about no order in particular (an order not taken, a
+        # `where` that failed) has a NULL order_row: the log's link on the
+        # run alone finds it, and the tree's run row broadcasts a blank there.
+        (run_obj,) = [r for r in manager.runner.runs if r.id == run_id]
+        manager.runner.on_log(run_obj, None, 1, "no more orders")
+        await manager.flush()
+        lines = await _fetch_all(db, "SELECT order_row, text FROM fix_macro_log ORDER BY id")
+        assert [(l["order_row"] is None, l["text"]) for l in lines] == [(False, "working C1"), (True, "no more orders")]
+
+    @pytest.mark.asyncio
     async def test_unknown_session(self, kit):
         db, engine, stub, manager, clock = kit
         await manager.save("slow", SLOW)

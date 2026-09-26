@@ -237,7 +237,7 @@ class TestMacroStatus:
 
     def items(self, tmp_path, runs, recordings=None):
         got = run_js(tmp_path, f"S.statusItems(S.macroState({json.dumps(runs)}, {json.dumps(recordings or {})}, {self.NOW}))")
-        return [(i["kind"], i["text"], i["pane"]) for i in got]
+        return [(i["kind"], i["text"], i.get("frame", i.get("pane"))) for i in got]
 
     def test_idle_says_nothing_and_enables_nothing(self, tmp_path):
         state = self.state(tmp_path, [])
@@ -252,15 +252,15 @@ class TestMacroStatus:
         assert [(state[s]["playing"], state[s]["paused"], state[s]["live"], state[s]["orders"]) for s in ("client", "market")] == [
             (2, 0, 2, 21), (1, 1, 2, 3)]
         assert self.items(tmp_path, runs) == [
-            ("playing", "▶ client 2 runs · 21 orders", "client-macro-runs"),
-            ("playing", "▶ market slow-fill · 3 orders", "market-macro-runs"),
-            ("paused", "⏸ market desk paused", "market-macro-runs")]
+            ("playing", "▶ client 2 runs · 21 orders", "client-runs"),
+            ("playing", "▶ market slow-fill · 3 orders", "market-runs"),
+            ("paused", "⏸ market desk paused", "market-runs")]
 
     def test_recording_is_said_first_and_links_to_the_editor(self, tmp_path):
         rec = {"market": {"recording": True, "actions": 1, "session": "LOOP-MKT"}, "client": {"recording": False, "actions": 0}}
         assert self.items(tmp_path, [self.run(1, "market", "armed")], rec) == [
             ("recording", "● REC market · 1 action on LOOP-MKT", "market-macros"),
-            ("playing", "▶ market slow-fill · 0 orders", "market-macro-runs")]
+            ("playing", "▶ market slow-fill · 0 orders", "market-runs")]
         state = self.state(tmp_path, [], rec)
         assert (state["market"]["recording"], state["market"]["actions"], state["client"]["recording"]) == (True, 1, False)
 
@@ -270,24 +270,24 @@ class TestMacroStatus:
         stopped = self.run(3, "market", "stopped", ended="20260920-11:59:59.500")
         interrupted = self.run(4, "market", "interrupted", macro="desk", ended="20260920-11:50:00.000")
         assert self.items(tmp_path, [fresh, stale, stopped, interrupted]) == [
-            ("passed", "■ chase passed · 3 of 3", "client-macro-runs"), ("ended", "■ slow-fill stopped", "market-macro-runs")]
+            ("passed", "■ chase passed · 3 of 3", "client-runs"), ("ended", "■ slow-fill stopped", "market-runs")]
         assert self.items(tmp_path, [stale]) == []
 
     def test_a_failure_stays_until_something_else_happens_on_its_side(self, tmp_path):
         failed = self.run(1, "client", "finished", macro="suite", verdict="failed", orders=3, passed=2, failed=1,
                           ended="20260920-11:55:00.000")
-        assert self.items(tmp_path, [failed]) == [("failed", "■ suite failed · 1 of 3 failed", "client-macro-runs")]
+        assert self.items(tmp_path, [failed]) == [("failed", "■ suite failed · 1 of 3 failed", "client-runs")]
         later = self.run(2, "client", "armed", macro="chase", started="20260920-11:56:00.000")
-        assert self.items(tmp_path, [failed, later]) == [("playing", "▶ client chase · 0 orders", "client-macro-runs")]
+        assert self.items(tmp_path, [failed, later]) == [("playing", "▶ client chase · 0 orders", "client-runs")]
         other_side = self.run(3, "market", "armed", started="20260920-11:56:00.000")
-        assert ("failed", "■ suite failed · 1 of 3 failed", "client-macro-runs") in self.items(tmp_path, [failed, other_side])
+        assert ("failed", "■ suite failed · 1 of 3 failed", "client-runs") in self.items(tmp_path, [failed, other_side])
         # a stop or an interruption gives way the same way; a pass keeps its minute
         interrupted = self.run(5, "market", "interrupted", ended="20260920-11:59:40.000")
         again = self.run(6, "market", "armed", started="20260920-11:59:50.000")
-        assert self.items(tmp_path, [interrupted]) == [("ended", "■ slow-fill interrupted", "market-macro-runs")]
-        assert self.items(tmp_path, [interrupted, again]) == [("playing", "▶ market slow-fill · 0 orders", "market-macro-runs")]
+        assert self.items(tmp_path, [interrupted]) == [("ended", "■ slow-fill interrupted", "market-runs")]
+        assert self.items(tmp_path, [interrupted, again]) == [("playing", "▶ market slow-fill · 0 orders", "market-runs")]
         passed = self.run(7, "client", "finished", macro="chase", verdict="passed", orders=1, passed=1, ended="20260920-11:59:40.000")
-        assert ("passed", "■ chase passed · 1 of 1", "client-macro-runs") in self.items(
+        assert ("passed", "■ chase passed · 1 of 1", "client-runs") in self.items(
             tmp_path, [passed, self.run(8, "client", "armed", macro="burst", started="20260920-11:59:50.000")])
         old = {**failed, "ended_at": "20260920-11:49:00.000"}
         assert self.items(tmp_path, [old]) == [], "ten minutes at most"
@@ -459,12 +459,14 @@ class TestWiring:
         for module in ("macros.js", "help-viewer.js"):
             assert f'/static/panes/{module}' in index
         shown = {i.get("args") for m in app["menubar"] for i in m["items"] if i.get("action") == "pane.show"}
-        assert {f"{side}-{pane}" for side in SIDES for pane in ("macros", "macro-runs", "macro-orders", "macro-log")} | {"help-viewer"} <= shown
+        assert {f"{side}-macros" for side in SIDES} | {"help-viewer"} <= shown
+        windows = {i.get("args") for m in app["menubar"] for i in m["items"] if i.get("action") == "frame.show"}
+        assert windows == {f"{side}-runs" for side in SIDES}
         for state in ("selected_macro", "selected_macro_order", "help_target", "open_example"):
             assert state in app["state"], state
 
     @pytest.mark.parametrize("side", SIDES)
-    def test_each_side_has_its_own_four_panes_over_its_own_rows(self, side):
+    def test_each_side_has_its_own_panes_over_its_own_rows(self, side):
         """The two sides share tables and services; a pane's `filter` is all
         that keeps a client run out of Market Runs."""
         import tomllib
@@ -473,22 +475,45 @@ class TestWiring:
         word = side.capitalize()
         editor = app["panes"][f"{side}-macros"]
         assert editor == {"title": f"{word} Macros", "type": "macros", "side": side}
-        for pane, service, title in (("macro-runs", "macro_runs_query", "Macro Runs"),
-                                     ("macro-orders", "macro_orders_query", "Macro Orders"),
+        for pane, service, title in (("macro-runs", "macro_runs_tree", "Macro Runs"),
                                      ("macro-log", "macro_log_query", "Macro Log")):
             spec = app["panes"][f"{side}-{pane}"]
             assert (spec["title"], spec["service"], spec["filter"]) == (f"{word} {title}", service, f"side == '{side}'")
             assert "side" in toml["services"][service]["filterable"]
-        assert "side" in toml["services"]["macros_query"]["filterable"]
-        assert app["panes"][f"{side}-macro-orders"]["select"] == {"state": "selected_macro_order"}
+        for service in ("macros_query", "macro_runs_query", "macro_orders_query"):
+            assert "side" in toml["services"][service]["filterable"], service
+        assert app["panes"][f"{side}-macro-runs"]["select"] == {"state": "selected_macro_order"}
+        # The window: the runs tree over the log, the log filtered by the tree's
+        # selection through a table link. A selected run broadcasts its subtree,
+        # so `<side>_macro_order` carries its orders' rows (and its own blank,
+        # which is what a run-level log line has) and `<side>_macro_run` keeps it
+        # to that run. Link names are one namespace across the app, so each side
+        # has its own: shared names let the Client tree filter the Market log.
+        tree = app["panes"][f"{side}-macro-runs"]
+        assert tree["tree"] == {"child": "parent_key", "parent": "key", "expand": 1}, "expand lives inside `tree`: at the pane level mkui ignores it"
+        names = {f"{side}_macro_run": "run_id", f"{side}_macro_order": "order_row"}
+        assert tree["link"] == {"broadcast": names}
+        assert app["panes"][f"{side}-macro-log"]["link"] == {"listen": names}
+        frame = next(f for f in app["frames"] if f["id"] == f"{side}-runs")
+        assert frame["open"] is False and frame["title"] == f"{word} Macro Runs"
+        assert frame["layout"]["children"] == [{"type": "tabs", "active": 0, "children": [f"{side}-macro-runs"]},
+                                               {"type": "tabs", "active": 0, "children": [f"{side}-macro-log"]}]
+        # A closed frame and `frame.show` are mkui 1.16.0: an older mkui opens the window at startup and the menu item does nothing
+        from mkui.__init__ import __version__ as mkui_version
+        assert tuple(map(int, mkui_version.split(".")[:2])) >= (1, 16)
+        floor = re.search(r'"mkui>=(\d+)\.(\d+)\.\d+,<2"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert floor and tuple(map(int, floor.groups())) >= (1, 16), "the pyproject pin must reach closed frames"
         for table in ("fix_macros", "fix_macro_runs", "fix_macro_orders", "fix_macro_log"):
             assert "side" in toml["tables"][table]["columns"], table
 
     def test_the_two_sides_panes_differ_only_by_side(self):
         app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
-        for pane in ("macro-runs", "macro-orders", "macro-log"):
+        for pane in ("macro-runs", "macro-log"):
             client = json.dumps(app["panes"][f"client-{pane}"]).replace("client", "market").replace("Client", "Market")
             assert client == json.dumps(app["panes"][f"market-{pane}"]), pane
+        frames = {f["id"]: f for f in app["frames"]}
+        client = json.dumps(frames["client-runs"]).replace("client", "market").replace("Client", "Market")
+        assert client == json.dumps(frames["market-runs"])
 
     def test_history_is_wired_to_the_versions_the_server_keeps(self):
         import tomllib
@@ -714,9 +739,15 @@ class TestWiring:
         from tests.test_ui_config import _fix_cmd_commands
         app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
         for side in SIDES:
-            ops = {b["action"]["op"] for pane in ("macro-runs", "macro-orders") for b in app["panes"][f"{side}-{pane}"]["buttons"]}
+            buttons = app["panes"][f"{side}-macro-runs"]["buttons"]
+            ops = {b["action"]["op"] for b in buttons}
             assert ops == {"pause_run", "resume_run", "stop_run", "move_run", "detach_order"} and ops <= _fix_cmd_commands()
-            moves = [b for b in app["panes"][f"{side}-macro-runs"]["buttons"] if b["action"]["op"] == "move_run"]
+            # One tree holds both kinds of row, so every gate names the kind it acts on.
+            for b in buttons:
+                kind = "order" if b["action"]["op"] == "detach_order" else "run"
+                assert b["enable"]["when"].startswith(f"ALL(rows, r -> r.kind == '{kind}' and "), (b["label"], b["enable"]["when"])
+                assert b["action"]["data"][("order_row" if kind == "order" else "run_id")] == "${row." + ("order_row" if kind == "order" else "run_id") + "}"
+            moves = [b for b in buttons if b["action"]["op"] == "move_run"]
             assert [(b["label"], b["action"]["data"]["direction"]) for b in moves] == [("Move Up", "up"), ("Move Down", "down")]
             assert all(b["enable"]["maxSelected"] == 1 and "r.priority > 0" in b["enable"]["when"] for b in moves)
             assert "priority" in app["panes"][f"{side}-macro-runs"]["columns"]

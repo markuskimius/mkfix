@@ -336,6 +336,41 @@ protocol = "query"
 primary_table = "fix_macro_log"
 filterable = ["run_id", "macro", "side"]
 
+# The Macro Runs window's tree: runs are roots, their orders hang under them
+# (`tree = { child = "parent_key", parent = "key" }`). One row shape for
+# both kinds. mkio re-reads a changed run through this SQL by the runs
+# table's `id`, so run rows carry their real id and order rows a negated one
+# that can never collide; an order write re-runs the whole SQL (a watched
+# table) and publishes what differs. `key` keeps the client's row identity
+# the union's own key. The runs carry `run_id` too so one link name serves
+# both kinds, and an order row's `order_row` is what Detach and the log's
+# link filter take.
+[services.macro_runs_tree]
+protocol = "query"
+primary_table = "fix_macro_runs"
+watch_tables = ["fix_macro_runs", "fix_macro_orders"]
+key = ["key"]
+filterable = ["side", "macro", "status", "run_id"]
+sql = """
+SELECT r.id AS id, 'run' AS kind, 'r' || r.id AS key, '' AS parent_key,
+       r.id AS run_id, NULL AS order_row, r.macro, r.side, r.status,
+       r.priority, r.verdict, r.orders, r.live, r.passed, r.failed,
+       r.session, r.speed, r.seed, r.version,
+       '' AS cl_ord_id, '' AS symbol, '' AS order_id, 0 AS line,
+       '' AS waiting_for, '' AS message, 0 AS actions,
+       r.started_at, r.ended_at, '' AS updated_at
+  FROM fix_macro_runs r
+UNION ALL
+SELECT -o.id, 'order', 'o' || o.id, 'r' || o.run_id,
+       o.run_id, o.order_row, o.macro, o.side, o.status,
+       NULL, '', NULL, NULL, NULL, NULL,
+       o.session_id, NULL, NULL, NULL,
+       o.cl_ord_id, o.symbol, o.order_id, o.line,
+       o.waiting_for, o.message, o.actions,
+       o.started_at, '', o.updated_at
+  FROM fix_macro_orders o
+"""
+
 [services.templates_list]
 protocol = "reqrep"
 sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst FROM fix_templates WHERE scope = :scope ORDER BY name"

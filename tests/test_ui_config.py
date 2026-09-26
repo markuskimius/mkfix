@@ -1262,9 +1262,10 @@ class TestStyleAndGateValues:
             "mkio-table's sort spec changed shape: _sort_keys must follow it"
 
     def test_the_run_panes_open_newest_first(self, app_config):
+        """The tree sorts by the union's `id`: runs newest first, and under
+        each run its orders in arrival order, since their ids are negated."""
         for side in ("client", "market"):
             assert app_config["panes"][f"{side}-macro-runs"]["sort"] == ["-id"]
-            assert app_config["panes"][f"{side}-macro-orders"]["sort"] == ["-updated_at"]
             assert app_config["panes"][f"{side}-macro-log"]["sort"] == ["-timestamp"]
 
     def test_filters_and_row_styles_read_real_columns(self, app_config, toml_config):
@@ -1578,19 +1579,18 @@ class TestMenubar:
     MENUS = ["FIX", "Edit", "Client", "Market", "Config", "To Do", "Layout", "Window", "Help"]
     # What each menu of panes opens, in order (None is a separator): FIX is
     # the wire, Client the orders we send and Market the orders we receive
-    # (blotters, then that side's macros), To Do what has no side yet,
+    # (blotters, then that side's macros, then its Macro Runs window — a
+    # closed frame `frame.show` opens whole), To Do what has no side yet,
     # Config what the rest is set up with.
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail"],
-        "Client": ["order-blotter", "trade-blotter", None,
-                   "client-macros", "client-macro-runs", "client-macro-orders", "client-macro-log"],
-        "Market": ["market-order-blotter", "market-trade-blotter", None,
-                   "market-macros", "market-macro-runs", "market-macro-orders", "market-macro-log"],
+        "Client": ["order-blotter", "trade-blotter", None, "client-macros", "client-runs"],
+        "Market": ["market-order-blotter", "market-trade-blotter", None, "market-macros", "market-runs"],
         "To Do": ["ioi-viewer", "allocation-viewer", "replay-control"],
         "Config": ["templates", "dictionaries"],
     }
     BUILTIN_ACTIONS = {
-        "pane.show", "edit.copy", "edit.selectAll", "edit.undo", "edit.redo",
+        "pane.show", "frame.show", "edit.copy", "edit.selectAll", "edit.undo", "edit.redo",
         "layout.save", "layout.reset",
         "window.tileH", "window.tileV", "window.grid", "window.cascade",
         "dialog.open", "dialog.about",
@@ -1601,21 +1601,29 @@ class TestMenubar:
 
     def test_each_pane_menu_holds_what_it_should(self, app_config):
         by = {m["label"]: m["items"] for m in app_config["menubar"]}
+        closed = {f["id"] for f in app_config["frames"] if f.get("open") is False}
         for label, panes in self.PANES.items():
             assert [None if i.get("sep") else i.get("args") for i in by[label]] == panes, label
-            assert all(i.get("sep") or i["action"] == "pane.show" for i in by[label]), label
+            for i in by[label]:
+                assert i.get("sep") or i["action"] == "pane.show" or (i["action"] == "frame.show" and i["args"] in closed), (label, i)
 
     def test_every_pane_is_on_exactly_one_menu(self, app_config):
         """A pane no menu opens can only be reached from a saved layout; one
-        on two menus has two homes to keep in step."""
+        on two menus has two homes to keep in step. A pane inside a window
+        a menu opens (`frame.show` on a closed frame) is reached that way."""
         shown = _menubar_pane_ids(app_config["menubar"])
+        frames = {f["id"]: f for f in app_config["frames"]}
+        for menu in app_config["menubar"]:
+            for item in menu["items"]:
+                if item.get("action") == "frame.show":
+                    shown += _frame_pane_ids(frames[item["args"]]["layout"])
         assert sorted(shown) == sorted(set(shown)), "a pane is on two menus"
         assert set(app_config["panes"]) == set(shown), set(app_config["panes"]) ^ set(shown)
 
     def test_every_item_is_an_action_separator_or_submenu(self, app_config):
         for menu in app_config["menubar"]:
             for item in menu["items"]:
-                kinds = set(item) & {"action", "sep", "layouts", "windows"}
+                kinds = set(item) & {"action", "sep", "layouts", "windows", "frames"}
                 assert len(kinds) == 1, f"{menu['label']}: ambiguous item {item}"
                 if "action" in item:
                     assert item["label"], f"{menu['label']}: action without a label"
