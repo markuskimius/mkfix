@@ -73,7 +73,7 @@ def _order_params(**overrides):
         "pending_qty": 0.0, "pending_price": 0.0, "pending_extra_tags": "",
         "tif_code": "0", "extra_tags": "", "entered_qty": 100.0, "entered_price": 150.25,
         "expire_time": "", "expire_date": "", "client": "",
-        "handl_inst": "", "handl_inst_code": "", "sent_text": "",
+        "handl_inst": "", "handl_inst_code": "", "sent_text": "", "market_order_id": "",
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
@@ -4289,6 +4289,85 @@ class TestSentRequests:
             if d.defines("102"):
                 assert d.enum_name("102", "0") == "TooLateToCancel", version
                 assert d.enum_name("102", "1") == "UnknownOrder", version
+
+
+class TestMarketOrderId:
+    """A sent order's market_order_id is the counterparty's OrderID(37) as
+    last reported — on an ExecutionReport or an OrderCancelReject — while
+    order_id stays the OR id minted here. A message carrying no 37 leaves
+    it as it stands."""
+
+    async def _working_order(self, engine, stub, market="MKT1"):
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={cl_ord_id}|37={market}|17=E1|20=0|150=0|39=0|55=AAPL|54=1|"
+            "38=100|14=0|6=0|151=100"))
+        return cl_ord_id
+
+    @pytest.mark.asyncio
+    async def test_report_sets_it_beside_the_minted_order_id(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        c1 = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        row = await _order(db)
+        assert row["market_order_id"] == "" and row["order_id"].startswith("OR")
+        minted = row["order_id"]
+        await engine.on_app_message(stub, "8", _er(c1, "0", "0"))
+        row = await _order(db)
+        assert row["market_order_id"] == "MKT1"
+        assert row["order_id"] == minted
+
+    @pytest.mark.asyncio
+    async def test_later_reports_update_it_and_one_without_37_keeps_it(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        c1 = await self._working_order(engine, stub)
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={c1}|17=E2|20=0|150=1|39=1|55=AAPL|54=1|38=100|14=40|6=150|"
+            "151=60|32=40|31=150"))
+        row = await _order(db)
+        assert row["status"] == "PartiallyFilled" and row["market_order_id"] == "MKT1"
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={c1}|37=MKT2|17=E3|20=0|150=1|39=1|55=AAPL|54=1|38=100|14=60|"
+            "6=150|151=40|32=20|31=150"))
+        assert (await _order(db))["market_order_id"] == "MKT2"
+
+    @pytest.mark.asyncio
+    async def test_accepted_replace_carries_it_to_the_new_cl_ord_id(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        c1 = await self._working_order(engine, stub)
+        r1 = await engine.send_cancel_replace("S1", c1, symbol="AAPL", side="1", qty=200, price=151.0)
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={r1}|41={c1}|37=MKT9|17=E4|20=0|150=5|39=5|55=AAPL|54=1|38=200|"
+            "14=0|6=0|151=200"))
+        row = await _order(db)
+        assert row["cl_ord_id"] == r1 and row["market_order_id"] == "MKT9"
+
+    @pytest.mark.asyncio
+    async def test_cancel_reject_updates_it(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        c1 = await self._working_order(engine, stub)
+        x1 = await engine.send_cancel("S1", c1, symbol="AAPL", side="1", qty=100)
+        reject = parse_fix(f"8=FIX.4.2|35=9|11={x1}|41={c1}|37=MKT5|39=0|434=1|102=0|58=too late")
+        await engine.on_app_message(stub, "9", reject)
+        row = await _order(db)
+        assert row["market_order_id"] == "MKT5" and row["cxl_rej_reason"].startswith("Cancel ")
+        x2 = await engine.send_cancel("S1", c1, symbol="AAPL", side="1", qty=100)
+        await engine.on_app_message(stub, "9", parse_fix(f"8=FIX.4.2|35=9|11={x2}|41={c1}|39=0|434=1"))
+        assert (await _order(db))["market_order_id"] == "MKT5", "a reject without 37 keeps it"
+
+    @pytest.mark.asyncio
+    async def test_received_order_has_none(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        row = await _order(db)
+        assert row["direction"] == "RX" and row["market_order_id"] == ""
 
 
 class TestReplaceTermsWaitForAccept:

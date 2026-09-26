@@ -540,6 +540,16 @@ class TestServiceReferences:
         assert "cxl_rej_reason" not in received["columns"]
         assert {"cxl_rej_reason", "pending_entered"} <= set(table)
 
+    def test_sent_orders_show_the_market_order_id(self, app_config, toml_config):
+        """The counterparty's OrderID(37), beside the OR id minted here; a
+        received order has no counterparty OrderID, so Received Orders skips it."""
+        sent, received = (app_config["panes"][p] for p in ("order-blotter", "market-order-blotter"))
+        columns = sent["columns"]
+        assert columns.index("market_order_id") == columns.index("order_id") + 1
+        assert sent["labels"]["market_order_id"] == "Market Order ID"
+        assert "market_order_id" not in received["columns"]
+        assert "market_order_id" in toml_config["tables"]["fix_orders"]["columns"]
+
     def test_sent_requests_do_not_gate_on_the_slot(self, app_config):
         """A cancel on top of a pending replace is a macro worth sending:
         Sent Orders' Replace and Cancel never test pending_action."""

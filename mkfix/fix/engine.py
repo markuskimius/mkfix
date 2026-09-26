@@ -36,7 +36,7 @@ ORDER_COLS = [
     "pending_extra_tags",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date", "client",
-    "handl_inst", "handl_inst_code", "sent_text",
+    "handl_inst", "handl_inst_code", "sent_text", "market_order_id",
 ]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
@@ -291,11 +291,15 @@ class FixEngine:
         # order_qty/price update from the insert values, guarded so an
         # ExecutionReport without tag 38/44 can't zero them out. order_id is
         # write-once: the immutable Order ID assigned when the order is created
-        # must survive later ERs carrying the counterparty's OrderID(37).
+        # must survive later ERs carrying the counterparty's OrderID(37), which
+        # lands in market_order_id instead — the latest one sent, kept by a
+        # message carrying none.
         order_set += (
             ", order_qty = iif(excluded.order_qty = 0, fix_orders.order_qty, excluded.order_qty)"
             ", price = iif(excluded.price = 0, fix_orders.price, excluded.price)"
             ", order_id = iif(fix_orders.order_id = '', excluded.order_id, fix_orders.order_id)"
+            ", market_order_id = iif(excluded.market_order_id = '', fix_orders.market_order_id,"
+            " excluded.market_order_id)"
             ", sent_text = coalesce(?, fix_orders.sent_text)"
         )
         self._compiled_ops["upsert_order"] = (CompiledOp(
@@ -358,17 +362,18 @@ class FixEngine:
         slot_answered = ", ".join(
             f"{c} = iif(pending_cl_ord_id = ?, {blank}, {c})" for c, blank in _PENDING_BLANKS.items())
         # An inbound OrderCancelReject: the counterparty's view of the order
-        # (OrdStatus, kept when the reject carries none), its Text, and which
-        # request it refused.
+        # (OrdStatus, kept when the reject carries none), its OrderID(37) when
+        # given, its Text, and which request it refused.
         self._compiled_ops["resolve_request"] = (CompiledOp(
             table="fix_orders",
             op_type="update",
             sql=(
-                "UPDATE fix_orders SET status = iif(? = '', status, ?), text = ?, "
+                "UPDATE fix_orders SET status = iif(? = '', status, ?), "
+                "market_order_id = iif(? = '', market_order_id, ?), text = ?, "
                 f"cxl_rej_reason = ?, {slot_answered}, updated_at = ?, _mkio_ref = ? "
                 "WHERE id = ? RETURNING *"
             ),
-            param_names=("status", "status", "text", "cxl_rej_reason",
+            param_names=("status", "status", "market_order_id", "market_order_id", "text", "cxl_rej_reason",
                          *(["pending_cl_ord_id"] * len(_PENDING_BLANKS)),
                          "updated_at", "_mkio_ref", "id"),
         ),)
@@ -1017,6 +1022,7 @@ class FixEngine:
             "handl_inst": "",
             "handl_inst_code": "",
             "sent_text": "",
+            "market_order_id": msg.get("37", ""),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(
@@ -1129,7 +1135,8 @@ class FixEngine:
         # order of theirs, so ours keeps its status.
         status_code = "" if reason_code == "1" else msg.get("39", "")
         status = dictionary.enum_name("39", status_code) if status_code else ""
-        params = (status, status, msg.get("58", ""), note,
+        market_order_id = msg.get("37", "")
+        params = (status, status, market_order_id, market_order_id, msg.get("58", ""), note,
                   *([request_id] * len(_PENDING_BLANKS)),
                   _fix_timestamp(), None, order["id"])
         ops = self._compiled_ops["resolve_request"]
@@ -1219,6 +1226,7 @@ class FixEngine:
             "handl_inst": dictionary.enum_name("21", handl_inst_code),
             "handl_inst_code": handl_inst_code,
             "sent_text": "",
+            "market_order_id": "",
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
@@ -1370,6 +1378,7 @@ class FixEngine:
             "expire_date": expire_date,
             "client": self._client_as_sent(session, msg),
             **self._handling_as_sent(session, msg),
+            "market_order_id": "",
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})

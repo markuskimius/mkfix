@@ -53,6 +53,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   (the New dialog's or the last accepted replace's -- a rejected replace
   leaves them alone) -- and a fully filled order can still be replaced up
   to revive it.
+  Beside the Order ID minted here, Market Order ID shows the counterparty's
+  OrderID(37) as last reported on an ExecutionReport or OrderCancelReject.
   A Replace or Cancel stays on the row as Pending -- with the request's
   ClOrdID and terms under Pending ID, New Qty and New Px -- until the
   counterparty answers it: an accepting ExecutionReport moves the order to the request's
