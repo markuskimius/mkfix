@@ -362,10 +362,9 @@ class MacroRunner:
 
     async def _trades(self, instance: Instance) -> list[dict[str, Any]]:
         """The order's trades, oldest first, busted ones included: the ones we
-        sent for an order we received, the ones we received for one we sent.
-        A received trade carries the ClOrdID of its moment and the
-        counterparty's OrderID, so it is found through every ClOrdID the
-        order's row has held."""
+        sent for an order we received, the ones we received for one we sent,
+        both by the order's immutable order_id (a received trade's is the
+        order's own; the counterparty's OrderID sits in market_order_id)."""
         order = instance.order
         if order is None:
             return []
@@ -374,10 +373,9 @@ class MacroRunner:
                    "ORDER BY id")
             params: tuple[Any, ...] = (order["session_id"], order["order_id"])
         else:
-            sql = ("SELECT * FROM fix_executions WHERE session_id = ? AND direction = 'RX' AND cl_ord_id IN "
-                   "(SELECT cl_ord_id FROM fix_orders WHERE id = ? UNION "
-                   "SELECT cl_ord_id FROM fix_orders__history WHERE id = ?) ORDER BY id")
-            params = (order["session_id"], order["id"], order["id"])
+            sql = ("SELECT * FROM fix_executions WHERE session_id = ? AND direction = 'RX' AND order_id = ? "
+                   "ORDER BY id")
+            params = (order["session_id"], order["order_id"])
         cursor = await self.engine.db.read_conn.execute(sql, params)
         rows = [dict(r) for r in await cursor.fetchall()]
         await cursor.close()

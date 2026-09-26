@@ -279,10 +279,9 @@ class Recorder:
             sql = "SELECT * FROM fix_executions WHERE session_id = ? AND direction = 'TX' AND order_id = ? ORDER BY id"
             params: tuple[Any, ...] = (order["session_id"], order["order_id"])
         else:
-            sql = ("SELECT * FROM fix_executions WHERE session_id = ? AND direction = 'RX' AND cl_ord_id IN "
-                   "(SELECT cl_ord_id FROM fix_orders WHERE id = ? UNION "
-                   "SELECT cl_ord_id FROM fix_orders__history WHERE id = ?) ORDER BY id")
-            params = (order["session_id"], order["id"], order["id"])
+            sql = ("SELECT * FROM fix_executions WHERE session_id = ? AND direction = 'RX' AND order_id = ? "
+                   "ORDER BY id")
+            params = (order["session_id"], order["order_id"])
         cursor = await self.engine.db.read_conn.execute(sql, params)
         rows = [dict(r) for r in await cursor.fetchall()]
         await cursor.close()

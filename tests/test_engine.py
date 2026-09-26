@@ -1545,12 +1545,18 @@ class TestDkTrade:
     @pytest.mark.asyncio
     async def test_dk_order_qty_survives_a_renamed_chain(self, stack):
         """The fill-time ClOrdID no longer names an order row after an
-        accepted replace; the ER's own CumQty + LeavesQty is the OrderQty."""
+        accepted replace, but the trade's order_id still does: the DK carries
+        the order's current OrderQty. Only an order that is gone leaves the
+        ER's own CumQty + LeavesQty."""
         db, writer, engine = stack
         stub = await self._fill(engine)
         replaced = ("8=FIX.4.2|35=8|11=C2|41=C1|37=O1|17=E2|20=0|150=5|39=5|55=AAPL|54=1|"
                     "38=250|44=151|14=100|6=150|151=150")
         await engine.on_app_message(stub, "8", parse_fix(replaced))
+        await engine.dk_trade("S1", "E1", "C")
+        assert stub.sent[-1]["38"] == "250"
+        await (await db.write_conn.execute("DELETE FROM fix_orders")).close()
+        await db.write_conn.commit()
         await engine.dk_trade("S1", "E1", "C")
         assert stub.sent[-1]["38"] == "100"
 
@@ -4368,6 +4374,89 @@ class TestMarketOrderId:
         await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
         row = await _order(db)
         assert row["direction"] == "RX" and row["market_order_id"] == ""
+
+    @pytest.mark.asyncio
+    async def test_received_trade_carries_the_same_pair(self, stack):
+        """A fill on a sent order is our order's trade: order_id is the OR id
+        the order row holds, market_order_id the ER's 37 — so Received Trades
+        matches Sent Orders on Order ID, and a DK still names the counterparty's."""
+        db, writer, engine = stack
+        stub = StubSession()
+        c1 = await self._working_order(engine, stub)
+        minted = (await _order(db))["order_id"]
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={c1}|37=MKT1|17=E2|20=0|150=1|39=1|55=AAPL|54=1|38=100|14=40|6=150|"
+            "151=60|32=40|31=150"))
+        trade = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert trade["direction"] == "RX"
+        assert trade["order_id"] == minted and trade["market_order_id"] == "MKT1"
+        await engine.dk_trade("S1", "E2", "B")
+        assert stub.sent[-1]["37"] == "MKT1" and stub.sent[-1]["38"] == "100"
+
+    @pytest.mark.asyncio
+    async def test_received_trade_after_a_rename_still_finds_its_order(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        c1 = await self._working_order(engine, stub)
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={c1}|37=MKT1|17=E2|20=0|150=1|39=1|55=AAPL|54=1|38=100|14=40|6=150|"
+            "151=60|32=40|31=150"))
+        r1 = await engine.send_cancel_replace("S1", c1, symbol="AAPL", side="1", qty=200, price=151.0)
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={r1}|41={c1}|37=MKT1|17=E4|20=0|150=5|39=1|55=AAPL|54=1|38=200|"
+            "14=40|6=150|151=160"))
+        await engine.dk_trade("S1", "E2", "B")
+        assert stub.sent[-1]["38"] == "200", "OrderQty is the order's current, by order_id"
+
+    @pytest.mark.asyncio
+    async def test_sent_trade_has_none(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        await engine.on_app_message(stub, "D", parse_fix(NEW_ORDER_RX))
+        await engine.fill_order("S1", "C100", qty=100, price=150.25)
+        trade = (await _fetch_all(db, "SELECT * FROM fix_executions"))[0]
+        assert trade["direction"] == "TX" and trade["market_order_id"] == ""
+        assert trade["order_id"] == (await _order(db))["order_id"]
+
+    @pytest.mark.asyncio
+    async def test_backfill_moves_older_trades_over_once(self, stack):
+        """Pre-0.61 rows hold the ER's 37 in order_id: it moves to
+        market_order_id and order_id becomes the order's, through history
+        when a replace renamed the chain; an orphan keeps the 37 in both."""
+        db, writer, engine = stack
+        stub = StubSession()
+        c1 = await self._working_order(engine, stub)
+        minted = (await _order(db))["order_id"]
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={c1}|37=MKT1|17=E2|20=0|150=1|39=1|55=AAPL|54=1|38=100|14=40|6=150|"
+            "151=60|32=40|31=150"))
+        r1 = await engine.send_cancel_replace("S1", c1, symbol="AAPL", side="1", qty=200, price=151.0)
+        await engine.on_app_message(stub, "8", parse_fix(
+            f"8=FIX.4.2|35=8|11={r1}|41={c1}|37=MKT1|17=E4|20=0|150=5|39=1|55=AAPL|54=1|38=200|"
+            "14=40|6=150|151=160"))
+        await engine.on_app_message(stub, "8", parse_fix(
+            "8=FIX.4.2|35=8|11=NOPE|37=O9|17=E9|20=0|150=2|39=2|55=AAPL|54=1|"
+            "38=10|32=10|31=150|14=10|6=150|151=0"))
+        conn = db.write_conn
+        await (await conn.execute(
+            "UPDATE fix_executions SET order_id = market_order_id, market_order_id = ''")).close()
+        await (await conn.execute("DELETE FROM fix_orders WHERE cl_ord_id = 'NOPE'")).close()
+        await conn.commit()
+
+        await engine._backfill_trade_order_ids()
+        trades = {t["exec_id"]: t for t in await _fetch_all(db, "SELECT * FROM fix_executions")}
+        assert (trades["E2"]["order_id"], trades["E2"]["market_order_id"]) == (minted, "MKT1"), \
+            "the fill's ClOrdID is history now"
+        assert (trades["E9"]["order_id"], trades["E9"]["market_order_id"]) == ("O9", "O9")
+
+        await (await conn.execute("UPDATE fix_executions SET market_order_id = ''")).close()
+        await conn.commit()
+        await engine._backfill_trade_order_ids()
+        assert all(t["market_order_id"] == "" for t in await _fetch_all(db, "SELECT * FROM fix_executions")), \
+            "a second startup does not rescan"
+        flag = await _fetch_all(db, "SELECT value FROM fix_settings WHERE key = 'trade_order_id_backfill'")
+        assert flag == [{"value": "1"}]
 
 
 class TestReplaceTermsWaitForAccept:

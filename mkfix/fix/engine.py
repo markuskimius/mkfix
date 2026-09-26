@@ -74,8 +74,11 @@ PENDING_COLS = [
 _PENDING_BLANKS = {"pending_action": "''", "pending_cl_ord_id": "''", "pending_qty": "0",
                    "pending_price": "0", "pending_extra_tags": "''", "pending_entered": "''"}
 
+# order_id is the order's own (the OR id minted here, on both sides);
+# market_order_id is a received trade's OrderID(37) — the counterparty's, the
+# one a DontKnowTrade must name — and blank on a sent trade.
 EXEC_COLS = [
-    "session_id", "exec_id", "exec_ref_id", "trade_id", "order_id", "cl_ord_id",
+    "session_id", "exec_id", "exec_ref_id", "trade_id", "order_id", "market_order_id", "cl_ord_id",
     "symbol", "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
     "transact_time", "text", "timestamp", "direction", "client", "extra_tags",
@@ -90,7 +93,7 @@ CORRECTED_EXEC_TYPES = ("Correct", "TradeCorrect")
 # identity (session, trade_id, direction). The DK columns go back to blank:
 # a DontKnowTrade answered the ExecID the row no longer carries.
 EXEC_UPDATE_COLS = [
-    "exec_id", "exec_ref_id", "order_id", "cl_ord_id", "symbol", "side",
+    "exec_id", "exec_ref_id", "order_id", "market_order_id", "cl_ord_id", "symbol", "side",
     "side_code", "last_qty", "last_price", "cum_qty", "avg_price",
     "exec_type", "exec_type_code", "leaves_qty", "transact_time", "text",
     "timestamp", "dk_reason", "dk_text", "extra_tags",
@@ -205,6 +208,7 @@ class FixEngine:
         await self._backfill_rx_extra_tags()
         await self._backfill_client()
         await self._backfill_handling_and_trade_tags()
+        await self._backfill_trade_order_ids()
         await self.ids.start()
         await self._load_custom_dictionaries()
         await self._load_sessions()
@@ -663,6 +667,38 @@ class FixEngine:
         )).close()
         await conn.commit()
 
+    async def _backfill_trade_order_ids(self) -> None:
+        """Seed, once (fix_settings `trade_order_id_backfill`), the column
+        0.61 added: a received trade's order_id used to be the ER's
+        OrderID(37), the counterparty's. It moves to market_order_id, and
+        order_id becomes the order's own — matched by session and the
+        fill-time ClOrdID, live or through fix_orders__history after a
+        rename; a trade whose order is gone keeps the counterparty's in
+        both. Raw-connection writes, like the other backfills."""
+        conn = self.db.write_conn
+        cur = await conn.execute(
+            "SELECT value FROM fix_settings WHERE key = 'trade_order_id_backfill'")
+        done = await cur.fetchone()
+        await cur.close()
+        if done:
+            return
+
+        await (await conn.execute(
+            "UPDATE fix_executions SET market_order_id = order_id "
+            "WHERE direction = 'RX' AND market_order_id = ''")).close()
+        await (await conn.execute(
+            "UPDATE fix_executions SET order_id = COALESCE("
+            "(SELECT o.order_id FROM fix_orders o WHERE o.session_id = fix_executions.session_id "
+            "AND o.cl_ord_id = fix_executions.cl_ord_id AND o.order_id != ''), "
+            "(SELECT o.order_id FROM fix_orders o JOIN fix_orders__history h ON h.id = o.id "
+            "WHERE h.session_id = fix_executions.session_id "
+            "AND h.cl_ord_id = fix_executions.cl_ord_id AND o.order_id != '' LIMIT 1), "
+            "order_id) WHERE direction = 'RX'")).close()
+        await (await conn.execute(
+            "INSERT OR REPLACE INTO fix_settings (key, value) VALUES ('trade_order_id_backfill', '1')"
+        )).close()
+        await conn.commit()
+
     async def _backfill_handling_and_trade_tags(self) -> None:
         """Seed, once (fix_settings `handling_backfill`), the columns 0.41
         added, from the recorded messages: an order's HandlInst(21) from its
@@ -1029,7 +1065,13 @@ class FixEngine:
             ops, (_order_params(order_row, keep_sent_text=True, keep_pending=True),),
             {"cl_ord_id": cl_ord_id})
 
-        trade = await self._record_report_trade(session, msg, cl_ord_id, order_row["client"])
+        # The trade belongs to our order: its order_id is the row's (the OR id
+        # minted at send), not the ER's 37, which is the counterparty's and
+        # goes to market_order_id — as on Sent Orders. An ER creating the row
+        # itself (a replayed log) gives both the same value, like the row.
+        own_order_id = (order["order_id"] if order else "") or msg.get("37", "")
+        trade = await self._record_report_trade(session, msg, cl_ord_id, order_row["client"],
+                                                own_order_id)
 
         if not self.events.active:
             return
@@ -1046,7 +1088,7 @@ class FixEngine:
             order=after, prev=order, trade=trade))
 
     async def _record_report_trade(self, session: FixSession, msg: FixMessage, cl_ord_id: str,
-                                   client: str) -> dict[str, Any] | None:
+                                   client: str, order_id: str) -> dict[str, Any] | None:
         """The trade an ExecutionReport reports — a fill, or a correction or
         bust of one — written as a row or a new version of one; None for a
         report that is about the order alone."""
@@ -1082,7 +1124,8 @@ class FixEngine:
             "exec_id": msg.get("17", ""),
             "exec_ref_id": exec_ref_id,
             "trade_id": trade_id,
-            "order_id": msg.get("37", ""),
+            "order_id": order_id,
+            "market_order_id": msg.get("37", ""),
             "cl_ord_id": cl_ord_id,
             "symbol": msg.get("55", ""),
             "side": dictionary.enum_name("54", side_code),
@@ -1828,6 +1871,7 @@ class FixEngine:
             "exec_ref_id": exec_ref_id,
             "trade_id": trade_id,
             "order_id": order["order_id"],
+            "market_order_id": "",
             "cl_ord_id": order["cl_ord_id"],
             "symbol": order["symbol"],
             "side": order["side"],
@@ -2438,8 +2482,11 @@ class FixEngine:
         extra_pairs = parse_extra_tags(extra_tags)
         execution = await self._load_execution(session_id, exec_id)
 
+        # Tag 37 is the OrderID the counterparty knows: theirs on a received
+        # trade, ours on a sent one.
+        received = execution["direction"] == "RX"
         msg = session.factory.dont_know_trade(
-            order_id=execution["order_id"],
+            order_id=execution["market_order_id"] if received else execution["order_id"],
             exec_id=exec_id,
             dk_reason=reason,
             symbol=execution["symbol"],
@@ -2467,12 +2514,12 @@ class FixEngine:
             raise
 
     async def _order_qty_of(self, execution: dict[str, Any]) -> float:
-        """OrderQty for a received execution. Its order_id is the counterparty's
-        OrderID(37), never ours, so the order is found by the fill-time ClOrdID;
-        an accepted replace since then renamed the chain, in which case the
-        execution's own CumQty + LeavesQty is the quantity the ER reported."""
+        """OrderQty for a received execution: its order's, found by the
+        immutable order_id (an accepted replace may have renamed the chain
+        since the fill); for an order that is gone, the execution's own
+        CumQty + LeavesQty is the quantity the ER reported."""
         try:
-            order = await self._load_order(execution["session_id"], execution["cl_ord_id"])
+            order = await self._load_order_for_execution(execution)
         except ValueError:
             return execution["cum_qty"] + execution["leaves_qty"]
         return order["order_qty"]

@@ -55,7 +55,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   leaves them alone) -- and a fully filled order can still be replaced up
   to revive it.
   Beside the Order ID minted here, Market Order ID shows the counterparty's
-  OrderID(37) as last reported on an ExecutionReport or OrderCancelReject.
+  OrderID(37) as last reported on an ExecutionReport or OrderCancelReject;
+  Received Trades carries the same pair, so a trade matches its order on
+  Order ID and its DK names the counterparty's.
   A Replace or Cancel stays on the row as Pending -- with the request's
   ClOrdID and terms under Pending ID, New Qty and New Px -- until the
   counterparty answers it: an accepting ExecutionReport moves the order to the request's

@@ -550,6 +550,21 @@ class TestServiceReferences:
         assert "market_order_id" not in received["columns"]
         assert "market_order_id" in toml_config["tables"]["fix_orders"]["columns"]
 
+    def test_received_trades_show_the_market_order_id(self, app_config, toml_config):
+        """The same pair on trades: Order ID is the order's own, so it matches
+        Sent Orders, and Market Order ID the ER's 37 — what the DK dialog's
+        computed line names as tag 37. A sent trade has none."""
+        received, sent = (app_config["panes"][p] for p in ("trade-blotter", "market-trade-blotter"))
+        columns = received["columns"]
+        assert columns.index("market_order_id") == columns.index("order_id") + 1
+        assert received["labels"]["market_order_id"] == "Market Order ID"
+        assert "market_order_id" in received["history"]["columns"]
+        assert "market_order_id" not in sent["columns"]
+        assert "market_order_id" in toml_config["tables"]["fix_executions"]["columns"]
+        terms = next(f for f in _find_dialog(app_config, "dk_trade")["fields"]
+                     if f.get("label") == "Terms as tags")
+        assert "row.market_order_id" in terms["compute"] and "row.order_id" not in terms["compute"]
+
     def test_sent_requests_do_not_gate_on_the_slot(self, app_config):
         """A cancel on top of a pending replace is a macro worth sending:
         Sent Orders' Replace and Cancel never test pending_action."""
@@ -2661,7 +2676,7 @@ class TestTagPreviews:
         row = {
             "cl_ord_id": "C2", "pending_cl_ord_id": "C3", "pending_action": "Replace",
             "pending_qty": 200.0, "pending_price": 151.5, "symbol": "AAPL", "side_code": "1",
-            "order_qty": 100.0, "order_id": "OR1", "exec_id": "EX1",
+            "order_qty": 100.0, "order_id": "OR1", "market_order_id": "MKT1", "exec_id": "EX1",
             "exec_ref_id": "", "last_qty": 40.0, "last_price": 150.5,
         }
         cases = {
@@ -2674,7 +2689,7 @@ class TestTagPreviews:
                  "handl_inst": "1", "text": "", "extra_tags": ""},
                 "41=C2|55=AAPL|54=1|38=100|40=1|59=7|21=1"),
             "send_cancel": ({"text": "pull", "extra_tags": ""}, "41=C2|55=AAPL|54=1|38=100|58=pull"),
-            "dk_trade": ({"dk_reason": "D", "text": "", "extra_tags": ""}, "37=OR1|17=EX1|127=D"),
+            "dk_trade": ({"dk_reason": "D", "text": "", "extra_tags": ""}, "37=MKT1|17=EX1|127=D"),
             "accept_request": ({"text": "ok", "extra_tags": ""}, "11=C3|41=C2|38=200|44=151.5|58=ok"),
             "reject_request": ({"text": "no", "extra_tags": ""}, "11=C3|41=C2|434=2|58=no"),
             "fill_order": ({"qty": "50", "price": "150.5", "text": None, "extra_tags": ""}, "11=C2|32=50|31=150.5"),

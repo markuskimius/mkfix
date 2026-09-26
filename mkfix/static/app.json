@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.60",
+    "version": "0.61",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -765,7 +765,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.60"
+        "text": "mkfix v0.61"
       }
     ],
     "bindStyle": {
@@ -2585,6 +2585,7 @@
         "exec_id",
         "exec_ref_id",
         "order_id",
+        "market_order_id",
         "session_id",
         "client",
         "symbol",
@@ -2622,6 +2623,7 @@
           "leaves_qty",
           "cl_ord_id",
           "order_id",
+          "market_order_id",
           "transact_time",
           "text",
           "client"
@@ -2641,6 +2643,7 @@
         "transact_time": "Time",
         "exec_ref_id": "ExecRefID",
         "order_id": "Order ID",
+        "market_order_id": "Market Order ID",
         "dk_reason": "DK",
         "dk_text": "DK Text",
         "_mkio_version": "Ver",
@@ -2825,7 +2828,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('37=', row.order_id, '|17=', row.exec_id, '|127=', dk_reason, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('37=', row.market_order_id, '|17=', row.exec_id, '|127=', dk_reason, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -6391,7 +6394,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.60",
+      "version": "0.61",
       "mkio": "1.5",
       "expr": "2"
     },
