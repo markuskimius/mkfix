@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.61",
+    "version": "0.62",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -765,7 +765,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.61"
+        "text": "mkfix v0.62"
       }
     ],
     "bindStyle": {
@@ -780,6 +780,30 @@
       "service": "sessions_query",
       "protocol": "query",
       "columns": [
+        "session_id",
+        "fix_version",
+        "dictionary",
+        "client_tags",
+        "sender_comp_id",
+        "target_comp_id",
+        "host",
+        "port",
+        "status",
+        "tx_seq_num",
+        "rx_seq_num",
+        "error_text",
+        "timestamp_precision",
+        "heartbeat_interval",
+        "logout_timeout",
+        "logout_test_request",
+        "reset_on_logon",
+        "enabled",
+        "description",
+        "session_start",
+        "last_tx_time",
+        "last_rx_time"
+      ],
+      "visible": [
         "session_id",
         "fix_version",
         "dictionary",
@@ -825,7 +849,17 @@
         "dictionary": "Dictionary",
         "_mkio_version": "Ver",
         "error_text": "Error",
-        "client_tags": "Client Tags"
+        "client_tags": "Client Tags",
+        "timestamp_precision": "Timestamps",
+        "heartbeat_interval": "Heartbeat",
+        "logout_timeout": "Logout Timeout",
+        "logout_test_request": "Logout TestReq",
+        "reset_on_logon": "Reset on Logon",
+        "enabled": "Enabled",
+        "description": "Description",
+        "session_start": "Started",
+        "last_tx_time": "Last TX",
+        "last_rx_time": "Last RX"
       },
       "styles": {
         "status": [
@@ -1463,7 +1497,27 @@
             }
           }
         }
-      ]
+      ],
+      "types": {
+        "session_start": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "last_tx_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "last_rx_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      }
     },
     "raw-messages": {
       "title": "Messages",
@@ -1479,6 +1533,27 @@
         "session_id",
         "msg_type_name",
         "client",
+        "raw_message",
+        "id",
+        "msg_type",
+        "category",
+        "sender_comp",
+        "target_comp",
+        "cl_ord_id",
+        "order_id",
+        "exec_id",
+        "symbol",
+        "side",
+        "body_length",
+        "checksum"
+      ],
+      "visible": [
+        "timestamp",
+        "direction",
+        "seq_num",
+        "session_id",
+        "msg_type_name",
+        "client",
         "raw_message"
       ],
       "labels": {
@@ -1488,7 +1563,19 @@
         "session_id": "Session",
         "msg_type_name": "Type",
         "raw_message": "Message",
-        "client": "Client"
+        "client": "Client",
+        "id": "Row",
+        "msg_type": "Type (35)",
+        "category": "Category",
+        "sender_comp": "Sender",
+        "target_comp": "Target",
+        "cl_ord_id": "ClOrdID",
+        "order_id": "Order ID",
+        "exec_id": "ExecID",
+        "symbol": "Symbol",
+        "side": "Side",
+        "body_length": "Body Length",
+        "checksum": "Checksum"
       },
       "display": {
         "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
@@ -1567,6 +1654,53 @@
         "text",
         "extra_tags",
         "macro",
+        "updated_at",
+        "id",
+        "orig_cl_ord_id",
+        "side_code",
+        "ord_type_code",
+        "stop_price",
+        "time_in_force",
+        "last_qty",
+        "last_price",
+        "transact_time",
+        "created_at",
+        "direction",
+        "pending_extra_tags",
+        "tif_code",
+        "entered_qty",
+        "entered_price",
+        "expire_time",
+        "expire_date",
+        "handl_inst_code",
+        "pending_entered",
+        "session_status"
+      ],
+      "visible": [
+        "order_id",
+        "market_order_id",
+        "cl_ord_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "ord_type",
+        "handl_inst",
+        "price",
+        "order_qty",
+        "status",
+        "pending_action",
+        "pending_cl_ord_id",
+        "pending_qty",
+        "pending_price",
+        "cxl_rej_reason",
+        "cum_qty",
+        "avg_price",
+        "leaves_qty",
+        "sent_text",
+        "text",
+        "extra_tags",
+        "macro",
         "updated_at"
       ],
       "history": {
@@ -1604,10 +1738,42 @@
         "sent_text": "Sent Text",
         "text": "Rcvd Text",
         "extra_tags": "Extra Tags",
-        "macro": "Macro"
+        "macro": "Macro",
+        "id": "Row",
+        "orig_cl_ord_id": "OrigClOrdID",
+        "side_code": "Side (54)",
+        "ord_type_code": "Type (40)",
+        "stop_price": "Stop Px",
+        "time_in_force": "TIF",
+        "last_qty": "Last Qty",
+        "last_price": "Last Px",
+        "transact_time": "Transact Time",
+        "created_at": "Created",
+        "direction": "Dir",
+        "pending_extra_tags": "Pending Extra Tags",
+        "tif_code": "TIF (59)",
+        "entered_qty": "Entered Qty",
+        "entered_price": "Entered Px",
+        "expire_time": "Expire Time",
+        "expire_date": "Expire Date",
+        "handl_inst_code": "Handl Inst (21)",
+        "pending_entered": "Pending Entered",
+        "session_status": "Session Status"
       },
       "types": {
         "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "created_at": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f",
           "format": "%Y-%m-%d %H:%M:%S.%f %Z",
@@ -2599,6 +2765,35 @@
         "dk_text",
         "text",
         "extra_tags",
+        "transact_time",
+        "id",
+        "cl_ord_id",
+        "side_code",
+        "exec_type_code",
+        "leaves_qty",
+        "timestamp",
+        "direction",
+        "session_status"
+      ],
+      "visible": [
+        "trade_id",
+        "exec_id",
+        "exec_ref_id",
+        "order_id",
+        "market_order_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "last_qty",
+        "last_price",
+        "cum_qty",
+        "avg_price",
+        "exec_type",
+        "dk_reason",
+        "dk_text",
+        "text",
+        "extra_tags",
         "transact_time"
       ],
       "history": {
@@ -2649,10 +2844,24 @@
         "_mkio_version": "Ver",
         "client": "Client",
         "text": "Text",
-        "extra_tags": "Extra Tags"
+        "extra_tags": "Extra Tags",
+        "id": "Row",
+        "cl_ord_id": "ClOrdID",
+        "side_code": "Side (54)",
+        "exec_type_code": "Exec Type (150)",
+        "leaves_qty": "Leaves",
+        "timestamp": "Recorded",
+        "direction": "Dir",
+        "session_status": "Session Status"
       },
       "types": {
         "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "timestamp": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f",
           "format": "%Y-%m-%d %H:%M:%S.%f %Z",
@@ -2884,6 +3093,53 @@
         "text",
         "extra_tags",
         "macro",
+        "updated_at",
+        "id",
+        "orig_cl_ord_id",
+        "side_code",
+        "ord_type_code",
+        "stop_price",
+        "time_in_force",
+        "last_qty",
+        "last_price",
+        "transact_time",
+        "created_at",
+        "direction",
+        "pending_extra_tags",
+        "tif_code",
+        "entered_qty",
+        "entered_price",
+        "expire_time",
+        "expire_date",
+        "handl_inst_code",
+        "cxl_rej_reason",
+        "pending_entered",
+        "market_order_id",
+        "session_status"
+      ],
+      "visible": [
+        "order_id",
+        "cl_ord_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "ord_type",
+        "handl_inst",
+        "price",
+        "order_qty",
+        "status",
+        "pending_action",
+        "pending_cl_ord_id",
+        "pending_qty",
+        "pending_price",
+        "cum_qty",
+        "avg_price",
+        "leaves_qty",
+        "sent_text",
+        "text",
+        "extra_tags",
+        "macro",
         "updated_at"
       ],
       "history": {
@@ -2919,10 +3175,44 @@
         "sent_text": "Sent Text",
         "text": "Rcvd Text",
         "extra_tags": "Extra Tags",
-        "macro": "Macro"
+        "macro": "Macro",
+        "id": "Row",
+        "orig_cl_ord_id": "OrigClOrdID",
+        "side_code": "Side (54)",
+        "ord_type_code": "Type (40)",
+        "stop_price": "Stop Px",
+        "time_in_force": "TIF",
+        "last_qty": "Last Qty",
+        "last_price": "Last Px",
+        "transact_time": "Transact Time",
+        "created_at": "Created",
+        "direction": "Dir",
+        "pending_extra_tags": "Pending Extra Tags",
+        "tif_code": "TIF (59)",
+        "entered_qty": "Entered Qty",
+        "entered_price": "Entered Px",
+        "expire_time": "Expire Time",
+        "expire_date": "Expire Date",
+        "handl_inst_code": "Handl Inst (21)",
+        "cxl_rej_reason": "Rej Reason",
+        "pending_entered": "Pending Entered",
+        "market_order_id": "Market Order ID",
+        "session_status": "Session Status"
       },
       "types": {
         "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "created_at": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f",
           "format": "%Y-%m-%d %H:%M:%S.%f %Z",
@@ -3787,6 +4077,36 @@
         "exec_id",
         "exec_ref_id",
         "order_id",
+        "cl_ord_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "last_qty",
+        "last_price",
+        "cum_qty",
+        "avg_price",
+        "exec_type",
+        "dk_reason",
+        "dk_text",
+        "text",
+        "extra_tags",
+        "transact_time",
+        "id",
+        "market_order_id",
+        "side_code",
+        "exec_type_code",
+        "leaves_qty",
+        "timestamp",
+        "direction",
+        "session_status"
+      ],
+      "visible": [
+        "trade_id",
+        "exec_id",
+        "exec_ref_id",
+        "order_id",
+        "cl_ord_id",
         "session_id",
         "client",
         "symbol",
@@ -3843,15 +4163,30 @@
         "transact_time": "Time",
         "exec_ref_id": "ExecRefID",
         "order_id": "Order ID",
+        "cl_ord_id": "ClOrdID",
         "_mkio_version": "Ver",
         "dk_reason": "DK",
         "dk_text": "DK Text",
         "client": "Client",
         "text": "Text",
-        "extra_tags": "Extra Tags"
+        "extra_tags": "Extra Tags",
+        "id": "Row",
+        "market_order_id": "Market Order ID",
+        "side_code": "Side (54)",
+        "exec_type_code": "Exec Type (150)",
+        "leaves_qty": "Leaves",
+        "timestamp": "Recorded",
+        "direction": "Dir",
+        "session_status": "Session Status"
       },
       "types": {
         "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "timestamp": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f",
           "format": "%Y-%m-%d %H:%M:%S.%f %Z",
@@ -4198,6 +4533,20 @@
         "price",
         "valid_until",
         "direction",
+        "timestamp",
+        "id",
+        "raw_message"
+      ],
+      "visible": [
+        "ioi_id",
+        "session_id",
+        "ioi_trans_type",
+        "symbol",
+        "side",
+        "ioi_qty",
+        "price",
+        "valid_until",
+        "direction",
         "timestamp"
       ],
       "labels": {
@@ -4210,7 +4559,9 @@
         "price": "Price",
         "valid_until": "Valid Until",
         "direction": "Dir",
-        "timestamp": "Time"
+        "timestamp": "Time",
+        "id": "Row",
+        "raw_message": "Message"
       },
       "types": {
         "valid_until": {
@@ -4249,6 +4600,9 @@
             "bold": true
           }
         ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
       }
     },
     "allocation-viewer": {
@@ -4257,6 +4611,23 @@
       "service": "allocations_query",
       "protocol": "query",
       "columns": [
+        "alloc_id",
+        "session_id",
+        "alloc_trans_type",
+        "alloc_type",
+        "symbol",
+        "side",
+        "quantity",
+        "avg_price",
+        "trade_date",
+        "alloc_status",
+        "num_allocs",
+        "direction",
+        "timestamp",
+        "id",
+        "raw_message"
+      ],
+      "visible": [
         "alloc_id",
         "session_id",
         "alloc_trans_type",
@@ -4284,7 +4655,9 @@
         "alloc_status": "Status",
         "num_allocs": "Allocs",
         "direction": "Dir",
-        "timestamp": "Time"
+        "timestamp": "Time",
+        "id": "Row",
+        "raw_message": "Message"
       },
       "types": {
         "trade_date": {
@@ -4321,6 +4694,9 @@
             "bold": true
           }
         ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
       }
     },
     "replay-control": {
@@ -4329,6 +4705,30 @@
       "service": "replay_jobs",
       "protocol": "query",
       "columns": [
+        "id",
+        "name",
+        "status",
+        "target_session",
+        "session_status",
+        "direction",
+        "sent_messages",
+        "selected_messages",
+        "total_messages",
+        "pairs",
+        "first_time",
+        "last_time",
+        "speed",
+        "max_gap",
+        "time_from",
+        "time_to",
+        "msg_filter",
+        "file_path",
+        "error_text",
+        "created_at",
+        "summary",
+        "default_direction"
+      ],
+      "visible": [
         "id",
         "name",
         "status",
@@ -4368,7 +4768,10 @@
         "time_to": "To",
         "msg_filter": "Types",
         "file_path": "File",
-        "error_text": "Error"
+        "error_text": "Error",
+        "created_at": "Created",
+        "summary": "Summary",
+        "default_direction": "Default Direction"
       },
       "types": {
         "first_time": {
@@ -4378,6 +4781,12 @@
           "zone": "local"
         },
         "last_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "created_at": {
           "type": "time",
           "parse": "%Y%m%d-%H:%M:%S.%f",
           "format": "%Y-%m-%d %H:%M:%S.%f %Z",
@@ -4740,6 +5149,25 @@
         "dk_reason",
         "restate_reason",
         "text",
+        "extra_tags",
+        "id",
+        "created_at"
+      ],
+      "visible": [
+        "name",
+        "scope",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "ord_type",
+        "qty",
+        "price",
+        "tif",
+        "handl_inst",
+        "dk_reason",
+        "restate_reason",
+        "text",
         "extra_tags"
       ],
       "labels": {
@@ -4757,7 +5185,9 @@
         "text": "Text (58)",
         "extra_tags": "Extra Tags",
         "client": "Client",
-        "handl_inst": "Handl Inst (21)"
+        "handl_inst": "Handl Inst (21)",
+        "id": "Row",
+        "created_at": "Created"
       },
       "sort": [
         "scope",
@@ -5531,7 +5961,15 @@
             }
           }
         }
-      ]
+      ],
+      "types": {
+        "created_at": {
+          "type": "time",
+          "parse": "%Y-%m-%d %H:%M:%S",
+          "format": "%Y-%m-%d %H:%M:%S %Z",
+          "zone": "local"
+        }
+      }
     },
     "client-macros": {
       "title": "Client Macros",
@@ -5580,6 +6018,37 @@
         "version",
         "started_at",
         "ended_at",
+        "updated_at",
+        "id",
+        "side",
+        "kind",
+        "key",
+        "parent_key",
+        "order_row",
+        "order_id"
+      ],
+      "visible": [
+        "run_id",
+        "macro",
+        "status",
+        "cl_ord_id",
+        "symbol",
+        "session",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
+        "priority",
+        "verdict",
+        "orders",
+        "live",
+        "passed",
+        "failed",
+        "speed",
+        "seed",
+        "version",
+        "started_at",
+        "ended_at",
         "updated_at"
       ],
       "labels": {
@@ -5605,7 +6074,13 @@
         "started_at": "Started",
         "ended_at": "Ended",
         "updated_at": "Updated",
-        "order_id": "Order ID"
+        "order_id": "Order ID",
+        "id": "Row",
+        "side": "Side",
+        "kind": "Kind",
+        "key": "Key",
+        "parent_key": "Parent Key",
+        "order_row": "Order Row"
       },
       "groups": [
         {
@@ -5839,6 +6314,17 @@
         "macro",
         "cl_ord_id",
         "line",
+        "text",
+        "id",
+        "order_row",
+        "side"
+      ],
+      "visible": [
+        "timestamp",
+        "run_id",
+        "macro",
+        "cl_ord_id",
+        "line",
         "text"
       ],
       "labels": {
@@ -5847,7 +6333,10 @@
         "macro": "Macro",
         "cl_ord_id": "ClOrdID",
         "line": "Line",
-        "text": "Text"
+        "text": "Text",
+        "id": "Row",
+        "order_row": "Order Row",
+        "side": "Side"
       },
       "types": {
         "timestamp": {
@@ -5914,6 +6403,37 @@
         "version",
         "started_at",
         "ended_at",
+        "updated_at",
+        "id",
+        "side",
+        "kind",
+        "key",
+        "parent_key",
+        "order_row",
+        "order_id"
+      ],
+      "visible": [
+        "run_id",
+        "macro",
+        "status",
+        "cl_ord_id",
+        "symbol",
+        "session",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
+        "priority",
+        "verdict",
+        "orders",
+        "live",
+        "passed",
+        "failed",
+        "speed",
+        "seed",
+        "version",
+        "started_at",
+        "ended_at",
         "updated_at"
       ],
       "labels": {
@@ -5939,7 +6459,13 @@
         "started_at": "Started",
         "ended_at": "Ended",
         "updated_at": "Updated",
-        "order_id": "Order ID"
+        "order_id": "Order ID",
+        "id": "Row",
+        "side": "Side",
+        "kind": "Kind",
+        "key": "Key",
+        "parent_key": "Parent Key",
+        "order_row": "Order Row"
       },
       "groups": [
         {
@@ -6173,6 +6699,17 @@
         "macro",
         "cl_ord_id",
         "line",
+        "text",
+        "id",
+        "order_row",
+        "side"
+      ],
+      "visible": [
+        "timestamp",
+        "run_id",
+        "macro",
+        "cl_ord_id",
+        "line",
         "text"
       ],
       "labels": {
@@ -6181,7 +6718,10 @@
         "macro": "Macro",
         "cl_ord_id": "ClOrdID",
         "line": "Line",
-        "text": "Text"
+        "text": "Text",
+        "id": "Row",
+        "order_row": "Order Row",
+        "side": "Side"
       },
       "types": {
         "timestamp": {
@@ -6394,7 +6934,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.61",
+      "version": "0.62",
       "mkio": "1.5",
       "expr": "2"
     },

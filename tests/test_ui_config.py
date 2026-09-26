@@ -527,43 +527,54 @@ class TestServiceReferences:
         """Both sides show what is pending and under which ClOrdID — the
         counterparty's request on Received Orders, our own on Sent Orders,
         which alone can be refused and so alone carries Rej Reason. The
-        parked replace terms are engine bookkeeping, not a column."""
+        parked replace terms are engine bookkeeping: listed, hidden by default."""
         slot = ["pending_action", "pending_cl_ord_id", "pending_qty", "pending_price"]
         table = toml_config["tables"]["fix_orders"]["columns"]
         for pane_id in ("order-blotter", "market-order-blotter"):
             pane = app_config["panes"][pane_id]
-            assert [c for c in pane["columns"] if c in slot] == slot, pane_id
+            assert [c for c in pane["visible"] if c in slot] == slot, pane_id
             assert all(c in pane["labels"] and c in table for c in slot), pane_id
-            assert "pending_entered" not in pane["columns"], pane_id
+            assert "pending_entered" not in pane["visible"], pane_id
         sent, received = (app_config["panes"][p] for p in ("order-blotter", "market-order-blotter"))
-        assert "cxl_rej_reason" in sent["columns"] and "cxl_rej_reason" in sent["labels"]
-        assert "cxl_rej_reason" not in received["columns"]
+        assert "cxl_rej_reason" in sent["visible"] and "cxl_rej_reason" in sent["labels"]
+        assert "cxl_rej_reason" not in received["visible"]
         assert {"cxl_rej_reason", "pending_entered"} <= set(table)
 
     def test_sent_orders_show_the_market_order_id(self, app_config, toml_config):
         """The counterparty's OrderID(37), beside the OR id minted here; a
-        received order has no counterparty OrderID, so Received Orders skips it."""
+        received order has no counterparty OrderID, so Received Orders hides it."""
         sent, received = (app_config["panes"][p] for p in ("order-blotter", "market-order-blotter"))
-        columns = sent["columns"]
+        columns = sent["visible"]
         assert columns.index("market_order_id") == columns.index("order_id") + 1
         assert sent["labels"]["market_order_id"] == "Market Order ID"
-        assert "market_order_id" not in received["columns"]
+        assert "market_order_id" not in received["visible"]
         assert "market_order_id" in toml_config["tables"]["fix_orders"]["columns"]
 
     def test_received_trades_show_the_market_order_id(self, app_config, toml_config):
         """The same pair on trades: Order ID is the order's own, so it matches
         Sent Orders, and Market Order ID the ER's 37 — what the DK dialog's
-        computed line names as tag 37. A sent trade has none."""
+        computed line names as tag 37. A sent trade has none, so it is hidden."""
         received, sent = (app_config["panes"][p] for p in ("trade-blotter", "market-trade-blotter"))
-        columns = received["columns"]
+        columns = received["visible"]
         assert columns.index("market_order_id") == columns.index("order_id") + 1
         assert received["labels"]["market_order_id"] == "Market Order ID"
         assert "market_order_id" in received["history"]["columns"]
-        assert "market_order_id" not in sent["columns"]
+        assert "market_order_id" not in sent["visible"]
         assert "market_order_id" in toml_config["tables"]["fix_executions"]["columns"]
         terms = next(f for f in _find_dialog(app_config, "dk_trade")["fields"]
                      if f.get("label") == "Terms as tags")
         assert "row.market_order_id" in terms["compute"] and "row.order_id" not in terms["compute"]
+
+    def test_sent_trades_show_the_cl_ord_id(self, app_config):
+        """Sent Trades shows the ClOrdID the report went out under (tag 11):
+        the order's current one at fill time, rewritten by a correction or
+        bust since cl_ord_id is in EXEC_UPDATE_COLS. Next to Order ID, the
+        stable identity, so a renamed chain reads as one order."""
+        sent = app_config["panes"]["market-trade-blotter"]
+        columns = sent["visible"]
+        assert columns.index("cl_ord_id") == columns.index("order_id") + 1
+        assert sent["labels"]["cl_ord_id"] == "ClOrdID"
+        assert "cl_ord_id" in sent["history"]["columns"]
 
     def test_sent_requests_do_not_gate_on_the_slot(self, app_config):
         """A cancel on top of a pending replace is a macro worth sending:
@@ -1496,6 +1507,56 @@ class TestStateBindings:
         assert panes["message-detail"]["type"] == "message-detail"
 
 
+class TestEveryColumnReachable:
+    """Every column a table pane's service returns is listed in `columns`
+    (so the column picker can show it) and `visible` names the default
+    view. A column left out of `columns` is unreachable from the UI, and a
+    pane without `visible` would show everything, including internals."""
+
+    @staticmethod
+    def _sql_extras(svc):
+        return re.findall(r"\bAS\s+(\w+)", svc.get("sql", ""))
+
+    def _table_panes(self, app_config, toml_config):
+        for pane_id, spec in app_config["panes"].items():
+            if spec.get("type") != "mkio-table":
+                continue
+            svc = toml_config["services"][spec["service"]]
+            table = svc.get("primary_table") or svc.get("table")
+            stored = list(toml_config["tables"][table]["columns"])
+            stored += [c for c in self._sql_extras(svc) if c not in stored]
+            yield pane_id, spec, stored
+
+    def test_every_stored_column_is_listed(self, app_config, toml_config):
+        checked = 0
+        for pane_id, spec, stored in self._table_panes(app_config, toml_config):
+            checked += 1
+            missing = [c for c in stored if c not in spec["columns"]]
+            assert not missing, f"pane {pane_id!r} cannot show {missing}"
+            unknown = [c for c in spec["columns"] if c not in stored]
+            assert not unknown, f"pane {pane_id!r} lists columns its service never returns: {unknown}"
+        assert checked
+
+    def test_visible_picks_the_default_view(self, app_config, toml_config):
+        for pane_id, spec, _ in self._table_panes(app_config, toml_config):
+            visible = spec.get("visible")
+            assert visible, f"pane {pane_id!r} has no default view"
+            assert set(visible) <= set(spec["columns"]), pane_id
+            assert len(visible) < len(spec["columns"]) or visible == spec["columns"], pane_id
+            assert all(c in spec["labels"] for c in spec["columns"]), \
+                f"pane {pane_id!r} lists unlabelled columns: " \
+                f"{[c for c in spec['columns'] if c not in spec['labels']]}"
+            # the id is an internal, never a default column
+            assert "id" not in visible or pane_id == "replay-control", pane_id
+
+    def test_raw_bytes_render_as_pipes(self, app_config, toml_config):
+        """Every raw_message column shows SOH as `|` (see the Messages pane)."""
+        template = app_config["panes"]["raw-messages"]["display"]["raw_message"]
+        for pane_id, spec, stored in self._table_panes(app_config, toml_config):
+            if "raw_message" in stored:
+                assert spec["display"]["raw_message"] == template, pane_id
+
+
 class TestTimeTypedColumns:
     """mkui's range-filter time detection recognises only ISO-8601 and mkio
     refs; FIX-format stamps (`YYYYMMDD-HH:MM:SS.mmm`) must be declared via the
@@ -1506,7 +1567,11 @@ class TestTimeTypedColumns:
                 "H": r"\d{1,2}", "M": r"\d{1,2}", "S": r"\d{1,2}",
                 "f": r"\d{1,9}", "z": r"(?:Z|[+-]\d{2}:?\d{2})"}
 
-    ENGINE_STAMPED = {"timestamp", "created_at", "updated_at", "transact_time"}
+    ENGINE_STAMPED = {"timestamp", "created_at", "updated_at", "transact_time",
+                      "session_start", "last_tx_time", "last_rx_time"}
+    # Columns SQLite stamps itself (DEFAULT CURRENT_TIMESTAMP): UTC, but
+    # `YYYY-MM-DD HH:MM:SS`, not a FIX stamp.
+    SQL_STAMPED = {("templates", "created_at")}
 
     def _parse_regex(self, fmt: str) -> re.Pattern:
         out, i = [], 0
@@ -1552,21 +1617,30 @@ class TestTimeTypedColumns:
                 type_spec = spec.get("types", {}).get(col)
                 assert type_spec, \
                     f"pane {pane_id!r} shows {col!r} without a time type"
+                if (pane_id, col) in self.SQL_STAMPED:
+                    assert type_spec["parse"] == "%Y-%m-%d %H:%M:%S", (pane_id, col)
+                    continue
                 assert self._parse_regex(type_spec["parse"]).fullmatch(sample), \
                     f"pane {pane_id!r} column {col!r} parse " \
                     f"{type_spec['parse']!r} does not match {sample!r}"
         assert checked, "no engine-stamped columns checked"
 
     def test_timestamps_show_in_browser_zone(self, app_config):
-        """Every FIX-stamped column renders in the browser's zone (mkui 1.14
+        """Every UTC-stamped column renders in the browser's zone (mkui 1.14
         `format`/`zone`): a column left on the raw stamp would read as local
         time next to the others while being UTC. A bare date has no zone."""
         checked = 0
         for pane_id, spec in app_config["panes"].items():
             for col, type_spec in spec.get("types", {}).items():
-                if type_spec.get("parse") != "%Y%m%d-%H:%M:%S.%f":
+                parse = type_spec.get("parse", "")
+                if "%H" not in parse:
                     assert "zone" not in type_spec, \
                         f"pane {pane_id!r} column {col!r}: only stamps take a zone"
+                    continue
+                if parse != "%Y%m%d-%H:%M:%S.%f":
+                    assert (pane_id, col) in self.SQL_STAMPED, \
+                        f"pane {pane_id!r} column {col!r}: unexpected stamp form {parse!r}"
+                    assert type_spec.get("zone") == "local" and type_spec.get("format", "").endswith("%Z")
                     continue
                 checked += 1
                 assert type_spec.get("zone") == "local", \

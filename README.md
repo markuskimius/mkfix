@@ -121,7 +121,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   DK and DK Text columns record the dispute as sent until the counterparty's
   correction or bust answers it (a re-notified fill arrives under a new
   ExecID without ExecRefID, so it is a new trade and the disputed one keeps
-  its mark). Both trade blotters show each trade's Order ID. On the market side an
+  its mark). Both trade blotters show each trade's Order ID, and Sent Trades the
+  ClOrdID its report went out under. Every blotter lists every stored column
+  in its column picker, the less useful ones hidden by default. On the market side an
   inbound DK marks the sent trade it names -- the reason and text show in the
   Sent Trades blotter's DK column, and the trade can still be corrected or
   busted, which clears the mark. Re-notify answers the DK: the trade's
