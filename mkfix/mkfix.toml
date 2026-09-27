@@ -36,7 +36,7 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # orders_query/executions_query join the owning session's live status onto
 # these rows as session_status, which the blotters' action buttons gate on.
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", handl_inst_code = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", cxl_rej_reason = "TEXT DEFAULT ''", pending_entered = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''", market_order_id = "TEXT DEFAULT ''", ioi_id = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", handl_inst_code = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", cxl_rej_reason = "TEXT DEFAULT ''", pending_entered = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''", market_order_id = "TEXT DEFAULT ''", ioi_id = "TEXT DEFAULT ''", quote_id = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -71,6 +71,21 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # last Ack's payload — theirs on a sent row, ours on a received one.
 [tables.fix_allocations]
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", alloc_id = "TEXT NOT NULL", ref_alloc_id = "TEXT DEFAULT ''", alloc_trans_type = "TEXT DEFAULT ''", alloc_trans_type_code = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", alloc_type_code = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", quantity = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", trade_date = "TEXT DEFAULT ''", orders = "TEXT DEFAULT ''", execs = "TEXT DEFAULT ''", allocs = "TEXT DEFAULT ''", num_allocs = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", alloc_status_code = "TEXT DEFAULT ''", alloc_rej_reason = "TEXT DEFAULT ''", alloc_rej_code = "TEXT DEFAULT ''", pending_action = "TEXT DEFAULT ''", pending_alloc_id = "TEXT DEFAULT ''", pending_terms = "TEXT DEFAULT ''", pending_extra_tags = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''" }
+versioned = true
+archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
+
+# RFQs and quotes (mkfix/fix/families.py): one row per negotiation — a
+# QuoteRequest and the quotes answering it (`origin` 'rfq'), or a stream of
+# unsolicited quotes on one instrument ('quote') — the quote standing now in
+# the quote columns, a requote a new version of the row. `direction` is who
+# opened it: TX a request or quote this engine sent, RX one it received, so
+# the client's rows are sent RFQs and received quotes and the market's the
+# other two. The slot (`pending_*`) holds a counter-offer until a requote,
+# a rejection or a cancel answers it. `extra_tags` are the request's,
+# `quote_extra_tags` the standing quote's; `text` is theirs, `sent_text`
+# ours; `order_cl_ord_id` the order that took the quote.
+[tables.fix_rfqs]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", origin = "TEXT NOT NULL DEFAULT 'rfq'", quote_req_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", order_qty = "REAL DEFAULT 0", quote_request_type = "TEXT DEFAULT ''", quote_request_type_code = "TEXT DEFAULT ''", quote_type = "TEXT DEFAULT ''", quote_type_code = "TEXT DEFAULT ''", currency = "TEXT DEFAULT ''", quote_id = "TEXT DEFAULT ''", quote_ref_id = "TEXT DEFAULT ''", bid_px = "REAL", offer_px = "REAL", bid_size = "REAL", offer_size = "REAL", valid_until = "TEXT DEFAULT ''", status = "TEXT DEFAULT ''", quote_status = "TEXT DEFAULT ''", quote_status_code = "TEXT DEFAULT ''", rej_reason = "TEXT DEFAULT ''", rej_reason_code = "TEXT DEFAULT ''", quote_resp_id = "TEXT DEFAULT ''", quote_resp_type = "TEXT DEFAULT ''", quote_resp_type_code = "TEXT DEFAULT ''", pending_action = "TEXT DEFAULT ''", pending_resp_id = "TEXT DEFAULT ''", pending_bid_px = "REAL", pending_offer_px = "REAL", pending_bid_size = "REAL", pending_offer_size = "REAL", pending_extra_tags = "TEXT DEFAULT ''", order_cl_ord_id = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", quote_extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -115,7 +130,8 @@ archive = { cutoff = "saved", group = "config" }
 # an order to send, the fill or reject to answer with, a DK — kept by name
 # under the dialog they belong to (`scope`: order, cancel, accept, reject,
 # fill, unsolicited, restate, dk, correct, bust, renotify, ioi, advert,
-# allocation, alloc_accept, alloc_reject; unique per scope, an engine index). One
+# allocation, alloc_accept, alloc_reject, rfq, quote, new_quote, quote_reject,
+# hit, counter, pass; unique per scope, an engine index). One
 # superset of columns, each scope reading its own; qty/price are kept as
 # typed, since a blank one means "ask the row" (a fill's leaves, say). Every
 # such dialog opens on a Template dropdown (`templates_list`) and closes on a
@@ -123,7 +139,7 @@ archive = { cutoff = "saved", group = "config" }
 # Templates pane edits and deletes through the `templates` service. Shared by
 # everyone on the server, like layouts.
 [tables.fix_templates]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", restate_reason = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP", currency = "TEXT DEFAULT ''", qlty_ind = "TEXT DEFAULT ''", natural_flag = "TEXT DEFAULT ''", qualifiers = "TEXT DEFAULT ''", trade_date = "TEXT DEFAULT ''", last_mkt = "TEXT DEFAULT ''", avg_price = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", allocs = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", alloc_rej_code = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", restate_reason = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP", currency = "TEXT DEFAULT ''", qlty_ind = "TEXT DEFAULT ''", natural_flag = "TEXT DEFAULT ''", qualifiers = "TEXT DEFAULT ''", trade_date = "TEXT DEFAULT ''", last_mkt = "TEXT DEFAULT ''", avg_price = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", allocs = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", alloc_rej_code = "TEXT DEFAULT ''", quote_request_type = "TEXT DEFAULT ''", quote_type = "TEXT DEFAULT ''", bid_px = "TEXT DEFAULT ''", offer_px = "TEXT DEFAULT ''", bid_size = "TEXT DEFAULT ''", offer_size = "TEXT DEFAULT ''", valid_for = "TEXT DEFAULT ''", quote_rej_reason = "TEXT DEFAULT ''" }
 archive = { group = "config" }
 
 # Scripted macros (mkfix/macro). A macro is its source text under a
@@ -206,10 +222,10 @@ description = "Save, edit and delete blotter action templates"
 
 [services.templates.ops]
 add = [
-    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "" } },
+    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code", "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_rej_reason"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "", quote_request_type = "", quote_type = "", bid_px = "", offer_px = "", bid_size = "", offer_size = "", valid_for = "", quote_rej_reason = "" } },
 ]
 update = [
-    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "" } },
+    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code", "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_rej_reason"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "", quote_request_type = "", quote_type = "", bid_px = "", offer_px = "", bid_size = "", offer_size = "", valid_for = "", quote_rej_reason = "" } },
 ]
 delete = [
     { table = "fix_templates", op_type = "delete", key = ["id"] },
@@ -312,6 +328,19 @@ key = ["id"]
 sql = """SELECT a.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_allocations a LEFT JOIN fix_session_state t ON t.session_id = a.session_id"""
 filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client", "alloc_status"]
+
+# RFQs and quotes, one query for the four blotters: split by `origin` and
+# `direction` (Sent RFQs, Received Quotes on the client side; Received RFQs,
+# Sent Quotes on the market's).
+[services.rfqs_query]
+protocol = "query"
+primary_table = "fix_rfqs"
+watch_tables = ["fix_rfqs", "fix_session_state"]
+watch_columns = { fix_session_state = ["status"] }
+key = ["id"]
+sql = """SELECT r.*, COALESCE(t.status, 'DOWN') AS session_status
+         FROM fix_rfqs r LEFT JOIN fix_session_state t ON t.session_id = r.session_id"""
+filterable = ["session_id", "status", "symbol", "side", "direction", "origin", "session_status", "client"]
 
 [services.templates_query]
 protocol = "query"
@@ -419,7 +448,7 @@ SELECT -o.id, 'order', 'o' || o.id, 'r' || o.run_id,
 
 [services.templates_list]
 protocol = "reqrep"
-sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst, currency, qlty_ind, natural_flag, qualifiers, trade_date, last_mkt, avg_price, alloc_type, allocs, alloc_status, alloc_rej_code FROM fix_templates WHERE scope = :scope ORDER BY name"
+sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst, currency, qlty_ind, natural_flag, qualifiers, trade_date, last_mkt, avg_price, alloc_type, allocs, alloc_status, alloc_rej_code, quote_request_type, quote_type, bid_px, offer_px, bid_size, offer_size, valid_for, quote_rej_reason FROM fix_templates WHERE scope = :scope ORDER BY name"
 
 # The Allocate dialog's Fills pick: a received order's live fills (the sent
 # trades of its order_id, busts left out) as one row the dialog's `fill`
@@ -757,6 +786,81 @@ SELECT h.* FROM fix_allocations__history h
       GROUP BY id) latest
     ON h.id = latest.id AND h._mkio_version = latest.v
  WHERE h.direction = 'RX'
+ ORDER BY h.id
+"""
+
+# The RFQ rows' chains: one table, four blotters, an as-of per blotter.
+[services.rfqs_versions]
+protocol = "reqrep"
+description = "One RFQ's or quote's recorded versions, oldest first"
+sql = "SELECT * FROM fix_rfqs__history WHERE id = :id ORDER BY _mkio_version"
+
+[services.rfqs_state]
+protocol = "reqrep"
+description = "Where an RFQ or quote sits in its chain: the live version and the highest recorded"
+sql = "SELECT (SELECT _mkio_version FROM fix_rfqs WHERE id = :id) AS current, MAX(_mkio_version) AS top FROM fix_rfqs__history WHERE id = :id"
+
+[services.rfqs_history]
+protocol = "query"
+description = "Every recorded RFQ and quote version, newest first, live"
+primary_table = "fix_rfqs__history"
+sql = "SELECT * FROM fix_rfqs__history ORDER BY _mkio_ref DESC"
+filterable = ["id", "session_id", "quote_req_id", "quote_id", "direction", "origin", "_mkio_op", "_mkio_version"]
+change_log_size = 10000
+
+[services.sent_rfqs_as_of]
+protocol = "reqrep"
+description = "The sent RFQs as they stood at a moment"
+sql = """
+SELECT h.* FROM fix_rfqs__history h
+  JOIN (SELECT id, MAX(_mkio_version) AS v
+          FROM fix_rfqs__history
+         WHERE _mkio_ref <= :as_of
+      GROUP BY id) latest
+    ON h.id = latest.id AND h._mkio_version = latest.v
+ WHERE h.direction = 'TX' AND h.origin = 'rfq'
+ ORDER BY h.id
+"""
+
+[services.received_rfqs_as_of]
+protocol = "reqrep"
+description = "The received RFQs as they stood at a moment"
+sql = """
+SELECT h.* FROM fix_rfqs__history h
+  JOIN (SELECT id, MAX(_mkio_version) AS v
+          FROM fix_rfqs__history
+         WHERE _mkio_ref <= :as_of
+      GROUP BY id) latest
+    ON h.id = latest.id AND h._mkio_version = latest.v
+ WHERE h.direction = 'RX' AND h.origin = 'rfq'
+ ORDER BY h.id
+"""
+
+[services.sent_quotes_as_of]
+protocol = "reqrep"
+description = "The sent quotes as they stood at a moment"
+sql = """
+SELECT h.* FROM fix_rfqs__history h
+  JOIN (SELECT id, MAX(_mkio_version) AS v
+          FROM fix_rfqs__history
+         WHERE _mkio_ref <= :as_of
+      GROUP BY id) latest
+    ON h.id = latest.id AND h._mkio_version = latest.v
+ WHERE h.direction = 'TX' AND h.origin = 'quote'
+ ORDER BY h.id
+"""
+
+[services.received_quotes_as_of]
+protocol = "reqrep"
+description = "The received quotes as they stood at a moment"
+sql = """
+SELECT h.* FROM fix_rfqs__history h
+  JOIN (SELECT id, MAX(_mkio_version) AS v
+          FROM fix_rfqs__history
+         WHERE _mkio_ref <= :as_of
+      GROUP BY id) latest
+    ON h.id = latest.id AND h._mkio_version = latest.v
+ WHERE h.direction = 'RX' AND h.origin = 'quote'
  ORDER BY h.id
 """
 

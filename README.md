@@ -350,7 +350,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   match. Orders and trades are read-only history, since the
   counterparty's view of them cannot be rewound.
 - **Archiving** -- `mkfix archive` moves the running data (messages, orders,
-  trades, IOIs, adverts, allocations) from before a cutoff -- midnight at the start of
+  trades, IOIs, adverts, allocations, RFQs and quotes) from before a cutoff -- midnight at the start of
   today by default -- into CSV files and deletes it, so a test bed starts
   fresh with its sessions intact and the old data on disk. Run it while the
   server is up and the blotters drop the rows live; the config tables
@@ -373,6 +373,15 @@ A FIX protocol testing engine for capital markets connectivity, built on
   (`on sent ioi` …), a client macro receives them (`on ioi` answering with
   `new`, `on advert`, `on allocation` with `accept allocation` and
   `reject allocation`); the recorder writes them too.
+- **RFQs and Quotes** -- The client asks (Sent RFQs: New, Clone), the market
+  quotes (Received RFQs: Quote, Reject, Cancel Quote) and the client takes the
+  quote -- Hit (a QuoteResponse, FIX 4.4+) or Order... (a NewOrderSingle
+  naming it in tag 117, any version), each making an order on both sides --
+  or counters or passes it. The market also streams quotes nobody asked for
+  (Sent Quotes: New, Clone, Requote, Cancel), which the client sees in
+  Received Quotes with the same Hit, Order..., Counter and Pass. One row per
+  negotiation, the standing quote on it, every requote and answer in its
+  History; a quote whose Valid For runs out is Expired on both sides.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages
@@ -498,7 +507,7 @@ change it): a `manifest.json`, a CSV per table with every column, the version
 history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
 `--tables` takes the short names `messages`, `orders`, `trades`, `iois`, `adverts`,
-`allocations`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
+`allocations`, `rfqs` (or `quotes`), `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
 `settings`, `ids`, `replay_jobs`, `templates`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
 `--host` as the server: when a server answers on that port the archive runs
@@ -518,7 +527,7 @@ mkfix <version>
   Listening: 0.0.0.0:8080 (all interfaces)
   Config:    /path/to/mkfix.toml
   Database:  /path/to/mkfix.db
-  IDs:       RT/OR/EX/TR/IO/AD/AL + MA + 8-digit counter (from username)
+  IDs:       RT/OR/EX/TR/IO/AD/AL/RQ/QT/QR + MA + 8-digit counter (from username)
   Sessions:  1 enabled
     acc: MKFIX -> BROKER (FIX.4.2, acceptor on port 9876)
   Press Ctrl+C to stop.

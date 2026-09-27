@@ -57,7 +57,7 @@ class TestDeclarations:
         specs = archive_specs(CONFIG)
         data = {n: s for n, s in specs.items() if s.group == "data"}
         assert set(data) == {"fix_messages", "fix_orders", "fix_executions", "fix_iois", "fix_adverts",
-                             "fix_allocations", "fix_macro_runs", "fix_macro_orders", "fix_macro_log"}
+                             "fix_allocations", "fix_rfqs", "fix_macro_runs", "fix_macro_orders", "fix_macro_log"}
         for spec in data.values():
             assert spec.cutoff is not None and spec.format == FIX_STAMP, spec.table
         assert data["fix_orders"].cutoff == "created_at"
@@ -398,7 +398,7 @@ class TestThroughTheServer:
             assert manifest["mode"] == "online" and manifest["app"] == "mkfix"
             assert set(manifest["tables"]) == {
                 "fix_messages", "fix_orders", "fix_executions", "fix_iois", "fix_adverts", "fix_allocations",
-                "fix_macro_runs", "fix_macro_orders", "fix_macro_log"}
+                "fix_rfqs", "fix_macro_runs", "fix_macro_orders", "fix_macro_log"}
             with open(run_dir / "fix_messages.csv", newline="", encoding="utf-8") as f:
                 msgs = list(csv.DictReader(f))
             assert len(msgs) == len(before["fix_messages"])

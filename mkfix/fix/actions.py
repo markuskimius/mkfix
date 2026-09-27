@@ -39,13 +39,23 @@ SUBJECT_KEY = {
     "cancel_allocation": ("fix_allocations", "alloc_id", "TX"),
     "accept_allocation": ("fix_allocations", "alloc_id", "RX"),
     "reject_allocation": ("fix_allocations", "alloc_id", "RX"),
+    # An RFQ row is found by side, not direction (the client's are sent
+    # RFQs and received quotes): `_find_family_row` takes the side there.
+    "hit_quote": ("fix_rfqs", "quote_id", "client"), "counter_quote": ("fix_rfqs", "quote_id", "client"),
+    "pass_quote": ("fix_rfqs", "quote_id", "client"),
+    "quote_rfq": ("fix_rfqs", "quote_req_id", "market"), "reject_rfq": ("fix_rfqs", "quote_req_id", "market"),
+    "requote": ("fix_rfqs", "quote_id", "market"), "cancel_quote": ("fix_rfqs", "quote_id", "market"),
 }
 CREATES = {"send_ioi": ("fix_iois", "ioi_id"), "send_advert": ("fix_adverts", "adv_id"),
-           "send_allocation": ("fix_allocations", "alloc_id")}
-# The actions the macro language has no verb for: none since 0.64, which
-# gave the IOI, advert and allocation ops theirs. Kept so a future op can
-# ship ahead of its verb; the recorder and vocabulary tests key off it.
-UNSCRIPTED: frozenset[str] = frozenset()
+           "send_allocation": ("fix_allocations", "alloc_id"),
+           "send_rfq": ("fix_rfqs", "quote_req_id"), "send_quote": ("fix_rfqs", "quote_id")}
+# The actions the macro language has no verb for: the RFQ and quote ops,
+# which ship ahead of theirs (0.73). The recorder and vocabulary tests key
+# off it.
+UNSCRIPTED: frozenset[str] = frozenset({
+    "send_rfq", "hit_quote", "counter_quote", "pass_quote",
+    "quote_rfq", "send_quote", "requote", "reject_rfq", "cancel_quote",
+})
 
 
 def _action(name: str) -> Callable[[Action], Action]:
@@ -230,3 +240,76 @@ async def _reject_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"alloc_id": await e.reject_allocation(
         session_id=d["session_id"], alloc_id=d["alloc_id"], alloc_status=d.get("alloc_status") or "1",
         alloc_rej_code=d.get("alloc_rej_code", ""), **_common(d))}
+
+
+# ── RFQs and quotes ───────────────────────────────────────────────────
+
+def _opt(d: dict[str, Any], key: str) -> float | None:
+    return float(d[key]) if d.get(key) not in (None, "") else None
+
+
+def _quote_terms(d: dict[str, Any]) -> dict[str, Any]:
+    return dict(bid_px=_opt(d, "bid_px"), offer_px=_opt(d, "offer_px"), bid_size=_opt(d, "bid_size"),
+                offer_size=_opt(d, "offer_size"), valid_for=_opt(d, "valid_for"),
+                valid_until=d.get("valid_until", ""), quote_type=d.get("quote_type", ""), **_common(d))
+
+
+@_action("send_rfq")
+async def _send_rfq(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"quote_req_id": await e.send_rfq(
+        session_id=d["session_id"], symbol=d["symbol"], side=d.get("side", ""), qty=_opt(d, "qty") or 0.0,
+        quote_request_type=d.get("quote_request_type", ""), quote_type=d.get("quote_type", ""),
+        currency=d.get("currency", ""), client=d.get("client", ""), source=d.get("_source", "manual"),
+        tag=d.get("_tag", ""), **_common(d))}
+
+
+@_action("hit_quote")
+async def _hit_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"cl_ord_id": await e.hit_quote(
+        session_id=d["session_id"], quote_id=d["quote_id"], side=d.get("side", ""), qty=_opt(d, "qty"),
+        price=_opt(d, "price"), ord_type=d.get("ord_type", ""), source=d.get("_source", "manual"),
+        tag=d.get("_tag", ""), **_common(d))}
+
+
+@_action("counter_quote")
+async def _counter_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"quote_resp_id": await e.counter_quote(
+        session_id=d["session_id"], quote_id=d["quote_id"], bid_px=_opt(d, "bid_px"), offer_px=_opt(d, "offer_px"),
+        bid_size=_opt(d, "bid_size"), offer_size=_opt(d, "offer_size"), **_common(d))}
+
+
+@_action("pass_quote")
+async def _pass_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"quote_resp_id": await e.pass_quote(session_id=d["session_id"], quote_id=d["quote_id"], **_common(d))}
+
+
+@_action("quote_rfq")
+async def _quote_rfq(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"quote_id": await e.quote_rfq(session_id=d["session_id"], quote_req_id=d["quote_req_id"],
+                                          currency=d.get("currency", ""), **_quote_terms(d))}
+
+
+@_action("send_quote")
+async def _send_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"quote_id": await e.send_quote(
+        session_id=d["session_id"], symbol=d["symbol"], side=d.get("side", ""), qty=_opt(d, "qty"),
+        currency=d.get("currency", ""), client=d.get("client", ""), source=d.get("_source", "manual"),
+        tag=d.get("_tag", ""), **_quote_terms(d))}
+
+
+@_action("requote")
+async def _requote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"quote_id": await e.requote(session_id=d["session_id"], quote_id=d["quote_id"], **_quote_terms(d))}
+
+
+@_action("reject_rfq")
+async def _reject_rfq(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    await e.reject_rfq(session_id=d["session_id"], quote_req_id=d["quote_req_id"],
+                       reason=d.get("quote_rej_reason", ""), **_common(d))
+    return {}
+
+
+@_action("cancel_quote")
+async def _cancel_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    await e.cancel_quote(session_id=d["session_id"], quote_id=d["quote_id"], **_common(d))
+    return {}

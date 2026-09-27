@@ -30,6 +30,13 @@ ADVERT_TERMS = ("session_id", "symbol", "side", "qty", "price", "currency", "tra
                 "extra_tags", "client")
 ALLOCATION_TERMS = ("session_id", "symbol", "side", "qty", "avg_price", "trade_date", "alloc_type", "allocs",
                     "text", "extra_tags", "client")
+# An RFQ keeps a session like an order, and so does an unsolicited quote
+# (`new_quote`); a quote answering an RFQ keeps only its prices, sizes and
+# how long it stands — the row supplies the rest.
+RFQ_TERMS = ("session_id", "symbol", "side", "qty", "quote_request_type", "quote_type", "currency", "text",
+             "extra_tags", "client")
+QUOTE_TERMS = ("bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_type", "text", "extra_tags")
+NEW_QUOTE_TERMS = ("session_id", "symbol", "side", "qty", "currency", "client") + QUOTE_TERMS
 TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_new_order": ("order", ORDER_TERMS),
     "send_cancel_replace": ("order", ORDER_TERMS),
@@ -54,6 +61,15 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "cancel_allocation": ("cancel", ("text", "extra_tags")),
     "accept_allocation": ("alloc_accept", ("alloc_status", "text", "extra_tags")),
     "reject_allocation": ("alloc_reject", ("alloc_status", "alloc_rej_code", "text", "extra_tags")),
+    "send_rfq": ("rfq", RFQ_TERMS),
+    "quote_rfq": ("quote", QUOTE_TERMS),
+    "requote": ("quote", QUOTE_TERMS),
+    "send_quote": ("new_quote", NEW_QUOTE_TERMS),
+    "reject_rfq": ("quote_reject", ("quote_rej_reason", "text", "extra_tags")),
+    "cancel_quote": ("cancel", ("text", "extra_tags")),
+    "hit_quote": ("hit", ("qty", "price", "text", "extra_tags")),
+    "counter_quote": ("counter", ("bid_px", "offer_px", "bid_size", "offer_size", "text", "extra_tags")),
+    "pass_quote": ("pass", ("text", "extra_tags")),
 }
 
 

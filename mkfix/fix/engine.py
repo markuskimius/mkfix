@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import functools
 import json
+import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, TYPE_CHECKING
 
 from mkfix.fix.dictionary import (FixDictionary, STANDARD_VERSIONS,
@@ -16,12 +18,15 @@ from mkfix.fix.events import EngineEvent, EventBus, report_kinds
 from mkfix.fix.idgen import IdGenerator
 from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
                                extra_pairs_of, format_extra_tags, parse_fix,
-                               CONSUMED_EXEC_TAGS,
+                               CONSUMED_EXEC_TAGS, CONSUMED_ORDER_TAGS,
                                ClientTag, client_of, parse_client_tags)
 from mkfix.fix.families import (ALLOC_GROUPS, ALLOC_STATUS_OF, ALLOC_ACCEPTING,
                                  CONSUMED_IOI_TAGS, CONSUMED_ADVERT_TAGS, CONSUMED_ALLOC_TAGS,
                                  ioi_columns, advert_columns, allocation_columns, ack_columns,
-                                 parse_lines, parse_qualifiers)
+                                 group_instances, parse_lines, parse_qualifiers,
+                                 CONSUMED_RFQ_TAGS, CONSUMED_QUOTE_TAGS, CONSUMED_RESPONSE_TAGS, FINAL_RFQ,
+                                 LIVE_QUOTE, QUOTE_STATUS_ENDS, parse_stamp, quote_columns, quote_side,
+                                 response_columns, rfq_columns, status_of_response)
 from mkfix.fix import replay
 from mkfix.fix.replay import ReplayTask
 from mkfix.fix.session import FixSession
@@ -29,6 +34,8 @@ from mkfix.fix.session import FixSession
 if TYPE_CHECKING:
     from mkio.database import Database
     from mkio.writer import WriteBatcher, CompiledOp
+
+log = logging.getLogger(__name__)
 
 ORDER_COLS = [
     "cl_ord_id", "session_id", "order_id", "orig_cl_ord_id", "symbol",
@@ -40,7 +47,7 @@ ORDER_COLS = [
     "pending_extra_tags",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date", "client",
-    "handl_inst", "handl_inst_code", "sent_text", "market_order_id", "ioi_id",
+    "handl_inst", "handl_inst_code", "sent_text", "market_order_id", "ioi_id", "quote_id",
 ]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
@@ -108,12 +115,15 @@ EXEC_UPDATE_COLS = [
 # "ask the row" when loaded). A name is unique within its scope, so a
 # dialog's Save-as overwrites the template it names.
 TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct",
-                   "bust", "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject")
+                   "bust", "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
+                   "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
     "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt",
     "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code",
+    "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for",
+    "quote_rej_reason",
 ]
 
 # The IOI, advert and allocation rows (families.py): one row per chain,
@@ -144,11 +154,32 @@ _ALLOC_TERM_COLS = frozenset({
     "alloc_type", "alloc_type_code", "symbol", "side", "side_code", "quantity", "avg_price", "trade_date",
     "orders", "execs", "allocs", "num_allocs", "extra_tags", "transact_time", "raw_message",
 })
-_FAMILY_COLS = {"fix_iois": IOI_COLS, "fix_adverts": ADVERT_COLS, "fix_allocations": ALLOC_COLS}
+# RFQs and quotes (families.py): one row per negotiation, the quote standing
+# on it in the quote columns and a counter-offer parked in the slot.
+RFQ_COLS = [
+    "session_id", "origin", "quote_req_id", "symbol", "side", "side_code", "order_qty",
+    "quote_request_type", "quote_request_type_code", "quote_type", "quote_type_code", "currency",
+    "quote_id", "quote_ref_id", "bid_px", "offer_px", "bid_size", "offer_size", "valid_until",
+    "status", "quote_status", "quote_status_code", "rej_reason", "rej_reason_code",
+    "quote_resp_id", "quote_resp_type", "quote_resp_type_code",
+    "pending_action", "pending_resp_id", "pending_bid_px", "pending_offer_px", "pending_bid_size",
+    "pending_offer_size", "pending_extra_tags",
+    "order_cl_ord_id", "text", "sent_text", "client", "extra_tags", "quote_extra_tags",
+    "transact_time", "timestamp", "updated_at", "direction", "raw_message",
+]
+_RFQ_BLANKS = {c: "" for c in RFQ_COLS} | {
+    "order_qty": 0.0, "bid_px": None, "offer_px": None, "bid_size": None, "offer_size": None,
+    "pending_bid_px": None, "pending_offer_px": None, "pending_bid_size": None, "pending_offer_size": None}
+_CLEAR_QUOTE_SLOT = {"pending_action": "", "pending_resp_id": "", "pending_bid_px": None, "pending_offer_px": None,
+                     "pending_bid_size": None, "pending_offer_size": None, "pending_extra_tags": ""}
+_QUOTE_TERMS = ("quote_id", "bid_px", "offer_px", "bid_size", "offer_size", "valid_until", "quote_type",
+                "quote_type_code")
+_FAMILY_COLS = {"fix_iois": IOI_COLS, "fix_adverts": ADVERT_COLS, "fix_allocations": ALLOC_COLS,
+                "fix_rfqs": RFQ_COLS}
 _FAMILY_IDENTITY = frozenset({"session_id", "direction", "timestamp", "order_cl_ord_id"})
 _FAMILY_UPDATE_COLS = {t: [c for c in cols if c not in ("session_id", "direction", "timestamp")]
                        for t, cols in _FAMILY_COLS.items()}
-_FAMILY_NAMES = {"fix_iois": "IOI", "fix_adverts": "advert", "fix_allocations": "allocation"}
+_FAMILY_NAMES = {"fix_iois": "IOI", "fix_adverts": "advert", "fix_allocations": "allocation", "fix_rfqs": "quote"}
 _CLEAR_ALLOC_SLOT = {"pending_action": "", "pending_alloc_id": "", "pending_terms": "", "pending_extra_tags": ""}
 # AllocStatus(87) to the event an Ack is for the allocation it answers.
 _ALLOC_ACK_KINDS = {"0": "allocation accepted", "1": "allocation rejected", "2": "allocation rejected",
@@ -197,6 +228,13 @@ def _sent_exec_kind(dictionary: FixDictionary, msg: FixMessage,
     return dictionary.enum_name("150", code), code
 
 
+def _opt_float(value: Any) -> float | None:
+    """A dialog's optional number: blank (or None) is absent."""
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
 def _client_specs_of(spec: str | None) -> list[ClientTag]:
     """A session's client_tags, the default chain when blank or malformed —
     the column is written by a plain mkio transaction, so a bad value must
@@ -241,6 +279,8 @@ class FixEngine:
         self._replay_tasks: dict[int, ReplayTask] = {}
         self.events = EventBus()
         self._order_locks: dict[str, asyncio.Lock] = {}
+        self._expiry_task: asyncio.Task | None = None
+        self._expiry_wake = asyncio.Event()
         from mkfix.macro.store import MacroManager    # imports this module's siblings
         self.macros = MacroManager(self)
 
@@ -258,9 +298,13 @@ class FixEngine:
         await self._load_custom_dictionaries()
         await self._load_sessions()
         await self.macros.start()
+        self._expiry_task = asyncio.create_task(self._expire_quotes())
 
     async def stop(self) -> None:
         """Stop all sessions and replay tasks."""
+        if self._expiry_task is not None:
+            self._expiry_task.cancel()
+            self._expiry_task = None
         await self.macros.stop()
         for task in list(self._replay_tasks.values()):
             await task.stop()
@@ -573,13 +617,14 @@ class FixEngine:
         )).close()
         # orders_query/executions_query join fix_session_state by session_id
         # and re-run on every state write.
-        for table in ("fix_orders", "fix_executions", "fix_iois", "fix_adverts", "fix_allocations"):
+        for table in ("fix_orders", "fix_executions", "fix_iois", "fix_adverts", "fix_allocations", "fix_rfqs"):
             await (await conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table}(session_id)"
             )).close()
         # A chain is found by its current ID; an Ack by the request the slot holds.
         for table, id_col in (("fix_iois", "ioi_id"), ("fix_adverts", "adv_id"), ("fix_allocations", "alloc_id"),
-                              ("fix_allocations", "pending_alloc_id")):
+                              ("fix_allocations", "pending_alloc_id"), ("fix_rfqs", "quote_req_id"),
+                              ("fix_rfqs", "quote_id"), ("fix_rfqs", "symbol")):
             await (await conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_{id_col} ON {table}(session_id, {id_col})"
             )).close()
@@ -1032,6 +1077,18 @@ class FixEngine:
             await self._handle_allocation(session, msg)
         elif msg_type == "P":
             await self._handle_allocation_ack(session, msg)
+        elif msg_type == "R":
+            await self._handle_quote_request(session, msg)
+        elif msg_type == "S":
+            await self._handle_quote(session, msg)
+        elif msg_type == "Z":
+            await self._handle_quote_cancel(session, msg)
+        elif msg_type == "AG":
+            await self._handle_quote_request_reject(session, msg)
+        elif msg_type == "AI":
+            await self._handle_quote_status_report(session, msg)
+        elif msg_type == "AJ":
+            await self._handle_quote_response(session, msg)
 
     async def _handle_execution_report(self, session: FixSession, msg: FixMessage) -> None:
         """Process an ExecutionReport (35=8): update order state and record fills."""
@@ -1117,6 +1174,7 @@ class FixEngine:
             "sent_text": "",
             "market_order_id": msg.get("37", ""),
             "ioi_id": "",
+            "quote_id": "",
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(
@@ -1276,8 +1334,11 @@ class FixEngine:
                 trade=await self._load_execution_by_id(execution["id"]),
                 detail={"reason": reason, "text": msg.get("58", "")}))
 
-    async def _handle_new_order(self, session: FixSession, msg: FixMessage) -> None:
-        """Record an inbound NewOrderSingle (35=D) as a received order awaiting action."""
+    async def _handle_new_order(self, session: FixSession, msg: FixMessage,
+                                consumed: frozenset[str] | None = None, link_quote: bool = True) -> None:
+        """Record an inbound NewOrderSingle (35=D) as a received order awaiting
+        action — or the order a QuoteResponse Hit makes (`consumed` its
+        tags, and the quote's row is the response's to write)."""
         dictionary = session.dictionary
         now = _fix_timestamp()
         qty = msg.get_float("38", 0.0)
@@ -1285,7 +1346,7 @@ class FixEngine:
         ord_type_code = msg.get("40", "")
         tif_code = msg.get("59", "")
         handl_inst_code = msg.get("21", "")
-        extras = format_extra_tags(extra_pairs_of(msg, dictionary))
+        extras = format_extra_tags(extra_pairs_of(msg, dictionary, *((consumed,) if consumed else ())))
 
         order_row = {
             "cl_ord_id": msg.get("11", ""),
@@ -1329,10 +1390,13 @@ class FixEngine:
             "sent_text": "",
             "market_order_id": "",
             "ioi_id": msg.get("23", ""),
+            "quote_id": msg.get("117", ""),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
         await self._link_ioi_order(session.session_id, order_row["ioi_id"], order_row["cl_ord_id"])
+        if link_quote:
+            await self._link_quote_order(session, order_row["quote_id"], order_row["cl_ord_id"], "market")
         if self.events.active:
             self.events.emit(EngineEvent(
                 ("order", "message"), session.session_id, msg=msg, request=order_row["cl_ord_id"],
@@ -1381,6 +1445,59 @@ class FixEngine:
             self.events.emit(EngineEvent(
                 (kind, "message"), session_id, msg=msg, request=request_id, prev=order,
                 order=await self._load_order_by_id(order["id"])))
+
+    async def _sent_order_row(self, session: FixSession, msg: FixMessage, cl_ord_id: str, symbol: str, side: str,
+                              qty: float, ord_type: str, price: float | None, tif: str, extra_tags: str,
+                              expire_time: str = "", expire_date: str = "", quote_id: str = "") -> dict[str, Any]:
+        """A sent order's row as it stands before the send: PendingNew, its
+        terms as entered, and what the message carries once sent (client,
+        HandlInst, Text, the IOI or quote it answers)."""
+        session_id = session.session_id
+        dictionary = session.dictionary
+        now = _fix_timestamp()
+        sent = self._as_sent(session, msg)
+        return {
+            "cl_ord_id": cl_ord_id,
+            "session_id": session_id,
+            "order_id": await self.ids.next_id("OR"),
+            "orig_cl_ord_id": "",
+            "symbol": symbol,
+            "side": dictionary.enum_name("54", side),
+            "side_code": side,
+            "ord_type": dictionary.enum_name("40", ord_type),
+            "ord_type_code": ord_type,
+            "price": price or 0.0,
+            "stop_price": 0.0,
+            "order_qty": qty,
+            "time_in_force": dictionary.enum_name("59", tif),
+            "status": "PendingNew",
+            "cum_qty": 0.0,
+            "avg_price": 0.0,
+            "leaves_qty": qty,
+            "last_qty": 0.0,
+            "last_price": 0.0,
+            "text": "",
+            "transact_time": now,
+            "created_at": now,
+            "updated_at": now,
+            "direction": "TX",
+            "pending_action": "",
+            "pending_cl_ord_id": "",
+            "pending_qty": 0.0,
+            "pending_price": 0.0,
+            "pending_extra_tags": "",
+            "tif_code": tif,
+            "extra_tags": extra_tags,
+            "entered_qty": qty,
+            "entered_price": price,
+            "expire_time": expire_time,
+            "expire_date": expire_date,
+            "client": self._client_as_sent(session, msg),
+            **self._handling_as_sent(session, msg),
+            "market_order_id": "",
+            "ioi_id": sent.get("23", ""),
+            "quote_id": sent.get("117", "") or quote_id,
+        }
 
     async def send_new_order(
         self,
@@ -1441,52 +1558,12 @@ class FixEngine:
         # row to update creates one itself — adopting its OrderID(37) as our
         # write-once order_id, only for this write to then land on top of it and
         # put the order back to PendingNew.
-        dictionary = session.dictionary
-        now = _fix_timestamp()
-        order_row = {
-            "cl_ord_id": cl_ord_id,
-            "session_id": session_id,
-            "order_id": await self.ids.next_id("OR"),
-            "orig_cl_ord_id": "",
-            "symbol": symbol,
-            "side": dictionary.enum_name("54", side),
-            "side_code": side,
-            "ord_type": dictionary.enum_name("40", ord_type),
-            "ord_type_code": ord_type,
-            "price": price or 0.0,
-            "stop_price": 0.0,
-            "order_qty": qty,
-            "time_in_force": dictionary.enum_name("59", tif),
-            "status": "PendingNew",
-            "cum_qty": 0.0,
-            "avg_price": 0.0,
-            "leaves_qty": qty,
-            "last_qty": 0.0,
-            "last_price": 0.0,
-            "text": "",
-            "transact_time": now,
-            "created_at": now,
-            "updated_at": now,
-            "direction": "TX",
-            "pending_action": "",
-            "pending_cl_ord_id": "",
-            "pending_qty": 0.0,
-            "pending_price": 0.0,
-            "pending_extra_tags": "",
-            "tif_code": tif,
-            "extra_tags": extra_tags,
-            "entered_qty": qty,
-            "entered_price": price,
-            "expire_time": expire_time,
-            "expire_date": expire_date,
-            "client": self._client_as_sent(session, msg),
-            **self._handling_as_sent(session, msg),
-            "market_order_id": "",
-            "ioi_id": self._as_sent(session, msg).get("23", ""),
-        }
+        order_row = await self._sent_order_row(session, msg, cl_ord_id, symbol, side, qty, ord_type, price, tif,
+                                               extra_tags, expire_time, expire_date)
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
         await self._link_ioi_order(session_id, order_row["ioi_id"], cl_ord_id)
+        await self._link_quote_order(session, order_row["quote_id"], cl_ord_id, "client", source=source)
         if self.events.active:
             self.events.emit(EngineEvent(
                 ("sent order",), session_id, source=source, request=cl_ord_id, msg=msg,
@@ -2621,12 +2698,18 @@ class FixEngine:
 
     async def _find_family_row(self, table: str, id_col: str, session_id: str, value: str,
                                direction: str | None = None) -> dict[str, Any] | None:
-        """The newest row of ``table`` holding ``value`` as its current ID."""
+        """The newest row of ``table`` holding ``value`` as its current ID.
+        On fix_rfqs ``direction`` may name a side instead (`quote_side`):
+        `client` is sent RFQs and received quotes, `market` the reverse."""
         if not value:
             return None
         sql = f"SELECT * FROM {table} WHERE session_id = ? AND {id_col} = ?"
         params: list[Any] = [session_id, value]
-        if direction:
+        if direction in ("client", "market"):
+            asked = "TX" if direction == "client" else "RX"
+            sql += " AND ((origin = 'rfq' AND direction = ?) OR (origin = 'quote' AND direction != ?))"
+            params += [asked, asked]
+        elif direction:
             sql += " AND direction = ?"
             params.append(direction)
         return await self._fetch_one(sql + " ORDER BY id DESC LIMIT 1", tuple(params))
@@ -3133,6 +3216,598 @@ class FixEngine:
         ack = ack_columns(self._as_sent(session, msg), session.dictionary)
         ack["sent_text"] = ack.pop("text")
         return ack
+
+    # ── RFQs and quotes ──────────────────────────────────────────────
+    # One row per negotiation (families.py): a request and the quotes that
+    # answer it, or unsolicited quotes on one instrument. Each side acts on
+    # its own rows — the client on sent RFQs and received quotes, the market
+    # on received RFQs and sent quotes (`quote_side`) — and every write to a
+    # row the other side's messages also write goes under the session's
+    # order lock, the allocations' rule: a counter-offer parks in the slot
+    # of a row the market may be answering at that moment.
+
+    @staticmethod
+    def _require_message(session: FixSession, msg_type: str) -> None:
+        """Refuse a message the session's dictionary does not define (a
+        QuoteCancel before 4.2, a QuoteRequestReject before 4.3, a
+        QuoteResponse before 4.4), the way Restate refuses 150=D."""
+        dictionary = session.dictionary
+        if msg_type not in dictionary.messages:
+            name = {"Z": "QuoteCancel", "AG": "QuoteRequestReject", "AJ": "QuoteResponse"}.get(msg_type, msg_type)
+            raise ValueError(f"{name} (35={msg_type}) is not a {dictionary.version} message")
+
+    async def _load_rfq_row(self, session_id: str, id_col: str, value: str, side: str) -> dict[str, Any]:
+        row = await self._find_family_row("fix_rfqs", id_col, session_id, value, side)
+        if row is None:
+            what = "RFQ" if id_col == "quote_req_id" else "quote"
+            raise ValueError(f"Unknown {what}: {value} on {session_id}")
+        return row
+
+    async def _live_quote_chain(self, session_id: str, symbol: str, side: str) -> dict[str, Any] | None:
+        """The unsolicited quote standing on an instrument: a new one with no
+        request replaces it, so a stream of quotes is one row's versions."""
+        if not symbol:
+            return None
+        asked = "TX" if side == "client" else "RX"
+        return await self._fetch_one(
+            "SELECT * FROM fix_rfqs WHERE session_id = ? AND origin = 'quote' AND direction != ? AND symbol = ? "
+            "AND status IN ('Quoted', 'Countered') ORDER BY id DESC LIMIT 1", (session_id, asked, symbol))
+
+    def _emit_rfq(self, what: str, row: dict[str, Any] | None, session_id: str, msg: FixMessage | None = None,
+                  source: str = "wire", **detail: Any) -> None:
+        """`<origin> <what>` (`rfq quoted`, `quote canceled`…), or the origin
+        alone for a new one; a wire event is a `message` too."""
+        if row is None:
+            return
+        kind = f"{row['origin']} {what}".strip()
+        kinds = (kind, "message") if source == "wire" else (kind,)
+        self._emit_row(kinds, session_id, "fix_rfqs", row, msg=msg, source=source,
+                       request=row["quote_req_id"] or row["quote_id"], **detail)
+
+    def _wake_expiry(self) -> None:
+        self._expiry_wake.set()
+
+    # ── Inbound ──────────────────────────────────────────────────────
+
+    async def _handle_quote_request(self, session: FixSession, msg: FixMessage) -> None:
+        """A received QuoteRequest (35=R) opens a row awaiting a quote."""
+        session_id, now = session.session_id, _fix_timestamp()
+        columns = rfq_columns(msg, session.dictionary)
+        row = {**_RFQ_BLANKS, **self._received_family_row(session, msg, columns, CONSUMED_RFQ_TAGS, now),
+               "origin": "rfq", "status": "Open"}
+        await self._insert_family_row("fix_rfqs", row)
+        self._emit_rfq("", await self._find_family_row("fix_rfqs", "quote_req_id", session_id,
+                                                         columns["quote_req_id"], "market"), session_id, msg)
+
+    async def _handle_quote(self, session: FixSession, msg: FixMessage) -> None:
+        """A received Quote (35=S): the answer to the RFQ its QuoteReqID(131)
+        names — a first quote, or a requote replacing the one standing —
+        else an unsolicited quote, which replaces the one standing on its
+        instrument or opens a row of its own. A quote on a finished
+        negotiation is recorded without reopening it."""
+        session_id, dictionary, now = session.session_id, session.dictionary, _fix_timestamp()
+        quote = quote_columns(msg, dictionary)
+        req_id = msg.get("131", "")
+        extras = format_extra_tags(extra_pairs_of(msg, dictionary, CONSUMED_QUOTE_TAGS))
+        async with self._order_lock(session_id):
+            row = await self._find_family_row("fix_rfqs", "quote_req_id", session_id, req_id, "client")
+            if row is None:
+                row = await self._live_quote_chain(session_id, msg.get("55", ""), "client")
+            if row is not None:
+                what = "requoted" if row["quote_id"] else "quoted"
+                updates = {k: quote[k] for k in _QUOTE_TERMS}
+                updates.update(_CLEAR_QUOTE_SLOT, quote_ref_id=row["quote_id"], text=quote["text"],
+                               transact_time=quote["transact_time"], quote_extra_tags=extras,
+                               raw_message=msg.to_wire_string(), quote_status="", quote_status_code="",
+                               status=row["status"] if row["status"] in FINAL_RFQ else "Quoted")
+                if row["origin"] == "quote" and msg.get("54"):
+                    updates.update(side=dictionary.enum_name("54", msg["54"]), side_code=msg["54"])
+                if row["origin"] == "quote" and msg.get("38"):
+                    updates["order_qty"] = msg.get_float("38", 0.0)
+                await self._update_family_row("fix_rfqs", row, **updates)
+                row_id = row["id"]
+            else:
+                what = ""
+                side = msg.get("54", "")
+                fresh = {**_RFQ_BLANKS, **self._received_family_row(session, msg, quote, CONSUMED_QUOTE_TAGS, now)}
+                fresh.update(origin="quote", quote_req_id=req_id, symbol=msg.get("55", ""),
+                             side=dictionary.enum_name("54", side) if side else "", side_code=side,
+                             order_qty=msg.get_float("38", 0.0), status="Quoted", currency=msg.get("15", ""),
+                             quote_extra_tags=fresh["extra_tags"], extra_tags="")
+                await self._insert_family_row("fix_rfqs", fresh)
+                row_id = None
+        if row_id is None:
+            found = await self._find_family_row("fix_rfqs", "quote_id", session_id, quote["quote_id"], "client")
+        else:
+            found = await self._load_family_row_by_id("fix_rfqs", row_id)
+        self._wake_expiry()
+        self._emit_rfq(what, found, session_id, msg)
+
+    async def _handle_quote_cancel(self, session: FixSession, msg: FixMessage) -> None:
+        """A received QuoteCancel (35=Z) ends the quotes it names: every live
+        one on the session for QuoteCancelType(298)=4, else the one its
+        QuoteID(117) or QuoteReqID(131) names, else those of the instruments
+        in its NoQuoteEntries(295) group."""
+        session_id, dictionary = session.session_id, session.dictionary
+        live = "status IN ('Quoted', 'Countered')"
+        client = "((origin = 'rfq' AND direction = 'TX') OR (origin = 'quote' AND direction = 'RX'))"
+        async with self._order_lock(session_id):
+            if msg.get("298") == "4":
+                rows = await self._fetch_all(
+                    f"SELECT * FROM fix_rfqs WHERE session_id = ? AND {client} AND {live}", (session_id,))
+            else:
+                row = (await self._find_family_row("fix_rfqs", "quote_id", session_id, msg.get("117", ""), "client")
+                       or await self._find_family_row("fix_rfqs", "quote_req_id", session_id, msg.get("131", ""),
+                                                      "client"))
+                rows = [row] if row else []
+                symbols = [i["55"] for i in group_instances(msg, "295", ("55",), dictionary)] or \
+                    ([msg["55"]] if msg.get("55") else [])
+                if not rows and symbols:
+                    rows = await self._fetch_all(
+                        f"SELECT * FROM fix_rfqs WHERE session_id = ? AND {client} AND {live} AND symbol IN "
+                        f"({', '.join('?' * len(symbols))})", (session_id, *symbols))
+            for row in rows:
+                await self._update_family_row("fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Canceled",
+                                              text=msg.get("58", ""), raw_message=msg.to_wire_string())
+        for row in rows:
+            self._emit_rfq("canceled", await self._load_family_row_by_id("fix_rfqs", row["id"]), session_id, msg)
+
+    async def _handle_quote_request_reject(self, session: FixSession, msg: FixMessage) -> None:
+        """A received QuoteRequestReject (35=AG) refuses the RFQ we sent."""
+        session_id, dictionary = session.session_id, session.dictionary
+        reason = msg.get("658", "")
+        async with self._order_lock(session_id):
+            row = await self._find_family_row("fix_rfqs", "quote_req_id", session_id, msg.get("131", ""), "client")
+            if row is not None:
+                await self._update_family_row(
+                    "fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Rejected", rej_reason_code=reason,
+                    rej_reason=dictionary.enum_name("658", reason) if reason else "", text=msg.get("58", ""),
+                    raw_message=msg.to_wire_string())
+        if row is not None:
+            self._emit_rfq("rejected", await self._load_family_row_by_id("fix_rfqs", row["id"]), session_id, msg,
+                           reason=dictionary.enum_name("658", reason) if reason else "")
+
+    async def _handle_quote_status_report(self, session: FixSession, msg: FixMessage) -> None:
+        """A received QuoteStatusReport (35=AI) records QuoteStatus(297) on the
+        quote it names; one that ends the quote (canceled, expired,
+        rejected) ends it here too."""
+        session_id, dictionary = session.session_id, session.dictionary
+        code = msg.get("297", "")
+        async with self._order_lock(session_id):
+            row = None
+            for side in ("client", None):
+                row = (await self._find_family_row("fix_rfqs", "quote_id", session_id, msg.get("117", ""), side)
+                       or await self._find_family_row("fix_rfqs", "quote_req_id", session_id, msg.get("131", ""),
+                                                      side))
+                if row is not None:
+                    break
+            if row is not None:
+                updates: dict[str, Any] = {"quote_status": dictionary.enum_name("297", code) if code else "",
+                                           "quote_status_code": code, "text": msg.get("58", "") or row["text"]}
+                if code in QUOTE_STATUS_ENDS and row["status"] in (*LIVE_QUOTE, "Open"):
+                    updates["status"] = QUOTE_STATUS_ENDS[code]
+                await self._update_family_row("fix_rfqs", row, **updates)
+        if row is not None:
+            self._emit_rfq("status", await self._load_family_row_by_id("fix_rfqs", row["id"]), session_id, msg)
+
+    async def _handle_quote_response(self, session: FixSession, msg: FixMessage) -> None:
+        """A received QuoteResponse (35=AJ) answers a quote we sent. A Hit
+        carrying a ClOrdID(11) makes a received order — Accept and Fill take
+        it from there — a Counter parks in the row's slot until a requote,
+        a rejection or a cancel answers it, and the rest (Pass, Expired,
+        Cover…) set the row's status by their name. One naming no quote of
+        ours stays a recorded message."""
+        session_id, dictionary = session.session_id, session.dictionary
+        resp = response_columns(msg, dictionary)
+        kind = resp["quote_resp_type_code"]
+        extras = format_extra_tags(extra_pairs_of(msg, dictionary, CONSUMED_RESPONSE_TAGS))
+        cl_ord_id = msg.get("11", "") if kind in ("1", "11") else ""
+        async with self._order_lock(session_id):
+            row = (await self._find_family_row("fix_rfqs", "quote_id", session_id, msg.get("117", ""), "market")
+                   or await self._find_family_row("fix_rfqs", "quote_req_id", session_id, msg.get("131", ""),
+                                                  "market"))
+            if row is not None:
+                updates: dict[str, Any] = {k: resp[k] for k in ("quote_resp_id", "quote_resp_type",
+                                                                "quote_resp_type_code", "text")}
+                updates["raw_message"] = msg.to_wire_string()
+                if kind == "2":
+                    updates.update(pending_action="Counter", pending_resp_id=resp["quote_resp_id"],
+                                   pending_bid_px=resp["bid_px"], pending_offer_px=resp["offer_px"],
+                                   pending_bid_size=resp["bid_size"], pending_offer_size=resp["offer_size"],
+                                   pending_extra_tags=extras, status="Countered")
+                else:
+                    updates.update(_CLEAR_QUOTE_SLOT, status=status_of_response(kind, dictionary))
+                if cl_ord_id:
+                    updates["order_cl_ord_id"] = cl_ord_id
+                await self._update_family_row("fix_rfqs", row, **updates)
+                if cl_ord_id:
+                    await self._handle_new_order(session, self._order_from_response(msg, row), link_quote=False,
+                                                 consumed=CONSUMED_RESPONSE_TAGS | CONSUMED_ORDER_TAGS)
+        if row is None:
+            self._emit_row(("message",), session_id, "fix_rfqs", None, msg=msg, request=msg.get("117", ""),
+                           unknown_quote=msg.get("117", ""))
+            return
+        what = {"1": "hit", "11": "hit", "2": "countered", "6": "passed", "3": "expired", "8": "expired"}.get(
+            kind, "response")
+        self._emit_rfq(what, await self._load_family_row_by_id("fix_rfqs", row["id"]), session_id, msg,
+                       response=resp["quote_resp_type"], cl_ord_id=cl_ord_id)
+
+    @staticmethod
+    def _order_from_response(msg: FixMessage, row: dict[str, Any]) -> FixMessage:
+        """The order a Hit makes, as a NewOrderSingle would carry it: the
+        response's own terms, the quote's where it leaves them out — the
+        side, the quoted quantity, the price of the side taken — and
+        PreviouslyQuoted as the type."""
+        order = FixMessage(dict(msg.fields), pairs=list(msg._items()))
+        side = msg.get("54") or row["side_code"]
+        order["54"] = side
+        if not msg.get("38"):
+            size = row["offer_size"] if side == "1" else row["bid_size"]
+            order["38"] = str(size if size is not None else row["order_qty"] or 0)
+        if not msg.get("44"):
+            price = row["offer_px"] if side == "1" else row["bid_px"]
+            if price is not None:
+                order["44"] = str(price)
+        if not msg.get("40"):
+            order["40"] = "D"
+        order["117"] = row["quote_id"]
+        order["55"] = msg.get("55") or row["symbol"]
+        return order
+
+    async def _link_quote_order(self, session: FixSession, quote_id: str, cl_ord_id: str, side: str,
+                                source: str = "wire") -> None:
+        """An order naming a quote (tag 117) takes it: the quote's row — ours
+        or theirs — is Hit and records the order. A no-op for an unknown
+        quote."""
+        if not quote_id:
+            return
+        session_id = session.session_id
+        async with self._order_lock(session_id):
+            row = await self._find_family_row("fix_rfqs", "quote_id", session_id, quote_id, side)
+            if row is not None:
+                await self._update_family_row("fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Hit",
+                                              order_cl_ord_id=cl_ord_id)
+        if row is not None:
+            self._emit_rfq("hit", await self._load_family_row_by_id("fix_rfqs", row["id"]), session_id,
+                           source=source, cl_ord_id=cl_ord_id)
+
+    async def _fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        cursor = await self.db.read_conn.execute(sql, params)
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
+
+    # ── Client side: sent RFQs, received quotes ──────────────────────
+
+    async def send_rfq(self, session_id: str, symbol: str, side: str = "", qty: float = 0.0,
+                       quote_request_type: str = "", quote_type: str = "", currency: str = "", client: str = "",
+                       text: str = "", extra_tags: str = "", source: str = "manual", tag: str = "") -> str:
+        """Send a QuoteRequest and return its QuoteReqID; the row is Open
+        until a quote arrives. Written and announced (`sent rfq`) before
+        the send, as `send_new_order` does."""
+        session = self._active_session(session_id)
+        quote_req_id = await self.ids.next_id("RQ")
+        msg = session.factory.quote_request(quote_req_id, symbol, side=side, qty=qty or None,
+                                            quote_request_type=quote_request_type, quote_type=quote_type,
+                                            currency=currency, text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, client)
+        row = {**_RFQ_BLANKS, **self._sent_family_row(session, msg, rfq_columns, extra_tags, _fix_timestamp())}
+        row.update(origin="rfq", status="Open", sent_text=row["text"], text="")
+        await self._insert_family_row("fix_rfqs", row)
+        row = await self._find_family_row("fix_rfqs", "quote_req_id", session_id, quote_req_id, "client") or row
+        self._emit_row(("sent rfq",), session_id, "fix_rfqs", row, msg=msg, source=source, request=quote_req_id,
+                       tag=tag)
+        await self._send_family_message(session, "fix_rfqs", row, msg)
+        return quote_req_id
+
+    async def _respond(self, session: FixSession, row: dict[str, Any], resp_type: str, text: str,
+                       extra_tags: str, **terms: Any) -> tuple[FixMessage, str]:
+        """A QuoteResponse to the quote standing on a client row."""
+        self._require_message(session, "AJ")
+        if row["status"] not in LIVE_QUOTE:
+            raise ValueError(f"Quote {row['quote_id']} is {row['status']}: nothing to answer")
+        resp_id = await self.ids.next_id("QR")
+        msg = session.factory.quote_response(resp_id, row["quote_id"], resp_type, row["symbol"],
+                                             text=text or None, **terms)
+        msg.extra = parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, row["client"])
+        return msg, resp_id
+
+    async def hit_quote(self, session_id: str, quote_id: str, side: str = "", qty: float | None = None,
+                        price: float | None = None, ord_type: str = "", text: str = "", extra_tags: str = "",
+                        source: str = "manual", tag: str = "") -> str:
+        """Take a quote with a QuoteResponse Hit (FIX 4.4+), which carries the
+        order it makes: returns its ClOrdID. The side defaults to the
+        request's (a two-way quote needs one), the quantity to the quoted
+        size and the price to the side taken — the offer for a buy, the bid
+        for a sell. The sent order is written first, as `send_new_order`
+        writes its row."""
+        session = self._active_session(session_id)
+        async with self._order_lock(session_id):
+            row = await self._load_rfq_row(session_id, "quote_id", quote_id, "client")
+            side = side or row["side_code"]
+            if not side:
+                raise ValueError(f"Quote {quote_id} is two-way: say which side to take")
+            size = row["offer_size"] if side == "1" else row["bid_size"]
+            qty = qty or size or row["order_qty"]
+            if not qty:
+                raise ValueError(f"Quote {quote_id} names no size: give a quantity")
+            if price is None:
+                price = row["offer_px"] if side == "1" else row["bid_px"]
+            ord_type = ord_type or ("D" if session.dictionary.has_enum("40", "D") else "2")
+            cl_ord_id = await self.ids.next_id("RT")
+            msg, resp_id = await self._respond(session, row, "1", text, extra_tags, cl_ord_id=cl_ord_id, side=side,
+                                               qty=float(qty), ord_type=ord_type, price=price)
+            sent = self._as_sent(session, msg)
+            await self._update_family_row("fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Hit",
+                                          order_cl_ord_id=cl_ord_id, quote_resp_id=resp_id,
+                                          quote_resp_type=session.dictionary.enum_name("694", "1"),
+                                          quote_resp_type_code="1", sent_text=sent.get("58", ""))
+        order_row = await self._sent_order_row(session, msg, cl_ord_id, row["symbol"], side, float(qty), ord_type,
+                                               price, "", extra_tags, quote_id=quote_id)
+        await self.writer.submit(self._compiled_ops["upsert_order"], (_order_params(order_row),),
+                                 {"cl_ord_id": cl_ord_id})
+        if self.events.active:
+            self.events.emit(EngineEvent(
+                ("sent order",), session_id, source=source, request=cl_ord_id, msg=msg,
+                order=await self._find_order(session_id, cl_ord_id), detail={"tag": tag}))
+        try:
+            await session.send_message(msg)
+        except Exception as exc:
+            await self._write_order(order_row, status="Rejected", leaves_qty=0.0, text=f"Send failed: {exc}")
+            await self._update_family_row("fix_rfqs", row)
+            raise
+        return cl_ord_id
+
+    async def counter_quote(self, session_id: str, quote_id: str, bid_px: float | None = None,
+                            offer_px: float | None = None, bid_size: float | None = None,
+                            offer_size: float | None = None, text: str = "", extra_tags: str = "") -> str:
+        """Counter a quote with a QuoteResponse Counter (FIX 4.4+): the row is
+        Countered, the counter in its slot, until the market requotes."""
+        session = self._active_session(session_id)
+        async with self._order_lock(session_id):
+            row = await self._load_rfq_row(session_id, "quote_id", quote_id, "client")
+            if bid_px is None and offer_px is None:
+                raise ValueError("A counter names a bid, an offer or both")
+            msg, resp_id = await self._respond(session, row, "2", text, extra_tags, side=row["side_code"],
+                                               bid_px=bid_px, offer_px=offer_px, bid_size=bid_size,
+                                               offer_size=offer_size)
+            sent = self._as_sent(session, msg)
+            await self._update_family_row(
+                "fix_rfqs", row, status="Countered", pending_action="Counter", pending_resp_id=resp_id,
+                pending_bid_px=bid_px, pending_offer_px=offer_px, pending_bid_size=bid_size,
+                pending_offer_size=offer_size, pending_extra_tags=extra_tags, quote_resp_id=resp_id,
+                quote_resp_type=session.dictionary.enum_name("694", "2"), quote_resp_type_code="2",
+                sent_text=sent.get("58", ""))
+        await self._send_family_message(session, "fix_rfqs", row, msg, revert=row)
+        return resp_id
+
+    async def pass_quote(self, session_id: str, quote_id: str, text: str = "", extra_tags: str = "") -> str:
+        """Decline a quote with a QuoteResponse Pass (FIX 4.4+)."""
+        session = self._active_session(session_id)
+        async with self._order_lock(session_id):
+            row = await self._load_rfq_row(session_id, "quote_id", quote_id, "client")
+            msg, resp_id = await self._respond(session, row, "6", text, extra_tags, side=row["side_code"])
+            sent = self._as_sent(session, msg)
+            await self._update_family_row("fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Passed",
+                                          quote_resp_id=resp_id, quote_resp_type=session.dictionary.enum_name(
+                                              "694", "6"), quote_resp_type_code="6", sent_text=sent.get("58", ""))
+        await self._send_family_message(session, "fix_rfqs", row, msg, revert=row)
+        return resp_id
+
+    # ── Market side: received RFQs, sent quotes ──────────────────────
+
+    def _quote_message(self, session: FixSession, quote_id: str, terms: dict[str, Any], quote_req_id: str = "",
+                       text: str = "", extra_tags: str = "", client: str = "") -> FixMessage:
+        factory = session.factory
+        valid_until = str(terms.get("valid_until") or "")
+        if not valid_until and terms.get("valid_for"):
+            seconds = float(terms["valid_for"])
+            valid_until = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime(
+                "%Y-%m-%dT%H:%M:%S.%fZ")
+        msg = factory.quote(
+            quote_id, terms["symbol"], quote_req_id=quote_req_id, bid_px=_opt_float(terms.get("bid_px")),
+            offer_px=_opt_float(terms.get("offer_px")), bid_size=_opt_float(terms.get("bid_size")),
+            offer_size=_opt_float(terms.get("offer_size")),
+            valid_until=factory.expire_time_stamp(valid_until), quote_type=str(terms.get("quote_type") or ""),
+            side=str(terms.get("side") or ""), qty=_opt_float(terms.get("qty")),
+            currency=str(terms.get("currency") or ""), text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, client)
+        return msg
+
+    def _quote_updates(self, session: FixSession, msg: FixMessage, row: dict[str, Any] | None,
+                       extra_tags: str) -> dict[str, Any]:
+        """What a quote we send writes on its row: its terms as sent, the
+        slot cleared (a requote answers a counter), Quoted."""
+        sent = self._as_sent(session, msg)
+        quote = quote_columns(sent, session.dictionary)
+        updates = {k: quote[k] for k in _QUOTE_TERMS}
+        updates.update(_CLEAR_QUOTE_SLOT, quote_ref_id=row["quote_id"] if row else "", status="Quoted",
+                       sent_text=quote["text"], transact_time=quote["transact_time"], quote_extra_tags=extra_tags,
+                       raw_message=sent.to_wire_string(), quote_status="", quote_status_code="")
+        return updates
+
+    @_market_action
+    async def quote_rfq(self, session_id: str, quote_req_id: str, bid_px: float | None = None,
+                        offer_px: float | None = None, bid_size: float | None = None,
+                        offer_size: float | None = None, valid_for: float | None = None, valid_until: str = "",
+                        quote_type: str = "", currency: str = "", text: str = "",
+                        extra_tags: str = "") -> tuple[FixMessage, str]:
+        """Quote a received RFQ — a first quote, or a requote replacing the
+        one standing — and return the QuoteID. A requote answers a pending
+        counter-offer."""
+        session = self._active_session(session_id)
+        row = await self._load_rfq_row(session_id, "quote_req_id", quote_req_id, "market")
+        if row["status"] in FINAL_RFQ:
+            raise ValueError(f"RFQ {quote_req_id} is {row['status']}")
+        if bid_px is None and offer_px is None:
+            raise ValueError("A quote names a bid, an offer or both")
+        quote_id = await self.ids.next_id("QT")
+        terms = dict(symbol=row["symbol"], side=row["side_code"], qty=row["order_qty"] or None, bid_px=bid_px,
+                     offer_px=offer_px, bid_size=bid_size, offer_size=offer_size, valid_for=valid_for,
+                     valid_until=valid_until, quote_type=quote_type, currency=currency or row["currency"])
+        msg = self._quote_message(session, quote_id, terms, quote_req_id=quote_req_id, text=text,
+                                  extra_tags=extra_tags, client=row["client"])
+        await self._update_family_row("fix_rfqs", row, **self._quote_updates(session, msg, row, extra_tags))
+        self._wake_expiry()
+        return msg, quote_id
+
+    async def send_quote(self, session_id: str, symbol: str, bid_px: float | None = None,
+                         offer_px: float | None = None, bid_size: float | None = None,
+                         offer_size: float | None = None, side: str = "", qty: float | None = None,
+                         valid_for: float | None = None, valid_until: str = "", quote_type: str = "",
+                         currency: str = "", client: str = "", text: str = "", extra_tags: str = "",
+                         source: str = "manual", tag: str = "") -> str:
+        """Send an unsolicited quote and return its QuoteID. It replaces the
+        quote standing on the instrument — the counterparty's rule, so a
+        stream of quotes is one row — or opens a row of its own."""
+        session = self._active_session(session_id)
+        if bid_px is None and offer_px is None:
+            raise ValueError("A quote names a bid, an offer or both")
+        quote_id = await self.ids.next_id("QT")
+        terms = dict(symbol=symbol, side=side, qty=qty, bid_px=bid_px, offer_px=offer_px, bid_size=bid_size,
+                     offer_size=offer_size, valid_for=valid_for, valid_until=valid_until, quote_type=quote_type,
+                     currency=currency)
+        async with self._order_lock(session_id):
+            row = await self._live_quote_chain(session_id, symbol, "market")
+            msg = self._quote_message(session, quote_id, terms, text=text, extra_tags=extra_tags,
+                                      client=client or (row["client"] if row else ""))
+            updates = self._quote_updates(session, msg, row, extra_tags)
+            sent = self._as_sent(session, msg)
+            identity = {"side": session.dictionary.enum_name("54", side) if side else "", "side_code": side,
+                        "order_qty": qty or 0.0, "currency": currency,
+                        "client": client_of(sent, self._client_specs(session))}
+            if row is not None:
+                await self._update_family_row("fix_rfqs", row, **updates, **identity)
+            else:
+                now = _fix_timestamp()
+                fresh = {**_RFQ_BLANKS, **updates, **identity, "session_id": session_id, "origin": "quote",
+                         "symbol": symbol, "timestamp": now, "updated_at": now, "direction": "TX"}
+                await self._insert_family_row("fix_rfqs", fresh)
+        created = await self._find_family_row("fix_rfqs", "quote_id", session_id, quote_id, "market")
+        self._wake_expiry()
+        if row is None:
+            self._emit_row(("sent quote",), session_id, "fix_rfqs", created, msg=msg, source=source,
+                           request=quote_id, tag=tag)
+        try:
+            await session.send_message(msg)
+        except Exception as exc:
+            if row is not None:
+                await self._update_family_row("fix_rfqs", row)
+            elif created is not None:
+                await self._update_family_row("fix_rfqs", created, status="Failed", text=f"Send failed: {exc}")
+            raise
+        return quote_id
+
+    @_market_action
+    async def requote(self, session_id: str, quote_id: str, bid_px: float | None = None,
+                      offer_px: float | None = None, bid_size: float | None = None,
+                      offer_size: float | None = None, valid_for: float | None = None, valid_until: str = "",
+                      quote_type: str = "", text: str = "", extra_tags: str = "") -> tuple[FixMessage, str]:
+        """Replace a quote we sent — on an RFQ or unsolicited — with a new
+        QuoteID, answering a pending counter-offer if there is one."""
+        session = self._active_session(session_id)
+        row = await self._load_rfq_row(session_id, "quote_id", quote_id, "market")
+        if row["status"] in FINAL_RFQ:
+            raise ValueError(f"Quote {quote_id} is {row['status']}")
+        if bid_px is None and offer_px is None:
+            raise ValueError("A quote names a bid, an offer or both")
+        new_id = await self.ids.next_id("QT")
+        terms = dict(symbol=row["symbol"], side=row["side_code"], qty=row["order_qty"] or None, bid_px=bid_px,
+                     offer_px=offer_px, bid_size=bid_size, offer_size=offer_size, valid_for=valid_for,
+                     valid_until=valid_until, quote_type=quote_type, currency=row["currency"])
+        msg = self._quote_message(session, new_id, terms, quote_req_id=row["quote_req_id"], text=text,
+                                  extra_tags=extra_tags, client=row["client"])
+        await self._update_family_row("fix_rfqs", row, **self._quote_updates(session, msg, row, extra_tags))
+        self._wake_expiry()
+        return msg, new_id
+
+    @_market_action
+    async def reject_rfq(self, session_id: str, quote_req_id: str, reason: str = "", text: str = "",
+                         extra_tags: str = "") -> tuple[FixMessage, str]:
+        """Refuse a received RFQ with a QuoteRequestReject (FIX 4.3+) and
+        QuoteRequestRejectReason(658)."""
+        session = self._active_session(session_id)
+        self._require_message(session, "AG")
+        row = await self._load_rfq_row(session_id, "quote_req_id", quote_req_id, "market")
+        if row["status"] in FINAL_RFQ:
+            raise ValueError(f"RFQ {quote_req_id} is {row['status']}")
+        if not reason:
+            raise ValueError("A rejection names its reason (658)")
+        msg = session.factory.quote_request_reject(quote_req_id, row["symbol"], reason, text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, row["client"])
+        sent = self._as_sent(session, msg)
+        await self._update_family_row("fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Rejected",
+                                      rej_reason=session.dictionary.enum_name("658", reason), rej_reason_code=reason,
+                                      sent_text=sent.get("58", ""))
+        return msg, quote_req_id
+
+    @_market_action
+    async def cancel_quote(self, session_id: str, quote_id: str, text: str = "",
+                           extra_tags: str = "") -> tuple[FixMessage, str]:
+        """Withdraw a quote we sent with a QuoteCancel (FIX 4.2+); an RFQ
+        whose quote is canceled can be quoted again."""
+        session = self._active_session(session_id)
+        self._require_message(session, "Z")
+        row = await self._load_rfq_row(session_id, "quote_id", quote_id, "market")
+        if row["status"] not in LIVE_QUOTE:
+            raise ValueError(f"Quote {quote_id} is {row['status']}: nothing to cancel")
+        msg = session.factory.quote_cancel(quote_id, row["symbol"], quote_req_id=row["quote_req_id"],
+                                           text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        sent = self._as_sent(session, msg)
+        await self._update_family_row("fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Canceled",
+                                      sent_text=sent.get("58", ""))
+        return msg, quote_id
+
+    # ── Expiry ───────────────────────────────────────────────────────
+
+    async def expire_due_quotes(self, now: datetime | None = None) -> datetime | None:
+        """Mark Expired every standing quote whose ValidUntilTime(62) has
+        passed — on both sides, since nothing goes on the wire for it — and
+        return when the next one falls due (None: nothing is waiting)."""
+        now = now or datetime.now(timezone.utc)
+        rows = await self._fetch_all(
+            "SELECT * FROM fix_rfqs WHERE status IN ('Quoted', 'Countered') AND valid_until != ''")
+        due, following = [], None
+        for row in rows:
+            at = parse_stamp(row["valid_until"])
+            if at is None:
+                continue
+            if at <= now:
+                due.append(row)
+            elif following is None or at < following:
+                following = at
+        for row in due:
+            async with self._order_lock(row["session_id"]):
+                current = await self._load_family_row_by_id("fix_rfqs", row["id"])
+                if current is None or current["status"] not in LIVE_QUOTE or current["quote_id"] != row["quote_id"]:
+                    continue
+                await self._update_family_row("fix_rfqs", current, **_CLEAR_QUOTE_SLOT, status="Expired")
+            self._emit_rfq("expired", await self._load_family_row_by_id("fix_rfqs", row["id"]), row["session_id"],
+                           source="engine")
+        return following
+
+    async def _expire_quotes(self) -> None:
+        """The expiry timer: sleeps until the next quote falls due, or a
+        quote is written (`_wake_expiry`), at most a minute at a time."""
+        while True:
+            try:
+                following = await self.expire_due_quotes()
+            except Exception:
+                log.exception("quote expiry sweep failed")
+                following = None
+            delay = 60.0
+            if following is not None:
+                delay = min(delay, max(0.0, (following - datetime.now(timezone.utc)).total_seconds()) + 0.01)
+            self._expiry_wake.clear()
+            try:
+                await asyncio.wait_for(self._expiry_wake.wait(), delay)
+            except asyncio.TimeoutError:
+                pass
 
     async def _backfill_families(self) -> None:
         """Seed, once (fix_settings `families_backfill`), the columns 0.63

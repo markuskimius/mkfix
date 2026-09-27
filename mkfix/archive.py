@@ -45,6 +45,8 @@ ALIASES: dict[str, str] = {
     "iois": "fix_iois",
     "adverts": "fix_adverts",
     "allocations": "fix_allocations",
+    "rfqs": "fix_rfqs",
+    "quotes": "fix_rfqs",
     "sessions": "fix_sessions",
     "dictionaries": "fix_dictionaries",
     "settings": "fix_settings",
@@ -123,7 +125,7 @@ def _parser(cmd: str) -> argparse.ArgumentParser:
                             "overrides --group)")
         p.add_argument("--group", default=None, metavar="{data,config}",
                        help="archive one group: data (messages, orders, trades, iois, adverts, "
-                            "allocations, macro_runs, macro_orders, macro_log; the default) or config (the rest). Most config "
+                            "allocations, rfqs, macro_runs, macro_orders, macro_log; the default) or config (the rest). Most config "
                             "tables are archived whole, whatever the cutoff")
         p.add_argument("--all", action="store_true",
                        help="archive both groups; not with --tables or --group")

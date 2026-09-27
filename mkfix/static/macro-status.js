@@ -19,12 +19,13 @@ import { recordingName } from "/static/macro-lang.js";
 
 const { registerWidget } = window.Mkui;
 
-// The deck is one per side, so the IOI, advert and allocation blotters of a
-// side carry the same controls as its order blotter.
+// The deck is one per side, so the IOI, advert, allocation, RFQ and quote
+// blotters of a side carry the same controls as its order blotter.
 const BLOTTERS = {
   "order-blotter": "client", "ioi-blotter": "client", "advert-blotter": "client", "allocation-blotter": "client",
+  "rfq-blotter": "client", "quote-blotter": "client",
   "market-order-blotter": "market", "market-ioi-blotter": "market", "market-advert-blotter": "market",
-  "market-allocation-blotter": "market",
+  "market-allocation-blotter": "market", "market-rfq-blotter": "market", "market-quote-blotter": "market",
 };
 const IDLE_MS = 3000;
 const RECORDING_MS = 1000;

@@ -8,6 +8,9 @@ Type codes identify the ID kind at a glance:
     IO  IOIID on IOIs mkfix sends (a Replace or Cancel mints the next)
     AD  AdvId on Advertisements mkfix sends
     AL  AllocID on AllocationInstructions mkfix sends
+    RQ  QuoteReqID on QuoteRequests mkfix sends
+    QT  QuoteID on Quotes mkfix sends (a requote mints the next)
+    QR  QuoteRespID on QuoteResponses mkfix sends
 
 The instance code is the first two characters of the username, uppercased and
 padded with trailing X's, so concurrent mkfix users facing the same

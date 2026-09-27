@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.70",
+    "version": "0.71",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -152,6 +152,19 @@
           "label": "Received Allocations",
           "action": "pane.show",
           "args": "allocation-blotter"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Sent RFQs",
+          "action": "pane.show",
+          "args": "rfq-blotter"
+        },
+        {
+          "label": "Received Quotes",
+          "action": "pane.show",
+          "args": "quote-blotter"
         }
       ]
     },
@@ -185,6 +198,19 @@
           "label": "Sent Allocations",
           "action": "pane.show",
           "args": "market-allocation-blotter"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Received RFQs",
+          "action": "pane.show",
+          "args": "market-rfq-blotter"
+        },
+        {
+          "label": "Sent Quotes",
+          "action": "pane.show",
+          "args": "market-quote-blotter"
         }
       ]
     },
@@ -992,7 +1018,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.70"
+        "text": "mkfix v0.71"
       }
     ],
     "bindStyle": {
@@ -1883,6 +1909,7 @@
         "macro",
         "updated_at",
         "ioi_id",
+        "quote_id",
         "id",
         "orig_cl_ord_id",
         "side_code",
@@ -1987,7 +2014,8 @@
         "handl_inst_code": "Handl Inst (21)",
         "pending_entered": "Pending Entered",
         "session_status": "Session Status",
-        "ioi_id": "IOI ID"
+        "ioi_id": "IOI ID",
+        "quote_id": "Quote ID"
       },
       "types": {
         "updated_at": {
@@ -6279,6 +6307,1695 @@
         }
       ]
     },
+    "market-rfq-blotter": {
+      "title": "Received RFQs",
+      "type": "mkio-table",
+      "service": "rfqs_query",
+      "protocol": "query",
+      "filter": "direction == 'RX' && origin == 'rfq'",
+      "history": {
+        "table": "fix_rfqs",
+        "key": [
+          "id"
+        ],
+        "versions": "rfqs_versions",
+        "state": "rfqs_state",
+        "feed": "rfqs_history",
+        "asOf": "received_rfqs_as_of",
+        "columns": [
+          "quote_req_id",
+          "quote_id",
+          "quote_ref_id",
+          "symbol",
+          "side",
+          "order_qty",
+          "bid_size",
+          "bid_px",
+          "offer_px",
+          "offer_size",
+          "valid_until",
+          "quote_type",
+          "status",
+          "quote_status",
+          "rej_reason",
+          "quote_resp_type",
+          "pending_action",
+          "pending_bid_px",
+          "pending_offer_px",
+          "order_cl_ord_id",
+          "sent_text",
+          "text",
+          "extra_tags",
+          "quote_extra_tags"
+        ]
+      },
+      "columns": [
+        "quote_req_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "quote_id",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "pending_bid_px",
+        "pending_offer_px",
+        "rej_reason",
+        "order_cl_ord_id",
+        "text",
+        "sent_text",
+        "extra_tags",
+        "macro",
+        "updated_at",
+        "id",
+        "origin",
+        "side_code",
+        "quote_request_type",
+        "quote_request_type_code",
+        "quote_type_code",
+        "currency",
+        "quote_ref_id",
+        "quote_status",
+        "quote_status_code",
+        "rej_reason_code",
+        "quote_resp_id",
+        "quote_resp_type",
+        "quote_resp_type_code",
+        "pending_resp_id",
+        "pending_bid_size",
+        "pending_offer_size",
+        "pending_extra_tags",
+        "quote_extra_tags",
+        "transact_time",
+        "timestamp",
+        "direction",
+        "raw_message",
+        "session_status"
+      ],
+      "visible": [
+        "quote_req_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "quote_id",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "pending_bid_px",
+        "pending_offer_px",
+        "rej_reason",
+        "order_cl_ord_id",
+        "text",
+        "sent_text",
+        "extra_tags",
+        "macro",
+        "updated_at"
+      ],
+      "labels": {
+        "quote_req_id": "QuoteReqID",
+        "session_id": "Session",
+        "client": "Client",
+        "symbol": "Symbol",
+        "side": "Side",
+        "order_qty": "Qty",
+        "status": "Status",
+        "quote_id": "QuoteID",
+        "bid_size": "Bid Size",
+        "bid_px": "Bid",
+        "offer_px": "Offer",
+        "offer_size": "Offer Size",
+        "valid_until": "Valid Until",
+        "quote_type": "Quote Type",
+        "pending_action": "Pending",
+        "pending_bid_px": "Counter Bid",
+        "pending_offer_px": "Counter Offer",
+        "rej_reason": "Rej Reason",
+        "order_cl_ord_id": "Order",
+        "text": "Rcvd Text",
+        "sent_text": "Sent Text",
+        "extra_tags": "Extra Tags",
+        "macro": "Macro",
+        "updated_at": "Updated",
+        "id": "Row",
+        "origin": "Origin",
+        "side_code": "Side (54)",
+        "quote_request_type": "Request Type",
+        "quote_request_type_code": "Request Type (303)",
+        "quote_type_code": "Quote Type (537)",
+        "currency": "Ccy",
+        "quote_ref_id": "Replaced QuoteID",
+        "quote_status": "Quote Status",
+        "quote_status_code": "Quote Status (297)",
+        "rej_reason_code": "Rej Reason (658)",
+        "quote_resp_id": "QuoteRespID",
+        "quote_resp_type": "Response",
+        "quote_resp_type_code": "Response (694)",
+        "pending_resp_id": "Counter ID",
+        "pending_bid_size": "Counter Bid Size",
+        "pending_offer_size": "Counter Offer Size",
+        "pending_extra_tags": "Counter Extra Tags",
+        "quote_extra_tags": "Quote Extra Tags",
+        "transact_time": "Transact Time",
+        "timestamp": "Opened",
+        "direction": "Dir",
+        "raw_message": "Message",
+        "session_status": "Session Status"
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "types": {
+        "valid_until": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "side": [
+          {
+            "when": "value == 'Buy'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "status": [
+          {
+            "when": "value == 'Open'",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "when": "value == 'Quoted'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'Countered'",
+            "color": "#dcdcaa",
+            "bold": true
+          },
+          {
+            "when": "value == 'Hit'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "CONTAINS(['Passed', 'Expired'], value)",
+            "color": "#858585",
+            "italic": true
+          },
+          {
+            "when": "value == 'Canceled'",
+            "color": "#858585",
+            "strike": true
+          },
+          {
+            "when": "CONTAINS(['Rejected', 'Failed'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "pending_action": [
+          {
+            "when": "value == 'Counter'",
+            "color": "#dcdcaa",
+            "bold": true,
+            "background": "#3a2f1b"
+          }
+        ],
+        "rej_reason": [
+          {
+            "when": "value != ''",
+            "color": "#f44747"
+          }
+        ],
+        "bid_px": [
+          {
+            "when": "value != NULL",
+            "color": "#4ec9b0"
+          }
+        ],
+        "offer_px": [
+          {
+            "when": "value != NULL",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "buttons": [
+        {
+          "label": "Quote",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> not CONTAINS(['Hit', 'Passed', 'Rejected', 'Failed'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Quote ${row.quote_req_id}",
+              "pin": "keep",
+              "width": 420,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_req_id": "${row.quote_req_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "quote"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "bid_px": "bid_px",
+                    "offer_px": "offer_px",
+                    "bid_size": "bid_size",
+                    "offer_size": "offer_size",
+                    "valid_for": "valid_for",
+                    "quote_type": "quote_type",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.quote_rfq",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_bid_size != NULL, row.pending_bid_size, IF(row.bid_size != NULL, row.bid_size, IF(row.order_qty > 0, row.order_qty, '')))}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_bid_px != NULL, row.pending_bid_px, row.bid_px)}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_offer_px != NULL, row.pending_offer_px, row.offer_px)}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_offer_size != NULL, row.pending_offer_size, IF(row.offer_size != NULL, row.offer_size, IF(row.order_qty > 0, row.order_qty, '')))}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "valid_for",
+                      "label": "Valid For (62; seconds)",
+                      "type": "number",
+                      "placeholder": "blank = no expiry",
+                      "step": "1",
+                      "min": 0,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "bid_px == NULL && offer_px == NULL",
+                  "value": "A quote names a bid, an offer or both."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "valid_until",
+                      "label": "Valid Until (62; local, instead of Valid For)",
+                      "type": "datetime",
+                      "step": 1
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('131=', row.quote_req_id, '|55=', row.symbol), IF(bid_size != NULL, CONCAT('|134=', STR(bid_size)), ''), IF(bid_px != NULL, CONCAT('|132=', STR(bid_px)), ''), IF(offer_px != NULL, CONCAT('|133=', STR(offer_px)), ''), IF(offer_size != NULL, CONCAT('|135=', STR(offer_size)), ''), IF(COALESCE(valid_until, '') != '', CONCAT('|62=', valid_until), IF(valid_for != NULL, CONCAT('|62=now + ', STR(valid_for), 's'), '')), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Quote",
+                "service": "fix_cmd",
+                "op": "quote_rfq"
+              }
+            }
+          }
+        },
+        {
+          "label": "Reject",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> not CONTAINS(['Hit', 'Passed', 'Rejected', 'Failed'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Reject ${row.quote_req_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_req_id": "${row.quote_req_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "quote_reject"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "quote_rej_reason": "quote_rej_reason",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.reject_rfq",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "quote_rej_reason",
+                  "label": "Reject Reason (658)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Unknown symbol (FIX 4.3+)"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Exchange closed (FIX 4.3+)"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Quote request exceeds limit (FIX 4.3+)"
+                    },
+                    {
+                      "value": "4",
+                      "label": "4 - Too late to enter (FIX 4.3+)"
+                    },
+                    {
+                      "value": "5",
+                      "label": "5 - Invalid price (FIX 4.3+)"
+                    },
+                    {
+                      "value": "6",
+                      "label": "6 - Not authorized to request quote (FIX 4.3+)"
+                    },
+                    {
+                      "value": "7",
+                      "label": "7 - No match for inquiry (FIX 4.4+)"
+                    },
+                    {
+                      "value": "8",
+                      "label": "8 - No market for instrument (FIX 4.4+)"
+                    },
+                    {
+                      "value": "9",
+                      "label": "9 - No inventory (FIX 4.4+)"
+                    },
+                    {
+                      "value": "10",
+                      "label": "10 - Pass (FIX 4.4+)"
+                    },
+                    {
+                      "value": "99",
+                      "label": "99 - Other (FIX 4.4+)"
+                    }
+                  ],
+                  "required": true
+                },
+                {
+                  "type": "readonly",
+                  "value": "A QuoteRequestReject (35=AG): FIX 4.3 and later."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.pending_extra_tags}"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('131=', row.quote_req_id, '|658=', COALESCE(quote_rej_reason, ''), '|146=1|55=', row.symbol), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Reject RFQ",
+                "service": "fix_cmd",
+                "op": "reject_rfq"
+              }
+            }
+          }
+        },
+        {
+          "label": "Cancel Quote",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Cancel ${row.quote_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "cancel"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.cancel_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|298=1|295=1|55=', row.symbol), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Cancel Quote",
+                "service": "fix_cmd",
+                "op": "cancel_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-rfq-blotter"
+            }
+          }
+        }
+      ]
+    },
+    "market-quote-blotter": {
+      "title": "Sent Quotes",
+      "type": "mkio-table",
+      "service": "rfqs_query",
+      "protocol": "query",
+      "filter": "direction == 'TX' && origin == 'quote'",
+      "history": {
+        "table": "fix_rfqs",
+        "key": [
+          "id"
+        ],
+        "versions": "rfqs_versions",
+        "state": "rfqs_state",
+        "feed": "rfqs_history",
+        "asOf": "sent_quotes_as_of",
+        "columns": [
+          "quote_req_id",
+          "quote_id",
+          "quote_ref_id",
+          "symbol",
+          "side",
+          "order_qty",
+          "bid_size",
+          "bid_px",
+          "offer_px",
+          "offer_size",
+          "valid_until",
+          "quote_type",
+          "status",
+          "quote_status",
+          "rej_reason",
+          "quote_resp_type",
+          "pending_action",
+          "pending_bid_px",
+          "pending_offer_px",
+          "order_cl_ord_id",
+          "sent_text",
+          "text",
+          "extra_tags",
+          "quote_extra_tags"
+        ]
+      },
+      "columns": [
+        "quote_id",
+        "quote_ref_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "pending_bid_px",
+        "pending_offer_px",
+        "order_cl_ord_id",
+        "sent_text",
+        "text",
+        "quote_extra_tags",
+        "macro",
+        "updated_at",
+        "id",
+        "origin",
+        "quote_req_id",
+        "side_code",
+        "quote_request_type",
+        "quote_request_type_code",
+        "quote_type_code",
+        "currency",
+        "quote_status",
+        "quote_status_code",
+        "rej_reason",
+        "rej_reason_code",
+        "quote_resp_id",
+        "quote_resp_type",
+        "quote_resp_type_code",
+        "pending_resp_id",
+        "pending_bid_size",
+        "pending_offer_size",
+        "pending_extra_tags",
+        "extra_tags",
+        "transact_time",
+        "timestamp",
+        "direction",
+        "raw_message",
+        "session_status"
+      ],
+      "visible": [
+        "quote_id",
+        "quote_ref_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "pending_bid_px",
+        "pending_offer_px",
+        "order_cl_ord_id",
+        "sent_text",
+        "text",
+        "quote_extra_tags",
+        "macro",
+        "updated_at"
+      ],
+      "labels": {
+        "quote_id": "QuoteID",
+        "quote_ref_id": "Replaced QuoteID",
+        "session_id": "Session",
+        "client": "Client",
+        "symbol": "Symbol",
+        "side": "Side",
+        "order_qty": "Qty",
+        "status": "Status",
+        "bid_size": "Bid Size",
+        "bid_px": "Bid",
+        "offer_px": "Offer",
+        "offer_size": "Offer Size",
+        "valid_until": "Valid Until",
+        "quote_type": "Quote Type",
+        "pending_action": "Pending",
+        "pending_bid_px": "Counter Bid",
+        "pending_offer_px": "Counter Offer",
+        "order_cl_ord_id": "Order",
+        "sent_text": "Sent Text",
+        "text": "Rcvd Text",
+        "quote_extra_tags": "Quote Extra Tags",
+        "macro": "Macro",
+        "updated_at": "Updated",
+        "id": "Row",
+        "origin": "Origin",
+        "quote_req_id": "QuoteReqID",
+        "side_code": "Side (54)",
+        "quote_request_type": "Request Type",
+        "quote_request_type_code": "Request Type (303)",
+        "quote_type_code": "Quote Type (537)",
+        "currency": "Ccy",
+        "quote_status": "Quote Status",
+        "quote_status_code": "Quote Status (297)",
+        "rej_reason": "Rej Reason",
+        "rej_reason_code": "Rej Reason (658)",
+        "quote_resp_id": "QuoteRespID",
+        "quote_resp_type": "Response",
+        "quote_resp_type_code": "Response (694)",
+        "pending_resp_id": "Counter ID",
+        "pending_bid_size": "Counter Bid Size",
+        "pending_offer_size": "Counter Offer Size",
+        "pending_extra_tags": "Counter Extra Tags",
+        "extra_tags": "Extra Tags",
+        "transact_time": "Transact Time",
+        "timestamp": "Opened",
+        "direction": "Dir",
+        "raw_message": "Message",
+        "session_status": "Session Status"
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "types": {
+        "valid_until": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "side": [
+          {
+            "when": "value == 'Buy'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "status": [
+          {
+            "when": "value == 'Open'",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "when": "value == 'Quoted'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'Countered'",
+            "color": "#dcdcaa",
+            "bold": true
+          },
+          {
+            "when": "value == 'Hit'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "CONTAINS(['Passed', 'Expired'], value)",
+            "color": "#858585",
+            "italic": true
+          },
+          {
+            "when": "value == 'Canceled'",
+            "color": "#858585",
+            "strike": true
+          },
+          {
+            "when": "CONTAINS(['Rejected', 'Failed'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "pending_action": [
+          {
+            "when": "value == 'Counter'",
+            "color": "#dcdcaa",
+            "bold": true,
+            "background": "#3a2f1b"
+          }
+        ],
+        "rej_reason": [
+          {
+            "when": "value != ''",
+            "color": "#f44747"
+          }
+        ],
+        "bid_px": [
+          {
+            "when": "value != NULL",
+            "color": "#4ec9b0"
+          }
+        ],
+        "offer_px": [
+          {
+            "when": "value != NULL",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "buttons": [
+        {
+          "label": "New",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New Quote",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "new_quote"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "session_id": "session_id",
+                    "symbol": "symbol",
+                    "side": "side",
+                    "qty": "qty",
+                    "currency": "currency",
+                    "client": "client",
+                    "bid_px": "bid_px",
+                    "offer_px": "offer_px",
+                    "bid_size": "bid_size",
+                    "offer_size": "offer_size",
+                    "valid_for": "valid_for",
+                    "quote_type": "quote_type",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54; FIX 4.4+)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (two-way: withhold 54)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38; FIX 4.4+)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "min": 0,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "currency",
+                      "label": "Currency (15)",
+                      "type": "text",
+                      "placeholder": "optional",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "valid_for",
+                      "label": "Valid For (62; seconds)",
+                      "type": "number",
+                      "placeholder": "blank = no expiry",
+                      "step": "1",
+                      "min": 0,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "Replaces the quote you have standing on the symbol, if any: a stream of quotes is one row."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "valid_until",
+                      "label": "Valid Until (62; local, instead of Valid For)",
+                      "type": "datetime",
+                      "step": 1
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('55=', COALESCE(symbol, '')), IF(COALESCE(side, '') != '', CONCAT('|54=', side), ''), IF(qty != NULL, CONCAT('|38=', STR(qty)), ''), IF(COALESCE(currency, '') != '', CONCAT('|15=', currency), ''), IF(bid_size != NULL, CONCAT('|134=', STR(bid_size)), ''), IF(bid_px != NULL, CONCAT('|132=', STR(bid_px)), ''), IF(offer_px != NULL, CONCAT('|133=', STR(offer_px)), ''), IF(offer_size != NULL, CONCAT('|135=', STR(offer_size)), ''), IF(COALESCE(valid_until, '') != '', CONCAT('|62=', valid_until), IF(valid_for != NULL, CONCAT('|62=now + ', STR(valid_for), 's'), '')), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Quote",
+                "service": "fix_cmd",
+                "op": "send_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "value": "${row.symbol}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54; FIX 4.4+)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (two-way: withhold 54)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "value": "${row.side_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38; FIX 4.4+)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "min": 0,
+                      "value": "${IF(row.order_qty > 0, row.order_qty, '')}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "currency",
+                      "label": "Currency (15)",
+                      "type": "text",
+                      "placeholder": "optional",
+                      "value": "${row.currency}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${row.bid_size}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${row.bid_px}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${row.offer_px}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${row.offer_size}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "valid_for",
+                      "label": "Valid For (62; seconds)",
+                      "type": "number",
+                      "placeholder": "blank = no expiry",
+                      "step": "1",
+                      "min": 0,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "Replaces the quote you have standing on the symbol, if any: a stream of quotes is one row."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.sent_text}"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.quote_extra_tags}"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "valid_until",
+                      "label": "Valid Until (62; local, instead of Valid For)",
+                      "type": "datetime",
+                      "step": 1
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('55=', COALESCE(symbol, '')), IF(COALESCE(side, '') != '', CONCAT('|54=', side), ''), IF(qty != NULL, CONCAT('|38=', STR(qty)), ''), IF(COALESCE(currency, '') != '', CONCAT('|15=', currency), ''), IF(bid_size != NULL, CONCAT('|134=', STR(bid_size)), ''), IF(bid_px != NULL, CONCAT('|132=', STR(bid_px)), ''), IF(offer_px != NULL, CONCAT('|133=', STR(offer_px)), ''), IF(offer_size != NULL, CONCAT('|135=', STR(offer_size)), ''), IF(COALESCE(valid_until, '') != '', CONCAT('|62=', valid_until), IF(valid_for != NULL, CONCAT('|62=now + ', STR(valid_for), 's'), '')), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Quote",
+                "service": "fix_cmd",
+                "op": "send_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "Requote",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> not CONTAINS(['Hit', 'Passed', 'Rejected', 'Failed'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Requote ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "quote"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "bid_px": "bid_px",
+                    "offer_px": "offer_px",
+                    "bid_size": "bid_size",
+                    "offer_size": "offer_size",
+                    "valid_for": "valid_for",
+                    "quote_type": "quote_type",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.requote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_bid_size != NULL, row.pending_bid_size, IF(row.bid_size != NULL, row.bid_size, IF(row.order_qty > 0, row.order_qty, '')))}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_bid_px != NULL, row.pending_bid_px, row.bid_px)}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_offer_px != NULL, row.pending_offer_px, row.offer_px)}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${IF(row.pending_action == 'Counter' && row.pending_offer_size != NULL, row.pending_offer_size, IF(row.offer_size != NULL, row.offer_size, IF(row.order_qty > 0, row.order_qty, '')))}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "valid_for",
+                      "label": "Valid For (62; seconds)",
+                      "type": "number",
+                      "placeholder": "blank = no expiry",
+                      "step": "1",
+                      "min": 0,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "bid_px == NULL && offer_px == NULL",
+                  "value": "A quote names a bid, an offer or both."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "valid_until",
+                      "label": "Valid Until (62; local, instead of Valid For)",
+                      "type": "datetime",
+                      "step": 1
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('55=', row.symbol), IF(bid_size != NULL, CONCAT('|134=', STR(bid_size)), ''), IF(bid_px != NULL, CONCAT('|132=', STR(bid_px)), ''), IF(offer_px != NULL, CONCAT('|133=', STR(offer_px)), ''), IF(offer_size != NULL, CONCAT('|135=', STR(offer_size)), ''), IF(COALESCE(valid_until, '') != '', CONCAT('|62=', valid_until), IF(valid_for != NULL, CONCAT('|62=now + ', STR(valid_for), 's'), '')), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Quote",
+                "service": "fix_cmd",
+                "op": "requote"
+              }
+            }
+          }
+        },
+        {
+          "label": "Cancel",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Cancel ${row.quote_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "cancel"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.cancel_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|298=1|295=1|55=', row.symbol), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Cancel Quote",
+                "service": "fix_cmd",
+                "op": "cancel_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-quote-blotter"
+            }
+          }
+        }
+      ]
+    },
     "market-order-blotter": {
       "title": "Received Orders",
       "type": "mkio-table",
@@ -6310,6 +8027,7 @@
         "macro",
         "updated_at",
         "ioi_id",
+        "quote_id",
         "id",
         "orig_cl_ord_id",
         "side_code",
@@ -6414,7 +8132,8 @@
         "pending_entered": "Pending Entered",
         "market_order_id": "Market Order ID",
         "session_status": "Session Status",
-        "ioi_id": "IOI ID"
+        "ioi_id": "IOI ID",
+        "quote_id": "Quote ID"
       },
       "types": {
         "updated_at": {
@@ -9536,6 +11255,1978 @@
         }
       ]
     },
+    "rfq-blotter": {
+      "title": "Sent RFQs",
+      "type": "mkio-table",
+      "service": "rfqs_query",
+      "protocol": "query",
+      "filter": "direction == 'TX' && origin == 'rfq'",
+      "history": {
+        "table": "fix_rfqs",
+        "key": [
+          "id"
+        ],
+        "versions": "rfqs_versions",
+        "state": "rfqs_state",
+        "feed": "rfqs_history",
+        "asOf": "sent_rfqs_as_of",
+        "columns": [
+          "quote_req_id",
+          "quote_id",
+          "quote_ref_id",
+          "symbol",
+          "side",
+          "order_qty",
+          "bid_size",
+          "bid_px",
+          "offer_px",
+          "offer_size",
+          "valid_until",
+          "quote_type",
+          "status",
+          "quote_status",
+          "rej_reason",
+          "quote_resp_type",
+          "pending_action",
+          "pending_bid_px",
+          "pending_offer_px",
+          "order_cl_ord_id",
+          "sent_text",
+          "text",
+          "extra_tags",
+          "quote_extra_tags"
+        ]
+      },
+      "columns": [
+        "quote_req_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "quote_id",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "rej_reason",
+        "order_cl_ord_id",
+        "sent_text",
+        "text",
+        "extra_tags",
+        "macro",
+        "updated_at",
+        "id",
+        "origin",
+        "side_code",
+        "quote_request_type",
+        "quote_request_type_code",
+        "quote_type_code",
+        "currency",
+        "quote_ref_id",
+        "quote_status",
+        "quote_status_code",
+        "rej_reason_code",
+        "quote_resp_id",
+        "quote_resp_type",
+        "quote_resp_type_code",
+        "pending_resp_id",
+        "pending_bid_px",
+        "pending_offer_px",
+        "pending_bid_size",
+        "pending_offer_size",
+        "pending_extra_tags",
+        "quote_extra_tags",
+        "transact_time",
+        "timestamp",
+        "direction",
+        "raw_message",
+        "session_status"
+      ],
+      "visible": [
+        "quote_req_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "quote_id",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "rej_reason",
+        "order_cl_ord_id",
+        "sent_text",
+        "text",
+        "extra_tags",
+        "macro",
+        "updated_at"
+      ],
+      "labels": {
+        "quote_req_id": "QuoteReqID",
+        "session_id": "Session",
+        "client": "Client",
+        "symbol": "Symbol",
+        "side": "Side",
+        "order_qty": "Qty",
+        "status": "Status",
+        "quote_id": "QuoteID",
+        "bid_size": "Bid Size",
+        "bid_px": "Bid",
+        "offer_px": "Offer",
+        "offer_size": "Offer Size",
+        "valid_until": "Valid Until",
+        "quote_type": "Quote Type",
+        "pending_action": "Pending",
+        "rej_reason": "Rej Reason",
+        "order_cl_ord_id": "Order",
+        "sent_text": "Sent Text",
+        "text": "Rcvd Text",
+        "extra_tags": "Extra Tags",
+        "macro": "Macro",
+        "updated_at": "Updated",
+        "id": "Row",
+        "origin": "Origin",
+        "side_code": "Side (54)",
+        "quote_request_type": "Request Type",
+        "quote_request_type_code": "Request Type (303)",
+        "quote_type_code": "Quote Type (537)",
+        "currency": "Ccy",
+        "quote_ref_id": "Replaced QuoteID",
+        "quote_status": "Quote Status",
+        "quote_status_code": "Quote Status (297)",
+        "rej_reason_code": "Rej Reason (658)",
+        "quote_resp_id": "QuoteRespID",
+        "quote_resp_type": "Response",
+        "quote_resp_type_code": "Response (694)",
+        "pending_resp_id": "Counter ID",
+        "pending_bid_px": "Counter Bid",
+        "pending_offer_px": "Counter Offer",
+        "pending_bid_size": "Counter Bid Size",
+        "pending_offer_size": "Counter Offer Size",
+        "pending_extra_tags": "Counter Extra Tags",
+        "quote_extra_tags": "Quote Extra Tags",
+        "transact_time": "Transact Time",
+        "timestamp": "Opened",
+        "direction": "Dir",
+        "raw_message": "Message",
+        "session_status": "Session Status"
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "types": {
+        "valid_until": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "side": [
+          {
+            "when": "value == 'Buy'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "status": [
+          {
+            "when": "value == 'Open'",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "when": "value == 'Quoted'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'Countered'",
+            "color": "#dcdcaa",
+            "bold": true
+          },
+          {
+            "when": "value == 'Hit'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "CONTAINS(['Passed', 'Expired'], value)",
+            "color": "#858585",
+            "italic": true
+          },
+          {
+            "when": "value == 'Canceled'",
+            "color": "#858585",
+            "strike": true
+          },
+          {
+            "when": "CONTAINS(['Rejected', 'Failed'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "pending_action": [
+          {
+            "when": "value == 'Counter'",
+            "color": "#dcdcaa",
+            "bold": true,
+            "background": "#3a2f1b"
+          }
+        ],
+        "rej_reason": [
+          {
+            "when": "value != ''",
+            "color": "#f44747"
+          }
+        ],
+        "bid_px": [
+          {
+            "when": "value != NULL",
+            "color": "#4ec9b0"
+          }
+        ],
+        "offer_px": [
+          {
+            "when": "value != NULL",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "buttons": [
+        {
+          "label": "New",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New RFQ",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "rfq"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "session_id": "session_id",
+                    "symbol": "symbol",
+                    "side": "side",
+                    "qty": "qty",
+                    "quote_request_type": "quote_request_type",
+                    "quote_type": "quote_type",
+                    "currency": "currency",
+                    "text": "text",
+                    "extra_tags": "extra_tags",
+                    "client": "client"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_rfq",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (two-way: withhold 54)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "min": 0,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "currency",
+                      "label": "Currency (15)",
+                      "type": "text",
+                      "placeholder": "optional",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "quote_request_type",
+                      "label": "Request Type (303)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 303)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Manual (FIX 4.2+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automatic (FIX 4.2+)"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('55=', COALESCE(symbol, '')), IF(COALESCE(side, '') != '', CONCAT('|54=', side), ''), IF(qty != NULL, CONCAT('|38=', STR(qty)), ''), IF(COALESCE(currency, '') != '', CONCAT('|15=', currency), ''), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send RFQ",
+                "service": "fix_cmd",
+                "op": "send_rfq"
+              }
+            }
+          }
+        },
+        {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone ${row.quote_req_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "value": "${row.symbol}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (two-way: withhold 54)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "value": "${row.side_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "min": 0,
+                      "value": "${IF(row.order_qty > 0, row.order_qty, '')}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "currency",
+                      "label": "Currency (15)",
+                      "type": "text",
+                      "placeholder": "optional",
+                      "value": "${row.currency}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "quote_request_type",
+                      "label": "Request Type (303)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 303)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Manual (FIX 4.2+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automatic (FIX 4.2+)"
+                        }
+                      ],
+                      "value": "${row.quote_request_type_code}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.sent_text}"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('55=', COALESCE(symbol, '')), IF(COALESCE(side, '') != '', CONCAT('|54=', side), ''), IF(qty != NULL, CONCAT('|38=', STR(qty)), ''), IF(COALESCE(currency, '') != '', CONCAT('|15=', currency), ''), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send RFQ",
+                "service": "fix_cmd",
+                "op": "send_rfq"
+              }
+            }
+          }
+        },
+        {
+          "label": "Hit",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Hit ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "hit"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "qty": "qty",
+                    "price": "price",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.hit_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "side",
+                  "label": "Side (54)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Buy (lift the offer)"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Sell (hit the bid)"
+                    }
+                  ],
+                  "value": "${IF(row.side_code != '', row.side_code, '1')}",
+                  "required": true
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "min": 0,
+                      "value": "${IF(row.side_code == '2', IF(row.bid_size != NULL, row.bid_size, row.order_qty), IF(row.offer_size != NULL, row.offer_size, row.order_qty))}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.side_code == '2', row.bid_px, row.offer_px)}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "A QuoteResponse (35=AJ): FIX 4.4 and later. On an earlier session take the quote with Order… instead."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|694=1|11=(new)|54=', side), IF(qty != NULL, CONCAT('|38=', STR(qty)), ''), '|40=D', IF(price != NULL, CONCAT('|44=', STR(price)), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Hit",
+                "service": "fix_cmd",
+                "op": "hit_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "Order…",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Order against ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "value": "${row.symbol}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "value": "${IF(row.side_code != '', row.side_code, '1')}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "100",
+                      "min": 1,
+                      "required": true,
+                      "value": "${IF(row.order_qty > 0, row.order_qty, '')}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "D",
+                          "label": "D - Previously Quoted"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        }
+                      ],
+                      "value": "D",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.side_code == '2', row.bid_px, row.offer_px)}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        }
+                      ],
+                      "value": "0",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ],
+                  "value": "1"
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "117=${row.quote_id}"
+                },
+                {
+                  "type": "readonly",
+                  "value": "A NewOrderSingle naming the quote in QuoteID(117): every FIX version. The quote is Hit once the order goes out."
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Order",
+                "service": "fix_cmd",
+                "op": "send_new_order"
+              },
+              "submitPerRow": true
+            }
+          }
+        },
+        {
+          "label": "Counter",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Counter ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "counter"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "bid_px": "bid_px",
+                    "offer_px": "offer_px",
+                    "bid_size": "bid_size",
+                    "offer_size": "offer_size",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.counter_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${row.bid_size}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${row.bid_px}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${row.offer_px}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${row.offer_size}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "A QuoteResponse (35=AJ): FIX 4.4 and later. On an earlier session take the quote with Order… instead."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|694=2'), IF(bid_size != NULL, CONCAT('|134=', STR(bid_size)), ''), IF(bid_px != NULL, CONCAT('|132=', STR(bid_px)), ''), IF(offer_px != NULL, CONCAT('|133=', STR(offer_px)), ''), IF(offer_size != NULL, CONCAT('|135=', STR(offer_size)), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Counter",
+                "service": "fix_cmd",
+                "op": "counter_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "Pass",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Pass ${row.quote_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "pass"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.pass_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "type": "readonly",
+                  "value": "A QuoteResponse (35=AJ): FIX 4.4 and later. On an earlier session take the quote with Order… instead."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|694=6'), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Pass",
+                "service": "fix_cmd",
+                "op": "pass_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "rfq-blotter"
+            }
+          }
+        }
+      ]
+    },
+    "quote-blotter": {
+      "title": "Received Quotes",
+      "type": "mkio-table",
+      "service": "rfqs_query",
+      "protocol": "query",
+      "filter": "direction == 'RX' && origin == 'quote'",
+      "history": {
+        "table": "fix_rfqs",
+        "key": [
+          "id"
+        ],
+        "versions": "rfqs_versions",
+        "state": "rfqs_state",
+        "feed": "rfqs_history",
+        "asOf": "received_quotes_as_of",
+        "columns": [
+          "quote_req_id",
+          "quote_id",
+          "quote_ref_id",
+          "symbol",
+          "side",
+          "order_qty",
+          "bid_size",
+          "bid_px",
+          "offer_px",
+          "offer_size",
+          "valid_until",
+          "quote_type",
+          "status",
+          "quote_status",
+          "rej_reason",
+          "quote_resp_type",
+          "pending_action",
+          "pending_bid_px",
+          "pending_offer_px",
+          "order_cl_ord_id",
+          "sent_text",
+          "text",
+          "extra_tags",
+          "quote_extra_tags"
+        ]
+      },
+      "columns": [
+        "quote_id",
+        "quote_ref_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "order_cl_ord_id",
+        "text",
+        "sent_text",
+        "quote_extra_tags",
+        "macro",
+        "updated_at",
+        "id",
+        "origin",
+        "quote_req_id",
+        "side_code",
+        "quote_request_type",
+        "quote_request_type_code",
+        "quote_type_code",
+        "currency",
+        "quote_status",
+        "quote_status_code",
+        "rej_reason",
+        "rej_reason_code",
+        "quote_resp_id",
+        "quote_resp_type",
+        "quote_resp_type_code",
+        "pending_resp_id",
+        "pending_bid_px",
+        "pending_offer_px",
+        "pending_bid_size",
+        "pending_offer_size",
+        "pending_extra_tags",
+        "extra_tags",
+        "transact_time",
+        "timestamp",
+        "direction",
+        "raw_message",
+        "session_status"
+      ],
+      "visible": [
+        "quote_id",
+        "quote_ref_id",
+        "session_id",
+        "client",
+        "symbol",
+        "side",
+        "order_qty",
+        "status",
+        "bid_size",
+        "bid_px",
+        "offer_px",
+        "offer_size",
+        "valid_until",
+        "quote_type",
+        "pending_action",
+        "order_cl_ord_id",
+        "text",
+        "sent_text",
+        "quote_extra_tags",
+        "macro",
+        "updated_at"
+      ],
+      "labels": {
+        "quote_id": "QuoteID",
+        "quote_ref_id": "Replaced QuoteID",
+        "session_id": "Session",
+        "client": "Client",
+        "symbol": "Symbol",
+        "side": "Side",
+        "order_qty": "Qty",
+        "status": "Status",
+        "bid_size": "Bid Size",
+        "bid_px": "Bid",
+        "offer_px": "Offer",
+        "offer_size": "Offer Size",
+        "valid_until": "Valid Until",
+        "quote_type": "Quote Type",
+        "pending_action": "Pending",
+        "order_cl_ord_id": "Order",
+        "text": "Rcvd Text",
+        "sent_text": "Sent Text",
+        "quote_extra_tags": "Quote Extra Tags",
+        "macro": "Macro",
+        "updated_at": "Updated",
+        "id": "Row",
+        "origin": "Origin",
+        "quote_req_id": "QuoteReqID",
+        "side_code": "Side (54)",
+        "quote_request_type": "Request Type",
+        "quote_request_type_code": "Request Type (303)",
+        "quote_type_code": "Quote Type (537)",
+        "currency": "Ccy",
+        "quote_status": "Quote Status",
+        "quote_status_code": "Quote Status (297)",
+        "rej_reason": "Rej Reason",
+        "rej_reason_code": "Rej Reason (658)",
+        "quote_resp_id": "QuoteRespID",
+        "quote_resp_type": "Response",
+        "quote_resp_type_code": "Response (694)",
+        "pending_resp_id": "Counter ID",
+        "pending_bid_px": "Counter Bid",
+        "pending_offer_px": "Counter Offer",
+        "pending_bid_size": "Counter Bid Size",
+        "pending_offer_size": "Counter Offer Size",
+        "pending_extra_tags": "Counter Extra Tags",
+        "extra_tags": "Extra Tags",
+        "transact_time": "Transact Time",
+        "timestamp": "Opened",
+        "direction": "Dir",
+        "raw_message": "Message",
+        "session_status": "Session Status"
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "types": {
+        "valid_until": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "transact_time": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "side": [
+          {
+            "when": "value == 'Buy'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "status": [
+          {
+            "when": "value == 'Open'",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "when": "value == 'Quoted'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'Countered'",
+            "color": "#dcdcaa",
+            "bold": true
+          },
+          {
+            "when": "value == 'Hit'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "CONTAINS(['Passed', 'Expired'], value)",
+            "color": "#858585",
+            "italic": true
+          },
+          {
+            "when": "value == 'Canceled'",
+            "color": "#858585",
+            "strike": true
+          },
+          {
+            "when": "CONTAINS(['Rejected', 'Failed'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "pending_action": [
+          {
+            "when": "value == 'Counter'",
+            "color": "#dcdcaa",
+            "bold": true,
+            "background": "#3a2f1b"
+          }
+        ],
+        "rej_reason": [
+          {
+            "when": "value != ''",
+            "color": "#f44747"
+          }
+        ],
+        "bid_px": [
+          {
+            "when": "value != NULL",
+            "color": "#4ec9b0"
+          }
+        ],
+        "offer_px": [
+          {
+            "when": "value != NULL",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "buttons": [
+        {
+          "label": "Hit",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Hit ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "hit"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "qty": "qty",
+                    "price": "price",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.hit_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "side",
+                  "label": "Side (54)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Buy (lift the offer)"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Sell (hit the bid)"
+                    }
+                  ],
+                  "value": "${IF(row.side_code != '', row.side_code, '1')}",
+                  "required": true
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "min": 0,
+                      "value": "${IF(row.side_code == '2', IF(row.bid_size != NULL, row.bid_size, row.order_qty), IF(row.offer_size != NULL, row.offer_size, row.order_qty))}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.side_code == '2', row.bid_px, row.offer_px)}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "A QuoteResponse (35=AJ): FIX 4.4 and later. On an earlier session take the quote with Order… instead."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|694=1|11=(new)|54=', side), IF(qty != NULL, CONCAT('|38=', STR(qty)), ''), '|40=D', IF(price != NULL, CONCAT('|44=', STR(price)), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Hit",
+                "service": "fix_cmd",
+                "op": "hit_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "Order…",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Order against ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "value": "${row.symbol}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "value": "${IF(row.side_code != '', row.side_code, '1')}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "100",
+                      "min": 1,
+                      "required": true,
+                      "value": "${IF(row.order_qty > 0, row.order_qty, '')}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "D",
+                          "label": "D - Previously Quoted"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        }
+                      ],
+                      "value": "D",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${IF(row.side_code == '2', row.bid_px, row.offer_px)}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        }
+                      ],
+                      "value": "0",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ],
+                  "value": "1"
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "117=${row.quote_id}"
+                },
+                {
+                  "type": "readonly",
+                  "value": "A NewOrderSingle naming the quote in QuoteID(117): every FIX version. The quote is Hit once the order goes out."
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Order",
+                "service": "fix_cmd",
+                "op": "send_new_order"
+              },
+              "submitPerRow": true
+            }
+          }
+        },
+        {
+          "label": "Counter",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Counter ${row.quote_id}",
+              "pin": "keep",
+              "width": 420,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "counter"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "bid_px": "bid_px",
+                    "offer_px": "offer_px",
+                    "bid_size": "bid_size",
+                    "offer_size": "offer_size",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.counter_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${row.bid_size}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${row.bid_px}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "step": "0.01",
+                      "value": "${row.offer_px}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "value": "${row.offer_size}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "A QuoteResponse (35=AJ): FIX 4.4 and later. On an earlier session take the quote with Order… instead."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|694=2'), IF(bid_size != NULL, CONCAT('|134=', STR(bid_size)), ''), IF(bid_px != NULL, CONCAT('|132=', STR(bid_px)), ''), IF(offer_px != NULL, CONCAT('|133=', STR(offer_px)), ''), IF(offer_size != NULL, CONCAT('|135=', STR(offer_size)), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Counter",
+                "service": "fix_cmd",
+                "op": "counter_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "Pass",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> CONTAINS(['Quoted', 'Countered'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Pass ${row.quote_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "quote_id": "${row.quote_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "pass"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.pass_quote",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "type": "readonly",
+                  "value": "A QuoteResponse (35=AJ): FIX 4.4 and later. On an earlier session take the quote with Order… instead."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('117=', row.quote_id, '|694=6'), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Pass",
+                "service": "fix_cmd",
+                "op": "pass_quote"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "quote-blotter"
+            }
+          }
+        }
+      ]
+    },
     "replay-control": {
       "title": "Replay",
       "type": "mkio-table",
@@ -9996,6 +13687,14 @@
         "allocs",
         "alloc_status",
         "alloc_rej_code",
+        "quote_request_type",
+        "quote_type",
+        "bid_px",
+        "offer_px",
+        "bid_size",
+        "offer_size",
+        "valid_for",
+        "quote_rej_reason",
         "text",
         "extra_tags",
         "id",
@@ -10046,7 +13745,15 @@
         "alloc_type": "Alloc Type (626)",
         "allocs": "Accounts (78)",
         "alloc_status": "Alloc Status (87)",
-        "alloc_rej_code": "Rej Code (88)"
+        "alloc_rej_code": "Rej Code (88)",
+        "quote_request_type": "Request Type (303)",
+        "quote_type": "Quote Type (537)",
+        "bid_px": "Bid (132)",
+        "offer_px": "Offer (133)",
+        "bid_size": "Bid Size (134)",
+        "offer_size": "Offer Size (135)",
+        "valid_for": "Valid For (s)",
+        "quote_rej_reason": "Reject Reason (658)"
       },
       "sort": [
         "scope",
@@ -10055,19 +13762,19 @@
       "styles": {
         "scope": [
           {
-            "when": "CONTAINS(['order', 'cancel', 'ioi', 'advert', 'allocation'], value)",
+            "when": "CONTAINS(['order', 'cancel', 'ioi', 'advert', 'allocation', 'rfq', 'quote', 'new_quote'], value)",
             "color": "#569cd6"
           },
           {
-            "when": "CONTAINS(['accept', 'fill', 'alloc_accept'], value)",
+            "when": "CONTAINS(['accept', 'fill', 'alloc_accept', 'hit'], value)",
             "color": "#4ec9b0"
           },
           {
-            "when": "CONTAINS(['reject', 'unsolicited', 'bust', 'alloc_reject'], value)",
+            "when": "CONTAINS(['reject', 'unsolicited', 'bust', 'alloc_reject', 'quote_reject', 'pass'], value)",
             "color": "#f44747"
           },
           {
-            "when": "CONTAINS(['restate', 'dk', 'correct', 'renotify'], value)",
+            "when": "CONTAINS(['restate', 'dk', 'correct', 'renotify', 'counter'], value)",
             "color": "#dcdcaa"
           }
         ]
@@ -10107,14 +13814,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                 },
                 {
                   "row": [
@@ -10124,7 +13831,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.symbol}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                     },
                     {
                       "name": "side",
@@ -10132,7 +13839,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.side}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                     }
                   ]
                 },
@@ -10140,19 +13847,19 @@
                   "row": [
                     {
                       "name": "qty",
-                      "label": "${IF(row.scope == 'order', 'Quantity (38)', IF(row.scope == 'ioi', 'IOI Qty (27)', IF(CONTAINS(['advert', 'allocation'], row.scope), 'Quantity (53)', IF(row.scope == 'restate', 'Order Qty (38; blank = ask)', 'Last Qty (32; blank = ask)'))))}",
+                      "label": "${IF(CONTAINS(['order', 'rfq', 'new_quote', 'hit'], row.scope), 'Quantity (38)', IF(row.scope == 'ioi', 'IOI Qty (27)', IF(CONTAINS(['advert', 'allocation'], row.scope), 'Quantity (53)', IF(row.scope == 'restate', 'Order Qty (38; blank = ask)', 'Last Qty (32; blank = ask)'))))}",
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.qty}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     },
                     {
                       "name": "price",
-                      "label": "${IF(row.scope == 'order', 'Price (44)', IF(row.scope == 'restate', 'Price (44; blank = ask)', 'Last Px (31; blank = ask)'))}",
+                      "label": "${IF(CONTAINS(['order', 'hit'], row.scope), 'Price (44)', IF(row.scope == 'restate', 'Price (44; blank = ask)', 'Last Px (31; blank = ask)'))}",
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.price}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit'], row.scope)"
                     }
                   ]
                 },
@@ -10239,7 +13946,7 @@
                       "label": "Currency (15)",
                       "type": "text",
                       "value": "${row.currency}",
-                      "showWhen": "CONTAINS(['ioi', 'advert'], row.scope)",
+                      "showWhen": "CONTAINS(['ioi', 'advert', 'rfq', 'new_quote'], row.scope)",
                       "width": 0.5
                     },
                     {
@@ -10636,6 +14343,162 @@
                   ],
                   "value": "${row.handl_inst}",
                   "showWhen": "row.scope == 'order'"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "quote_request_type",
+                      "label": "Request Type (303)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 303)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Manual (FIX 4.2+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automatic (FIX 4.2+)"
+                        }
+                      ],
+                      "value": "${row.quote_request_type}",
+                      "showWhen": "row.scope == 'rfq'",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type}",
+                      "showWhen": "CONTAINS(['rfq', 'quote', 'new_quote'], row.scope)",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "text",
+                      "value": "${row.bid_size}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "text",
+                      "value": "${row.bid_px}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "text",
+                      "value": "${row.offer_px}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "text",
+                      "value": "${row.offer_size}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "valid_for",
+                  "label": "Valid For (62; seconds)",
+                  "type": "text",
+                  "value": "${row.valid_for}",
+                  "showWhen": "CONTAINS(['quote', 'new_quote'], row.scope)"
+                },
+                {
+                  "name": "quote_rej_reason",
+                  "label": "Reject Reason (658)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Unknown symbol (FIX 4.3+)"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Exchange closed (FIX 4.3+)"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Quote request exceeds limit (FIX 4.3+)"
+                    },
+                    {
+                      "value": "4",
+                      "label": "4 - Too late to enter (FIX 4.3+)"
+                    },
+                    {
+                      "value": "5",
+                      "label": "5 - Invalid price (FIX 4.3+)"
+                    },
+                    {
+                      "value": "6",
+                      "label": "6 - Not authorized to request quote (FIX 4.3+)"
+                    },
+                    {
+                      "value": "7",
+                      "label": "7 - No match for inquiry (FIX 4.4+)"
+                    },
+                    {
+                      "value": "8",
+                      "label": "8 - No market for instrument (FIX 4.4+)"
+                    },
+                    {
+                      "value": "9",
+                      "label": "9 - No inventory (FIX 4.4+)"
+                    },
+                    {
+                      "value": "10",
+                      "label": "10 - Pass (FIX 4.4+)"
+                    },
+                    {
+                      "value": "99",
+                      "label": "99 - Other (FIX 4.4+)"
+                    }
+                  ],
+                  "value": "${row.quote_rej_reason}",
+                  "showWhen": "row.scope == 'quote_reject'"
                 },
                 {
                   "name": "text",
@@ -10697,14 +14560,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                 },
                 {
                   "row": [
@@ -10714,7 +14577,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.symbol}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                     },
                     {
                       "name": "side",
@@ -10722,7 +14585,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.side}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                     }
                   ]
                 },
@@ -10730,19 +14593,19 @@
                   "row": [
                     {
                       "name": "qty",
-                      "label": "${IF(row.scope == 'order', 'Quantity (38)', IF(row.scope == 'ioi', 'IOI Qty (27)', IF(CONTAINS(['advert', 'allocation'], row.scope), 'Quantity (53)', IF(row.scope == 'restate', 'Order Qty (38; blank = ask)', 'Last Qty (32; blank = ask)'))))}",
+                      "label": "${IF(CONTAINS(['order', 'rfq', 'new_quote', 'hit'], row.scope), 'Quantity (38)', IF(row.scope == 'ioi', 'IOI Qty (27)', IF(CONTAINS(['advert', 'allocation'], row.scope), 'Quantity (53)', IF(row.scope == 'restate', 'Order Qty (38; blank = ask)', 'Last Qty (32; blank = ask)'))))}",
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.qty}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     },
                     {
                       "name": "price",
-                      "label": "${IF(row.scope == 'order', 'Price (44)', IF(row.scope == 'restate', 'Price (44; blank = ask)', 'Last Px (31; blank = ask)'))}",
+                      "label": "${IF(CONTAINS(['order', 'hit'], row.scope), 'Price (44)', IF(row.scope == 'restate', 'Price (44; blank = ask)', 'Last Px (31; blank = ask)'))}",
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.price}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit'], row.scope)"
                     }
                   ]
                 },
@@ -10829,7 +14692,7 @@
                       "label": "Currency (15)",
                       "type": "text",
                       "value": "${row.currency}",
-                      "showWhen": "CONTAINS(['ioi', 'advert'], row.scope)",
+                      "showWhen": "CONTAINS(['ioi', 'advert', 'rfq', 'new_quote'], row.scope)",
                       "width": 0.5
                     },
                     {
@@ -11226,6 +15089,162 @@
                   ],
                   "value": "${row.handl_inst}",
                   "showWhen": "row.scope == 'order'"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "quote_request_type",
+                      "label": "Request Type (303)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 303)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Manual (FIX 4.2+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automatic (FIX 4.2+)"
+                        }
+                      ],
+                      "value": "${row.quote_request_type}",
+                      "showWhen": "row.scope == 'rfq'",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type}",
+                      "showWhen": "CONTAINS(['rfq', 'quote', 'new_quote'], row.scope)",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_size",
+                      "label": "Bid Size (134)",
+                      "type": "text",
+                      "value": "${row.bid_size}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "bid_px",
+                      "label": "Bid Px (132)",
+                      "type": "text",
+                      "value": "${row.bid_px}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "offer_px",
+                      "label": "Offer Px (133)",
+                      "type": "text",
+                      "value": "${row.offer_px}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "offer_size",
+                      "label": "Offer Size (135)",
+                      "type": "text",
+                      "value": "${row.offer_size}",
+                      "showWhen": "CONTAINS(['quote', 'new_quote', 'counter'], row.scope)",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "valid_for",
+                  "label": "Valid For (62; seconds)",
+                  "type": "text",
+                  "value": "${row.valid_for}",
+                  "showWhen": "CONTAINS(['quote', 'new_quote'], row.scope)"
+                },
+                {
+                  "name": "quote_rej_reason",
+                  "label": "Reject Reason (658)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Unknown symbol (FIX 4.3+)"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Exchange closed (FIX 4.3+)"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Quote request exceeds limit (FIX 4.3+)"
+                    },
+                    {
+                      "value": "4",
+                      "label": "4 - Too late to enter (FIX 4.3+)"
+                    },
+                    {
+                      "value": "5",
+                      "label": "5 - Invalid price (FIX 4.3+)"
+                    },
+                    {
+                      "value": "6",
+                      "label": "6 - Not authorized to request quote (FIX 4.3+)"
+                    },
+                    {
+                      "value": "7",
+                      "label": "7 - No match for inquiry (FIX 4.4+)"
+                    },
+                    {
+                      "value": "8",
+                      "label": "8 - No market for instrument (FIX 4.4+)"
+                    },
+                    {
+                      "value": "9",
+                      "label": "9 - No inventory (FIX 4.4+)"
+                    },
+                    {
+                      "value": "10",
+                      "label": "10 - Pass (FIX 4.4+)"
+                    },
+                    {
+                      "value": "99",
+                      "label": "99 - Other (FIX 4.4+)"
+                    }
+                  ],
+                  "value": "${row.quote_rej_reason}",
+                  "showWhen": "row.scope == 'quote_reject'"
                 },
                 {
                   "name": "text",
@@ -12544,7 +16563,9 @@
               "order-blotter",
               "ioi-blotter",
               "advert-blotter",
-              "allocation-blotter"
+              "allocation-blotter",
+              "rfq-blotter",
+              "quote-blotter"
             ]
           },
           {
@@ -12579,7 +16600,9 @@
               "market-order-blotter",
               "market-ioi-blotter",
               "market-advert-blotter",
-              "market-allocation-blotter"
+              "market-allocation-blotter",
+              "market-rfq-blotter",
+              "market-quote-blotter"
             ]
           },
           {
@@ -12696,7 +16719,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.70",
+      "version": "0.71",
       "mkio": "1.5",
       "expr": "2"
     },

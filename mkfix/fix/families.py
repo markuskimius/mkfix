@@ -16,6 +16,7 @@ the pure part.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from mkfix.fix.dictionary import FixDictionary
@@ -221,3 +222,124 @@ def ack_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
         "alloc_rej_code": reason,
         "text": msg.get("58", ""),
     }
+
+
+# ── RFQs and quotes ───────────────────────────────────────────────────
+# One row per negotiation on fix_rfqs: a QuoteRequest (35=R) and the
+# quotes that answer it — `origin` 'rfq' — or a chain of unsolicited
+# quotes on one instrument, `origin` 'quote'. The row's quote columns are
+# the quote standing now; a requote is a new version of the row, so the
+# row's history is the negotiation. `direction` is who opened the chain:
+# TX a request (or unsolicited quote) this engine sent, RX one it received.
+
+RFQ_TABLE = "fix_rfqs"
+CONSUMED_RFQ_TAGS = frozenset({"131", "146", "55", "54", "38", "303", "537", "15", "60", "58"})
+CONSUMED_QUOTE_TAGS = frozenset({
+    "131", "117", "537", "55", "54", "38", "132", "133", "134", "135", "62", "15", "60", "58",
+})
+CONSUMED_RESPONSE_TAGS = frozenset({
+    "693", "117", "694", "11", "131", "55", "54", "38", "40", "44", "132", "133", "134", "135", "60", "58",
+})
+
+# QuoteRespType(694) to the status it leaves a quote in; others by name.
+RESP_STATUS_OF = {"1": "Hit", "2": "Countered", "3": "Expired", "4": "Covered", "5": "DoneAway",
+                  "6": "Passed", "8": "Expired", "11": "Hit"}
+# QuoteStatus(297) on a QuoteStatusReport that ends the quote.
+QUOTE_STATUS_ENDS = {"1": "Canceled", "2": "Canceled", "3": "Canceled", "4": "Canceled", "5": "Rejected",
+                     "6": "Canceled", "7": "Expired", "17": "Canceled"}
+# The statuses in which a quote stands and can be taken, countered or passed.
+LIVE_QUOTE = ("Quoted", "Countered")
+# Nothing more happens to a negotiation in these.
+FINAL_RFQ = ("Hit", "Passed", "Rejected", "Failed")
+
+
+def _price_of(msg: FixMessage, tag: str) -> float | None:
+    value = msg.get(tag, "")
+    try:
+        return float(value) if value != "" else None
+    except ValueError:
+        return None
+
+
+def rfq_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
+    """The request's columns of an RFQ row, from a QuoteRequest: the body's
+    tags through 4.1, the first NoRelatedSym(146) instance's from 4.2
+    (a request of several instruments keeps the first; the rest stay in
+    the recorded message)."""
+    instance = msg.fields
+    if "146" in msg.fields:
+        members = ("55", "54", "38", "303", "537", "15", "60")
+        found = group_instances(msg, "146", members, dictionary)
+        instance = found[0] if found else {}
+    side, rtype, qtype = instance.get("54", ""), instance.get("303", ""), instance.get("537", "")
+    qty = instance.get("38", "")
+    return {
+        "quote_req_id": msg.get("131", ""),
+        "symbol": instance.get("55", ""),
+        "side": dictionary.enum_name("54", side) if side else "",
+        "side_code": side,
+        "order_qty": float(qty) if qty else 0.0,
+        "quote_request_type": dictionary.enum_name("303", rtype) if rtype else "",
+        "quote_request_type_code": rtype,
+        "quote_type": dictionary.enum_name("537", qtype) if qtype else "",
+        "quote_type_code": qtype,
+        "currency": instance.get("15", ""),
+        "text": msg.get("58", ""),
+        "transact_time": instance.get("60", "") or msg.get("60", ""),
+    }
+
+
+def quote_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
+    """The quote's columns of an RFQ row, from a Quote."""
+    qtype = msg.get("537", "")
+    return {
+        "quote_id": msg.get("117", ""),
+        "bid_px": _price_of(msg, "132"),
+        "offer_px": _price_of(msg, "133"),
+        "bid_size": _price_of(msg, "134"),
+        "offer_size": _price_of(msg, "135"),
+        "valid_until": msg.get("62", ""),
+        "quote_type": dictionary.enum_name("537", qtype) if qtype else "",
+        "quote_type_code": qtype,
+        "text": msg.get("58", ""),
+        "transact_time": msg.get("60", ""),
+    }
+
+
+def response_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
+    """What a QuoteResponse says: its ID and type, a counter's prices."""
+    kind = msg.get("694", "")
+    return {
+        "quote_resp_id": msg.get("693", ""),
+        "quote_resp_type": dictionary.enum_name("694", kind) if kind else "",
+        "quote_resp_type_code": kind,
+        "bid_px": _price_of(msg, "132"),
+        "offer_px": _price_of(msg, "133"),
+        "bid_size": _price_of(msg, "134"),
+        "offer_size": _price_of(msg, "135"),
+        "text": msg.get("58", ""),
+    }
+
+
+def status_of_response(kind: str, dictionary: FixDictionary) -> str:
+    return RESP_STATUS_OF.get(kind) or dictionary.enum_name("694", kind) or kind
+
+
+def quote_side(row: dict[str, Any]) -> str:
+    """Which side of the negotiation a row is on here: the client asks
+    (sent RFQs, received quotes), the market quotes (received RFQs, sent
+    quotes)."""
+    asked = row["origin"] == "rfq"
+    return "client" if asked == (row["direction"] == "TX") else "market"
+
+
+def parse_stamp(value: str) -> datetime | None:
+    """A FIX UTC stamp (`YYYYMMDD-HH:MM:SS[.fff…]`) as an aware datetime;
+    None for anything else."""
+    head, _, fraction = (value or "").partition(".")
+    try:
+        stamp = datetime.strptime(head, "%Y%m%d-%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    digits = "".join(c for c in fraction if c.isdigit())[:6]
+    return stamp.replace(microsecond=int(digits.ljust(6, "0"))) if digits else stamp

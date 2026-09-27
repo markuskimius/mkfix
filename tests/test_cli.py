@@ -170,7 +170,7 @@ def test_startup_honors_instance_code():
     """The banner must show the code generated IDs will carry, so an
     override is confirmed before the first order goes out."""
     text = _banner_of(_free_port(), "-i", "Q7")
-    assert "IDs:       RT/OR/EX/TR/IO/AD/AL + Q7 + 8-digit counter (saved code)" in text
+    assert "IDs:       RT/OR/EX/TR/IO/AD/AL/RQ/QT/QR + Q7 + 8-digit counter (saved code)" in text
 
 
 def test_instance_code_persists_across_restarts(tmp_path):
@@ -289,7 +289,7 @@ def test_banner_lists_enabled_sessions():
     cfg = {"host": "127.0.0.1", "port": 9090, "db_path": "x.db"}
     text = _banner(cfg, "mkfix.toml", engine)
     assert "http://127.0.0.1:9090/" in text
-    assert "IDs:       RT/OR/EX/TR/IO/AD/AL + ME + 8-digit counter (from username)" in text
+    assert "IDs:       RT/OR/EX/TR/IO/AD/AL/RQ/QT/QR + ME + 8-digit counter (from username)" in text
     assert "2 enabled" in text
     assert "acc: ME -> THEM (FIX.4.2, acceptor on port 9876)" in text
     assert "ini: ME -> EXCH (FIX.4.4, initiator -> 10.0.0.5:9877)" in text

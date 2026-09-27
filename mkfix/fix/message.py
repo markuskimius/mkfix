@@ -696,6 +696,160 @@ class FixMessageFactory:
     def _today(self) -> str:
         return self._now()[:8]
 
+    # ── RFQs and quotes ──────────────────────────────────────────────
+    # FIX 4.0/4.1 carry a QuoteRequest's instrument in the body; from 4.2 it
+    # rides one NoRelatedSym(146) instance, where Side, OrderQty and the
+    # request's types live too. The later messages come with the versions:
+    # QuoteCancel 4.2, QuoteRequestReject 4.3, QuoteResponse 4.4 — the
+    # engine refuses one the session's dictionary does not define.
+
+    def _flat_quote_request(self) -> bool:
+        return self.dictionary.begin_string() in ("FIX.4.0", "FIX.4.1")
+
+    def quote_request(
+        self,
+        quote_req_id: str,
+        symbol: str,
+        side: str = "",
+        qty: float | None = None,
+        quote_request_type: str = "",
+        quote_type: str = "",
+        currency: str = "",
+        text: str | None = None,
+    ) -> FixMessage:
+        """QuoteRequest (35=R): QuoteReqID(131) and one instrument. Side and
+        OrderQty ride when given (a blank side asks a two-way price);
+        QuoteRequestType(303), QuoteType(537), Currency and TransactTime
+        only where the version's group defines them."""
+        fields: dict[str, str] = {"35": "R", "131": quote_req_id}
+        if text:
+            fields["58"] = text
+        if self._flat_quote_request():
+            fields["55"] = symbol
+            if side:
+                fields["54"] = side
+            if qty:
+                fields["38"] = _qty(qty)
+            return self.create(fields)
+        msg = self.create(fields)
+        pairs = [("146", "1"), ("55", symbol)]
+        for tag, value in (("303", quote_request_type), ("537", quote_type), ("54", side),
+                           ("38", _qty(qty) if qty else ""), ("15", currency), ("60", self._now())):
+            if value and self.dictionary.defines(tag):
+                pairs.append((tag, value))
+        msg.extra = pairs
+        return msg
+
+    def quote(
+        self,
+        quote_id: str,
+        symbol: str,
+        quote_req_id: str = "",
+        bid_px: float | None = None,
+        offer_px: float | None = None,
+        bid_size: float | None = None,
+        offer_size: float | None = None,
+        valid_until: str = "",
+        quote_type: str = "",
+        side: str = "",
+        qty: float | None = None,
+        currency: str = "",
+        text: str | None = None,
+    ) -> FixMessage:
+        """Quote (35=S): QuoteID(117), the QuoteReqID(131) it answers (none
+        for an unsolicited quote), bid and offer. QuoteType(537) joined in
+        4.3, Side and OrderQty in 4.4, TransactTime and Currency in 4.2."""
+        fields: dict[str, str] = {"35": "S"}
+        if quote_req_id:
+            fields["131"] = quote_req_id
+        fields["117"] = quote_id
+        if quote_type and self.dictionary.defines("537"):
+            fields["537"] = quote_type
+        fields["55"] = symbol
+        modern = self.dictionary.begin_string() not in ("FIX.4.0", "FIX.4.1", "FIX.4.2", "FIX.4.3")
+        if modern and side:
+            fields["54"] = side
+        if modern and qty:
+            fields["38"] = _qty(qty)
+        for tag, value in (("132", bid_px), ("133", offer_px), ("134", bid_size), ("135", offer_size)):
+            if value is not None:
+                fields[tag] = _qty(value) if tag in ("134", "135") else str(value)
+        if valid_until:
+            fields["62"] = valid_until
+        if not self._flat_quote_request():
+            fields["60"] = self._now()
+            if currency:
+                fields["15"] = currency
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
+    def quote_cancel(self, quote_id: str, symbol: str, quote_req_id: str = "",
+                     text: str | None = None) -> FixMessage:
+        """QuoteCancel (35=Z, FIX 4.2+) of one instrument's quote:
+        QuoteCancelType(298)=1 with the symbol in NoQuoteEntries(295)."""
+        fields: dict[str, str] = {"35": "Z"}
+        if quote_req_id:
+            fields["131"] = quote_req_id
+        fields.update({"117": quote_id, "298": "1"})
+        if text and self.dictionary.defines("58"):
+            fields["58"] = text
+        msg = self.create(fields)
+        msg.extra = [("295", "1"), ("55", symbol)]
+        return msg
+
+    def quote_request_reject(self, quote_req_id: str, symbol: str, reason: str,
+                             text: str | None = None) -> FixMessage:
+        """QuoteRequestReject (35=AG, FIX 4.3+): the QuoteReqID refused,
+        QuoteRequestRejectReason(658) and the instrument group it requires."""
+        fields: dict[str, str] = {"35": "AG", "131": quote_req_id, "658": reason}
+        if text:
+            fields["58"] = text
+        msg = self.create(fields)
+        msg.extra = [("146", "1"), ("55", symbol)]
+        return msg
+
+    def quote_response(
+        self,
+        quote_resp_id: str,
+        quote_id: str,
+        resp_type: str,
+        symbol: str,
+        cl_ord_id: str = "",
+        side: str = "",
+        qty: float | None = None,
+        ord_type: str = "",
+        price: float | None = None,
+        bid_px: float | None = None,
+        offer_px: float | None = None,
+        bid_size: float | None = None,
+        offer_size: float | None = None,
+        text: str | None = None,
+    ) -> FixMessage:
+        """QuoteResponse (35=AJ, FIX 4.4+): QuoteRespID(693) answering
+        QuoteID(117) by QuoteRespType(694) — a Hit carries the order it
+        makes (ClOrdID, Side, OrderQty, OrdType, Price), a Counter its bid
+        and offer, a Pass nothing more."""
+        fields: dict[str, str] = {"35": "AJ", "693": quote_resp_id, "117": quote_id, "694": resp_type}
+        if cl_ord_id:
+            fields["11"] = cl_ord_id
+        fields["55"] = symbol
+        if side:
+            fields["54"] = side
+        if qty:
+            fields["38"] = _qty(qty)
+        for tag, value in (("132", bid_px), ("133", offer_px), ("134", bid_size), ("135", offer_size)):
+            if value is not None:
+                fields[tag] = _qty(value) if tag in ("134", "135") else str(value)
+        fields["60"] = self._now()
+        if ord_type:
+            fields["40"] = ord_type
+        if price is not None:
+            fields["44"] = str(price)
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
     def dont_know_trade(
         self,
         order_id: str,
@@ -850,9 +1004,10 @@ def parse_fix(data: bytes | str) -> FixMessage:
 
 # Tags of an inbound order or cancel/replace request the engine consumes into
 # order columns (and regenerates itself on the answering message) — everything
-# else on the message is a custom tag worth echoing back.
+# else on the message is a custom tag worth echoing back. 23 and 117 name the
+# IOI or quote an order answers (fix_orders.ioi_id / quote_id).
 CONSUMED_ORDER_TAGS = frozenset({
-    "11", "21", "23", "37", "38", "40", "41", "44", "54", "55", "58", "59", "60", "99",
+    "11", "21", "23", "37", "38", "40", "41", "44", "54", "55", "58", "59", "60", "99", "117",
 })
 
 

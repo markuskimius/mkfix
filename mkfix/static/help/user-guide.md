@@ -28,6 +28,7 @@ Every blotter belongs to one of two sides, and the menus are split the same way.
 | Orders | sends them: **Sent Orders** | receives them: **Received Orders** |
 | Trades | receives them: **Received Trades** | sends them: **Sent Trades** |
 | IOIs, adverts, allocations | receives them | sends them |
+| RFQs and quotes | asks: **Sent RFQs**, and takes quotes: **Received Quotes** | quotes: **Received RFQs**, **Sent Quotes** |
 | Macros, under the **Macro** menu | **Client Macros**, **Client Macro Runs** | **Market Macros**, **Market Macro Runs** |
 
 A session is not tied to a side. Whatever a session sends shows on the sent blotters and whatever it receives on the received ones, so one mkfix can be the client on one session and the market on another.
@@ -237,6 +238,23 @@ The market side sends these and the client side receives them, the other way rou
 - An allocation is answered with an AllocationInstructionAck. Until then a replace or cancel waits in the Pending column, the way an order's request does.
 - An allocation's orders, executions and accounts are typed one to a line: `ACC1 300` is an account and a quantity.
 - **Allocate** on Received Orders starts an allocation from an order. Pick its fills from **Fills** and the executions, the total and the average price are entered for you.
+
+## RFQs and quotes
+
+The client side asks for a price and the market side quotes it. Each negotiation is one row: the request, and the quote standing on it now. A requote replaces the quote on the same row, and **History** shows every quote and answer in turn.
+
+| | Client side | Market side |
+|---|---|---|
+| **RFQs** | **Sent RFQs**: New, Clone, Hit, Order…, Counter, Pass | **Received RFQs**: Quote, Reject, Cancel Quote |
+| **Quotes sent unasked** | **Received Quotes**: Hit, Order…, Counter, Pass | **Sent Quotes**: New, Clone, Requote, Cancel |
+
+- A request with no side asks for a two-way price. **Hit** then asks which side you take: buying lifts the offer and selling hits the bid.
+- **Hit**, **Counter** and **Pass** send a QuoteResponse, which FIX 4.4 introduced. **Order…** takes a quote on any version, with a new order that names the quote in tag 117.
+- Either way the order goes into Sent Orders on the client side and into Received Orders on the market side, where Accept and Fill work as usual. The quote becomes **Hit**.
+- A counter waits in the Pending column until the market answers it. **Quote** (on Received RFQs) and **Requote** (on Sent Quotes) open on the counter's prices.
+- **Reject** needs FIX 4.3 or later, and **Cancel Quote** needs FIX 4.2 or later.
+- **Valid For** is how many seconds a quote stands. When it runs out the row shows **Expired** on both sides. Nothing is sent for that.
+- A quote sent without a request replaces the one standing on its symbol, so a stream of quotes is one row.
 
 ## Templates
 

@@ -282,7 +282,8 @@ TRADE_TARGETS = {
 # codes are the dialogs' hand-listed options, which a test holds these to.
 ENUMS: dict[str, dict[str, str]] = {
     "side": {"buy": "1", "sell": "2", "sell_short": "5", "sell_short_exempt": "6"},
-    "type": {"market": "1", "limit": "2", "market_on_close": "5", "limit_on_close": "B", "funari": "I"},
+    "type": {"market": "1", "limit": "2", "market_on_close": "5", "limit_on_close": "B", "funari": "I",
+             "previously_quoted": "D"},
     "tif": {"day": "0", "gtc": "1", "at_the_opening": "2", "ioc": "3", "fok": "4", "gtx": "5", "gtd": "6",
             "at_the_close": "7"},
     "handl_inst": {"automated_private": "1", "automated_public": "2", "manual": "3"},

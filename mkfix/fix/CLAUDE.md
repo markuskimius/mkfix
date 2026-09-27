@@ -35,7 +35,70 @@ Why: these actions write the whole of `ORDER_UPDATE_COLS` back from the snapshot
 
 Three more message families on the order model, each a chain of IDs: an IOI (35=6) is New/Replace/Cancel by IOITransType(28) with IOIRefID(26) naming the one superseded, an Advertisement (35=7) the same by AdvTransType(5)/AdvRefID(3), an AllocationInstruction (35=J; *Allocation* through 4.2) by AllocTransType(71)/RefAllocID(72). Only the allocation is answered — an AllocationInstructionAck (35=P) carrying AllocStatus(87) and, refused, AllocRejCode(88) — so only it has a request slot; nothing answers an IOI or an advert (the response to an IOI is an order carrying its ID in tag 23, which `fix_orders.ioi_id` records on both sides and `_link_ioi_order` writes back onto the IOI row's `order_cl_ord_id`; 23 is a consumed order tag). `families.py` is the pure part: `ioi_columns`/`advert_columns`/`allocation_columns`/`ack_columns` map a message to its row's term columns; `group_instances` reads a repeating group off the ordered wire pairs (the dictionary's member list says where an instance ends, `members` which tags the row keeps) and `group_pairs` writes one; an allocation's three groups (`ALLOC_GROUPS`: orders 73 → 11/37, executions 124 → 17/32/31, accounts 78 → 79/80/366) are kept as lines — `parse_lines`/`format_lines`, one instance per line or `;`, members by comma or space, the form the dialogs' textareas take and the cells show. The factory's `ioi`/`advertisement`/`allocation_instruction`/`allocation_ack` emit version-correct wire (626 from 4.3, 366 from 4.2, the IOI's 60 from 4.3, 25/130/199 where defined; groups ride on `extra` after the body, before the user's extras).
 
-`fix_iois`, `fix_adverts`, `fix_allocations` (`IOI_COLS`/`ADVERT_COLS`/`ALLOC_COLS`): one row per chain, versioned, the ID column the chain's latest ID and `*_ref_id` the one before, split by `direction` into a Sent and a Received blotter. Generic ops `insert_<table>`/`update_<table>` (by row id, everything but session/direction/`timestamp`), `_find_family_row` (newest row holding an ID, per direction), `_sent_family_row` (columns from the message as sent — `_as_sent`, extras applied), `_received_family_row`. Inbound: `_handle_ioi`/`_handle_advertisement` insert a New, rewrite the row a Replace names (its terms), mark the one a Cancel names Canceled (terms kept); a reference matching nothing starts a row. `_handle_allocation`: a New parks as `PendingNew`/`pending_action` New; a Replace/Cancel (71=1/2) parks in the slot of the row 72 names — `pending_alloc_id` the request's 70, `pending_terms` its columns as JSON (a Cancel's only its identity and message), `pending_extra_tags` — under the session's order lock; one naming no row is answered at once with 87=1/88=7 "Unknown allocation". `_handle_allocation_ack` answers a sent row by the chain's current ID (the New, or an ack again) or by `pending_alloc_id`: accepted (87 in `ALLOC_ACCEPTING`: 0/3/4) the slot's terms and ID move onto the row (`_promoted_allocation`), Canceled for a Cancel; refused the row keeps them; both record `alloc_status`/`alloc_rej_*`/`text` (theirs) and `ALLOC_STATUS_OF` gives `status`. Actions (`SUBJECT_KEY`/`CREATES` naming their rows for `perform`'s event; `UNSCRIPTED` in actions.py is empty since 0.64 gave them verbs): `send_ioi`/`replace_ioi`/`cancel_ioi` and the advert three write the row first, a Replace renaming it at once (nothing answers) and a Cancel keeping its terms, with the previous row put back if the send fails (`_send_family_message`; a new row that fails to go out is `Failed`); `send_allocation` (status `Sent`), `replace_allocation`/`cancel_allocation` park in the slot until the Ack (a failed send clears it); `accept_allocation`(`alloc_status` 0/3/4)/`reject_allocation`(1/2/5, `alloc_rej_code`) are `_market_action`s over the received row's slot, answering the request's ID, an accepted Replace/Cancel renaming the chain as the ER path does for orders, `sent_text` ours. IDs `IO`/`AD`/`AL`. Allocate (Received Orders) reads the order's live fills through the `order_fills` reqrep — a `_fills` pick whose `fill` copies executions-as-lines, total and average onto the form, remembered so the next open fills at once; Sent Trades' Allocate allocates the one trade. Events: `ioi`/`ioi replaced`/`ioi canceled`, `advert …`, `allocation`/`allocation replace`/`allocation cancel`, `allocation accepted`/`received`/`incomplete`/`rejected` then `allocation acked` (every Ack, as every ER is `er`), `sent ioi`/`sent advert`/`sent allocation` (with `source` and the macro's `tag`, as `sent order`), each with `table`/`row` and no `order`; the macro runner routes them by `(kind, row id)` with the family's name dropped from the kind. `_backfill_families` (fix_settings `families_backfill`) re-derives the pre-0.63 viewer rows from `raw_message` and folds a Replace/Cancel into the row it names. `tests/test_families.py` covers all of it; `TestFamilyBlotters` the panes.
+`fix_iois`, `fix_adverts`, `fix_allocations` (`IOI_COLS`/`ADVERT_COLS`/`ALLOC_COLS`): one row per chain, versioned, the ID column the chain's latest ID and `*_ref_id` the one before, split by `direction` into a Sent and a Received blotter. Generic ops `insert_<table>`/`update_<table>` (by row id, everything but session/direction/`timestamp`), `_find_family_row` (newest row holding an ID, per direction), `_sent_family_row` (columns from the message as sent — `_as_sent`, extras applied), `_received_family_row`. Inbound: `_handle_ioi`/`_handle_advertisement` insert a New, rewrite the row a Replace names (its terms), mark the one a Cancel names Canceled (terms kept); a reference matching nothing starts a row. `_handle_allocation`: a New parks as `PendingNew`/`pending_action` New; a Replace/Cancel (71=1/2) parks in the slot of the row 72 names — `pending_alloc_id` the request's 70, `pending_terms` its columns as JSON (a Cancel's only its identity and message), `pending_extra_tags` — under the session's order lock; one naming no row is answered at once with 87=1/88=7 "Unknown allocation". `_handle_allocation_ack` answers a sent row by the chain's current ID (the New, or an ack again) or by `pending_alloc_id`: accepted (87 in `ALLOC_ACCEPTING`: 0/3/4) the slot's terms and ID move onto the row (`_promoted_allocation`), Canceled for a Cancel; refused the row keeps them; both record `alloc_status`/`alloc_rej_*`/`text` (theirs) and `ALLOC_STATUS_OF` gives `status`. Actions (`SUBJECT_KEY`/`CREATES` naming their rows for `perform`'s event; `UNSCRIPTED` in actions.py holds only the RFQ ops since 0.64 gave these verbs): `send_ioi`/`replace_ioi`/`cancel_ioi` and the advert three write the row first, a Replace renaming it at once (nothing answers) and a Cancel keeping its terms, with the previous row put back if the send fails (`_send_family_message`; a new row that fails to go out is `Failed`); `send_allocation` (status `Sent`), `replace_allocation`/`cancel_allocation` park in the slot until the Ack (a failed send clears it); `accept_allocation`(`alloc_status` 0/3/4)/`reject_allocation`(1/2/5, `alloc_rej_code`) are `_market_action`s over the received row's slot, answering the request's ID, an accepted Replace/Cancel renaming the chain as the ER path does for orders, `sent_text` ours. IDs `IO`/`AD`/`AL`. Allocate (Received Orders) reads the order's live fills through the `order_fills` reqrep — a `_fills` pick whose `fill` copies executions-as-lines, total and average onto the form, remembered so the next open fills at once; Sent Trades' Allocate allocates the one trade. Events: `ioi`/`ioi replaced`/`ioi canceled`, `advert …`, `allocation`/`allocation replace`/`allocation cancel`, `allocation accepted`/`received`/`incomplete`/`rejected` then `allocation acked` (every Ack, as every ER is `er`), `sent ioi`/`sent advert`/`sent allocation` (with `source` and the macro's `tag`, as `sent order`), each with `table`/`row` and no `order`; the macro runner routes them by `(kind, row id)` with the family's name dropped from the kind. `_backfill_families` (fix_settings `families_backfill`) re-derives the pre-0.63 viewer rows from `raw_message` and folds a Replace/Cancel into the row it names. `tests/test_families.py` covers all of it; `TestFamilyBlotters` the panes.
+
+## RFQs and quotes: `families.py`, engine.py
+
+`fix_rfqs` (`RFQ_COLS`) holds one row per negotiation. There are two kinds, told apart by `origin`:
+
+- **`rfq`**: a QuoteRequest (35=R) and the quotes that answer it.
+- **`quote`**: unsolicited quotes on one instrument.
+
+The row's quote columns hold the quote standing now. A requote is a new version of the row, so the row's history is the negotiation. `direction` is who opened the row. A side owns two kinds of rows (`quote_side`): the client's are sent RFQs and received quotes, the market's the other two. `_find_family_row` takes `client`/`market` in place of a direction to select them, and `SUBJECT_KEY` names the side the same way.
+
+**Pure part** (families.py): `rfq_columns`, `quote_columns`, `response_columns`, and the `CONSUMED_*_TAGS` sets.
+
+**Factory:**
+- `quote_request` puts the instrument in the body through FIX 4.1, and in one NoRelatedSym(146) instance from 4.2. That instance also carries 303/537/54/38/15/60 where they are defined.
+- `quote` sends 537 from 4.3, 54/38 from 4.4, and 60/15 from 4.2.
+- `quote_cancel` sends 298=1 with the symbol in 295.
+- `quote_request_reject` carries 658 and the 146 group.
+- `quote_response` carries 693/117/694; a Hit adds 11/54/38/40/44.
+- The engine refuses a message the session's dictionary lacks (`_require_message`): Z before 4.2, AG before 4.3, AJ before 4.4.
+
+**Inbound:**
+
+| Message | Handler | Effect |
+|---|---|---|
+| R | `_handle_quote_request` | opens an Open row |
+| S | `_handle_quote` | quotes or requotes the row its 131 names, else the live unsolicited chain on its symbol (`_live_quote_chain`: status Quoted/Countered), else opens a `quote` row. A quote on a finished row (`FINAL_RFQ`) keeps that row's status |
+| Z | `_handle_quote_cancel` | 298=4 cancels every live quote; otherwise the quote its 117 or 131 names, else the symbols in its 295 group |
+| AG | `_handle_quote_request_reject` | rejects the RFQ |
+| AI | `_handle_quote_status_report` | records 297; a status in `QUOTE_STATUS_ENDS` ends the quote |
+| AJ | `_handle_quote_response` | see below |
+
+On a QuoteResponse (AJ):
+- **Counter** parks in the slot (`pending_*`), status Countered.
+- **Hit with an 11** becomes a received order through `_handle_new_order` (`_order_from_response` fills side, size and price from the quote, 40=D).
+- **Anything else** sets the status by `status_of_response`.
+
+Every handler but R's holds the order lock.
+
+**Orders naming a quote.** Tag 117 is a consumed order tag, recorded as `fix_orders.quote_id`. `_link_quote_order` marks the quote Hit and stores `order_cl_ord_id`, on both sides (sent orders by `send_new_order`).
+
+**Actions** (`CREATES`/`SUBJECT_KEY` as for the other families):
+
+| Side | Action | What it does |
+|---|---|---|
+| Client | `send_rfq` | writes the row, then announces `sent rfq`, before the send |
+| Client | `hit_quote` | AJ Hit; writes the sent order (`_sent_order_row`, shared with `send_new_order`) and announces `sent order`; a failed send puts the quote back and rejects the order |
+| Client | `counter_quote` | parks our counter in the slot |
+| Client | `pass_quote` | |
+| Market | `quote_rfq`, `requote` | `_market_action`s; clear the slot, since a requote answers a counter |
+| Market | `reject_rfq`, `cancel_quote` | `_market_action`s |
+| Market | `send_quote` | replaces the live chain on its symbol or opens a row |
+
+**Validity and expiry.** `valid_for` (seconds) or `valid_until` becomes 62. `expire_due_quotes` marks Expired every Quoted/Countered row whose 62 has passed (source `engine`, nothing on the wire). `_expire_quotes` is the timer: started by `start`, stopped by `stop`, woken by `_wake_expiry`, sleeping at most a minute.
+
+**Events** are `<origin> <what>`: `rfq`, `rfq quoted`, `rfq requoted`, `rfq countered`, `rfq hit`, `rfq passed`, `rfq rejected`, `rfq canceled`, `rfq expired`, `rfq status`, `rfq response`, the same with `quote`, plus `sent rfq` and `sent quote`.
+
+**IDs** are `RQ`/`QT`/`QR`.
+
+**Templates:** the scopes are `rfq`, `quote`, `new_quote`, `quote_reject`, `hit`, `counter` and `pass`; `cancel_quote` shares `cancel`.
+
+**Not scripted yet:** the ops are in `UNSCRIPTED` until the macro verbs ship.
+
+**Tests:** `tests/test_rfqs.py`; `TestRfqBlotters` covers the panes.
 
 ## Message Replay: `replay.py`
 
