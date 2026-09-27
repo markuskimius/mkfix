@@ -187,7 +187,7 @@ class TestTheExamples:
     def test_they_are_end_to_end_and_the_rest_are_not(self):
         from mkfix.macro.store import EXAMPLES
         sides = {p.stem: macro.check(p.read_text(encoding="utf-8"))[0].side for p in EXAMPLES.glob("*.macro")}
-        assert {name for name, side in sides.items() if side == "end-to-end"} == {"end-to-end-order", "told-to-reject"}
+        assert {name for name, side in sides.items() if side == "end-to-end"} == {"end-to-end-order", "end-to-end-rfq", "told-to-reject"}
         assert set(sides.values()) == set(vocab.MACRO_KINDS)
 
 
@@ -235,7 +235,7 @@ class TestTheManager:
             assert {line["side"] for line in log} == {"end-to-end"}
             (sent,), (received,) = await pair.orders("TX"), await pair.orders("RX")
             assert sent["macro"] == received["macro"] == f"both #{run['id']}"
-            assert [e["name"] for e in manager.examples("end-to-end")] == ["end-to-end-order", "told-to-reject"]
+            assert [e["name"] for e in manager.examples("end-to-end")] == ["end-to-end-order", "end-to-end-rfq", "told-to-reject"]
             assert "end-to-end-order" not in [e["name"] for e in manager.examples("client")]
             assert manager.example("told-to-reject")["side"] == "end-to-end"
         finally:

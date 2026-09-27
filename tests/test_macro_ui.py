@@ -140,13 +140,14 @@ class TestCompletion:
         assert run_js(tmp_path, f"L.blockAt(vocab, {json.dumps(self.LINES)}, 17)") == {"kind": "market", "subject": "ioi"}
 
     def test_an_editor_offers_only_its_own_sides_blocks(self, tmp_path):
-        """The market side receives orders and sends the three families; the
+        """The market side receives orders and RFQs and sends the rest; the
         client side the other way round. `run` sends for either."""
         assert self.names(tmp_path, 10, side="market") == [
             "seed", "on error", "share", "on order", "run", "on signal", "on sent ioi", "on sent advert",
-            "on sent allocation"]
+            "on sent allocation", "on rfq", "on sent quote", "on sent rfq request"]
         assert self.names(tmp_path, 10, side="client") == [
-            "seed", "on error", "share", "on sent order", "run", "on signal", "on ioi", "on advert", "on allocation"]
+            "seed", "on error", "share", "on sent order", "run", "on signal", "on ioi", "on advert", "on allocation",
+            "on sent rfq", "on quote", "on rfq request"]
         assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 13))
 
     TOGETHER = ["share done = 0", "run", "    new symbol: 'IBM', side: buy, qty: 1", "    share last = order.cl_ord_id",
@@ -961,7 +962,7 @@ class TestWiring:
         app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
         fired = [b["action"]["dialog"]["submit"]["then"] for pane in app["panes"].values() for b in pane.get("buttons", [])
                  if b.get("label") == "Macro…"]
-        assert len(fired) == 7 and all(t["action"] == "macro.recorded" and t["args"]["from"] == "history" for t in fired)
+        assert len(fired) == 13 and all(t["action"] == "macro.recorded" and t["args"]["from"] == "history" for t in fired)
         assert app["dialogs"]["stop_recording"]["submit"]["then"]["args"].get("from") is None, "a recording is the default"
         # the help says where the button is and what it writes
         text = (HELP / "macro-language.md").read_text(encoding="utf-8")

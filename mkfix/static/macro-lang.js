@@ -37,8 +37,9 @@ export function buildRules(vocab) {
     { token: "string", regex: "'(?:[^'\\\\]|\\\\.)*'?" },
     { token: "string", regex: '"(?:[^"\\\\]|\\\\.)*"?' },
     { token: "keyword.control", regex: `^\\s*(?:${alt(HEADERS)})\\b`, caseInsensitive: true },
-    { token: "keyword", regex: `^\\s*(?:${alt(statements)})\\b`, caseInsensitive: true },
+    // Verbs before statements: `pass quote` is a verb, `pass` alone the verdict.
     { token: "entity.name.function", regex: `^\\s*(?:${alt(verbs)})\\b`, caseInsensitive: true },
+    { token: "keyword", regex: `^\\s*(?:${alt(statements)})\\b`, caseInsensitive: true },
     { token: "constant.numeric", regex: "\\b\\d[\\d_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:ms|s|m|h|d)?\\b" },
     { token: "keyword.operator", regex: "±|\\+/-|->|\\|>|&&|\\|\\||\\?\\?|[=!<>]=|[<>+\\-*/%!]" },
     { token: "variable.parameter", regex: `\\b(?:${alt(terms)})(?=\\s*:)`, caseInsensitive: true },
@@ -98,9 +99,23 @@ export function highlight(code, vocab) {
 // The block the row sits in: { kind: market | client | attached, subject } or
 // null (the top of the file). A `run` block's subject is what it sends —
 // the first sending verb among its lines, `new` when none is written yet.
+// The verbs that send a `run` block's subject — the ones that stand in a
+// `run` block and nowhere else (`new`, `ioi`, `rfq`, `new quote`…) — by what they send.
+function creatorsOf(vocab) {
+  const found = {};
+  for (const [name, v] of Object.entries(vocab.verbs ?? {})) {
+    if (v.sides?.length === 1 && v.sides[0] === "client") found[name] = v.subject ?? "order";
+  }
+  return Object.keys(found).length ? found : { new: "order", ioi: "ioi", advert: "advert", allocate: "allocation" };
+}
+
+// A line of a block that starts with one of `creators`: the longest that fits (`new quote` before `new`).
+const creatorRe = (creators) => new RegExp(`^\\s+(${alt(Object.keys(creators))})\\b`, "i");
+
 export function blockAt(vocab, lines, row) {
   if (!/^\s/.test(lines[row] ?? "")) return null;          // not indented: the top of the file
-  const creators = { new: "order", ioi: "ioi", advert: "advert", allocate: "allocation" };
+  const creators = creatorsOf(vocab);
+  const leading = creatorRe(creators);
   for (let r = row - 1; r >= 0; r--) {
     const line = lines[r] ?? "";
     if (!line.trim() || /^\s/.test(line) || /^#/.test(line)) continue;
@@ -112,7 +127,7 @@ export function blockAt(vocab, lines, row) {
     for (let k = r + 1; k < lines.length; k++) {
       const body = lines[k] ?? "";
       if (body.trim() && !/^\s/.test(body)) break;
-      const verb = /^\s+([a-z]+)\b/i.exec(body)?.[1]?.toLowerCase();
+      const verb = leading.exec(body)?.[1]?.toLowerCase().replace(/\s+/g, " ");
       if (verb && creators[verb]) return { kind, subject: creators[verb] };
     }
     return { kind, subject: "order" };
@@ -157,7 +172,7 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
     if (entry.places) {
       const ok = entry.places.some(([s, k]) => s === block.subject && k === block.kind);
       return ok || (block.kind === "client" && entry.places.some(([, k]) => k === "client")
-        && !lines.some((l, r) => r !== row && /^\s+(new|ioi|advert|allocate)\b/i.test(l) && blockAt(vocab, lines, r)?.kind === "client"
+        && !lines.some((l, r) => r !== row && creatorRe(creatorsOf(vocab)).test(l) && blockAt(vocab, lines, r)?.kind === "client"
           && sameBlock(lines, r, row)));
     }
     return entry.sides.includes(block.kind);

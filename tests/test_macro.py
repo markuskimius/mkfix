@@ -336,11 +336,12 @@ class TestSides:
 class TestChecker:
     @pytest.mark.parametrize("text, line, col, message", [
         (market("new symbol: 'A', side: buy, qty: 1\n"), 2, 4,
-         "`new` belongs in an `on ioi` block or a `run` block that sends orders, not an `on order` block"),
+         "`new` belongs in an `on ioi` block or a `run` block that sends orders or an `on quote` block or an "
+         "`on sent rfq` block or a `run` block that sends RFQs, not an `on order` block"),
         (market("cancel\n"), 2, 4, "`cancel` belongs in an `on sent order` block or a `run` block that sends orders"),
         ("on sent order\n    accept\n", 2, 4, "`accept` belongs in an `on order` block"),
         ("on sent order\n    new symbol: 'A', side: buy, qty: 1\n", 2, 4, "one order per macro"),
-        ("run on S\n    cancel\n", 1, 0, "A `run` block sends something of its own: it needs a `new`, `ioi`, `advert` or `allocate`"),
+        ("run on S\n    cancel\n", 1, 0, "A `run` block sends something of its own: it needs a `new`, `ioi`, `advert`, `allocate`, `rfq`, `new quote` or `rfq request`"),
         ("run on S\n    ioi symbol: 'A', side: buy, qty: 'L'\n    new symbol: 'A', side: buy, qty: 1\n", 3, 4,
          "This `run` block sends IOIs (`ioi`): `new` belongs in a `run` block of its own"),
         ("on ioi\n    accept\n", 2, 4, "`accept` belongs in an `on order` block, not an `on ioi` block"),
@@ -442,9 +443,7 @@ class TestVocabulary:
         from mkfix.fix.actions import UNSCRIPTED
         assert {v.op for v in vocab.VERBS.values()} == set(TEMPLATE_TERMS) - UNSCRIPTED, \
             "one verb per dialog, bar the ops the language has no verb for yet"
-        assert UNSCRIPTED == {"send_rfq", "hit_quote", "counter_quote", "pass_quote", "quote_rfq", "send_quote",
-                              "requote", "reject_rfq", "cancel_quote", "send_rfq_request",
-                              "unsubscribe_rfq_request"}, "every op but the RFQ ones (0.73) has its verb"
+        assert UNSCRIPTED == set(), "every op has its verb"
 
     def test_every_report_the_engine_names_is_an_event(self):
         named = set(_REPORT_KINDS.values()) | set(_TRANS_KINDS.values()) | {"filled", "er", "cancel rejected", "message"}
@@ -478,7 +477,10 @@ class TestVocabulary:
                  "dk reason": ("dk_trade", "dk_reason"), "ioi side": ("send_ioi", "side"),
                  "adv side": ("send_advert", "side"), "quality": ("send_ioi", "qlty_ind"),
                  "natural": ("send_ioi", "natural_flag"), "alloc type": ("send_allocation", "alloc_type"),
-                 "alloc reject reason": ("reject_allocation", "alloc_rej_code")}
+                 "alloc reject reason": ("reject_allocation", "alloc_rej_code"),
+                 "hit side": ("hit_quote", "side"), "request type": ("send_rfq", "quote_request_type"),
+                 "quote type": ("send_rfq", "quote_type"), "quote reject reason": ("reject_rfq", "quote_rej_reason"),
+                 "subscription": ("send_rfq_request", "subscription_type")}
         for enum, (op, field) in exact.items():
             assert set(vocab.ENUMS[enum].values()) == set(options(op, field)), enum
         assert set(vocab.ENUMS["restate reason"].values()) <= set(options("restate_order", "restate_reason"))
@@ -511,8 +513,8 @@ class TestVocabulary:
 
     def test_vocabulary_is_plain_data_with_help_for_every_word(self):
         v = json.loads(json.dumps(macro.vocabulary()))
-        assert set(v) == {"statements", "verbs", "events", "trade_targets", "enums", "enum_of", "subjects", "blocks",
-                          "context", "fields", "functions"}
+        assert set(v) == {"statements", "verbs", "events", "trade_targets", "enums", "enum_of", "subjects", "words",
+                          "blocks", "context", "fields", "functions"}
         assert set(v["fields"]) == set(vocab.SUBJECTS) | {"trade", "event"}
         assert v["blocks"]["on ioi"] == {"kind": "market", "subject": "ioi", "side": "client"}
         assert v["blocks"]["run"] == {"kind": "client", "subject": None, "side": None}

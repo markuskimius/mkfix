@@ -50,13 +50,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# The subject a family event's table names, and the event names a macro
-# hears: the engine says `allocation accepted`, the macro `accepted`.
-_KIND_OF_TABLE = {table: subject for subject, table in vocab.SUBJECT_TABLES.items()}
-
-
+# The event names a macro hears: the engine says `allocation accepted`, the
+# macro `accepted`; `rfq request unsubscribed`, `unsubscribed`.
 def _macro_kinds(kinds: tuple[str, ...], subject: str) -> tuple[str, ...]:
-    prefix = subject + " "
+    prefix = vocab.SUBJECT_WORDS[subject] + " "
     return tuple(k[len(prefix):] if k.startswith(prefix) else k for k in kinds)
 
 
@@ -391,8 +388,8 @@ class MacroRunner:
         # each, under its own kind and with the family's name dropped from
         # the event's kinds.
         if ev.table:
-            subject, row = _KIND_OF_TABLE.get(ev.table, ""), ev.row
-            kinds = _macro_kinds(ev.kinds, subject)
+            subject, row = vocab.subject_of_row(ev.table, ev.row), ev.row
+            kinds = _macro_kinds(ev.kinds, subject) if subject else ev.kinds
         else:
             subject, row, kinds = vocab.ORDER, ev.order, ev.kinds
         if row is None or not subject:
@@ -400,7 +397,8 @@ class MacroRunner:
         key = (subject, row["id"])
         owner = self.owners.get(key)
         if owner is None:
-            if kinds[0] == f"sent {subject}":
+            word = vocab.SUBJECT_WORDS[subject]
+            if kinds[0] == f"sent {word}":
                 tag = ev.detail.get("tag") or ""
                 claimant = self._claims.pop(tag, None) if ev.source == "macro" and tag else None
                 if claimant is not None and claimant.live:
@@ -409,7 +407,7 @@ class MacroRunner:
                     # Sent by hand, by Message Replay, or by a macro as an
                     # answer that is nobody's (`new` in an `on ioi` block).
                     self._offer(ev, vocab.ATTACHED, subject, row, kinds)
-            elif kinds[0] == subject and ev.source == "wire":
+            elif kinds[0] == word and ev.source == "wire":
                 self._offer(ev, vocab.MARKET, subject, row, kinds)
             return
         owner.row = row
@@ -422,7 +420,7 @@ class MacroRunner:
                       ev.trade)
 
     def _offer(self, ev: EngineEvent, kind: str, subject: str, row: dict[str, Any], kinds: tuple[str, ...]) -> None:
-        name = f"{subject} {row[vocab.SUBJECT_IDS[subject]]}"
+        name = f"{vocab.SUBJECT_WORDS[subject]} {row[vocab.SUBJECT_IDS[subject]]}"
         side = vocab.side_of(kind, subject)
         # A test comes first: the end-to-end runs, then the rest, each in the order armed.
         for run in sorted(self.runs, key=lambda r: r.macro.side != vocab.E2E):

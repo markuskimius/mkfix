@@ -22,8 +22,9 @@ from .nodes import (
 from .parser import parse
 
 _SIDE_BLOCKS = {
-    "market": "`on order`, a `run` that sends IOIs, adverts or allocations, and `on sent ioi/advert/allocation`",
-    "client": "a `run` that sends orders, `on sent order`, and `on ioi/advert/allocation`",
+    "market": "`on order`, `on rfq`, a `run` that sends IOIs, adverts, allocations, quotes or RFQ requests, "
+              "and `on sent ioi/advert/allocation/quote/rfq request`",
+    "client": "a `run` that sends orders or RFQs, `on sent order/rfq`, and `on ioi/advert/allocation/quote/rfq request`",
 }
 
 
@@ -150,12 +151,13 @@ class _Checker:
         if not any(isinstance(st, Action) and st.verb == creator for st in walk(block.body)):
             self.report(block.line, block.col, block.col + len(header),
                         f"A{'n' if header[0] == 'o' else ''} `{header}` block sends something of its own: it needs a "
-                        "`new`, `ioi`, `advert` or `allocate`"
+                        "`new`, `ioi`, `advert`, `allocate`, `rfq`, `new quote` or `rfq request`"
                         + (". To react to a signal in a macro that already has its order, write "
                            "`when signal 'NAME'` inside that block" if block.signal is not None else ""))
             return
         for st in walk(block.body):
-            if isinstance(st, Action) and st.verb in creators and st.verb != creator:
+            if isinstance(st, Action) and st.verb in creators and st.verb != creator \
+                    and (block.subject, vocab.CLIENT) not in vocab.VERBS[st.verb].places:
                 self.report(st.line, st.col, st.col + len(st.verb),
                             f"This `run` block sends {vocab.PLURALS[block.subject]} (`{creator}`): `{st.verb}` "
                             "belongs in a `run` block of its own")

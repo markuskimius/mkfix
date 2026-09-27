@@ -265,6 +265,8 @@ A market side that wants to quote can ask to be sent the RFQs for a list of inst
 - **Received RFQ Requests** (Client): **RFQ…** opens a new RFQ that names the request in tag 644.
 - Each RFQ that names a request is counted on the request's row on both sides, in the **RFQs** column, with the latest one beside it.
 
+Macros work RFQs, quotes and RFQ requests on both sides too: see RFQs and quotes in the [Macro Language](macro-language.md) page, and the bundled examples `rfq-desk`, `rfq-taker`, `quote-stream`, `quote-taker`, `rfq-subscriber`, `rfq-responder` and `end-to-end-rfq`. **Macro…** on each of these blotters writes the macro that would have done what a row has been through.
+
 ## Templates
 
 A template is a named set of terms for one kind of dialog: an order template holds symbol, side, quantity, type, price and the rest, a fill template a quantity and a price, a DK template a reason.

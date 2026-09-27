@@ -426,6 +426,8 @@ class _Parser:
             return Stop(*at)
 
         for verdict in ("pass", "fail"):
+            if verdict == "pass" and line.at_phrase("pass quote"):
+                continue                     # the verb that declines a quote, not a verdict
             if line.take_phrase(verdict):
                 f = Finish(*at, verdict=verdict)
                 if not line.done:

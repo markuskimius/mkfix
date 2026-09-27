@@ -618,10 +618,10 @@ class MacroManager:
         ids = [int(r) for r in (rows if isinstance(rows, (list, tuple)) else str(rows or "").split(",")) if str(r).strip()]
         if not side and ids and subject in vocab.SUBJECT_TABLES:
             # The side that sent or received the first of them: the client
-            # side sends orders and receives the rest, the market side the other way round.
+            # side sends orders and RFQs and receives the rest, the market side the other way round.
             held = await self._fetch(f"SELECT direction FROM {vocab.SUBJECT_TABLES[subject]} WHERE id = ?", (ids[0],))
             sent = bool(held) and held[0]["direction"] == "TX"
-            side = "client" if (subject == vocab.ORDER) == sent else "market"
+            side = "client" if (subject in vocab.CLIENT_SENDS) == sent else "market"
         if save:
             if not NAME.fullmatch(name):
                 raise ValueError(f"{name!r} cannot name a macro: letters, digits, spaces, `.`, `_`, `-` and `:` only, "
@@ -707,7 +707,7 @@ class MacroManager:
         self._queue.put_nowait(("upsert_instance", (
             run_id, instance.kind, instance.key, instance.run.macro.name, instance.run.side, row["session_id"],
             instance.subject_id, row.get("order_id", "") if instance.kind == vocab.ORDER else "",
-            row["symbol"], instance.block.line, instance.status, instance.line,
+            row.get("symbol", row.get("symbols", "")), instance.block.line, instance.status, instance.line,
             instance.waiting_for, instance.message, instance.actions, now, now, None)))
         if not instance.live:
             self._tagged.discard(instance.owner_key)

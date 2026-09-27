@@ -1,0 +1,37 @@
+# Quote stream
+#
+# Shows:   the market side quoting unasked — `new quote` from a `run` block, `requote` on a
+#          timer to stream prices, `cancel quote` to stop, `hit`, `countered` and `passed` on a
+#          quote sent, and `on sent quote` minding one sent by hand
+# Needs:   a FIX 4.2 or later session: run it on LOOP-MKT with quote-taker armed on LOOP-CLI
+#          (FIX.4.4 on both for its counter)
+# Watch:   Sent Quotes (Market menu): one row per symbol whose QuoteID moves with every tick;
+#          its History holds the stream
+# Outcome: IBM is quoted around 150 and requoted every two seconds five times, then withdrawn;
+#          a counter is met at once; a quote sent by hand on MSFT is withdrawn after 30 seconds
+
+seed 7
+
+# The rules come before the quote: an answer can arrive inside the send.
+run
+    when hit
+        log 'taken: ${quote.order_cl_ord_id}'
+        stop
+    when countered
+        requote offer: quote.pending_offer_px, text: 'met'
+    when passed
+        log '${quote.quote_id} passed'
+    new quote symbol: 'IBM', side: sell, qty: 1000, bid: 149.90, offer: 150.10, valid: 10s
+    after 2s
+    repeat 5 every 2s
+        let mid = TICK(150 + (RANDOM() - 0.5) / 5, 0.01)
+        requote bid: mid - 0.10, offer: mid + 0.10, valid: 10s
+    after 1s
+    cancel quote text: 'stream closed'
+    let standing = COUNT(quotes, q -> q.status == 'Quoted')
+    pass 'streamed to ${quote.quote_id}; ${standing} still standing'
+
+on sent quote where symbol == 'MSFT'
+    after 30s
+    if quote.status == 'Quoted'
+        cancel quote text: 'stale'

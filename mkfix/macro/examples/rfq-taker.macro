@@ -1,0 +1,33 @@
+# RFQ taker
+#
+# Shows:   the client side asking for prices — `rfq` in a `run` block, `quoted`, `requoted`,
+#          `rejected`, `canceled`, `status`, taking a quote with `hit`, `counter`, `pass quote`
+#          — and `on sent rfq` minding an RFQ sent by hand
+# Needs:   FIX 4.4 sessions: run it on LOOP-CLI with rfq-desk armed on LOOP-MKT, both edited
+#          to FIX.4.4
+# Watch:   Sent RFQs (Client menu): Open, then Quoted, Countered and Hit or Passed; Sent Orders
+#          for the orders the hits made
+# Outcome: an RFQ for IBM and one for MSFT; a quote within 15 cents is lifted, anything wider
+#          countered five cents better and lifted if the requote meets it, passed if not; an
+#          RFQ sent by hand is lifted as soon as it is quoted
+
+run
+    repeat 2 every 1s with sym = ['IBM', 'MSFT']
+        rfq symbol: sym, side: buy, qty: 500, quote_type: tradeable, request_type: manual
+        expect quoted or rejected within 5s else fail 'no answer to ${rfq.quote_req_id}'
+        if event.kind == 'rejected'
+            pass 'refused: ${rfq.rej_reason}'
+        if rfq.offer_px - rfq.bid_px <= 0.15
+            hit
+            pass 'lifted ${sym} at ${rfq.offer_px}'
+        counter offer: TICK(rfq.offer_px - 0.05, 0.01)
+        wait requoted or rejected or canceled or status or timeout 5s
+        if event.kind == 'requoted'
+            hit
+            pass 'lifted the requote at ${rfq.offer_px}, ${COUNT(rfqs, r -> r.status == "Hit")} hit so far'
+        pass quote text: 'not today'
+        pass 'passed after ${event.kind}'
+
+on sent rfq
+    expect quoted within 10s else fail 'nobody quoted ${rfq.symbol}'
+    hit side: buy

@@ -51,14 +51,10 @@ CREATES = {"send_ioi": ("fix_iois", "ioi_id"), "send_advert": ("fix_adverts", "a
            "send_allocation": ("fix_allocations", "alloc_id"),
            "send_rfq": ("fix_rfqs", "quote_req_id"), "send_quote": ("fix_rfqs", "quote_id"),
            "send_rfq_request": ("fix_rfq_requests", "rfq_req_id")}
-# The actions the macro language has no verb for: the RFQ and quote ops,
-# which ship ahead of theirs (0.73). The recorder and vocabulary tests key
-# off it.
-UNSCRIPTED: frozenset[str] = frozenset({
-    "send_rfq", "hit_quote", "counter_quote", "pass_quote",
-    "quote_rfq", "send_quote", "requote", "reject_rfq", "cancel_quote",
-    "send_rfq_request", "unsubscribe_rfq_request",
-})
+# The actions the macro language has no verb for: none since 0.73 gave the
+# RFQ ones theirs. Kept so a future op can ship ahead of its verb; the
+# recorder and vocabulary tests key off it.
+UNSCRIPTED: frozenset[str] = frozenset()
 
 
 def _action(name: str) -> Callable[[Action], Action]:

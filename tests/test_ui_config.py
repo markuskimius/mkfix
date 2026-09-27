@@ -1961,7 +1961,11 @@ class TestMacroFromHistory:
     PANES = {"order-blotter": ("client", "order", "cl_ord_id"), "market-order-blotter": ("market", "order", "cl_ord_id"),
              "market-ioi-blotter": ("market", "ioi", "ioi_id"), "market-advert-blotter": ("market", "advert", "adv_id"),
              "market-allocation-blotter": ("market", "allocation", "alloc_id"),
-             "ioi-blotter": ("client", "ioi", "ioi_id"), "allocation-blotter": ("client", "allocation", "alloc_id")}
+             "ioi-blotter": ("client", "ioi", "ioi_id"), "allocation-blotter": ("client", "allocation", "alloc_id"),
+             "rfq-blotter": ("client", "rfq", "quote_req_id"), "quote-blotter": ("client", "quote", "quote_id"),
+             "market-rfq-blotter": ("market", "rfq", "quote_req_id"), "market-quote-blotter": ("market", "quote", "quote_id"),
+             "market-rfq-request-blotter": ("market", "rfq_request", "rfq_req_id"),
+             "rfq-request-blotter": ("client", "rfq_request", "rfq_req_id")}
 
     def test_the_blotters_that_have_it(self, app_config):
         have = {pane for pane, spec in app_config["panes"].items()
@@ -1986,8 +1990,8 @@ class TestMacroFromHistory:
         assert fields["row_ids"] == {"name": "row_ids", "type": "hidden", "value": "${JOIN(MAP(rows, r -> r.id), ',')}"}
         assert not {"row", "rows", "cell", "cells", "selection", "state", "form"} & set(fields), "shadowed, the templates read the field"
         assert "id" in spec["columns"], "the rows are named by their row id"
-        assert (subject == vocab.ORDER) == (side == "client") or spec["filter"] == "direction == 'RX'" or "TX" in spec["filter"]
-        assert spec["filter"] == f"direction == '{'TX' if (subject == 'order') == (side == 'client') else 'RX'}'"
+        sends = (subject in vocab.CLIENT_SENDS) == (side == "client")
+        assert spec["filter"].startswith(f"direction == '{'TX' if sends else 'RX'}'"), "the side's own rows"
         assert vocab.SUBJECT_IDS[subject] == id_col and f"row.{id_col}" in dialog["title"] and f"row.{id_col}" in fields["name"]["value"]
         assert fields["name"]["required"] is True and fields["delays"] == {
             "name": "delays", "label": "Keep the delays", "type": "checkbox", "value": False}
@@ -3536,8 +3540,8 @@ class TestRfqBlotters:
             spec = app_config["panes"][pane_id]
             assert spec["title"] == title and spec["service"] == "rfqs_query"
             assert spec["filter"] == f"direction == '{direction}' && origin == '{origin}'"
-            assert [b["label"] for b in spec["buttons"]] == [*ops, "History"], pane_id
-            for button in spec["buttons"][:-1]:
+            assert [b["label"] for b in spec["buttons"]] == [*ops, "History", "Macro…"], pane_id
+            for button in spec["buttons"][:-2]:
                 dialog = button["action"]["dialog"]
                 op = dialog["submit"]["op"]
                 assert op == ops[button["label"]], (pane_id, button["label"])
@@ -3661,8 +3665,8 @@ class TestRfqRequestBlotters:
         assert (sent["title"], sent["filter"]) == ("Sent RFQ Requests", "direction == 'TX'")
         assert (received["title"], received["filter"]) == ("Received RFQ Requests", "direction == 'RX'")
         assert sent["service"] == received["service"] == "rfq_requests_query"
-        assert [b["label"] for b in sent["buttons"]] == ["New", "Clone", "Unsubscribe", "History"]
-        assert [b["label"] for b in received["buttons"]] == ["RFQ…", "History"]
+        assert [b["label"] for b in sent["buttons"]] == ["New", "Clone", "Unsubscribe", "History", "Macro…"]
+        assert [b["label"] for b in received["buttons"]] == ["RFQ…", "History", "Macro…"]
         for spec in (sent, received):
             assert spec["visible"][0] == "rfq_req_id" and {"symbols", "status", "quote_requests"} <= set(spec["visible"])
             assert set(spec["history"]["columns"]) <= set(toml_config["tables"]["fix_rfq_requests"]["columns"])

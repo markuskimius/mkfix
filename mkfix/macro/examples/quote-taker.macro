@@ -1,0 +1,27 @@
+# Quote taker
+#
+# Shows:   the client side answering quotes sent unasked — `on quote`, `requoted`, `canceled`,
+#          `expired` and `status` on a received quote, taking it with `new` (an order naming it
+#          in tag 117, any version), and `counter`
+# Needs:   a session receiving quotes: run quote-stream on the other end (FIX 4.4 for the
+#          counter)
+# Watch:   Received Quotes (Client menu): the Order column filling when the quote is taken;
+#          Sent Orders for the order, PreviouslyQuoted
+# Outcome: an IBM quote is countered ten cents under its offer; when a requote comes down to
+#          150.05 or less it is taken for 100 with an order; a quote withdrawn or expired is
+#          logged
+
+on error continue
+
+# The quote's row is `quote`; a stream of quotes on one symbol is one row,
+# so a requote is an event of the same macro.
+on quote where symbol == 'IBM'
+    when requoted and quote.offer_px <= 150.05
+        new symbol: quote.symbol, side: buy, qty: 100, type: previously_quoted, price: quote.offer_px
+        stop
+    when canceled or expired
+        log '${quote.quote_id} gone: ${event.kind}'
+        stop
+    when status
+        log 'status ${quote.quote_status}'
+    counter offer: TICK(quote.offer_px - 0.10, 0.01)

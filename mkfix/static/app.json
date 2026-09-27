@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.72",
+    "version": "0.73",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -1028,7 +1028,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.72"
+        "text": "mkfix v0.73"
       }
     ],
     "bindStyle": {
@@ -6994,6 +6994,86 @@
               "pane": "market-rfq-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' RFQs'), row.quote_req_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "rfq"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.quote_req_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. Your quotes, requotes, rejections and cancels become `quote`, `reject rfq` and `cancel quote` in an `on rfq` block."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -8008,6 +8088,86 @@
               "pane": "market-quote-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' quotes'), row.quote_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "quote"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.quote_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. Each quote becomes a `run` block: `new quote`, then its requotes and cancel."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -8532,6 +8692,86 @@
             "name": "table.history",
             "args": {
               "pane": "market-rfq-request-blotter"
+            }
+          }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' RFQ requests'), row.rfq_req_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "rfq_request"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.rfq_req_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. Each request becomes a `run` block: `rfq request`, then its `unsubscribe`."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
             }
           }
         }
@@ -12478,6 +12718,7 @@
                     "label": "name"
                   },
                   "fill": {
+                    "side": "side",
                     "qty": "qty",
                     "price": "price",
                     "text": "text",
@@ -12969,6 +13210,86 @@
               "pane": "rfq-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' RFQs'), row.quote_req_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "client"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "rfq"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.quote_req_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The quotes you took, countered or passed become `hit`, `counter` and `pass quote` in the RFQ's `run` block; orders naming a quote, `new`."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Client Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "client",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -13279,6 +13600,7 @@
                     "label": "name"
                   },
                   "fill": {
+                    "side": "side",
                     "qty": "qty",
                     "price": "price",
                     "text": "text",
@@ -13770,6 +14092,86 @@
               "pane": "quote-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' quotes'), row.quote_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "client"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "quote"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.quote_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. What you did to each quote — `hit`, `counter`, `pass quote`, or an order naming it (`new`) — goes in an `on quote` block."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Client Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "client",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -14100,6 +14502,86 @@
             "name": "table.history",
             "args": {
               "pane": "rfq-request-blotter"
+            }
+          }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' RFQ requests'), row.rfq_req_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "client"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "rfq_request"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.rfq_req_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The RFQs you sent against each request become `rfq` actions in an `on rfq request` block."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Client Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "client",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
             }
           }
         }
@@ -14721,7 +15203,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.side}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     }
                   ]
                 },
@@ -15493,7 +15975,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.side}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     }
                   ]
                 },
@@ -17655,7 +18137,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.72",
+      "version": "0.73",
       "mkio": "1.5",
       "expr": "2"
     },

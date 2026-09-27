@@ -1,0 +1,18 @@
+# RFQ responder
+#
+# Shows:   the client side answering an RFQ request — `on rfq request`, `rfq` sending an RFQ
+#          that names the request in tag 644, one per instrument asked for, and
+#          `unsubscribed`
+# Needs:   a FIX 4.3 or later session; run rfq-subscriber on the other end
+# Watch:   Received RFQ Requests (Client menu): the RFQs column counting; Sent RFQs for the
+#          RFQs, each naming the request
+# Outcome: every instrument a request names is asked for once, 100 to buy; the unsubscribe
+#          ends the macro
+
+on rfq request
+    let symbols = SPLIT(REPLACE(rfq_request.symbols, ' ', ''), ';')
+    repeat LEN(symbols) every 500ms with sym = symbols
+        rfq symbol: sym, side: buy, qty: 100
+    log '${LEN(rfq_requests)} requests answered so far'
+    expect unsubscribed within 10m else fail 'still subscribed'
+    pass 'unsubscribed after ${rfq_request.quote_requests} RFQs'

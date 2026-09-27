@@ -385,7 +385,14 @@ A FIX protocol testing engine for capital markets connectivity, built on
   market can ask for the RFQs on a list of instruments (Sent RFQ Requests:
   New, Clone, Unsubscribe; an RFQRequest, FIX 4.3+); the client answers from
   Received RFQ Requests with RFQ..., which names the request in tag 644, and
-  both sides count the RFQs each request has drawn.
+  both sides count the RFQs each request has drawn. Macros speak them all: a
+  client macro sends an RFQ from a `run` block (`rfq`) and takes, counters or
+  passes the quote (`hit`, `counter`, `pass quote`, or `new` naming it), and
+  answers quotes and RFQ requests in `on quote`/`on rfq request` blocks; a
+  market macro quotes in an `on rfq` block (`quote`, `requote`, `reject rfq`,
+  `cancel quote`) and streams quotes (`new quote`) or asks for RFQs
+  (`rfq request`, `unsubscribe`) from `run` blocks. The recorder and Macro...
+  on every RFQ, quote and RFQ request blotter write them too.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages

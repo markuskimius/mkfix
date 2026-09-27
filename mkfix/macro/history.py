@@ -32,7 +32,9 @@ from typing import TYPE_CHECKING, Any
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.events import report_kinds
 from mkfix.fix.families import (ALLOC_ACCEPTING, CONSUMED_ADVERT_TAGS, CONSUMED_ALLOC_ACK_TAGS, CONSUMED_ALLOC_TAGS,
-                                CONSUMED_IOI_TAGS, advert_columns, allocation_columns, ioi_columns)
+                                CONSUMED_IOI_TAGS, CONSUMED_QUOTE_TAGS, CONSUMED_RESPONSE_TAGS,
+                                CONSUMED_RFQ_REQUEST_TAGS, CONSUMED_RFQ_TAGS, advert_columns, allocation_columns,
+                                ioi_columns, quote_columns, rfq_columns, rfq_request_columns)
 from mkfix.fix.message import (CONSUMED_EXEC_TAGS, CONSUMED_ORDER_TAGS, FixMessage, client_of, extra_pairs_of,
                                format_extra_tags, parse_fix)
 
@@ -55,7 +57,16 @@ _OURS = {
     "7": CONSUMED_ADVERT_TAGS,
     "J": CONSUMED_ALLOC_TAGS,
     "P": CONSUMED_ALLOC_ACK_TAGS,
+    "R": CONSUMED_RFQ_TAGS,
+    "S": CONSUMED_QUOTE_TAGS,
+    "Z": frozenset({"131", "117", "298", "295", "55", "58"}),
+    "AG": frozenset({"131", "644", "658", "146", "55", "58"}),
+    "AJ": CONSUMED_RESPONSE_TAGS,
+    "AH": CONSUMED_RFQ_REQUEST_TAGS,
 }
+# QuoteRespType(694): what a response we sent does, and what one we heard is.
+_RESPONSE_VERB = {"1": "hit", "11": "hit", "2": "counter", "6": "pass quote"}
+_RESPONSE_HEARD = {"1": "hit", "11": "hit", "2": "countered", "6": "passed", "3": "expired", "8": "expired"}
 # A family's message type, the tags of its ID and of the one it supersedes,
 # the columns they are kept in, and what makes a row's columns of a message.
 _FAMILY = {
@@ -421,6 +432,138 @@ class FromHistory(Recorder):
                 line.steps.append(step)
         return line
 
+    # -- an RFQ, a quote, an RFQ request -----------------------------------------------------
+
+    def _quote_terms(self, msg: FixMessage, session_id: str) -> dict[str, Any]:
+        """A quote's terms as `quote`, `requote` and `new quote` take them;
+        `valid` the seconds from its sending to its ValidUntilTime."""
+        valid = _seconds(msg.get("62", "")) - _seconds(msg.get("52", "")) if msg.get("62") and msg.get("52") else 0
+        return {"bid": msg.get("132", ""), "offer": msg.get("133", ""), "bid_size": msg.get("134", ""),
+                "offer_size": msg.get("135", ""), "valid": round(valid) if valid > 0 else "",
+                "quote_type": msg.get("537", ""), **self._said(msg, session_id)}
+
+    def _response(self, m: dict[str, Any], session_id: str) -> _Step | None:
+        """A QuoteResponse we sent, as the action that sent it."""
+        msg = m["msg"]
+        verb = _RESPONSE_VERB.get(msg.get("694", ""))
+        if verb is None:
+            self._leave_out(f"{msg.get('117', '')}: a QuoteResponse the language has no action for "
+                            f"({msg.get('694', '')})")
+            return None
+        terms: dict[str, Any] = self._said(msg, session_id)
+        if verb == "hit":
+            terms.update(side=msg.get("54", ""), qty=msg.get("38", ""), price=msg.get("44", ""))
+        elif verb == "counter":
+            terms.update(bid=msg.get("132", ""), offer=msg.get("133", ""), bid_size=msg.get("134", ""),
+                         offer_size=msg.get("135", ""))
+        return _Step(m["at"], "did", verb, terms, stamp=m["timestamp"])
+
+    async def _negotiation(self, subject: str, row: dict[str, Any]) -> _Timeline | None:
+        """An RFQ (its QuoteRequest and every quote and answer since) or a
+        stream of unsolicited quotes, from the messages naming its IDs."""
+        session_id, sent = row["session_id"], row["direction"] == "TX"
+        versions = await self._versions("fix_rfqs", row)
+        quotes = sorted({v[c] for v in versions for c in ("quote_id", "quote_ref_id") if v.get(c)})
+        born = min((v["timestamp"] for v in versions if v.get("timestamp")), default="")
+        marks = tuple(f"{SOH}117={q}{SOH}" for q in quotes)
+        if row["quote_req_id"]:
+            marks += (f"{SOH}131={row['quote_req_id']}{SOH}",)
+        named = " OR ".join(["instr(raw_message, ?) > 0"] * len(marks)) or "0"
+        messages = await self._messages(session_id, f"msg_type IN ('R', 'S', 'Z', 'AG', 'AI', 'AJ', 'D') AND ({named})",
+                                        marks)
+        # An RFQ begins with its QuoteRequest; a stream of quotes with its first quote, the others being requotes.
+        opener = "R" if subject == vocab.RFQ else "S"
+        started = versions[0]["quote_id"] if subject == vocab.QUOTE else ""
+        first, messages = self._life(
+            messages, lambda m: m["msg_type"] == opener and m["direction"] == ("TX" if sent else "RX")
+            and (not started or m["msg"].get("117") == started), born)
+        if first is None:
+            self._leave_out(f"{row[vocab.SUBJECT_IDS[subject]]}: the message that began it is not among the messages kept")
+            return None
+        client, extra = self._extras(session_id, first["msg"])
+        columns = rfq_columns if subject == vocab.RFQ else quote_columns
+        begun = {**columns(first["msg"], self._dictionary(session_id, first["msg"])), "client": client,
+                 "sent_text": first["msg"].get("58", "")}
+        if subject == vocab.RFQ:
+            begun["extra_tags"] = extra
+        else:
+            begun.update(quote_extra_tags=extra, bid_px=first["msg"].get("132"), offer_px=first["msg"].get("133"),
+                         bid_size=first["msg"].get("134"), offer_size=first["msg"].get("135"),
+                         side_code=first["msg"].get("54", ""), order_qty=first["msg"].get("38") or None)
+        line = _Timeline({**row, **begun}, first["at"], subject=subject)
+        heard = _HEARD[(subject, vocab.CLIENT if sent else vocab.MARKET)]
+        # Which way the quotes go: the market sends them, so they are ours on an RFQ we received or a quote we sent.
+        quoting = (subject == vocab.RFQ) != sent
+        quoted = subject == vocab.QUOTE
+        for m in messages:
+            msg, kind, mine = m["msg"], m["msg_type"], m["direction"] == "TX"
+            step: _Step | None = None
+            if kind == "S":
+                if mine and quoting:
+                    verb = "quote" if subject == vocab.RFQ else "requote"
+                    step = _Step(m["at"], "did", verb, self._quote_terms(msg, session_id), stamp=m["timestamp"])
+                elif not mine and not quoting:
+                    step = _Step(m["at"], "heard", "requoted" if quoted else "quoted")
+                quoted = True
+            elif kind == "Z":
+                step = _Step(m["at"], "did", "cancel quote", self._said(msg, session_id), stamp=m["timestamp"]) \
+                    if mine else _Step(m["at"], "heard", "canceled")
+            elif kind == "AG":
+                step = _Step(m["at"], "did", "reject rfq", {"reason": msg.get("658", ""), **self._said(msg, session_id)},
+                             stamp=m["timestamp"]) if mine else _Step(m["at"], "heard", "rejected")
+            elif kind == "AI" and not mine:
+                step = _Step(m["at"], "heard", "expired" if msg.get("297") == "7" else "status")
+            elif kind == "AJ":
+                if mine:
+                    step = self._response(m, session_id)
+                else:
+                    step = _Step(m["at"], "heard", _RESPONSE_HEARD.get(msg.get("694", ""), "response"))
+            elif kind == "D":
+                if mine:
+                    client, extra = self._extras(session_id, msg)
+                    step = _Step(m["at"], "did", "new",
+                                 self._creator_terms(vocab.ORDER, self._order_terms(msg, client, extra)),
+                                 stamp=m["timestamp"])
+                else:
+                    step = _Step(m["at"], "heard", "hit")
+            if step is not None and (step.kind == "did" or step.name in heard):
+                step.terms = {k: v for k, v in step.terms.items() if v not in (None, "")}
+                line.steps.append(step)
+        return line
+
+    async def _rfq_request(self, row: dict[str, Any]) -> _Timeline | None:
+        """An RFQ request, its unsubscribe, and the RFQs that answered it."""
+        session_id, sent = row["session_id"], row["direction"] == "TX"
+        marks = (f"{SOH}644={row['rfq_req_id']}{SOH}",)
+        messages = await self._messages(session_id, "msg_type IN ('AH', 'R') AND instr(raw_message, ?) > 0", marks)
+        first, messages = self._life(
+            messages, lambda m: m["msg_type"] == "AH" and m["msg"].get("263") != "2"
+            and m["direction"] == ("TX" if sent else "RX"), row["timestamp"])
+        if first is None:
+            self._leave_out(f"{row['rfq_req_id']}: its RFQRequest is not among the messages kept")
+            return None
+        client, extra = self._extras(session_id, first["msg"])
+        line = _Timeline({**row, **rfq_request_columns(first["msg"], self._dictionary(session_id, first["msg"])),
+                          "client": client, "extra_tags": extra}, first["at"], subject=vocab.RFQ_REQUEST)
+        heard = _HEARD[(vocab.RFQ_REQUEST, vocab.CLIENT if sent else vocab.MARKET)]
+        for m in messages:
+            msg, mine = m["msg"], m["direction"] == "TX"
+            step: _Step | None = None
+            if m["msg_type"] == "AH" and msg.get("263") == "2":
+                _, extra = self._extras(session_id, msg)
+                step = _Step(m["at"], "did", "unsubscribe", {"extra": extra}, stamp=m["timestamp"]) if mine \
+                    else _Step(m["at"], "heard", "unsubscribed")
+            elif m["msg_type"] == "R" and mine and not sent:
+                client, extra = self._extras(session_id, msg)
+                terms = self._creator_terms(vocab.RFQ, {**rfq_columns(msg, self._dictionary(session_id, msg)),
+                                                        "client": client, "sent_text": msg.get("58", ""),
+                                                        "extra_tags": extra})
+                step = _Step(m["at"], "did", "rfq", terms, stamp=m["timestamp"])
+            if step is not None and (step.kind == "did" or step.name in heard):
+                step.terms = {k: v for k, v in step.terms.items() if v not in (None, "")}
+                line.steps.append(step)
+        return line
+
     # -- writing -----------------------------------------------------------------------------
 
     async def write(self, subject: str, row_ids: list[int]) -> dict[str, Any]:
@@ -428,12 +571,15 @@ class FromHistory(Recorder):
         actions, left_out}`. Every row has to be of this side — sent by it,
         or received by it — as the rows of one blotter are."""
         if subject not in vocab.SUBJECTS:
-            raise ValueError(f"A macro is about an order, an IOI, an advert or an allocation, not {subject!r}")
+            raise ValueError(f"A macro is about an order, an IOI, an advert, an allocation, an RFQ, a quote or an "
+                             f"RFQ request, not {subject!r}")
         table, id_col = vocab.SUBJECT_TABLES[subject], vocab.SUBJECT_IDS[subject]
         wanted = list(dict.fromkeys(int(r) for r in row_ids))
         if not wanted:
             raise ValueError(f"Choose the {vocab.PLURALS[subject]} to write a macro from")
         rows = await self._fetch(f"SELECT * FROM {table} WHERE id IN ({','.join('?' * len(wanted))}) ORDER BY id", tuple(wanted))
+        if table == "fix_rfqs":
+            rows = [r for r in rows if r["origin"] == subject]
         if len(rows) != len(wanted):
             gone = sorted(set(wanted) - {r["id"] for r in rows})
             raise ValueError(f"No {subject} with row {', '.join(map(str, gone))}: archived, perhaps")
@@ -444,7 +590,14 @@ class FromHistory(Recorder):
                                  f"a macro for it is a {'market' if self.side == 'client' else 'client'} macro")
         lines = []
         for row in rows:
-            line = await self._order(row) if subject == vocab.ORDER else await self._family(subject, row)
+            if subject == vocab.ORDER:
+                line = await self._order(row)
+            elif subject in (vocab.RFQ, vocab.QUOTE):
+                line = await self._negotiation(subject, row)
+            elif subject == vocab.RFQ_REQUEST:
+                line = await self._rfq_request(row)
+            else:
+                line = await self._family(subject, row)
             # What we received and never answered has nothing to write, as in a recording.
             if line is not None and (line.sent or any(s.kind == "did" for s in line.steps)):
                 lines.append(line)

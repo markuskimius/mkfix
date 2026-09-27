@@ -1,0 +1,25 @@
+# End-to-end RFQ
+#
+# Shows:   both sides of an RFQ in one run — the client's `rfq`, `hit` and the order it makes,
+#          the market's `on rfq` quoting it and `on order` filling the hit — with one verdict
+# Needs:   two FIX 4.4 sessions facing each other: LOOP-CLI and LOOP-MKT edited to FIX.4.4;
+#          Run… asks for both
+# Watch:   Sent RFQs and Received RFQs reaching Hit together; the order on both sides, Filled
+# Outcome: the RFQ is quoted, lifted, and the order filled in full; the run passes when the
+#          fill is heard
+
+run
+    rfq symbol: 'IBM', side: buy, qty: 200
+    expect quoted within 5s else fail 'not quoted'
+    hit
+    pass 'lifted at ${rfq.offer_px}'
+
+on rfq where symbol == 'IBM'
+    quote bid: 99.90, offer: 100.10, valid: 30s
+    expect hit within 5s else fail 'not hit'
+    pass
+
+on order where quote_id != ''
+    accept
+    fill qty: order.order_qty, price: order.price
+    pass 'filled ${order.cum_qty} of the quote'

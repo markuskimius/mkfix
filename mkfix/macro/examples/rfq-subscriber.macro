@@ -1,0 +1,25 @@
+# RFQ subscriber
+#
+# Shows:   the market side asking to be sent RFQs — `rfq request` in a `run` block, `answered`
+#          for each RFQ it draws, `unsubscribe`, and `on sent rfq request` minding one
+#          sent by hand
+# Needs:   a FIX 4.3 or later session: run it on LOOP-MKT with rfq-responder armed on LOOP-CLI,
+#          both edited to FIX.4.4
+# Watch:   Sent RFQ Requests (Market menu): Active, the RFQs column counting, then
+#          Unsubscribed; Received RFQs for the RFQs themselves
+# Outcome: a subscription for IBM and MSFT for a minute, then an unsubscribe that says how
+#          many RFQs it drew; one sent by hand is ended after five minutes
+
+run
+    when answered
+        log 'RFQ ${rfq_request.last_quote_req_id}, ${rfq_request.quote_requests} so far'
+    rfq request symbols: 'IBM; MSFT', subscription: subscribe, request_type: automatic
+    after 60s
+    let drawn = rfq_request.quote_requests
+    unsubscribe
+    pass '${drawn} RFQs for ${rfq_request.symbols}'
+
+on sent rfq request
+    after 5m
+    if rfq_request.status == 'Active'
+        unsubscribe

@@ -1,0 +1,46 @@
+# RFQ desk
+#
+# Shows:   the market side answering RFQs — `on rfq`, `quote` with a validity, a `countered` met
+#          with a requote or refused with `reject rfq`, `hit`, `passed` and `response`, a quote
+#          withdrawn with `cancel quote`, and the order a hit makes filled by `on order`
+# Needs:   a FIX 4.4 session (Hit, Counter and Pass are QuoteResponses, new in 4.4); run
+#          rfq-taker on the other end
+# Watch:   Received RFQs (Market menu): the quote standing on each, a counter in Pending, the
+#          status reaching Hit; Received Orders for the orders the hits made
+# Outcome: every IBM or MSFT RFQ is quoted either side of its mid for 30 seconds; a counter
+#          within five cents is met, a wider one refused; a quote nobody answers in 20 seconds
+#          is withdrawn; an order taking a quote is accepted and filled at once
+
+on error continue
+
+# The negotiation's row is `rfq`: the request (symbol, side, order_qty) and
+# the quote standing on it now (quote_id, bid_px, offer_px). `quote` sends
+# the first quote and every requote; terms left out keep the standing ones.
+on rfq where symbol in ['IBM', 'MSFT']
+    let mid = IF(rfq.symbol == 'IBM', 150, 250)
+    # The rules first: a counter can come back inside the `quote` that asks
+    # for it. A counter's prices wait in the row's pending columns.
+    when countered and rfq.pending_offer_px != NULL and rfq.offer_px - rfq.pending_offer_px <= 0.05
+        quote offer: rfq.pending_offer_px, text: 'met'
+    when countered
+        reject rfq reason: other, text: 'too far from ${rfq.offer_px}'
+        stop
+    when passed or response
+        log '${rfq.quote_req_id}: ${event.kind}'
+        stop
+    when hit
+        log 'hit ${rfq.quote_id}: order ${rfq.order_cl_ord_id}'
+        stop
+    after 200ms ± 50ms
+    quote bid: mid - 0.10, offer: mid + 0.10, valid: 30s
+    wait hit or passed or timeout 20s
+    if event.kind == 'timeout' and rfq.status in ['Quoted', 'Countered']
+        cancel quote text: 'no answer'
+
+on rfq
+    reject rfq reason: unknown_symbol
+
+# A hit is an order of its own, naming the quote in QuoteID(117).
+on order where quote_id != ''
+    accept
+    fill qty: order.order_qty, price: order.price

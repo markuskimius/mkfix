@@ -3512,7 +3512,7 @@ class FixEngine:
         row = {**_RFQ_BLANKS, **self._sent_family_row(session, msg, rfq_columns, extra_tags, _fix_timestamp())}
         row.update(origin="rfq", status="Open", sent_text=row["text"], text="")
         await self._insert_family_row("fix_rfqs", row)
-        await self._link_rfq_request(session_id, row["rfq_req_id"], quote_req_id, "RX")
+        await self._link_rfq_request(session_id, row["rfq_req_id"], quote_req_id, "RX", source=source)
         row = await self._find_family_row("fix_rfqs", "quote_req_id", session_id, quote_req_id, "client") or row
         self._emit_row(("sent rfq",), session_id, "fix_rfqs", row, msg=msg, source=source, request=quote_req_id,
                        tag=tag)
@@ -3787,16 +3787,22 @@ class FixEngine:
     # follow, carrying its RFQReqID(644), which each side counts onto the
     # request's row (`_link_rfq_request`).
 
-    async def _link_rfq_request(self, session_id: str, rfq_req_id: str, quote_req_id: str, direction: str) -> None:
+    async def _link_rfq_request(self, session_id: str, rfq_req_id: str, quote_req_id: str, direction: str,
+                                source: str = "wire") -> None:
         """A QuoteRequest naming an RFQ request is its answer: the request's
         row — the one we sent for a received QuoteRequest, the one we
-        received for a sent one — counts it and names the latest."""
+        received for a sent one — counts it and names the latest, and says
+        so (`rfq request answered`)."""
         if not rfq_req_id:
             return
         row = await self._find_family_row("fix_rfq_requests", "rfq_req_id", session_id, rfq_req_id, direction)
         if row is not None:
             await self._update_family_row("fix_rfq_requests", row, last_quote_req_id=quote_req_id,
                                           quote_requests=(row["quote_requests"] or 0) + 1)
+            kinds = ("rfq request answered", "message") if source == "wire" else ("rfq request answered",)
+            self._emit_row(kinds, session_id, "fix_rfq_requests",
+                           await self._load_family_row_by_id("fix_rfq_requests", row["id"]), source=source,
+                           request=quote_req_id)
 
     async def _handle_rfq_request(self, session: FixSession, msg: FixMessage) -> None:
         """A received RFQRequest (35=AH): a subscription (or snapshot)

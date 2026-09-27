@@ -55,9 +55,16 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 | `on ioi where EXPR` | client | an IOI you received | `new` — an order answering it, with the IOI's ID in tag 23 |
 | `on advert where EXPR` | client | an advert you received | nothing answers an advert: watch and `log` |
 | `on allocation where EXPR` | client | an allocation you received | `accept allocation`, `reject allocation` |
+| `run` or `run on SESSION` | client | an RFQ the macro sends with `rfq` | `rfq`, then `hit`, `counter`, `pass quote`, or `new` taking the quote |
+| `on sent rfq where EXPR` | client | an RFQ sent by hand | `hit`, `counter`, `pass quote`, `new` |
+| `on rfq where EXPR` | market | an RFQ you received | `quote`, `requote`, `reject rfq`, `cancel quote` |
+| `run` or `run on SESSION` | market | a quote nobody asked for, sent with `new quote`, or an RFQ request sent with `rfq request` | that verb, then `requote`/`cancel quote`, or `unsubscribe` |
+| `on sent quote`, `on sent rfq request` (`where EXPR`) | market | one sent by hand | `requote`/`cancel quote`, `unsubscribe` |
+| `on quote where EXPR` | client | a quote you received unasked | `hit`, `counter`, `pass quote`, `new` |
+| `on rfq request where EXPR` | client | an RFQ request you received | `rfq` — an RFQ answering it, with the request's ID in tag 644 |
 | `on signal 'NAME' where EXPR` | either, by what it sends | what the block sends, as in `run` | what `run` may; it starts once for every such signal of the run's own macros — see [Working together](#working-together) |
 
-`where` is optional. In it the subject's columns are names by themselves — `symbol == 'IBM' and order_qty >= 1000` — and `order.symbol` (or `ioi.symbol`, `advert.symbol`, `allocation.symbol`) works too. A `run` block is about whatever its sending verb sends, and one `run` sends one kind of thing.
+`where` is optional. In it the subject's columns are names by themselves — `symbol == 'IBM' and order_qty >= 1000` — and `order.symbol` (or `ioi.symbol`, `rfq.symbol`, `rfq_request.symbols`…) works too. A `run` block is about whatever its sending verb sends, and one `run` sends one kind of thing.
 
 ## Market macros
 
@@ -119,6 +126,41 @@ on ioi where symbol in ['IBM', 'MSFT'] and ioi_qty == 'L'
 - `on sent ioi`, `on sent advert` and `on sent allocation` mind what was sent by hand from the Sent blotters, as `on sent order` minds orders.
 - The Macro Runs window lists an IOI's or allocation's macro under its run like an order's, with its **Subject** and its current ID, and the row a macro took carries the macro's name in its blotter's Macro column.
 
+## RFQs and quotes
+
+An RFQ goes the way an order goes — the client sends it, the market answers — and a quote the market sends unasked the way an IOI goes. One row holds a negotiation: the request and the quote standing on it now, so `rfq.bid_px` is always the latest bid.
+
+```macro
+on rfq where symbol == 'IBM'
+    quote bid: 150.10, offer: 150.30, valid: 30s
+    when countered
+        quote offer: rfq.pending_offer_px
+    when hit
+        log 'taken: ${rfq.order_cl_ord_id}'
+        stop
+```
+
+```macro
+run
+    rfq symbol: 'IBM', side: buy, qty: 500
+    expect quoted within 5s else fail 'no quote'
+    if rfq.offer_px <= 150.25
+        hit
+    else
+        counter offer: 150.25
+        wait requoted or timeout 5s
+        if event.kind == 'requoted' and rfq.offer_px <= 150.25
+            hit
+        else
+            pass quote
+    pass
+```
+
+- `quote` answers the RFQ, and again answers a counter; `requote` replaces a standing quote, `cancel quote` withdraws it. Terms left out keep the standing quote's: `quote offer: 150.2` moves the offer alone. `valid` is how long a quote stands; when it runs out it is `expired` on both sides.
+- `hit`, `counter` and `pass quote` answer with a QuoteResponse, FIX 4.4 and later. `hit` makes an order on both sides that belongs to no macro — the market's `on order` blocks take it like any other. `new` takes the quote on any version, naming it in tag 117.
+- A market `run` block sends quotes nobody asked for with `new quote`; one standing on the symbol is replaced, so `repeat … every 1s` over `requote` streams prices. The client hears them in an `on quote` block.
+- `rfq request` asks to be sent the RFQs for a list of instruments (FIX 4.3 and later); in an `on rfq request` block, `rfq` answers it. `unsubscribe` ends the subscription.
+
 ## Actions
 
 An action is a blotter button. Its terms are the dialog's fields, written `name: value`, separated by commas. A value is an expression; quoted text may hold `${…}` placeholders.
@@ -148,10 +190,21 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 | `cancel allocation` | Asks to cancel the allocation | `text`, `extra` |
 | `accept allocation` | Accepts what is pending on a received allocation with `status` accepted, received or incomplete | `status`, `text`, `extra` |
 | `reject allocation` | Refuses what is pending with `status` block or account level reject and a `reason` | `status`, `reason`, `text`, `extra` |
+| `rfq` | Sends a QuoteRequest; in an `on rfq request` block, one answering the request (tag 644) | `symbol`, `side`, `qty`, `request_type`, `quote_type`, `currency`, `client`, `text`, `extra` |
+| `hit` | Takes the quote (QuoteResponse Hit, 4.4+): the offer for a buy, the bid for a sell | `side`, `qty`, `price`, `text`, `extra` |
+| `counter` | Counters the quote (QuoteResponse Counter, 4.4+); terms left out keep the quote's | `bid`, `offer`, `bid_size`, `offer_size`, `text`, `extra` |
+| `pass quote` | Declines the quote (QuoteResponse Pass, 4.4+) | `text`, `extra` |
+| `quote` | Quotes the RFQ, or requotes it; `valid` is a duration | `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra` |
+| `reject rfq` | Refuses the RFQ (QuoteRequestReject, 4.3+) | `reason`, `text`, `extra` |
+| `new quote` | Sends a quote nobody asked for | `symbol`, `side`, `qty`, `currency`, `client`, `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra` |
+| `requote` | Replaces the quote under a new QuoteID; answers a pending counter | `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra` |
+| `cancel quote` | Withdraws the quote (QuoteCancel, 4.2+) | `text`, `extra` |
+| `rfq request` | Asks to be sent the RFQs for `symbols` (RFQRequest, 4.3+) | `symbols`, `subscription`, `request_type`, `quote_type`, `client`, `extra` |
+| `unsubscribe` | Ends the RFQ request's subscription | `extra` |
 
 - `extra` is the dialogs' Extra Tags: `extra: '9001=venue-A'` adds a tag, `extra: '60='` removes one, and naming a computed tag (`extra: '10=000'`) overrides it.
 - `using 'NAME'` takes the terms from a saved template of that action; terms written on the line override the template's.
-- Fixed choices may be a bare word, a quoted name, or the FIX code: `side: buy`, `reason: 'Price exceeds limit'`, `tif: '3'`. The words are listed by completion after the colon, and depend on the action: `side` on `ioi` is `buy`, `sell`, `undisclosed`, `cross`; on `advert` `buy`, `sell`, `cross`, `trade`; `quality` is `high`, `medium`, `low`; `natural` is `yes`, `no`; `status` on the allocation answers is `accepted`, `received`, `incomplete`, `block_level_reject`, `account_level_reject`, `rejected_by_intermediary`; `reason` on `reject allocation` is the AllocRejCode by name (`incorrect_quantity`, `unknown_account`, `other`…).
+- Fixed choices may be a bare word, a quoted name, or the FIX code: `side: buy`, `reason: 'Price exceeds limit'`, `tif: '3'`. The words are listed by completion after the colon, and depend on the action: `side` on `ioi` is `buy`, `sell`, `undisclosed`, `cross`; on `advert` `buy`, `sell`, `cross`, `trade`; `quality` is `high`, `medium`, `low`; `natural` is `yes`, `no`; `status` on the allocation answers is `accepted`, `received`, `incomplete`, `block_level_reject`, `account_level_reject`, `rejected_by_intermediary`; `reason` on `reject allocation` is the AllocRejCode by name (`incorrect_quantity`, `unknown_account`, `other`…); `side` on `rfq`, `hit` and `new quote` is `buy` or `sell`; `quote_type` is `indicative`, `tradeable`, `restricted_tradeable`, `counter`; `request_type` `manual`, `automatic`; `reason` on `reject rfq` is `unknown_symbol`, `no_inventory`, `other`…; `subscription` is `subscribe` or `snapshot`.
 
 ### Which trade
 
@@ -210,11 +263,11 @@ on order
 | `fill` | sent | a fill, partial or complete |
 | `filled` | sent | the fill that completed the order |
 | `replaced` | sent; received IOI or advert | a replace request was accepted — or the IOI or advert you received was replaced by its sender |
-| `canceled` | sent; received IOI or advert | the order was canceled, asked for or not — or the IOI or advert you received was canceled |
-| `rejected` | sent | the order was rejected — or the allocation's Ack refused it |
+| `canceled` | sent; received IOI, advert or quote | the order was canceled, asked for or not — or the IOI, advert or quote you received, or the quote on your RFQ, was canceled |
+| `rejected` | sent | the order was rejected — or the allocation's Ack refused it, or the RFQ was |
 | `cancel rejected` | sent | a cancel or replace request was refused; see `event.response_to` and `event.reason` |
 | `restated` | sent | the counterparty changed the order's terms unasked |
-| `expired` | sent | the order expired |
+| `expired` | sent; RFQs and quotes both ways | the order expired — or the quote's ValidUntilTime passed |
 | `done for day` | sent | the order is done for the day |
 | `corrected` | sent | a trade you received was corrected |
 | `busted` | sent | a trade you received was busted |
@@ -223,6 +276,15 @@ on order
 | `received` | sent allocation | the Ack says received, not yet accepted (AllocStatus 3) |
 | `incomplete` | sent allocation | the Ack says incomplete (AllocStatus 4) |
 | `acked` | sent allocation | any Ack of the allocation, named or not: test `event.tag['87']` |
+| `quoted` | sent RFQ | the first quote answering it arrived |
+| `requoted` | sent RFQ, received quote | a new quote replaced the one standing |
+| `status` | sent RFQ, received quote | a QuoteStatusReport about the quote: `rfq.quote_status` |
+| `hit` | received RFQ, sent quote | the counterparty took your quote; its order arrives as a received order |
+| `countered` | received RFQ, sent quote | the counterparty countered: `rfq.pending_bid_px`, `rfq.pending_offer_px` … |
+| `passed` | received RFQ, sent quote | the counterparty passed |
+| `response` | received RFQ, sent quote | any other QuoteResponse: test `event.tag['694']` |
+| `unsubscribed` | received RFQ request | its sender ended the subscription |
+| `answered` | sent RFQ request | an RFQ naming it arrived: `rfq_request.quote_requests` counts them |
 | `message` | both | any application message about the subject |
 | `manual` | both | someone acted on it by hand; `event.op` names the action |
 | `session down` | both | its session lost its connection |
@@ -270,6 +332,12 @@ Expressions are mkio's expression language: `and or not`, `in`, `== != < <= > >=
 | `iois` | every IOI this run's macros hold, the same way |
 | `adverts` | every advert this run's macros hold |
 | `allocations` | every allocation this run's macros hold |
+| `rfq` | in an RFQ block, the negotiation's row: `rfq.status`, and the standing quote — `rfq.quote_id`, `rfq.bid_px`, `rfq.offer_px`, `rfq.valid_until` … |
+| `quote` | in a quote block, the quote's row: `quote.quote_id`, `quote.bid_px`, `quote.offer_px`, `quote.status` … |
+| `rfq_request` | in an RFQ request block, the request's row: `rfq_request.symbols`, `rfq_request.quote_requests` … |
+| `rfqs` | every RFQ this run's macros hold |
+| `quotes` | every quote this run's macros hold |
+| `rfq_requests` | every RFQ request this run's macros hold |
 
 A misspelt column is an error when you save, not a surprise when you run: `order.leave_qty` is underlined.
 

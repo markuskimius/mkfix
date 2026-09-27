@@ -104,7 +104,7 @@ class TestTheWords:
         assert ("error", 6, "Unknown field: 'shared.nope'. shared has: a") in found
         assert any(sev == "error" and line == 7 and m.startswith("Unknown field: 'orders.*.leave_qty'") for sev, line, m in found)
         assert not any(line == 8 for _, line, _ in found), "the sender's row is whatever it is a row of"
-        needs = ("An `on signal` block sends something of its own: it needs a `new`, `ioi`, `advert` or `allocate`. To "
+        needs = ("An `on signal` block sends something of its own: it needs a `new`, `ioi`, `advert`, `allocate`, `rfq`, `new quote` or `rfq request`. To "
                  "react to a signal in a macro that already has its order, write `when signal 'NAME'` inside that block")
         assert ("error", 10, needs) in found and ("error", 12, needs) in found
         assert any(sev == "warning" and line == 10 and "Nothing in this macro signals 'x'" in m for sev, line, m in found)

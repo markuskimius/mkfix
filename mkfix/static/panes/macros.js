@@ -1,9 +1,9 @@
 // Macros pane: the list of saved macros and an Ace editor over the one
 // selected. It comes in three — Client Macros, Market Macros and
 // End-to-end Macros, the same pane type told its `side` in app.json. A
-// macro is for one side: a client macro sends orders and receives IOIs,
-// adverts and allocations, a market macro receives orders and sends the
-// other three. An end-to-end macro holds blocks of both and plays them in
+// macro is for one side: a client macro sends orders and RFQs and receives
+// IOIs, adverts, allocations, quotes and RFQ requests, a market macro the
+// other way round. An end-to-end macro holds blocks of both and plays them in
 // one run, which has a session a side. ▶ is Run… for a
 // macro that sends (as many runs at once as asked for) and Arm… for one
 // that only waits, on either side. Each lists,
@@ -214,8 +214,8 @@ registerPaneType("macros", async (spec, app, host) => {
     }).join("") || `<div class="macro-empty">No ${side} macros yet — ${aSide} macro ${both
       ? "plays both sides in one run: it sends orders and answers them, a test in one file with one verdict"
       : side === "client"
-        ? "sends orders and acts on them, and answers the IOIs, adverts and allocations you receive"
-        : "acts on the orders you receive, and sends IOIs, adverts and allocations"}. <b>New</b> starts one; <b>Example…</b> copies a bundled one.</div>`;
+        ? "sends orders and RFQs and acts on them, and answers the IOIs, adverts, allocations, quotes and RFQ requests you receive"
+        : "acts on the orders and RFQs you receive, and sends IOIs, adverts, allocations, quotes and RFQ requests"}. <b>New</b> starts one; <b>Example…</b> copies a bundled one.</div>`;
     listEl.querySelectorAll(".macro-item").forEach((el) => { el.querySelector(".macro-name").textContent = el.dataset.name; });
   }
 

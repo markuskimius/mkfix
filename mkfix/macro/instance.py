@@ -461,23 +461,31 @@ class Instance:
             payload[term.key] = "" if value is None else value
         creator = vocab.CREATORS[self.kind]
         creates = st.verb == creator and self.block.kind == vocab.CLIENT
+        word = vocab.SUBJECT_WORDS[self.kind]
         if creates:
             if self.row is not None:
-                raise ScriptError(st.line, f"this macro has already sent its {self.kind}: one {self.kind} per macro")
+                raise ScriptError(st.line, f"this macro has already sent its {word}: one {word} per macro")
             payload["session_id"], payload["_tag"] = self.session or self.run.session_of(self.block), self.tag
         elif self.row is None:
-            raise ScriptError(st.line, f"`{st.verb}` before `{creator}`: this macro has no {self.kind} yet")
+            raise ScriptError(st.line, f"`{st.verb}` before `{creator}`: this macro has no {word} yet")
         else:
             payload["session_id"] = self.row["session_id"]
-        if st.verb == "new" and self.kind == vocab.IOI:
-            # The order answers the IOI: its ID rides in tag 23 unless the macro named one itself.
+        answer = vocab.ANSWER_TAGS.get((st.verb, self.kind)) if not creates else None
+        if answer is not None:
+            # What it sends answers the subject: an order names the IOI (23) or the quote (117) it takes, an
+            # RFQ the request it answers (644) — unless the macro named one itself.
+            tag, column = answer
+            if not self.row[column]:
+                raise ScriptError(st.line, f"`{st.verb}` answers the {word}'s {column}, and it has none yet")
             extras = str(payload.get("extra_tags") or "")
-            if not any(pair.split("=", 1)[0].strip() == "23" for pair in extras.split("|")):
-                payload["extra_tags"] = "|".join(p for p in (f"23={self.row['ioi_id']}", extras) if p)
+            if not any(pair.split("=", 1)[0].strip() == tag for pair in extras.split("|")):
+                payload["extra_tags"] = "|".join(p for p in (f"{tag}={self.row[column]}", extras) if p)
         if st.verb in ("replace", "cancel"):
             payload = {**self._as_entered(st.verb == "replace"), **payload}
         elif st.verb.startswith("replace "):
             payload = {**self._family_as_entered(), **payload}
+        elif st.verb in ("quote", "requote", "counter"):
+            payload = {**self._quote_as_entered(), **payload}
 
         async with self._action_lock:
             if not self.live:
@@ -491,8 +499,10 @@ class Instance:
                 # this order may have just renamed it.
                 if verb.trade:
                     payload["exec_id"] = (await self._target(flow, st))["exec_id"]
-                elif creates or st.verb == "new":
+                elif creates or st.verb in vocab.CREATORS.values():
                     pass                                    # sends something new: no subject to name
+                elif verb.key:
+                    payload[verb.key] = self.row[verb.key]
                 elif verb.subject != vocab.ORDER:
                     payload[vocab.SUBJECT_IDS[verb.subject]] = self.subject_id
                 elif st.verb in ("replace", "cancel"):
@@ -514,6 +524,17 @@ class Instance:
                     raise ScriptError(st.line, why) from None
                 self.runner._log(self, st.line, why)
                 self.deliver(event_map(("error",), text=why, op=verb.op))
+
+    def _quote_as_entered(self) -> dict[str, Any]:
+        """What the quote dialogs open on: the standing quote's prices, sizes
+        and type, which the macro's own terms then override."""
+        r = self.row
+        size = r.get("order_qty") or None                      # a fresh RFQ's quote is for the size asked
+        standing = {"bid_px": r.get("bid_px"), "offer_px": r.get("offer_px"),
+                    "bid_size": r.get("bid_size") if r.get("bid_size") is not None else size,
+                    "offer_size": r.get("offer_size") if r.get("offer_size") is not None else size,
+                    "quote_type": r.get("quote_type_code")}
+        return {k: v for k, v in standing.items() if v not in (None, "")}
 
     def _family_as_entered(self) -> dict[str, Any]:
         """What the Replace dialogs of the three families open on: the row's

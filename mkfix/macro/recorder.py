@@ -57,10 +57,12 @@ _HEARD = {
                            if (subject, kind) in e.places and e.name not in _NEVER_HEARD)
     for subject in vocab.SUBJECTS for kind in (vocab.MARKET, vocab.CLIENT)
 }
-_KIND_OF_TABLE = {table: subject for subject, table in vocab.SUBJECT_TABLES.items()}
 _CREATORS = set(vocab.CREATORS.values())
 # The column a received subject's `where` narrows on when its symbol is not enough.
-_QTY_COL = {vocab.ORDER: "order_qty", vocab.IOI: "ioi_qty", vocab.ADVERT: "quantity", vocab.ALLOCATION: "quantity"}
+_QTY_COL = {vocab.ORDER: "order_qty", vocab.IOI: "ioi_qty", vocab.ADVERT: "quantity", vocab.ALLOCATION: "quantity",
+            vocab.RFQ: "order_qty", vocab.QUOTE: "order_qty", vocab.RFQ_REQUEST: "num_symbols"}
+# The column that names a subject's instrument (an RFQ request names several).
+_SYMBOL_COL = {vocab.RFQ_REQUEST: "symbols"}
 _QUIET = 0.05          # a delay shorter than this is not worth a line
 
 
@@ -117,12 +119,12 @@ class Recorder:
     def _sends(self, subject: str) -> bool:
         """Whether this side sends the subject: the client side sends orders
         and receives the rest, the market side the other way round."""
-        return (subject == vocab.ORDER) == (self.side == "client")
+        return (subject in vocab.CLIENT_SENDS) == (self.side == "client")
 
     def _on_event(self, ev: EngineEvent) -> None:
         if ev.table:
-            subject, row = _KIND_OF_TABLE.get(ev.table, ""), ev.row
-            prefix = subject + " "
+            subject, row = vocab.subject_of_row(ev.table, ev.row), ev.row
+            prefix = vocab.SUBJECT_WORDS.get(subject, subject) + " "
             kinds = tuple(k[len(prefix):] if k.startswith(prefix) else k for k in ev.kinds)
         else:
             subject, row, kinds = vocab.ORDER, ev.order, ev.kinds
@@ -137,8 +139,9 @@ class Recorder:
             # What we receive is followed from its arrival, what we send from
             # the sending; one already under way when recording began has no
             # beginning to write down.
-            born = (kinds[0] == f"sent {subject}" and ev.source == "manual") if sends \
-                else (kinds[0] == subject and ev.source == "wire")
+            word = vocab.SUBJECT_WORDS[subject]
+            born = (kinds[0] == f"sent {word}" and ev.source == "manual") if sends \
+                else (kinds[0] == word and ev.source == "wire")
             if born:
                 self.timelines[key] = _Timeline(dict(row), now, subject=subject)
             return
@@ -279,6 +282,7 @@ class Recorder:
                       "dk": ("renotify", "correct", "bust")},
         vocab.ALLOCATION: {"cancel": ("accept allocation", "reject allocation"),
                            "replace": ("accept allocation", "reject allocation")},
+        vocab.RFQ: {"countered": ("quote", "requote", "reject rfq", "cancel quote")},
     }
 
     def _handlers(self, steps: list[_Step], subject: str = vocab.ORDER) -> tuple[set[int], list[tuple[str, _Step, float, bool]]]:
@@ -349,7 +353,7 @@ class Recorder:
         """One block per way of working what was received: orders (IOIs,
         adverts, allocations) worked the same way — the same statements,
         whatever the delays — share a block."""
-        qty_col = _QTY_COL[subject]
+        qty_col, symbol_col = _QTY_COL[subject], _SYMBOL_COL.get(subject, "symbol")
         groups: list[tuple[list[str], list[_Timeline]]] = []
         for line in lines:
             body = await self._body(line, line.started)
@@ -360,11 +364,12 @@ class Recorder:
                     break
             else:
                 groups.append((body, [line]))
-        symbols_of = [sorted({m.order["symbol"] for m in members}) for _, members in groups]
+        symbols_of = [sorted({m.order[symbol_col] for m in members}) for _, members in groups]
         made: list[tuple[bool, str, list[str]]] = []
         for n, (body, members) in enumerate(groups):
             symbols = symbols_of[n]
-            where = f"symbol == {_quote(symbols[0])}" if len(symbols) == 1 else f"symbol in [{', '.join(map(_quote, symbols))}]"
+            where = f"{symbol_col} == {_quote(symbols[0])}" if len(symbols) == 1 \
+                else f"{symbol_col} in [{', '.join(map(_quote, symbols))}]"
             # A symbol worked two ways: the quantity is the next thing that told the orders apart.
             shared = any(set(symbols) & set(other) for k, other in enumerate(symbols_of) if k != n)
             if shared:
@@ -377,7 +382,8 @@ class Recorder:
             note = [f"# The same {vocab.PLURALS[subject]} as a block above, worked differently: "
                     "tell them apart in the `where`."] if where in seen else []
             seen.add(where)
-            blocks.append("\n".join([*note, f"on {subject} where {where}", *("    " + line for line in body)]))
+            blocks.append("\n".join([*note, f"on {vocab.SUBJECT_WORDS[subject]} where {where}",
+                                     *("    " + line for line in body)]))
         return blocks
 
     _market_blocks = _received_blocks
@@ -400,6 +406,20 @@ class Recorder:
             return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["quantity"], "price": o["price"] or None,
                     "currency": o["currency"], "trade_date": o["trade_date"], "last_mkt": o["last_mkt"],
                     "client": o.get("client"), "text": o["text"], "extra": o["extra_tags"]}
+        if subject == vocab.RFQ:
+            return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["order_qty"] or None,
+                    "request_type": o["quote_request_type_code"], "quote_type": o["quote_type_code"],
+                    "currency": o["currency"], "client": o.get("client"), "text": o.get("sent_text"),
+                    "extra": o["extra_tags"]}
+        if subject == vocab.QUOTE:
+            return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["order_qty"] or None,
+                    "currency": o["currency"], "client": o.get("client"), "bid": o["bid_px"], "offer": o["offer_px"],
+                    "bid_size": o["bid_size"], "offer_size": o["offer_size"], "quote_type": o["quote_type_code"],
+                    "text": o.get("sent_text"), "extra": o["quote_extra_tags"]}
+        if subject == vocab.RFQ_REQUEST:
+            return {"symbols": o["symbols"], "subscription": o["subscription_type_code"],
+                    "request_type": o["quote_request_type_code"], "quote_type": o["quote_type_code"],
+                    "client": o.get("client"), "extra": o["extra_tags"]}
         # An allocation sent without a trade date goes out with the day's: written down, the
         # macro would send that day's for ever. The day it was sent is no term; any other was given.
         sent_on = str(o.get("transact_time") or o.get("timestamp") or "")[:8]
@@ -512,12 +532,22 @@ def _value(verb: str, term: str, value: Any) -> str:
     if enum:
         word = next((w for w, code in vocab.ENUMS[enum].items() if code == str(value)), None)
         return word or _quote(value)
-    if term in ("qty", "price", "avg_price"):
+    if term == "valid":
+        return _seconds_term(value)
+    if term in ("qty", "price", "avg_price", "bid", "offer", "bid_size", "offer_size"):
         try:
             return _number(value)
         except (TypeError, ValueError):
             return _quote(value)
     return _quote(value)
+
+
+def _seconds_term(value: Any) -> str:
+    """A `valid` term as a duration: the seconds a dialog took, written the way a person would."""
+    try:
+        return _duration(float(value))
+    except (TypeError, ValueError):
+        return _quote(value)
 
 
 def _duration(seconds: float, coarse: bool = False) -> str:
