@@ -3222,7 +3222,7 @@ class TestFamilyBlotters:
         assert button["unit"] == "row"
         pick = fields["_fills"]
         assert pick["optionsFrom"] == {"service": "order_fills", "params": {"order_id": "${row.order_id}"},
-                                       "value": "pick", "label": "label", "empty": "(none yet: type them, or leave blank)"}
+                                       "value": "pick", "label": "label", "empty": "(none: type them, or leave blank)"}
         assert pick["fill"] == {"execs": "execs", "qty": "qty", "avg_price": "avg_price"}
         assert pick["remember"] == {"key": "mkfix.allocate.fills"}
         svc = toml_config["services"]["order_fills"]

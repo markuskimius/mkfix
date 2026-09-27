@@ -121,10 +121,14 @@ class FixCommandService(Service):
         elif command == "get_example":
             return {"ok": True, **macros.example(data["name"])}
         elif command == "arm_macro" or command == "run_macro":
-            # Two names for one thing, so neither side's button can start the
-            # other's script: arming waits for orders, running sends them.
+            # Two names for one thing: arming waits, running sends. Either
+            # side has macros of both kinds since 0.64 — a market macro
+            # sends IOIs, a client one waits for them — so the editor says
+            # which side it is (`side`); without it arming is the market's
+            # and running the client's, as before, and neither side's
+            # button can start the other's macro.
             return {"ok": True, **await macros.arm(
-                data["name"], side="market" if command == "arm_macro" else "client",
+                data["name"], side=data.get("side") or ("market" if command == "arm_macro" else "client"),
                 session=data.get("session", ""), seed=int(data["seed"]) if data.get("seed") else None,
                 speed=float(data.get("speed") or 1.0))}
         elif command == "stop_macro":

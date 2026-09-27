@@ -206,9 +206,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Macros** -- Scripts, called macros, that act on orders as things happen
   to them, in a small language of their own. There are two kinds, each with its own menu,
   editor and run panes. A **market macro** (Market menu) answers the orders
-  you receive (`on order`): **Arm…** it and it waits for orders to match. A
+  you receive (`on order`): **Arm…** it and it waits for orders to match; one
+  that sends IOIs, adverts or allocations (`run`) is **Run…** instead. A
   **client macro** (Client menu) sends orders of its own and manages them
   (`run`), or minds the orders you send by hand (`on sent order`): **Run…** it
+  (**Arm…**, when it only waits for what arrives)
   on the session you choose, as many runs at once as you like, of one macro
   or of many. A macro is one kind or the other -- the editor underlines a
   block of the wrong side. Every order gets its own copy of the macro, so

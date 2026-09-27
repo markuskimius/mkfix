@@ -306,7 +306,7 @@ You do not have to start from an empty page: **●** (record) — in an editor, 
 
 ## Running
 
-- **▶** in the editor opens **Arm…** (Market Macros) or **Run…** (Client Macros), which ask for a session, a speed (2 runs the macro's waits twice as fast — mind that real answers do not get faster) and a seed (blank: the macro's `seed`, or a random one, shown in Macro Runs so a run can be repeated).
+- **▶** in the editor opens **Run…** for a macro with a `run` block and **Arm…** for one that only waits, in either editor; both ask for a session, a speed (2 runs the macro's waits twice as fast — mind that real answers do not get faster) and a seed (blank: the macro's `seed`, or a random one, shown in Macro Runs so a run can be repeated).
 - Any number of runs may be live at once, on either side. The server stops taking orders into macros at 20,000 live macros, and a single run at 10,000 orders; the run's log says so.
 - **Macro Runs** lists a side's runs. **Pause** parks every macro of a run before its next line; **Stop** ends it; **Move Up**/**Move Down** change its Priority. **Macro Orders** lists the orders' macros — **Detach** gives one order back to you — and selecting a row moves the editor to its line. **Log** holds what the macros `log`, and why one failed.
 - **⏸** in the editor pauses every playing run of the open macro and, once they are all paused, resumes them; **■** stops them all.

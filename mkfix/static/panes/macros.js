@@ -1,8 +1,10 @@
 // Macros pane: the list of saved macros and an Ace editor over the one
 // selected. It comes in two — Client Macros and Market Macros, the same
 // pane type told its `side` in app.json — because a macro is for one side:
-// a client macro sends orders and acts on them (Run…, as many runs at once
-// as asked for), a market macro acts on orders received (Arm…). Each lists,
+// a client macro sends orders and receives IOIs, adverts and allocations, a
+// market macro receives orders and sends the other three. ▶ is Run… for a
+// macro that sends (as many runs at once as asked for) and Arm… for one
+// that only waits, on either side. Each lists,
 // checks, saves and follows only its own side. Everything it knows about the language comes from the server —
 // the vocabulary (`macro_vocab`) for colouring, completion and help, and
 // `check_macro` for the problems it underlines — so the Python parser is
@@ -174,7 +176,7 @@ registerPaneType("macros", async (spec, app, host) => {
   let anchor = null;                    // where a Shift-click's range starts: the last plain click
   let saved = "";                       // its text as last saved
   let problems = 0;
-  let checked = { needs_session: false, session: "" };
+  let checked = { needs_session: false, session: "", sends: false };
   let markers = [];
   let liveMarkers = [];
   let extras = { sessions: [], templates: {}, templateScopes: templateScopes(vocab), side };
@@ -206,7 +208,8 @@ registerPaneType("macros", async (spec, app, host) => {
       return `<div class="macro-item${name === current ? " macro-current" : ""}${selected.has(name) ? " macro-selected" : ""}" data-name="${name.replace(/"/g, "&quot;")}">
         <span class="macro-name"></span>${badge}</div>`;
     }).join("") || `<div class="macro-empty">No ${side} macros yet — a ${side} macro ${side === "client"
-      ? "sends orders and acts on them" : "acts on the orders you receive"}. <b>New</b> starts one; <b>Example…</b> copies a bundled one.</div>`;
+      ? "sends orders and acts on them, and answers the IOIs, adverts and allocations you receive"
+      : "acts on the orders you receive, and sends IOIs, adverts and allocations"}. <b>New</b> starts one; <b>Example…</b> copies a bundled one.</div>`;
     listEl.querySelectorAll(".macro-item").forEach((el) => { el.querySelector(".macro-name").textContent = el.dataset.name; });
   }
 
@@ -281,7 +284,7 @@ registerPaneType("macros", async (spec, app, host) => {
       session.addMarker(new Range(d.line - 1, d.col, d.line - 1, Math.max(d.end, d.col + 1)), `macro-mark-${d.severity}`, "text"));
     session.setAnnotations(result.diagnostics.map((d) => ({ row: d.line - 1, column: d.col, text: d.message, type: d.severity })));
     problems = result.errors;
-    checked = { needs_session: !!result.needs_session, session: result.session ?? "" };
+    checked = { needs_session: !!result.needs_session, session: result.session ?? "", sends: !!result.sends };
     const first = result.diagnostics.find((d) => d.severity === "error");
     status(problems ? `${problems} problem${problems === 1 ? "" : "s"} — line ${first.line}: ${first.message}`
       : result.diagnostics.length ? `${result.diagnostics.length} warning(s)` : "No problems", problems ? "error" : "ok");
@@ -726,8 +729,10 @@ registerPaneType("macros", async (spec, app, host) => {
       return;
     }
     if (act === "play") {
-      const context = { row: { name: current, ...checked } };
-      return side === "client" ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);
+      // Run… for a macro with a `run` block, Arm… for one that only waits:
+      // either side has both. The dialog hands the side on (`row.side`).
+      const context = { row: { name: current, side, ...checked } };
+      return checked.sends ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);
     }
     if (act === "pause") {
       // Every playing run of the open macro; once all are paused, the same button resumes them.

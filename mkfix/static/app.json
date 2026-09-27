@@ -365,8 +365,13 @@
           "value": "${row.name}"
         },
         {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
+        },
+        {
           "name": "session",
-          "label": "Only this session's orders",
+          "label": "Only this session's",
           "type": "select",
           "optionsFrom": {
             "service": "sessions_list",
@@ -411,6 +416,11 @@
           "name": "name",
           "type": "hidden",
           "value": "${row.name}"
+        },
+        {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
         },
         {
           "name": "session",
@@ -6779,7 +6789,7 @@
                     },
                     "value": "pick",
                     "label": "label",
-                    "empty": "(none yet: type them, or leave blank)"
+                    "empty": "(none: type them, or leave blank)"
                   },
                   "fill": {
                     "execs": "execs",
@@ -10644,6 +10654,7 @@
         {
           "label": "Order",
           "columns": [
+            "subject",
             "cl_ord_id",
             "symbol",
             "line",
@@ -10870,7 +10881,7 @@
         "timestamp": "Time",
         "run_id": "Run",
         "macro": "Macro",
-        "cl_ord_id": "ClOrdID",
+        "cl_ord_id": "ID",
         "line": "Line",
         "text": "Text",
         "id": "Row",
@@ -11033,6 +11044,7 @@
         {
           "label": "Order",
           "columns": [
+            "subject",
             "cl_ord_id",
             "symbol",
             "line",
@@ -11259,7 +11271,7 @@
         "timestamp": "Time",
         "run_id": "Run",
         "macro": "Macro",
-        "cl_ord_id": "ClOrdID",
+        "cl_ord_id": "ID",
         "line": "Line",
         "text": "Text",
         "id": "Row",

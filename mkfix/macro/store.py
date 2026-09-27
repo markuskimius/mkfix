@@ -196,6 +196,9 @@ class MacroManager:
         return {"side": side or macro.side,
                 "diagnostics": [_diagnostic(d) for d in diagnostics], "errors": len(errors(diagnostics)),
                 "needs_session": macro.needs_session,
+                # Whether ▶ is Run… (it has a `run` block: it sends, on either
+                # side) or Arm… (it only waits for what arrives).
+                "sends": any(b.kind == vocab.CLIENT for b in macro.blocks),
                 # What Run… opens on: the one session every `run` block names.
                 "session": next(iter(named)) if len(named) == 1 and None not in named else "",
                 "blocks": [{"kind": b.kind, "line": b.line, "session": b.session or ""} for b in macro.blocks]}

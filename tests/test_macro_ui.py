@@ -539,6 +539,21 @@ class TestWiring:
         client = json.dumps(frames["client-runs"]).replace("client", "market").replace("Client", "Market")
         assert client == json.dumps(frames["market-runs"])
 
+    @pytest.mark.parametrize("side", SIDES)
+    def test_a_run_row_is_named_for_whatever_it_is(self, side):
+        """A macro's row is an order, an IOI, an advert or an allocation: the
+        tree says which (Subject, among the row's own columns) and both panes
+        call its identifier ID — under ClOrdID an IOIID read as an order's."""
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        tree, log = app["panes"][f"{side}-macro-runs"], app["panes"][f"{side}-macro-log"]
+        assert tree["labels"]["subject"] == "Subject"
+        assert tree["labels"]["cl_ord_id"] == log["labels"]["cl_ord_id"] == "ID"
+        grouped = {g["label"]: g["columns"] for g in tree["groups"]}
+        assert grouped["Order"][:2] == ["subject", "cl_ord_id"]
+        everywhere = [c for columns in grouped.values() for c in columns]
+        assert len(everywhere) == len(set(everywhere)), "a column sits in one group"
+        assert not [c for c in tree["visible"] if c not in everywhere], "every column shown belongs to a group"
+
     def test_history_is_wired_to_the_versions_the_server_keeps(self):
         import tomllib
         toml = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
@@ -790,11 +805,16 @@ class TestWiring:
             spec = app["dialogs"][name]
             assert spec["submit"] == {"label": label, "service": "fix_cmd", "op": name}
             fields = {f.get("name") for item in spec["fields"] for f in item.get("row", [item])}
-            assert fields == {"name", "session", "speed", "seed"}
-        session = app["dialogs"]["run_macro"]["fields"][1]
+            assert fields == {"name", "side", "session", "speed", "seed"}
+            assert spec["fields"][1] == {"name": "side", "type": "hidden", "value": "${row.side}"}, \
+                "either side has macros that send and macros that wait: the editor says which side it is"
+        session = app["dialogs"]["run_macro"]["fields"][2]
         assert (session["required"], session["value"]) == ("row.needs_session", "${row.session}")
         pane = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
-        assert "checked = { needs_session: !!result.needs_session, session: result.session ?? \"\" }" in pane
+        assert "checked = { needs_session: !!result.needs_session, session: result.session ?? \"\", sends: !!result.sends }" in pane
+        # ▶ follows what the macro does: Run… when it has a `run` block, Arm… when it only waits
+        assert 'return checked.sends ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);' in pane
+        assert "const context = { row: { name: current, side, ...checked } };" in pane
 
     def test_the_examples_page_can_set_up_the_sessions_its_examples_name(self):
         from mkfix.macro.store import EXAMPLES, LOOPBACK

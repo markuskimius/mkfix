@@ -494,6 +494,23 @@ class TestSides:
         assert len(stub.sent) == 1
 
     @pytest.mark.asyncio
+    async def test_either_side_runs_what_sends_and_arms_what_waits(self, kit):
+        db, engine, stub, manager, clock = kit
+        ask = _ask(engine)
+        # Since 0.64 either side sends and waits, so the editor names its side: a market macro that
+        # sends is run, a client one that waits is armed — and still neither starts the other side's.
+        await manager.save("desk", "run\n    ioi symbol: 'A', side: buy, qty: 'L'\n    after 1m\n", "market")
+        await manager.save("taker", "on ioi\n    stop\n", "client")
+        assert (await manager.check(manager.example("ioi-desk")["source"], "market"))["sends"] is True
+        assert (await manager.check("on ioi\n    stop\n", "client"))["sends"] is False
+        assert (await ask("run_macro", {"name": "desk", "side": "market", "session": "S1"}))["side"] == "market"
+        assert (await ask("arm_macro", {"name": "taker", "side": "client"}))["side"] == "client"
+        with pytest.raises(ValueError, match="is a market macro"):
+            await ask("run_macro", {"name": "desk", "session": "S1"})
+        with pytest.raises(ValueError, match="is a client macro"):
+            await ask("arm_macro", {"name": "taker", "side": "market"})
+
+    @pytest.mark.asyncio
     async def test_rows_are_stamped_with_the_side(self, kit):
         db, engine, stub, manager, clock = kit
         await manager.save("slow", SLOW)
