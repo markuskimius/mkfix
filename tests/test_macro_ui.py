@@ -483,6 +483,21 @@ class TestHelpPages:
         assert 'app.fireAction("pane.show", "help-viewer")' in editor, "the editor's ? opens the macro reference"
         assert 'app.state.set("help_target", { page: "macro-language"' in editor
 
+    def test_a_heading_asked_for_stays_in_view_while_a_new_pane_settles(self):
+        """A pane opened for a heading (Keyboard Shortcuts' User Guide
+        button, F1) was scrolled before its window had its size, and the
+        reflow left it at the foot of the page. The heading stays pinned
+        through resizes until the reader scrolls, clicks or types."""
+        viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")
+        assert 'new ResizeObserver(() => pinned?.isConnected && pinned.scrollIntoView({ block: "start" })).observe(page);' in viewer
+        assert "pinned = target || null;" in viewer, "each show() pins its heading, or releases the last one"
+        unpin = re.search(r'for \(const type of (\[[^\]]+\])\) host\.addEventListener\(type, unpin, \{ passive: true, capture: true \}\);', viewer)
+        assert unpin and set(json.loads(unpin.group(1))) == {"wheel", "pointerdown", "keydown", "touchstart"}
+        assert "const unpin = () => { pinned = null; };" in viewer
+        guide = (HELP / "user-guide.md").read_text(encoding="utf-8")
+        from_box = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))["dialogs"]["shortcuts"]["buttons"][0]["set"]["help_target"]
+        assert from_box["page"] == "user-guide" and f"\n## Sloppy focus\n" in guide and from_box["anchor"] == "sloppy-focus"
+
     def test_the_user_guide_names_what_the_application_has(self):
         """The guide is prose about the UI, so what it names in bold as a
         menu, a pane or a button has to be there under that name."""
@@ -520,6 +535,9 @@ class TestHelpPages:
             assert f'"{status}"' in engine, status
         # the keys are the Keyboard Shortcuts box's
         for fact in app["dialogs"]["shortcuts"]["facts"]:
+            if fact["label"] == "Sloppy focus":  # says whether it is on; the guide has a section
+                assert "\n## Sloppy focus\n" in text
+                continue
             assert f"| {fact['label']} |" in text, fact["label"]
         # what the status bar and the dialogs say
         assert app["mkio"]["incompatible"]["status.message"] == "Server version mismatch" and "*Server version mismatch*" in text

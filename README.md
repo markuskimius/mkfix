@@ -334,7 +334,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the first order to the command line, in the application itself (and
   [here](mkfix/static/help/user-guide.md)); Help → Macro Language and
   Replaying a Log go into those two subjects. Help → Keyboard Shortcuts lists the keys the tables and dialogs
-  answer; Help → About mkfix shows the client's version beside the server's
+  answer, and the window gestures of mkui's optional sloppy focus while it
+  is on (hold Shift as you open the Window menu to turn it on; the User
+  Guide's Sloppy focus section explains it); Help → About mkfix shows the client's version beside the server's
   and the mkui and mkio versions, the GPL-2.0 no-warranty notice, and links to
   the repository, the issue tracker, the license and the FIX dictionary
   notice, with a Copy details button for bug reports.
@@ -580,7 +582,7 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.16.1, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.22.1, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction

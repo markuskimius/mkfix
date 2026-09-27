@@ -1356,8 +1356,8 @@ class TestStyleAndGateValues:
                             assert self._problems(node[key], schema) == [], f"{pid} {button['label']} {key}: {node[key]}"
                             checked += 1
         for name, dialog in app_config["dialogs"].items():
-            # opened from pane code, with a `row` of the pane's making
-            schema = {"row": None, **dict.fromkeys(_dialog_field_names(dialog))}
+            # opened from pane code, with a `row` of the pane's making; every dialog template sees app `state`
+            schema = {"row": None, "state": None, **dict.fromkeys(_dialog_field_names(dialog))}
             for node in _walk_dicts(dialog):
                 for key in keys:
                     if isinstance(node.get(key), str):
@@ -2058,35 +2058,69 @@ class TestHelpMenu:
             opened |= set(re.findall(r'app\.dialog\("([a-z_]+)"', source))
         assert set(app_config["dialogs"]) == opened
 
-    def test_shortcuts_box_is_a_message_box_with_one_way_out(self, app_config):
-        """No `fields`, so it is not a form; its one button is `cancel` (what
-        Escape and × press) and `default` (what Enter presses)."""
+    # The sloppy-focus rows show only while it is on (mkui 1.21 keeps the choice in `state.focus.sloppy`),
+    # the Alt-click ones only under the modifier `state.focus.windowClick` says is in effect
+    SLOPPY_STATES = {
+        "off": {},
+        "on": {"focus": {"sloppy": True, "windowClick": "alt"}},
+        "on, ctrl+alt": {"focus": {"sloppy": True, "windowClick": "ctrl+alt"}},
+    }
+
+    def _shown_shortcuts(self, app_config, state):
+        from mkio import expr
+        return [f for f in app_config["dialogs"]["shortcuts"]["facts"]
+                if expr.evaluate(f.get("showWhen", "TRUE"), {"state": state})]
+
+    def test_shortcuts_box_is_a_message_box(self, app_config):
+        """No `fields`, so it is not a form; OK is `cancel` (what Escape and
+        × press) and `default` (what Enter presses); User Guide opens the
+        guide at the section the sloppy-focus rows need."""
         spec = app_config["dialogs"]["shortcuts"]
         assert spec["title"] == "Keyboard Shortcuts"
         assert "fields" not in spec and "submit" not in spec
         assert spec["buttons"] == [
+            {"id": "guide", "label": "User Guide", "action": "pane.show", "args": "help-guide",
+             "set": {"help_target": {"page": "user-guide", "anchor": "sloppy-focus"}}},
             {"id": "ok", "label": "OK", "kind": "primary", "cancel": True, "default": True}]
-        labels = [f["label"] for f in spec["facts"]]
-        assert len(labels) == len(set(labels)), "a key is listed twice"
+        assert app_config["panes"]["help-guide"]["page"] == "user-guide"
         for fact in spec["facts"]:
-            assert set(fact) == {"label", "value"}
+            assert set(fact) <= {"label", "value", "showWhen"}
             assert fact["label"].strip() and fact["value"].strip()
-            assert "${" not in fact["value"], "a shortcut line is plain text"
+            assert "${" not in fact["value"] + fact["label"], "a shortcut line is plain text"
+        for name, state in self.SLOPPY_STATES.items():
+            labels = [f["label"] for f in self._shown_shortcuts(app_config, state)]
+            assert len(labels) == len(set(labels)), f"a key is listed twice with sloppy focus {name}"
 
-    def test_shortcuts_box_covers_the_menu_hints(self, app_config):
-        """A key the Edit menu advertises must be in the list too."""
-        hints = {item["shortcut"] for menu in app_config["menubar"]
-                 for item in menu["items"] if "shortcut" in item}
-        assert hints, "the Edit menu lost its shortcut hints"
-        labels = {f["label"] for f in app_config["dialogs"]["shortcuts"]["facts"]}
-        for hint in hints:
-            assert hint.replace("mod+", "Ctrl/Cmd+") in labels, f"{hint} is not listed"
+    def test_shortcuts_follow_sloppy_focus(self, app_config):
+        """Off, the box says how to turn it on and lists nothing it adds; on,
+        it lists the User Guide's gestures, each click under its modifier."""
+        facts = app_config["dialogs"]["shortcuts"]["facts"]
+        always = [f["label"] for f in facts if "showWhen" not in f]
+        shown = {name: [f["label"] for f in self._shown_shortcuts(app_config, state)]
+                 for name, state in self.SLOPPY_STATES.items()}
+        assert shown["off"] == always + ["Alt/Option+Shift+←/→", "Sloppy focus"]
+        off = next(f for f in self._shown_shortcuts(app_config, {}) if f["label"] == "Sloppy focus")
+        assert "Shift" in off["value"] and "Window menu" in off["value"]
+        guide = (Path(__file__).parent.parent / "mkfix" / "static" / "help" / "user-guide.md").read_text(encoding="utf-8")
+        section = guide.split("\n## Sloppy focus\n", 1)[1].split("\n## ", 1)[0]
+        tables = re.findall(r"^\| ([^|]+?) \| [^|]+ \|$", section, re.M)
+        gestures = [g for g in tables if g not in ("Gesture",)]
+        ctrl_alt = ["Ctrl+Alt-click", "Shift+Ctrl+Alt-click", "Ctrl+Alt-drag"]
+        assert gestures[-3:] == ctrl_alt
+        assert shown["on"] == always + ["Sloppy focus"] + gestures[:-3]
+        swapped = [{"Alt/Option-click": ctrl_alt[0], "Shift+Alt/Option-click": ctrl_alt[1],
+                    "Alt/Option-drag": ctrl_alt[2]}.get(g, g) for g in gestures[:-3]]
+        assert shown["on, ctrl+alt"] == always + ["Sloppy focus"] + swapped
 
     def test_shortcuts_are_keys_the_installed_mkui_binds(self, app_config):
         """The list is hand-written; each key is looked up where mkui handles
-        it — the workspace's window keydown, the dialog's `onKey`."""
+        it — the workspace's window keydown, the dialog's `onKey`, and
+        lib/wm.js for sloppy focus."""
         workspace = self._mkui_source("components", "workspace.js")
         dialog = self._mkui_source("widgets", "mkui-dialog.js")
+        wm = self._mkui_source("lib", "wm.js")
+        clicks = {"Sloppy focus", "Click a title bar", "Click in a window", "Alt/Option-click",
+                  "Shift+Alt/Option-click", "Alt/Option-drag", "Ctrl+Alt-click", "Shift+Ctrl+Alt-click", "Ctrl+Alt-drag"}
         for fact in app_config["dialogs"]["shortcuts"]["facts"]:
             label = fact["label"]
             if label == "Escape":
@@ -2095,11 +2129,23 @@ class TestHelpMenu:
                 assert 'e.key !== "Enter"' in dialog
                 if label.startswith("Ctrl/Cmd+"):
                     assert re.search(r"ctrlKey\s*\|\|\s*e\.metaKey", dialog)
+            elif label == "Alt/Option+Shift+←/→":
+                assert "e.altKey && e.shiftKey" in workspace and 'e.key !== "ArrowRight"' in workspace
+            elif label in ("Alt/Option+P", "Alt/Option+N"):
+                assert f'code === "Key{label[-1]}"' in wm
+            elif "H/J/K/L or arrows" in label:
+                for code in ("KeyH", "KeyJ", "KeyK", "KeyL", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight"):
+                    assert f"{code}:" in wm, code
+                assert 'op: e.shiftKey ? "move" : "point"' in wm
+            elif label in clicks:
+                assert "state.focus.sloppy" in fact.get("showWhen", ""), label
             else:
                 key = re.fullmatch(r"Ctrl/Cmd\+([A-Z])", label)
                 assert key, f"unrecognised shortcut label {label!r}"
                 assert f'k === "{key.group(1).lower()}"' in workspace, f"mkui does not bind {label}"
         assert 'this.editAction(e.shiftKey ? "findPrev" : "findNext")' in workspace
+        assert 'st.set("focus.sloppy"' in workspace and 'st.set("focus.windowClick"' in workspace
+        assert '"ctrl+alt"' in wm and 'label: "Sloppy Focus"' in wm and 'label: "Raise with Ctrl+Alt-click"' in wm
 
     def test_tables_answer_the_find_keys(self):
         """Ctrl/Cmd+F and +G only do something over a pane whose edit hook

@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.69",
+    "version": "0.70",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -332,7 +332,7 @@
   "dialogs": {
     "shortcuts": {
       "title": "Keyboard Shortcuts",
-      "width": 460,
+      "width": 560,
       "facts": [
         {
           "label": "Ctrl/Cmd+C",
@@ -361,9 +361,96 @@
         {
           "label": "Ctrl/Cmd+Enter",
           "value": "Submit a dialog from anywhere in it"
+        },
+        {
+          "label": "Alt/Option+Shift+←/→",
+          "value": "Move the active tab left or right in its window",
+          "showWhen": "not state.focus.sloppy"
+        },
+        {
+          "label": "Sloppy focus",
+          "value": "Off. Hold Shift as you open the Window menu to turn it on",
+          "showWhen": "not state.focus.sloppy"
+        },
+        {
+          "label": "Sloppy focus",
+          "value": "On: the focus follows the pointer without bringing a window forward. Hold Shift as you open the Window menu to turn it off",
+          "showWhen": "state.focus.sloppy"
+        },
+        {
+          "label": "Click a title bar",
+          "value": "Bring the window to the front (a drag moves it where it is)",
+          "showWhen": "state.focus.sloppy"
+        },
+        {
+          "label": "Click in a window",
+          "value": "Focus it, where it is",
+          "showWhen": "state.focus.sloppy"
+        },
+        {
+          "label": "Alt/Option-click",
+          "value": "Bring the window to the front",
+          "showWhen": "state.focus.sloppy and state.focus.windowClick != 'ctrl+alt'"
+        },
+        {
+          "label": "Shift+Alt/Option-click",
+          "value": "Send the window to the back",
+          "showWhen": "state.focus.sloppy and state.focus.windowClick != 'ctrl+alt'"
+        },
+        {
+          "label": "Alt/Option-drag",
+          "value": "Move the window from anywhere in it",
+          "showWhen": "state.focus.sloppy and state.focus.windowClick != 'ctrl+alt'"
+        },
+        {
+          "label": "Ctrl+Alt-click",
+          "value": "Bring the window to the front",
+          "showWhen": "state.focus.sloppy and state.focus.windowClick == 'ctrl+alt'"
+        },
+        {
+          "label": "Shift+Ctrl+Alt-click",
+          "value": "Send the window to the back",
+          "showWhen": "state.focus.sloppy and state.focus.windowClick == 'ctrl+alt'"
+        },
+        {
+          "label": "Ctrl+Alt-drag",
+          "value": "Move the window from anywhere in it",
+          "showWhen": "state.focus.sloppy and state.focus.windowClick == 'ctrl+alt'"
+        },
+        {
+          "label": "Alt/Option+P",
+          "value": "Bring the focused window to the front",
+          "showWhen": "state.focus.sloppy"
+        },
+        {
+          "label": "Alt/Option+N",
+          "value": "Send it to the back",
+          "showWhen": "state.focus.sloppy"
+        },
+        {
+          "label": "Alt/Option+H/J/K/L or arrows",
+          "value": "Move a stand-in mouse pointer; the focus follows it",
+          "showWhen": "state.focus.sloppy"
+        },
+        {
+          "label": "Alt/Option+Shift+H/J/K/L or arrows",
+          "value": "Move the focused window",
+          "showWhen": "state.focus.sloppy"
         }
       ],
       "buttons": [
+        {
+          "id": "guide",
+          "label": "User Guide",
+          "action": "pane.show",
+          "args": "help-guide",
+          "set": {
+            "help_target": {
+              "page": "user-guide",
+              "anchor": "sloppy-focus"
+            }
+          }
+        },
         {
           "id": "ok",
           "label": "OK",
@@ -890,7 +977,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.69"
+        "text": "mkfix v0.70"
       }
     ],
     "bindStyle": {
@@ -12594,7 +12681,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.69",
+      "version": "0.70",
       "mkio": "1.5",
       "expr": "2"
     },

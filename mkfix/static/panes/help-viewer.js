@@ -28,6 +28,14 @@ registerPaneType("help-viewer", async (spec, app, host) => {
   let vocab = null;
   let currentId = null;
 
+  // A heading asked for stays at the top while the pane settles: a freshly
+  // opened pane is laid out after show() scrolls, and the reflow left the
+  // page far past the heading. The reader scrolling or clicking lets go.
+  let pinned = null;
+  const unpin = () => { pinned = null; };
+  for (const type of ["wheel", "pointerdown", "keydown", "touchstart"]) host.addEventListener(type, unpin, { passive: true, capture: true });
+  new ResizeObserver(() => pinned?.isConnected && pinned.scrollIntoView({ block: "start" })).observe(page);
+
   async function examplesPage() {
     const { examples } = await cmd("list_examples");
     const card = (e) => `
@@ -74,6 +82,7 @@ registerPaneType("help-viewer", async (spec, app, host) => {
     nav.innerHTML = pages.map((p) => `<a class="help-nav-page${p.id === currentId ? " help-current" : ""}" data-page="${p.id}">${escapeHtml(p.title)}</a>`
       + (p.id === currentId ? content.toc.map((h) => `<a class="help-nav-h help-nav-h${h.level}" data-anchor="${h.id}">${escapeHtml(h.text)}</a>`).join("") : "")).join("");
     const target = anchor && page.querySelector(`#${CSS.escape(anchor)}`);
+    pinned = target || null;
     if (target) target.scrollIntoView({ block: "start" }); else page.scrollTop = 0;
   }
 
