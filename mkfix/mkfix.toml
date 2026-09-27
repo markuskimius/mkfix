@@ -54,12 +54,12 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # one family that is answered, keeps its own 58s in `sent_text` on the
 # received side and the Ack's in `text` on the sent side.
 [tables.fix_iois]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", ioi_id = "TEXT NOT NULL", ioi_ref_id = "TEXT DEFAULT ''", ioi_trans_type = "TEXT DEFAULT ''", ioi_trans_type_code = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", ioi_qty = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", currency = "TEXT DEFAULT ''", valid_until = "TEXT DEFAULT ''", qlty_ind = "TEXT DEFAULT ''", qlty_ind_code = "TEXT DEFAULT ''", natural_flag = "TEXT DEFAULT ''", qualifiers = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'Active'", order_cl_ord_id = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", ioi_id = "TEXT NOT NULL", ioi_ref_id = "TEXT DEFAULT ''", ioi_trans_type = "TEXT DEFAULT ''", ioi_trans_type_code = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", ioi_qty = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", currency = "TEXT DEFAULT ''", valid_until = "TEXT DEFAULT ''", qlty_ind = "TEXT DEFAULT ''", qlty_ind_code = "TEXT DEFAULT ''", natural_flag = "TEXT DEFAULT ''", qualifiers = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'Active'", order_cl_ord_id = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_adverts]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", adv_id = "TEXT NOT NULL", adv_ref_id = "TEXT DEFAULT ''", adv_trans_type = "TEXT DEFAULT ''", adv_trans_type_code = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", quantity = "REAL DEFAULT 0", price = "REAL DEFAULT 0", currency = "TEXT DEFAULT ''", trade_date = "TEXT DEFAULT ''", last_mkt = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'Active'", text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", adv_id = "TEXT NOT NULL", adv_ref_id = "TEXT DEFAULT ''", adv_trans_type = "TEXT DEFAULT ''", adv_trans_type_code = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", quantity = "REAL DEFAULT 0", price = "REAL DEFAULT 0", currency = "TEXT DEFAULT ''", trade_date = "TEXT DEFAULT ''", last_mkt = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'Active'", text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -70,7 +70,7 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # outstanding request until its Ack. `alloc_status`/`alloc_rej_*` are the
 # last Ack's payload — theirs on a sent row, ours on a received one.
 [tables.fix_allocations]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", alloc_id = "TEXT NOT NULL", ref_alloc_id = "TEXT DEFAULT ''", alloc_trans_type = "TEXT DEFAULT ''", alloc_trans_type_code = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", alloc_type_code = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", quantity = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", trade_date = "TEXT DEFAULT ''", orders = "TEXT DEFAULT ''", execs = "TEXT DEFAULT ''", allocs = "TEXT DEFAULT ''", num_allocs = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", alloc_status_code = "TEXT DEFAULT ''", alloc_rej_reason = "TEXT DEFAULT ''", alloc_rej_code = "TEXT DEFAULT ''", pending_action = "TEXT DEFAULT ''", pending_alloc_id = "TEXT DEFAULT ''", pending_terms = "TEXT DEFAULT ''", pending_extra_tags = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", alloc_id = "TEXT NOT NULL", ref_alloc_id = "TEXT DEFAULT ''", alloc_trans_type = "TEXT DEFAULT ''", alloc_trans_type_code = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", alloc_type_code = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", side_code = "TEXT DEFAULT ''", quantity = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", trade_date = "TEXT DEFAULT ''", orders = "TEXT DEFAULT ''", execs = "TEXT DEFAULT ''", allocs = "TEXT DEFAULT ''", num_allocs = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", alloc_status_code = "TEXT DEFAULT ''", alloc_rej_reason = "TEXT DEFAULT ''", alloc_rej_code = "TEXT DEFAULT ''", pending_action = "TEXT DEFAULT ''", pending_alloc_id = "TEXT DEFAULT ''", pending_terms = "TEXT DEFAULT ''", pending_extra_tags = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -142,10 +142,12 @@ archive = { group = "config" }
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", macro = "TEXT NOT NULL", side = "TEXT DEFAULT ''", priority = "INTEGER DEFAULT 0", version = "INTEGER DEFAULT 0", session = "TEXT DEFAULT ''", seed = "INTEGER DEFAULT 0", speed = "REAL DEFAULT 1", status = "TEXT DEFAULT 'armed'", verdict = "TEXT DEFAULT ''", orders = "INTEGER DEFAULT 0", live = "INTEGER DEFAULT 0", passed = "INTEGER DEFAULT 0", failed = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", ended_at = "TEXT DEFAULT ''" }
 archive = { cutoff = "started_at", format = "%Y%m%d-%H:%M:%S.000" }
 
-# One order's script within a run: where it is and what it is waiting for.
-# Written on changes of status, line or wait, not on every statement.
+# One order's script within a run — or one IOI's, advert's or allocation's
+# (`subject`; `order_row` is the row id in that subject's table, `cl_ord_id`
+# its current ID whatever the subject): where it is and what it is waiting
+# for. Written on changes of status, line or wait, not on every statement.
 [tables.fix_macro_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", order_row = "INTEGER NOT NULL", macro = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", session_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", block_line = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", line = "INTEGER DEFAULT 0", waiting_for = "TEXT DEFAULT ''", message = "TEXT DEFAULT ''", actions = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", run_id = "INTEGER NOT NULL", subject = "TEXT NOT NULL DEFAULT 'order'", order_row = "INTEGER NOT NULL", macro = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", session_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", block_line = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", line = "INTEGER DEFAULT 0", waiting_for = "TEXT DEFAULT ''", message = "TEXT DEFAULT ''", actions = "INTEGER DEFAULT 0", started_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''" }
 archive = { cutoff = "started_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 [tables.fix_macro_log]
@@ -379,7 +381,8 @@ protocol = "query"
 primary_table = "fix_macro_log"
 filterable = ["run_id", "macro", "side"]
 
-# The Macro Runs window's tree: runs are roots, their orders hang under them
+# The Macro Runs window's tree: runs are roots, their orders (or IOIs,
+# adverts, allocations: `subject`) hang under them
 # (`tree = { child = "parent_key", parent = "key" }`). One row shape for
 # both kinds. mkio re-reads a changed run through this SQL by the runs
 # table's `id`, so run rows carry their real id and order rows a negated one
@@ -396,7 +399,7 @@ key = ["key"]
 filterable = ["side", "macro", "status", "run_id"]
 sql = """
 SELECT r.id AS id, 'run' AS kind, 'r' || r.id AS key, '' AS parent_key,
-       r.id AS run_id, NULL AS order_row, r.macro, r.side, r.status,
+       r.id AS run_id, NULL AS order_row, '' AS subject, r.macro, r.side, r.status,
        r.priority, r.verdict, r.orders, r.live, r.passed, r.failed,
        r.session, r.speed, r.seed, r.version,
        '' AS cl_ord_id, '' AS symbol, '' AS order_id, 0 AS line,
@@ -405,7 +408,7 @@ SELECT r.id AS id, 'run' AS kind, 'r' || r.id AS key, '' AS parent_key,
   FROM fix_macro_runs r
 UNION ALL
 SELECT -o.id, 'order', 'o' || o.id, 'r' || o.run_id,
-       o.run_id, o.order_row, o.macro, o.side, o.status,
+       o.run_id, o.order_row, o.subject, o.macro, o.side, o.status,
        NULL, '', NULL, NULL, NULL, NULL,
        o.session_id, NULL, NULL, NULL,
        o.cl_ord_id, o.symbol, o.order_id, o.line,

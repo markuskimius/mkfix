@@ -33,7 +33,7 @@ from mkio import expr
 from . import vocab
 from .clock import Clock, Scheduler
 from .functions import ENV
-from .instance import DETACHED, FAILED, PASSED, STOPPED, Instance, contains_new, event_map
+from .instance import DETACHED, FAILED, PASSED, STOPPED, Instance, contains_creator, event_map
 from .nodes import Action, Macro
 
 if TYPE_CHECKING:
@@ -42,14 +42,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# The template columns an action's payload takes as they are.
-_TEMPLATE_KEYS = ("symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason",
-                  "text", "extra_tags", "client", "handl_inst")
-_TEMPLATE_SCOPE = {
-    "new": "order", "replace": "order", "cancel": "cancel", "accept": "accept", "reject": "reject",
-    "fill": "fill", "unsol cxl": "unsolicited", "restate": "restate", "dk": "dk", "correct": "correct",
-    "bust": "bust", "renotify": "renotify",
-}
+# The subject a family event's table names, and the event names a macro
+# hears: the engine says `allocation accepted`, the macro `accepted`.
+_KIND_OF_TABLE = {table: subject for subject, table in vocab.SUBJECT_TABLES.items()}
+
+
+def _macro_kinds(kinds: tuple[str, ...], subject: str) -> tuple[str, ...]:
+    prefix = subject + " "
+    return tuple(k[len(prefix):] if k.startswith(prefix) else k for k in kinds)
 
 
 class MacroError(Exception):
@@ -109,7 +109,7 @@ class MacroRunner:
         self.max_live = max_live              # live macros, every run together
         self.live = 0
         self.runs: list[Run] = []
-        self.owners: dict[int, Instance] = {}
+        self.owners: dict[tuple[str, int], Instance] = {}     # (kind, row id) -> the macro that owns it
         self.on_change: Callable[[Instance], None] | None = None     # status, line, waiting_for
         self.on_log: Callable[[Run, Instance | None, int, str], None] | None = None
         self.on_run_finished: Callable[[Run], None] | None = None
@@ -167,8 +167,10 @@ class MacroRunner:
         for block in run.macro.blocks:
             if block.kind != vocab.CLIENT:
                 continue
-            if any(isinstance(st, Action) and st.verb == "new" for st in block.body) or not contains_new(block.body):
-                self._start_script(run, block, block.body, {}, 0)        # the block is one order's macro
+            creator = vocab.CREATORS[block.subject]
+            if any(isinstance(st, Action) and st.verb == creator for st in block.body) \
+                    or not contains_creator(block.body, block.subject):
+                self._start_script(run, block, block.body, {}, 0)        # the block is one subject's macro
             else:
                 generator = Instance(self, run, block, None, -1 - len(run.generators), generator=True)
                 run.generators.append(generator)
@@ -237,9 +239,9 @@ class MacroRunner:
         for flow, future in gates:
             self.scheduler.wake(flow, future)
 
-    def detach(self, order_key: int) -> bool:
-        """Give an order back to whoever is at the keyboard."""
-        instance = self.owners.get(order_key)
+    def detach(self, order_key: int, kind: str = vocab.ORDER) -> bool:
+        """Give an order (or IOI, advert, allocation) back to whoever is at the keyboard."""
+        instance = self.owners.get((kind, order_key))
         if instance is None:
             return False
         instance.finish(DETACHED, "detached by hand")
@@ -251,76 +253,88 @@ class MacroRunner:
     # -- events ----------------------------------------------------------------------------
 
     def _on_event(self, ev: EngineEvent) -> None:
-        kind = ev.kinds[0]
-        if kind in ("session up", "session down"):
+        first = ev.kinds[0]
+        if first in ("session up", "session down"):
             for instance in list(self.owners.values()):
-                if instance.order["session_id"] == ev.session_id:
+                if instance.row["session_id"] == ev.session_id:
                     instance.deliver(event_map(ev.kinds, "engine", text=ev.detail.get("status")))
             return
-        key = ev.order_key
-        if key is None:
+        # An event is about an order (`ev.order`) or a row of one of the
+        # three families (`ev.row` in `ev.table`); the same rules apply to
+        # each, under its own kind and with the family's name dropped from
+        # the event's kinds.
+        if ev.table:
+            subject, row = _KIND_OF_TABLE.get(ev.table, ""), ev.row
+            kinds = _macro_kinds(ev.kinds, subject)
+        else:
+            subject, row, kinds = vocab.ORDER, ev.order, ev.kinds
+        if row is None or not subject:
             return
+        key = (subject, row["id"])
         owner = self.owners.get(key)
         if owner is None:
-            if kind == "sent order":
-                claimant = self._claims.pop(ev.detail.get("tag") or "", None) if ev.source == "macro" else None
+            if kinds[0] == f"sent {subject}":
+                tag = ev.detail.get("tag") or ""
+                claimant = self._claims.pop(tag, None) if ev.source == "macro" and tag else None
                 if claimant is not None and claimant.live:
-                    claimant.bind(ev.order)
-                elif ev.source != "macro":
-                    self._offer(ev, vocab.ATTACHED)
-            elif "order" in ev.kinds and ev.source == "wire":
-                self._offer(ev, vocab.MARKET)
+                    claimant.bind(row)
+                elif ev.source != "macro" or not tag:
+                    # Sent by hand, by Message Replay, or by a macro as an
+                    # answer that is nobody's (`new` in an `on ioi` block).
+                    self._offer(ev, vocab.ATTACHED, subject, row, kinds)
+            elif kinds[0] == subject and ev.source == "wire":
+                self._offer(ev, vocab.MARKET, subject, row, kinds)
             return
-        owner.order = ev.order
+        owner.row = row
         if ev.source == "macro":
-            return                      # its own action: the order row above is all it needs of it
+            return                      # its own action: the row above is all it needs of it
         if ev.source == "manual":
             owner.deliver(event_map(("manual",), "manual", op=ev.detail.get("op")), ev.trade)
             return
-        owner.deliver(event_map(ev.kinds, ev.source, request=ev.request, msg=ev.msg, prev=ev.prev, **ev.detail),
+        owner.deliver(event_map(kinds, ev.source, request=ev.request, msg=ev.msg, prev=ev.prev, **ev.detail),
                       ev.trade)
 
-    def _offer(self, ev: EngineEvent, kind: str) -> None:
-        order = ev.order
+    def _offer(self, ev: EngineEvent, kind: str, subject: str, row: dict[str, Any], kinds: tuple[str, ...]) -> None:
+        name = f"{subject} {row[vocab.SUBJECT_IDS[subject]]}"
         for run in self.runs:
-            if run.status != "armed" or (run.session and run.session != order["session_id"]):
+            if run.status != "armed" or (run.session and run.session != row["session_id"]):
                 continue
             for block in run.macro.blocks:
-                if block.kind != kind or not self._matches(run, block, order):
+                if block.kind != kind or block.subject != subject or not self._matches(run, block, row):
                     continue
                 if len(run.instances) >= self.max_instances:
-                    self._log(None, block.line, f"order {order['cl_ord_id']} not taken: the run already has "
+                    self._log(None, block.line, f"{name} not taken: the run already has "
                                                 f"{self.max_instances} orders", run=run)
                     return
                 if self.live >= self.max_live:
-                    self._log(None, block.line, f"order {order['cl_ord_id']} not taken: {self.max_live} macros "
-                                                "are live already", run=run)
+                    self._log(None, block.line, f"{name} not taken: {self.max_live} macros are live already", run=run)
                     return
-                instance = Instance(self, run, block, order, len(run.instances))
+                instance = Instance(self, run, block, row, len(run.instances))
                 self.live += 1
-                instance.main.event = event_map(ev.kinds, ev.source, request=ev.request, msg=ev.msg)
+                instance.main.event = event_map(kinds, ev.source, request=ev.request, msg=ev.msg)
                 run.instances.append(instance)
-                self.owners[order["id"]] = instance
+                self.owners[(subject, row["id"])] = instance
                 instance.start()
                 return
 
-    def _matches(self, run: Run, block: Any, order: dict[str, Any]) -> bool:
+    def _matches(self, run: Run, block: Any, row: dict[str, Any]) -> bool:
         if block.where is None:
             return True
         fn = self._matchers.get(id(block.where))
         if fn is None:
             fn = self._matchers[id(block.where)] = expr.compile_node(block.where.node, ENV)
         try:
-            return expr.truthy(fn(expr.Scope({**order, "order": order}, None, True)))
+            return expr.truthy(fn(expr.Scope({**row, block.subject: row}, None, True)))
         except expr.ExprError as e:
-            self._log(None, block.line, f"`where` failed on order {order['cl_ord_id']}: {e.message}", run=run)
+            self._log(None, block.line, f"`where` failed on {block.subject} {row[vocab.SUBJECT_IDS[block.subject]]}: "
+                                        f"{e.message}", run=run)
             return False
 
     # -- what instances ask of us ----------------------------------------------------------
 
     def _finished(self, instance: Instance) -> None:
-        if instance.key is not None and self.owners.get(instance.key) is instance:
-            del self.owners[instance.key]
+        if instance.key is not None and self.owners.get(instance.owner_key) is instance:
+            del self.owners[instance.owner_key]
         self._claims.pop(instance.tag, None)
         if not instance.generator:
             self.live -= 1
@@ -367,7 +381,7 @@ class MacroRunner:
         order's own; the counterparty's OrderID sits in market_order_id)."""
         order = instance.order
         if order is None:
-            return []
+            return []                   # an IOI, advert or allocation has no trades
         if order["direction"] == "RX":
             sql = ("SELECT * FROM fix_executions WHERE session_id = ? AND direction = 'TX' AND order_id = ? "
                    "ORDER BY id")
@@ -384,15 +398,27 @@ class MacroRunner:
     async def _history(self, instance: Instance) -> list[dict[str, Any]]:
         if instance.key is None:
             return []
+        table = vocab.SUBJECT_TABLES[instance.kind]
         cursor = await self.engine.db.read_conn.execute(
-            "SELECT * FROM fix_orders__history WHERE id = ? ORDER BY _mkio_version", (instance.key,))
+            f"SELECT * FROM {table}__history WHERE id = ? ORDER BY _mkio_version", (instance.key,))
         rows = [dict(r) for r in await cursor.fetchall()]
         await cursor.close()
         return rows
 
+    async def _sent_row(self, kind: str, session_id: str, subject_id: str) -> dict[str, Any] | None:
+        """The row a sending verb just created, by the ID it returned."""
+        if kind == vocab.ORDER:
+            return await self.engine._find_order(session_id, subject_id)
+        return await self.engine._find_family_row(vocab.SUBJECT_TABLES[kind], vocab.SUBJECT_IDS[kind],
+                                                  session_id, subject_id, "TX")
+
     async def _template(self, st: Action, instance: Instance) -> dict[str, Any]:
+        """A saved template's terms as the payload takes them: every term
+        column is named as the payload key (`TEMPLATE_TERM_COLS`, less the
+        session, which the block or Run… gives)."""
+        from mkfix.fix.engine import TEMPLATE_TERM_COLS
         from .instance import ScriptError
-        scope = _TEMPLATE_SCOPE[st.verb]
+        scope = vocab.VERBS[st.verb].scope
         cursor = await self.engine.db.read_conn.execute(
             "SELECT * FROM fix_templates WHERE scope = ? AND name = ?", (scope, st.template))
         row = await cursor.fetchone()
@@ -400,4 +426,4 @@ class MacroRunner:
         if row is None:
             raise ScriptError(st.line, f"no {scope} template named {st.template!r}")
         row = dict(row)
-        return {k: row[k] for k in _TEMPLATE_KEYS if row.get(k) not in (None, "")}
+        return {k: row[k] for k in TEMPLATE_TERM_COLS if k != "session_id" and row.get(k) not in (None, "")}

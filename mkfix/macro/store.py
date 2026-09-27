@@ -89,7 +89,7 @@ class MacroManager:
         self._priorities: dict[int, int] = {}
         self.recorders: dict[str, Recorder] = {}       # side -> the recording under way
         self._runs_by_row: dict[int, Run] = {}
-        self._tagged: set[int] = set()
+        self._tagged: set[tuple[str, int]] = set()
         self._queue: asyncio.Queue | None = None
         self._worker: asyncio.Task | None = None
         self._closing = False
@@ -101,8 +101,11 @@ class MacroManager:
         conn = self.engine.db.write_conn
         for sql in (
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_macros_name ON fix_macros(name)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_macro_orders_order "
-            "ON fix_macro_orders(run_id, order_row)",
+            # 0.64: a run may own an order and an IOI of the same row id, so
+            # the subject joins the key; the old index goes.
+            "DROP INDEX IF EXISTS idx_fix_macro_orders_order",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_macro_orders_subject "
+            "ON fix_macro_orders(run_id, subject, order_row)",
             "CREATE INDEX IF NOT EXISTS idx_fix_macro_log_run ON fix_macro_log(run_id)",
         ):
             await (await conn.execute(sql)).close()
@@ -399,9 +402,9 @@ class MacroManager:
         self.runner.resume(run)
         await self._write_run(run, "armed")
 
-    async def detach(self, order_row: Any) -> None:
-        if not self.runner.detach(int(order_row)):
-            raise ValueError("No live macro owns that order")
+    async def detach(self, order_row: Any, subject: str = vocab.ORDER) -> None:
+        if not self.runner.detach(int(order_row), subject or vocab.ORDER):
+            raise ValueError(f"No live macro owns that {subject or 'order'}")
         await self.flush()
 
     async def setup_loopback(self, port: Any = None, start: bool = True) -> dict[str, Any]:
@@ -589,24 +592,24 @@ class MacroManager:
             if not instance.live:
                 now = _fix_timestamp()
                 self._queue.put_nowait(("upsert_instance", (
-                    run_id, -1 - instance.index, instance.run.macro.name, instance.run.side,
+                    run_id, instance.kind, -1 - instance.index, instance.run.macro.name, instance.run.side,
                     instance.run.session_of(instance.block) or "", "", "",
                     "", instance.block.line, instance.status, instance.line, "", instance.message,
                     instance.actions, now, now, None)))
                 self._queue.put_nowait(("run", instance.run))
             return
-        order, now = instance.order, _fix_timestamp()
-        if instance.key not in self._tagged:
-            self._tagged.add(instance.key)
+        row, now = instance.row, _fix_timestamp()
+        if instance.owner_key not in self._tagged:
+            self._tagged.add(instance.owner_key)
             label = f"{instance.run.macro.name} #{run_id}"
-            self._queue.put_nowait(("tag_order", (label, None, instance.key)))
+            self._queue.put_nowait((f"tag_{vocab.SUBJECT_TABLES[instance.kind]}", (label, None, instance.key)))
         self._queue.put_nowait(("upsert_instance", (
-            run_id, instance.key, instance.run.macro.name, instance.run.side, order["session_id"],
-            order["cl_ord_id"],
-            order["order_id"], order["symbol"], instance.block.line, instance.status, instance.line,
+            run_id, instance.kind, instance.key, instance.run.macro.name, instance.run.side, row["session_id"],
+            instance.subject_id, row.get("order_id", "") if instance.kind == vocab.ORDER else "",
+            row["symbol"], instance.block.line, instance.status, instance.line,
             instance.waiting_for, instance.message, instance.actions, now, now, None)))
         if not instance.live:
-            self._tagged.discard(instance.key)
+            self._tagged.discard(instance.owner_key)
         self._queue.put_nowait(("run", instance.run))
 
     def _run_finished(self, run: Run) -> None:
@@ -618,7 +621,7 @@ class MacroManager:
             return
         self._queue.put_nowait(("insert_log", (
             self._run_rows[run], instance.key if instance else None, run.macro.name, run.side,
-            instance.order["cl_ord_id"] if instance and instance.order else "", _fix_timestamp(), line, text, None)))
+            instance.subject_id if instance else "", _fix_timestamp(), line, text, None)))
 
     async def _drain(self) -> None:
         while True:
@@ -683,15 +686,16 @@ class MacroManager:
            "ended_at = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
            ("status", "verdict", "orders", "live", "passed", "failed", "ended_at", "_mkio_ref", "id"))
         op("upsert_instance", "fix_macro_orders", "upsert",
-           "INSERT INTO fix_macro_orders (run_id, order_row, macro, side, session_id, cl_ord_id, order_id, "
+           "INSERT INTO fix_macro_orders (run_id, subject, order_row, macro, side, session_id, cl_ord_id, order_id, "
            "symbol, block_line, status, line, waiting_for, message, actions, started_at, updated_at, _mkio_ref) "
-           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-           "ON CONFLICT(run_id, order_row) DO UPDATE SET cl_ord_id = excluded.cl_ord_id, status = excluded.status, "
-           "line = excluded.line, waiting_for = excluded.waiting_for, message = excluded.message, "
-           "actions = excluded.actions, updated_at = excluded.updated_at, _mkio_ref = excluded._mkio_ref "
-           "RETURNING *",
-           ("run_id", "order_row", "macro", "side", "session_id", "cl_ord_id", "order_id", "symbol", "block_line",
-            "status", "line", "waiting_for", "message", "actions", "started_at", "updated_at", "_mkio_ref"))
+           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+           "ON CONFLICT(run_id, subject, order_row) DO UPDATE SET cl_ord_id = excluded.cl_ord_id, "
+           "status = excluded.status, line = excluded.line, waiting_for = excluded.waiting_for, "
+           "message = excluded.message, actions = excluded.actions, updated_at = excluded.updated_at, "
+           "_mkio_ref = excluded._mkio_ref RETURNING *",
+           ("run_id", "subject", "order_row", "macro", "side", "session_id", "cl_ord_id", "order_id", "symbol",
+            "block_line", "status", "line", "waiting_for", "message", "actions", "started_at", "updated_at",
+            "_mkio_ref"))
         op("finish_instance", "fix_macro_orders", "update",
            "UPDATE fix_macro_orders SET status = ?, message = ?, updated_at = ?, _mkio_ref = ? "
            "WHERE id = ? RETURNING *", ("status", "message", "updated_at", "_mkio_ref", "id"))
@@ -706,9 +710,11 @@ class MacroManager:
         op("insert_session_state", "fix_session_state", "insert",
            "INSERT INTO fix_session_state (session_id, _mkio_ref) VALUES (?, ?) RETURNING *",
            ("session_id", "_mkio_ref"))
-        op("tag_order", "fix_orders", "update",
-           "UPDATE fix_orders SET macro = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
-           ("macro", "_mkio_ref", "id"))
+        # The row a macro took carries its name: every subject's table has a `macro` column.
+        for table in vocab.SUBJECT_TABLES.values():
+            op(f"tag_{table}", table, "update",
+               f"UPDATE {table} SET macro = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
+               ("macro", "_mkio_ref", "id"))
 
 
 def vocabulary() -> dict[str, Any]:

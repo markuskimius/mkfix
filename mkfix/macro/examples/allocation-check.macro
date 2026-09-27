@@ -1,0 +1,32 @@
+# Allocation check
+#
+# Shows:   the client side answering allocations — `on allocation`,
+#          `accept allocation` and `reject allocation` with their status and
+#          reason words, `when replace` and `when cancel` on an allocation,
+#          `history` of the row
+# Needs:   a session that receives allocations: run allocation-desk on
+#          LOOP-MKT and this on LOOP-CLI
+# Watch:   Received Allocations (Client menu): Pending clearing as each is
+#          answered; Sent Allocations on the market side taking the answer
+# Outcome: an allocation whose accounts add up to its quantity is accepted;
+#          one that does not is refused at account level with the quantity
+#          reason; a later replace or cancel, of either, is accepted
+
+on allocation
+    # Each account line is `ACCOUNT QTY [PX]`; the quantities must add up to
+    # the block. A refusal names the reason (AllocRejCode) by word.
+    let lines = SPLIT(allocation.allocs, ';')
+    let total = SUM(lines, l -> NUM_OF(SPLIT(TRIM(l), ' ')[1]))
+    if total == allocation.quantity
+        accept allocation status: accepted, text: 'booked'
+    else
+        reject allocation status: account_level_reject, reason: incorrect_quantity, text: 'total ${total}'
+
+    # The desk may still replace or cancel it — a refused one too, corrected:
+    # the request parks as `allocation.pending_action` until answered here,
+    # and the macro stays alive for these `when` lines.
+    when replace
+        accept allocation status: accepted
+    when cancel
+        accept allocation status: accepted, text: 'canceled after ${COUNT(history)} versions'
+        stop

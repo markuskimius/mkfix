@@ -1,17 +1,17 @@
 # Macro Language
 
-A macro is a macro that acts on orders as things happen to them: accept this, fill that a second later, refuse the second replace, dispute a fill that is through its limit. Each order gets its own copy of the macro, so the same few lines handle one order or a thousand.
+A macro acts on orders as things happen to them: accept this, fill that a second later, refuse the second replace, dispute a fill that is through its limit. Each order gets its own copy of the macro, so the same few lines handle one order or a thousand. Since 0.64 a macro can do the same for IOIs, adverts and allocations — send them, answer them, mind them — each in a block of its own kind.
 
 There are two kinds, kept apart throughout — two menus, two editors, two sets of runs:
 
 | | A **market macro** | A **client macro** |
 |---|---|---|
-| acts on | the orders you receive | the orders you send |
-| with | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` | `new`, `replace`, `cancel`, `dk` |
-| in blocks | `on order` | `run`, `on sent order` |
-| is started with | **▶** in the editor opens **Arm…** — it waits for orders to match | **▶** opens **Run…** — it sends at once, on the session you choose |
+| acts on | the orders you receive; the IOIs, adverts and allocations you send | the orders you send; the IOIs, adverts and allocations you receive |
+| with | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify`; `ioi`, `advert`, `allocate` and their `replace …`/`cancel …` | `new`, `replace`, `cancel`, `dk`; `accept allocation`, `reject allocation` |
+| in blocks | `on order`; `run` (sending an IOI, advert or allocation), `on sent ioi`, `on sent advert`, `on sent allocation` | `run` (sending an order), `on sent order`; `on ioi`, `on advert`, `on allocation` |
+| is started with | **▶** in the editor opens **Arm…** — it waits for orders to match (or Run…, when it only sends) | **▶** opens **Run…** — it sends at once, on the session you choose (or Arm…, when it only waits) |
 | at once | once per session it is armed for | as many runs as you like |
-| lives in | **Market** menu: Market Macros, Macro Runs, Macro Orders, Macro Log | **Client** menu: Client Macros, Macro Runs, Macro Orders, Macro Log |
+| lives in | **Market** menu: Market Macros, Macro Runs | **Client** menu: Client Macros, Macro Runs |
 
 A macro is one or the other: a block of the other kind is a problem the editor underlines. To play both sides of an order, write one of each — the loopback tour in [Macro Examples](macro-examples.md) does.
 
@@ -45,13 +45,18 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 
 ## Blocks
 
-| Block | Side | The order is | The macro may |
+| Block | Side | The subject is | The macro may |
 |---|---|---|---|
-| `on order where EXPR` | market | one you received | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` |
-| `run` or `run on SESSION` | client | one the macro sends with `new` | `new`, `replace`, `cancel`, `dk` |
-| `on sent order where EXPR` | client | one sent some other way — by hand, or by Message Replay | `replace`, `cancel`, `dk` |
+| `on order where EXPR` | market | an order you received | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` |
+| `run` or `run on SESSION` | client | an order the macro sends with `new` | `new`, `replace`, `cancel`, `dk` |
+| `on sent order where EXPR` | client | an order sent some other way — by hand, or by Message Replay | `replace`, `cancel`, `dk` |
+| `run` or `run on SESSION` | market | an IOI, advert or allocation the macro sends with `ioi`, `advert` or `allocate` | that verb, then `replace ioi`/`cancel ioi`, `replace advert`/`cancel advert`, `replace allocation`/`cancel allocation` |
+| `on sent ioi`, `on sent advert`, `on sent allocation` (`where EXPR`) | market | one sent by hand from its Sent blotter | the same `replace …` and `cancel …` |
+| `on ioi where EXPR` | client | an IOI you received | `new` — an order answering it, with the IOI's ID in tag 23 |
+| `on advert where EXPR` | client | an advert you received | nothing answers an advert: watch and `log` |
+| `on allocation where EXPR` | client | an allocation you received | `accept allocation`, `reject allocation` |
 
-`where` is optional. In it the order's columns are names by themselves — `symbol == 'IBM' and order_qty >= 1000` — and `order.symbol` works too.
+`where` is optional. In it the subject's columns are names by themselves — `symbol == 'IBM' and order_qty >= 1000` — and `order.symbol` (or `ioi.symbol`, `advert.symbol`, `allocation.symbol`) works too. A `run` block is about whatever its sending verb sends, and one `run` sends one kind of thing.
 
 ## Market macros
 
@@ -86,12 +91,43 @@ run
 - A run that only sends ends by itself when its last macro does.
 - `on sent order` is the other client block: it waits, like a market macro, for orders sent some other way — by hand from Sent Orders, or by Message Replay — and minds them. An order a `run` macro sent belongs to that macro and is never offered. The session chosen at Run…, if any, is the only one it watches; such a run stays live until stopped, and has a Priority among the client runs that wait.
 
+## IOIs, adverts and allocations
+
+The market side sends them and the client side receives them, so their blocks sit the other way round from an order's: a market macro sends an IOI from a `run` block, a client macro answers one in an `on ioi` block.
+
+```macro
+run
+    repeat 3 every 1s with sym = ['IBM', 'MSFT', 'AAPL']
+        ioi symbol: sym, side: buy, qty: 'L', price: TICK(20 + n, 0.01), quality: high
+        after 2s
+        replace ioi qty: 'M'
+        after 2s
+        cancel ioi
+```
+
+```macro
+on ioi where symbol in ['IBM', 'MSFT'] and ioi_qty == 'L'
+    new symbol: ioi.symbol, side: ioi.side_code, qty: 100, type: limit, price: ioi.price
+    wait replaced or canceled or timeout 30s
+    log '${ioi.ioi_id} is now ${ioi.status}'
+```
+
+- A `run` block is about what it sends: `ioi`, `advert` or `allocate` there makes it a market block with an IOI, advert or allocation of its own, exactly as `new` makes it a client block with an order. Put the sending verb inside a `repeat` and every pass is a macro of its own.
+- Nothing answers an IOI or an advert. A `replace …` moves the row to the new ID at once; the events an `on ioi` or `on advert` block can wait for are `replaced` and `canceled`, the sender's next moves. An `on ioi` block may send `new`: the order names the IOI in tag 23 (unless the macro's `extra` names one), belongs to no macro, and an `on sent order` block could take it up.
+- An allocation is answered. Sent from a `run` block, it waits for its Ack — `accepted`, `received`, `incomplete`, `rejected`, or `acked` for any — and a `replace allocation` or `cancel allocation` parks as `allocation.pending_action` until the Ack that decides it. Received in an `on allocation` block, it is pending until `accept allocation` (status `accepted`, `received` or `incomplete`) or `reject allocation` (status `block_level_reject` or `account_level_reject`, and a `reason`); a later `replace` or `cancel` from the sender is an event for a `when`, answered the same two ways.
+- `on sent ioi`, `on sent advert` and `on sent allocation` mind what was sent by hand from the Sent blotters, as `on sent order` minds orders.
+- The Macro Runs window lists an IOI's or allocation's macro under its run like an order's, with its **Subject** and its current ID, and the row a macro took carries the macro's name in its blotter's Macro column.
+
 ## Actions
 
 An action is a blotter button. Its terms are the dialog's fields, written `name: value`, separated by commas. A value is an expression; quoted text may hold `${…}` placeholders.
 
 | Action | Does | Terms |
 |---|---|---|
+| `new` | Sends a new order; in an `on ioi` block, one answering the IOI (tag 23) that no macro owns | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
+| `replace` | Asks to replace the order; terms left out keep their last accepted value | `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
+| `cancel` | Asks to cancel the order | `text`, `extra` |
+| `dk` | Disputes a received trade (DontKnowTrade) | `reason`, `text`, `extra` |
 | `accept` | Accepts whatever is pending: the new order, or a cancel or replace request | `text`, `extra` |
 | `reject` | Rejects whatever is pending | `text`, `extra` |
 | `fill` | Fills the order, in part or in full | `qty`, `price`, `text`, `extra` |
@@ -100,14 +136,21 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 | `correct` | Corrects a trade you sent | `qty`, `price`, `text`, `extra` |
 | `bust` | Busts a trade you sent | `text`, `extra` |
 | `renotify` | Sends a disputed trade's report again under a new ExecID | `text`, `extra` |
-| `new` | Sends a new order | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
-| `replace` | Asks to replace the order; terms left out keep their last accepted value | `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
-| `cancel` | Asks to cancel the order | `text`, `extra` |
-| `dk` | Disputes a received trade (DontKnowTrade) | `reason`, `text`, `extra` |
+| `ioi` | Sends a new IOI; `qty` is a number or `'S'`, `'M'`, `'L'`, `valid` a time | `symbol`, `side`, `qty`, `price`, `valid`, `quality`, `natural`, `qualifiers`, `currency`, `client`, `text`, `extra` |
+| `replace ioi` | Replaces the IOI under a new IOIID naming the old; terms left out keep the IOI's values | `symbol`, `side`, `qty`, `price`, `valid`, `quality`, `natural`, `qualifiers`, `currency`, `client`, `text`, `extra` |
+| `cancel ioi` | Cancels the IOI under a new IOIID naming the old | `text`, `extra` |
+| `advert` | Sends a new Advertisement; `side` is AdvSide (`buy`, `sell`, `cross`, `trade`) | `symbol`, `side`, `qty`, `price`, `currency`, `trade_date`, `last_mkt`, `client`, `text`, `extra` |
+| `replace advert` | Replaces the advert under a new AdvId naming the old | `symbol`, `side`, `qty`, `price`, `currency`, `trade_date`, `last_mkt`, `client`, `text`, `extra` |
+| `cancel advert` | Cancels the advert under a new AdvId naming the old | `text`, `extra` |
+| `allocate` | Sends a new AllocationInstruction; `accounts`, `orders` and `execs` are lines: `'ACC1 60 10.5; ACC2 40'` | `symbol`, `side`, `qty`, `avg_price`, `trade_date`, `alloc_type`, `orders`, `execs`, `accounts`, `client`, `text`, `extra` |
+| `replace allocation` | Asks to replace the allocation; the row moves to the new AllocID when the Ack accepts it | `symbol`, `side`, `qty`, `avg_price`, `trade_date`, `alloc_type`, `orders`, `execs`, `accounts`, `client`, `text`, `extra` |
+| `cancel allocation` | Asks to cancel the allocation | `text`, `extra` |
+| `accept allocation` | Accepts what is pending on a received allocation with `status` accepted, received or incomplete | `status`, `text`, `extra` |
+| `reject allocation` | Refuses what is pending with `status` block or account level reject and a `reason` | `status`, `reason`, `text`, `extra` |
 
 - `extra` is the dialogs' Extra Tags: `extra: '9001=venue-A'` adds a tag, `extra: '60='` removes one, and naming a computed tag (`extra: '10=000'`) overrides it.
 - `using 'NAME'` takes the terms from a saved template of that action; terms written on the line override the template's.
-- Fixed choices may be a bare word, a quoted name, or the FIX code: `side: buy`, `reason: 'Price exceeds limit'`, `tif: '3'`. The words are listed by completion after the colon.
+- Fixed choices may be a bare word, a quoted name, or the FIX code: `side: buy`, `reason: 'Price exceeds limit'`, `tif: '3'`. The words are listed by completion after the colon, and depend on the action: `side` on `ioi` is `buy`, `sell`, `undisclosed`, `cross`; on `advert` `buy`, `sell`, `cross`, `trade`; `quality` is `high`, `medium`, `low`; `natural` is `yes`, `no`; `status` on the allocation answers is `accepted`, `received`, `incomplete`, `block_level_reject`, `account_level_reject`, `rejected_by_intermediary`; `reason` on `reject allocation` is the AllocRejCode by name (`incorrect_quantity`, `unknown_account`, `other`…).
 
 ### Which trade
 
@@ -158,16 +201,16 @@ on order
 
 | Event | Side | Happens when |
 |---|---|---|
-| `cancel` | received | the counterparty asks to cancel the order |
-| `replace` | received | the counterparty asks to replace the order |
+| `cancel` | received | the counterparty asks to cancel the order — or, on a received allocation, the allocation |
+| `replace` | received | the counterparty asks to replace the order — or, on a received allocation, the allocation |
 | `dk` | received | the counterparty disputes a trade you sent |
 | `ack` | sent | the order is accepted |
 | `pending` | sent | a request was received but not yet decided |
 | `fill` | sent | a fill, partial or complete |
 | `filled` | sent | the fill that completed the order |
-| `replaced` | sent | a replace request was accepted |
-| `canceled` | sent | the order was canceled, asked for or not |
-| `rejected` | sent | the order was rejected |
+| `replaced` | sent; received IOI or advert | a replace request was accepted — or the IOI or advert you received was replaced by its sender |
+| `canceled` | sent; received IOI or advert | the order was canceled, asked for or not — or the IOI or advert you received was canceled |
+| `rejected` | sent | the order was rejected — or the allocation's Ack refused it |
 | `cancel rejected` | sent | a cancel or replace request was refused; see `event.response_to` and `event.reason` |
 | `restated` | sent | the counterparty changed the order's terms unasked |
 | `expired` | sent | the order expired |
@@ -175,10 +218,14 @@ on order
 | `corrected` | sent | a trade you received was corrected |
 | `busted` | sent | a trade you received was busted |
 | `er` | sent | any ExecutionReport, named or not: test `event.tag['150']` |
-| `message` | both | any application message about the order |
-| `manual` | both | someone acted on the order by hand; `event.op` names the action |
-| `session down` | both | the order's session lost its connection |
-| `session up` | both | the order's session is connected again |
+| `accepted` | sent allocation | the Ack accepted the allocation (AllocStatus 0) |
+| `received` | sent allocation | the Ack says received, not yet accepted (AllocStatus 3) |
+| `incomplete` | sent allocation | the Ack says incomplete (AllocStatus 4) |
+| `acked` | sent allocation | any Ack of the allocation, named or not: test `event.tag['87']` |
+| `message` | both | any application message about the subject |
+| `manual` | both | someone acted on it by hand; `event.op` names the action |
+| `session down` | both | its session lost its connection |
+| `session up` | both | its session is connected again |
 | `error` | both | an action of this macro was refused; `event.text` says why |
 
 A macro never hears its own actions.
@@ -202,12 +249,15 @@ Expressions are mkio's expression language: `and or not`, `in`, `== != < <= > >=
 
 | Name | Is |
 |---|---|
-| `order` | the order's row, as the blotter shows it: `order.leaves_qty`, `order.pending_action`, `order.pending_qty`, `order.entered_qty` … |
+| `order` | in an order block, the order's row, as the blotter shows it: `order.leaves_qty`, `order.pending_action`, `order.pending_qty`, `order.entered_qty` … |
+| `ioi` | in an IOI block, the IOI's row: `ioi.ioi_id`, `ioi.symbol`, `ioi.ioi_qty`, `ioi.price`, `ioi.status`, `ioi.order_cl_ord_id` … |
+| `advert` | in an advert block, the advert's row: `advert.adv_id`, `advert.symbol`, `advert.quantity`, `advert.side` … |
+| `allocation` | in an allocation block, the allocation's row: `allocation.alloc_id`, `allocation.allocs`, `allocation.pending_action`, `allocation.alloc_status`, `allocation.alloc_rej_reason` … |
 | `trade` | the trade in hand: the event's, or the one a trade target chose |
-| `trades` | every trade of the order, oldest first |
-| `history` | every recorded version of the order's row, oldest first |
+| `trades` | every trade of the order, oldest first (an IOI, advert or allocation has none) |
+| `history` | every recorded version of the subject's row, oldest first |
 | `event` | what just happened: `event.kind`, `event.request`, `event.tag['150']`, `event.text`, `event.op` … |
-| `event.prev` | the order as it stood before the event. A re-notified fill is recorded as a new trade; `event.prev.cum_qty < order.cum_qty` is how a macro tells a fill that moved CumQty from one that restated it |
+| `event.prev` | the subject as it stood before the event. A re-notified fill is recorded as a new trade; `event.prev.cum_qty < order.cum_qty` is how a macro tells a fill that moved CumQty from one that restated it |
 | `elapsed` | seconds since this order's macro started |
 | `since` | seconds since the last event this macro waited for or reacted to |
 | `n` | the pass of the innermost `repeat`, from 0 |
@@ -227,9 +277,9 @@ Two functions exist only in macros:
 - Macros live in the server's memory, so a restart stops them all. Every run that was live is marked `interrupted`, its orders' macros are gone, and nothing is played again — not a macro that sends orders, and not one that only waits for them: ▶ is dark after a restart, the status bar says `■ slow-fill interrupted` for a minute, and what should be playing is yours to play again.
 - A macro can fail in its first instant — `new` refused because the session had just dropped. The run then ends at once: the editor says so in its status line, and that side's **Log** and **Macros** panes say why. **Stop** on a run that is already over changes nothing.
 
-## From the order blotters
+## From the blotters
 
-Sent Orders and Received Orders carry the macro controls of their side — client on Sent Orders, market on Received Orders — so a macro can be played, paused, stopped and recorded without leaving the blotter. They are four symbols at the end of the toolbar — ● ▶ ⏸ ■, in the order the editors have them — lit like a tape deck's: ▶ while a macro of that side is playing, ⏸ while one is paused, ● red while it records; each says what it does, and how many runs it is about, when the mouse rests on it.
+Every blotter of a side but the trade ones carries that side's macro controls — client on Sent Orders, Received IOIs, Received Adverts and Received Allocations; market on Received Orders, Sent IOIs, Sent Adverts and Sent Allocations — so a macro can be played, paused, stopped and recorded without leaving the blotter. They are four symbols at the end of the toolbar — ● ▶ ⏸ ■, in the order the editors have them — lit like a tape deck's: ▶ while a macro of that side is playing, ⏸ while one is paused, ● red while it records; each says what it does, and how many runs it is about, when the mouse rests on it.
 
 - **●** (record) starts a recording of that side (see below). While it records the dot is red and pulses — its tooltip and the status bar count what you have done — and pressing it asks for a name, saves the macro and opens it in the editor. If the name is taken the recording goes on, and if nothing was recorded nothing is saved.
 - **▶** (play) lists, as tick boxes, the runs you have paused — to resume — and then the side's macros that check clean. Tick one or several; nothing is ticked when it opens. Ticking a macro brings up the session, speed and seed, which are for every macro ticked, and the session is asked for only when one of them "asks for a session" (its `run` names none). What you tick is played whole or not at all: if one of them cannot start — its session is down, it is armed there already — none does, and the dialog says which. A single macro plays exactly as Run… or Arm… in the editor would.
@@ -242,7 +292,7 @@ The **status bar** says what the macros are doing, at the right, each item a lin
 
 You do not have to start from an empty page: **●** (record) — in an editor, or on Sent Orders and Received Orders — watches you work orders by hand and writes the macro that would have done the same.
 
-- In **Market Macros**, ● follows the orders that arrive while it is on and what you do to them from Received Orders and Sent Trades — Accept, Reject, Fill, Unsol Cxl, Restate, Correct, Bust, Re-notify. In **Client Macros** it follows the orders you send from Sent Orders and your Replace, Cancel and DK. It asks for one session or every session; while it records the button pulses red and its tooltip counts your actions. What you do on the trade blotters counts too: a DK from Received Trades belongs to a client recording, a Correct, Bust or Re-notify from Sent Trades to a market one — as long as the trade is of an order the recording follows.
+- In **Market Macros**, ● follows the orders that arrive while it is on and what you do to them from Received Orders and Sent Trades — Accept, Reject, Fill, Unsol Cxl, Restate, Correct, Bust, Re-notify — and the IOIs, adverts and allocations you send from their Sent blotters with their Replace and Cancel. In **Client Macros** it follows the orders you send from Sent Orders and your Replace, Cancel and DK, and the IOIs, adverts and allocations that arrive with your Accept and Reject on allocations. Each becomes a block of its kind: `on ioi` for an IOI received, `run` with `allocate` for an allocation sent. It asks for one session or every session; while it records the button pulses red and its tooltip counts your actions. What you do on the trade blotters counts too: a DK from Received Trades belongs to a client recording, a Correct, Bust or Re-notify from Sent Trades to a market one — as long as the trade is of an order the recording follows.
 - Pressing **●** again stops the recording: it asks for a name and opens the macro. Each order is a block, and what happened decides when each thing is done, not the clock:
   - An action you took after the counterparty did something is triggered by it. Everything heard since your last action is waited for, in the order it came, and the action runs the moment the last of it arrives: `expect ack within 5s`, `expect fill within 6s`, `replace qty: 200`. A market order's arrival is such an event, so your first action on it has no delay.
   - A client macro `expect`s, within a generous bound — five seconds, or three times what it took — so a venue that never answers fails the run instead of hanging it. A market macro `wait`s, as long as the client takes. A client recording ends each order with `pass`.

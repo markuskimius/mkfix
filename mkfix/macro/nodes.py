@@ -142,6 +142,7 @@ class Block:
     where: Expr | None = None
     session: str | None = None
     body: list[Statement] = field(default_factory=list)
+    subject: str = "order"            # vocab.SUBJECTS: what the block is about; a `run`'s by the verb that sends it
 
 
 @dataclass(slots=True)
@@ -156,7 +157,7 @@ class Macro:
         """client | market — what its blocks make it; '' with no blocks, and
         the first block's side for a macro that (wrongly) mixes the two."""
         from .vocab import side_of
-        return side_of(self.blocks[0].kind) if self.blocks else ""
+        return side_of(self.blocks[0].kind, self.blocks[0].subject) if self.blocks else ""
 
     @property
     def needs_session(self) -> bool:

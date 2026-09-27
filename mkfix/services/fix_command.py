@@ -168,7 +168,7 @@ class FixCommandService(Service):
         elif command == "run_loopback_tour":
             return {"ok": True, **await macros.run_tour(data.get("port"))}
         elif command == "detach_order":
-            await macros.detach(data["order_row"])
+            await macros.detach(data["order_row"], data.get("subject") or "order")
             return {"ok": True}
 
         if command == "start_session":

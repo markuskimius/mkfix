@@ -337,8 +337,12 @@ A FIX protocol testing engine for capital markets connectivity, built on
   AllocStatus and a reject code), Sent Allocations shows the answer, and
   Received Orders' Allocate opens a New Allocation from the order. The
   allocation's orders, executions and accounts are typed one per line. Each
-  blotter carries its side's macro controls; the macro language itself does
-  not speak these families yet.
+  blotter carries its side's macro controls, and the macro language speaks
+  them: a market macro sends them from `run` blocks (`ioi`, `advert`,
+  `allocate`, their `replace …` and `cancel …`) and minds hand-sent ones
+  (`on sent ioi` …), a client macro receives them (`on ioi` answering with
+  `new`, `on advert`, `on allocation` with `accept allocation` and
+  `reject allocation`); the recorder writes them too.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages

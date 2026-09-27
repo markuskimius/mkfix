@@ -42,11 +42,10 @@ SUBJECT_KEY = {
 }
 CREATES = {"send_ioi": ("fix_iois", "ioi_id"), "send_advert": ("fix_adverts", "adv_id"),
            "send_allocation": ("fix_allocations", "alloc_id")}
-# The actions the macro language has no verb for yet (0.63: the IOI, advert
-# and allocation ops). perform() runs them and announces them like the
-# rest; the recorder and the vocabulary leave them out until the language
-# learns them.
-UNSCRIPTED = frozenset(SUBJECT_KEY) | frozenset(CREATES)
+# The actions the macro language has no verb for: none since 0.64, which
+# gave the IOI, advert and allocation ops theirs. Kept so a future op can
+# ship ahead of its verb; the recorder and vocabulary tests key off it.
+UNSCRIPTED: frozenset[str] = frozenset()
 
 
 def _action(name: str) -> Callable[[Action], Action]:
@@ -159,7 +158,8 @@ def _ioi_terms(d: dict[str, Any]) -> dict[str, Any]:
 
 @_action("send_ioi")
 async def _send_ioi(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
-    return {"ioi_id": await e.send_ioi(session_id=d["session_id"], **_ioi_terms(d))}
+    return {"ioi_id": await e.send_ioi(session_id=d["session_id"], source=d.get("_source", "manual"),
+                                   tag=d.get("_tag", ""), **_ioi_terms(d))}
 
 
 @_action("replace_ioi")
@@ -180,7 +180,8 @@ def _advert_terms(d: dict[str, Any]) -> dict[str, Any]:
 
 @_action("send_advert")
 async def _send_advert(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
-    return {"adv_id": await e.send_advert(session_id=d["session_id"], **_advert_terms(d))}
+    return {"adv_id": await e.send_advert(session_id=d["session_id"], source=d.get("_source", "manual"),
+                                   tag=d.get("_tag", ""), **_advert_terms(d))}
 
 
 @_action("replace_advert")
@@ -202,7 +203,8 @@ def _allocation_terms(d: dict[str, Any]) -> dict[str, Any]:
 
 @_action("send_allocation")
 async def _send_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
-    return {"alloc_id": await e.send_allocation(session_id=d["session_id"], **_allocation_terms(d))}
+    return {"alloc_id": await e.send_allocation(session_id=d["session_id"], source=d.get("_source", "manual"),
+                                   tag=d.get("_tag", ""), **_allocation_terms(d))}
 
 
 @_action("replace_allocation")

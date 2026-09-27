@@ -1,6 +1,8 @@
-"""One order's macro, running.
+"""One order's macro, running — or one IOI's, advert's or allocation's.
 
-An `Instance` is a block bound to an order. Its *main flow* runs the block's
+An `Instance` is a block bound to its subject: an order, or a row of one of
+the three families (`vocab.SUBJECTS`); `kind` says which, `row` is the
+row, and `order` is the row when it is an order. Its *main flow* runs the block's
 lines top to bottom; every `when` it passes becomes a live handler, and each
 event a handler takes runs that handler's lines as a flow of its own, beside
 the main one. All the flows of an instance share its names (`let` has one
@@ -90,23 +92,30 @@ def event_map(kinds: tuple[str, ...] | list[str], source: str = "macro", *, requ
     }
 
 
-def contains_new(body: list[Statement]) -> bool:
+def contains_creator(body: list[Statement], subject: str = vocab.ORDER) -> bool:
+    """Whether the verb that sends ``subject`` (`new`, `ioi`, `advert`,
+    `allocate`) stands somewhere in ``body``."""
     from .nodes import walk
-    return any(isinstance(st, Action) and st.verb == "new" for st in walk(body))
+    creator = vocab.CREATORS[subject]
+    return any(isinstance(st, Action) and st.verb == creator for st in walk(body))
+
+
+contains_new = contains_creator
 
 
 class Instance:
-    """``order`` is None for a macro that has yet to send its order — it is
-    bound by `new` — and for a *generator*: the lines of a `run on` block
-    outside the `repeat` that sends, which own no order at all and only
-    start the macros that do."""
+    """``row`` is None for a macro that has yet to send its subject — it is
+    bound by `new` (`ioi`, `advert`, `allocate`) — and for a *generator*: the
+    lines of a `run on` block outside the `repeat` that sends, which own
+    nothing at all and only start the macros that do."""
 
-    def __init__(self, runner: MacroRunner, run: Run, block: Block, order: dict[str, Any] | None, index: int,
+    def __init__(self, runner: MacroRunner, run: Run, block: Block, row: dict[str, Any] | None, index: int,
                  *, body: list[Statement] | None = None, vars: dict[str, Any] | None = None, n: int = 0,
                  generator: bool = False) -> None:
         self.runner, self.run, self.block, self.index = runner, run, block, index
-        self.order = order
-        self.key: int | None = order["id"] if order else None
+        self.kind = block.subject
+        self.row = row
+        self.key: int | None = row["id"] if row else None
         self.body = block.body if body is None else body
         self.generator = generator
         self.vars: dict[str, Any] = dict(vars or {})
@@ -124,6 +133,22 @@ class Instance:
         self.tag = f"{run.id}:{index}"          # how the runner knows the order this macro sends
 
     # -- life ------------------------------------------------------------------------
+
+    @property
+    def order(self) -> dict[str, Any] | None:
+        """The row, when the subject is an order."""
+        return self.row if self.kind == vocab.ORDER else None
+
+    @property
+    def owner_key(self) -> tuple[str, int] | None:
+        """What the runner keys owners by: the kind and the row's id, since
+        the tables' ids collide."""
+        return (self.kind, self.key) if self.key is not None else None
+
+    @property
+    def subject_id(self) -> str:
+        """The row's current ID: the ClOrdID, IOIID, AdvId or AllocID."""
+        return self.row[vocab.SUBJECT_IDS[self.kind]] if self.row else ""
 
     @property
     def live(self) -> bool:
@@ -163,10 +188,10 @@ class Instance:
                 self.flows.remove(flow)
             self.runner.scheduler.finished(flow)
 
-    def bind(self, order: dict[str, Any]) -> None:
-        """This macro's order exists: from here on its events come here."""
-        self.order, self.key = order, order["id"]
-        self.runner.owners[self.key] = self
+    def bind(self, row: dict[str, Any]) -> None:
+        """This macro's subject exists: from here on its events come here."""
+        self.row, self.key = row, row["id"]
+        self.runner.owners[self.owner_key] = self
         self.runner._changed(self)
 
     async def _run_main(self) -> None:
@@ -290,7 +315,7 @@ class Instance:
         if st.values is not None and (not isinstance(values, list) or not values):
             raise ScriptError(st.line, "`with` needs a list with something in it")
         outer = flow.n
-        spawns = self.generator and contains_new(st.body)
+        spawns = self.generator and contains_creator(st.body, self.kind)
         try:
             for i in range(int(count)):
                 flow.n = i
@@ -380,7 +405,7 @@ class Instance:
         fn, refs = compiled
         now = self.runner.clock.now()
         scope: dict[str, Any] = {
-            "order": self.order, "trade": flow.trade, "event": flow.event,
+            self.kind: self.row, "trade": flow.trade, "event": flow.event,
             "elapsed": (now - self.started_at) * self.run.speed,
             "since": (now - flow.since_at) * self.run.speed, "n": flow.n,
             "trades": None, "history": None, **self.vars, RNG_NAME: self.rng,
@@ -413,16 +438,25 @@ class Instance:
             if enum and value is not None:
                 value = vocab.enum_code(enum, value)
             payload[term.key] = "" if value is None else value
-        if st.verb == "new":
-            if self.order is not None:
-                raise ScriptError(st.line, "this macro has already sent its order: one order per macro")
+        creator = vocab.CREATORS[self.kind]
+        creates = st.verb == creator and self.block.kind == vocab.CLIENT
+        if creates:
+            if self.row is not None:
+                raise ScriptError(st.line, f"this macro has already sent its {self.kind}: one {self.kind} per macro")
             payload["session_id"], payload["_tag"] = self.run.session_of(self.block), self.tag
-        elif self.order is None:
-            raise ScriptError(st.line, f"`{st.verb}` before `new`: this macro has no order yet")
+        elif self.row is None:
+            raise ScriptError(st.line, f"`{st.verb}` before `{creator}`: this macro has no {self.kind} yet")
         else:
-            payload["session_id"] = self.order["session_id"]
+            payload["session_id"] = self.row["session_id"]
+        if st.verb == "new" and self.kind == vocab.IOI:
+            # The order answers the IOI: its ID rides in tag 23 unless the macro named one itself.
+            extras = str(payload.get("extra_tags") or "")
+            if not any(pair.split("=", 1)[0].strip() == "23" for pair in extras.split("|")):
+                payload["extra_tags"] = "|".join(p for p in (f"23={self.row['ioi_id']}", extras) if p)
         if st.verb in ("replace", "cancel"):
             payload = {**self._as_entered(st.verb == "replace"), **payload}
+        elif st.verb.startswith("replace "):
+            payload = {**self._family_as_entered(), **payload}
 
         async with self._action_lock:
             if not self.live:
@@ -436,13 +470,21 @@ class Instance:
                 # this order may have just renamed it.
                 if verb.trade:
                     payload["exec_id"] = (await self._target(flow, st))["exec_id"]
+                elif creates or st.verb == "new":
+                    pass                                    # sends something new: no subject to name
+                elif verb.subject != vocab.ORDER:
+                    payload[vocab.SUBJECT_IDS[verb.subject]] = self.subject_id
                 elif st.verb in ("replace", "cancel"):
-                    payload["orig_cl_ord_id"] = self.order["cl_ord_id"]
-                elif st.verb != "new":
-                    payload["cl_ord_id"] = self.order["cl_ord_id"]
+                    payload["orig_cl_ord_id"] = self.row["cl_ord_id"]
+                else:
+                    payload["cl_ord_id"] = self.row["cl_ord_id"]
                 result = await self.runner.engine.perform(verb.op, payload, source="macro")
-                if st.verb == "new" and self.order is None:     # nobody listened to the announcement
-                    self.bind(await self.runner.engine._find_order(payload["session_id"], result["cl_ord_id"]))
+                if creates and self.row is None:     # nobody listened to the announcement
+                    row = await self.runner._sent_row(self.kind, payload["session_id"],
+                                                      result[vocab.SUBJECT_IDS[self.kind]])
+                    if row is None:
+                        raise ScriptError(st.line, f"`{st.verb}` sent, but its {self.kind} row was not found")
+                    self.bind(row)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -452,10 +494,26 @@ class Instance:
                 self.runner._log(self, st.line, why)
                 self.deliver(event_map(("error",), text=why, op=verb.op))
 
+    def _family_as_entered(self) -> dict[str, Any]:
+        """What the Replace dialogs of the three families open on: the row's
+        terms, which the macro's own terms then override."""
+        r = self.row
+        if self.kind == vocab.IOI:
+            return {"symbol": r["symbol"], "side": r["side_code"], "qty": r["ioi_qty"], "price": r["price"] or "",
+                    "valid_until": r["valid_until"], "qlty_ind": r["qlty_ind_code"], "natural_flag": r["natural_flag"],
+                    "qualifiers": r["qualifiers"], "currency": r["currency"], "client": r["client"] or ""}
+        if self.kind == vocab.ADVERT:
+            return {"symbol": r["symbol"], "side": r["side_code"], "qty": r["quantity"], "price": r["price"] or "",
+                    "currency": r["currency"], "trade_date": r["trade_date"], "last_mkt": r["last_mkt"],
+                    "client": r["client"] or ""}
+        return {"symbol": r["symbol"], "side": r["side_code"], "qty": r["quantity"], "avg_price": r["avg_price"],
+                "trade_date": r["trade_date"], "alloc_type": r["alloc_type_code"], "orders": r["orders"],
+                "execs": r["execs"], "allocs": r["allocs"], "client": r["client"] or ""}
+
     def _as_entered(self, replace: bool) -> dict[str, Any]:
         """What the Replace and Cancel dialogs open on: the order's last
         accepted terms, which the macro's own terms then override."""
-        o = self.order
+        o = self.row
         base = {"symbol": o["symbol"], "side": o["side_code"], "client": o["client"] or ""}
         if not replace:
             return {**base, "qty": o["order_qty"]}

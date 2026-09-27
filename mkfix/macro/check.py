@@ -21,17 +21,15 @@ from .nodes import (
 )
 from .parser import parse
 
-# Which verbs save their terms under which template scope (`using 'name'`).
-_TEMPLATE_SCOPE = {
-    "new": "order", "replace": "order", "cancel": "cancel", "accept": "accept", "reject": "reject",
-    "fill": "fill", "unsol cxl": "unsolicited", "restate": "restate", "dk": "dk", "correct": "correct",
-    "bust": "bust", "renotify": "renotify",
+_SIDE_BLOCKS = {
+    "market": "`on order`, a `run` that sends IOIs, adverts or allocations, and `on sent ioi/advert/allocation`",
+    "client": "a `run` that sends orders, `on sent order`, and `on ioi/advert/allocation`",
 }
-_SIDE_NAMES = {
-    vocab.MARKET: "an `on order` block", vocab.CLIENT: "a `run` block",
-    vocab.ATTACHED: "an `on sent order` block",
-}
-_SIDE_BLOCKS = {"market": "`on order`", "client": "`run` and `on sent order`"}
+
+
+def _where(places: frozenset[tuple[str, str]]) -> str:
+    """The blocks a verb or event may stand in, named."""
+    return " or ".join(vocab.block_name(kind, subject) for subject, kind in sorted(places))
 
 
 def _close(word: str, known: Iterable[str]) -> str:
@@ -81,14 +79,15 @@ class _Checker:
 
     def macro(self, macro: Macro) -> None:
         if not macro.blocks:
-            self.report(1, 0, 1, "A macro needs at least one block: `on order`, `on sent order` or `run`")
+            self.report(1, 0, 1, "A macro needs at least one block: `on order`, `on sent order`, `run`, "
+                                 "`on ioi`, `on advert`, `on allocation`…")
         # One side per macro. A client macro sends orders and acts on
         # them, a market macro acts on orders received; the panes, the
         # runs and what may run at once are all kept apart by that.
         side = self.side or macro.side
         for block in macro.blocks:
-            if vocab.side_of(block.kind) != side:
-                other = vocab.side_of(block.kind)
+            if vocab.side_of(block.kind, block.subject) != side:
+                other = vocab.side_of(block.kind, block.subject)
                 self.report(block.line, block.col, block.col + 3,
                             f"This is a {side} macro, and this block belongs in a {other} macro: a macro is "
                             f"for one side. Keep {_SIDE_BLOCKS[side]} here and move this to a {other} macro")
@@ -97,36 +96,47 @@ class _Checker:
 
     def block(self, block: Block) -> None:
         if block.where is not None:
-            self.expression(block.where, vocab.match_schema())
+            self.expression(block.where, vocab.match_schema(block.subject))
         if block.session is not None and self.sessions is not None and block.session not in self.sessions:
             self.report(block.line, block.col, block.col + len("run on ") + len(block.session),
                         f"No session named {block.session!r}{_close(block.session, self.sessions)}")
         names = [st.name for st in walk(block.body) if isinstance(st, Let)]
         names += [st.var for st in walk(block.body) if isinstance(st, Repeat) and st.var]
-        schema = vocab.scope_schema(names)
+        schema = vocab.scope_schema(names, block.subject)
         self.body(block.body, block, schema, trade_in_hand=False)
         if block.kind == vocab.CLIENT:
             self.sending(block)
 
     def sending(self, block: Block) -> None:
-        """A `run on` block is one order's macro when `new` stands among its
-        own lines. When `new` sits inside a `repeat`, each pass is a macro
-        with an order of its own, and the lines around that `repeat` run
-        before any order exists: they may set things up, not act or wait."""
-        if not any(isinstance(st, Action) and st.verb == "new" for st in walk(block.body)):
+        """A `run on` block is one subject's macro when the verb that sends
+        it — `new`, `ioi`, `advert`, `allocate` — stands among its own
+        lines. When that verb sits inside a `repeat`, each pass is a macro
+        with a subject of its own, and the lines around that `repeat` run
+        before any exists: they may set things up, not act or wait. The
+        first sending verb decides the subject (the parser set it); a
+        second kind of sending verb belongs in a block of its own."""
+        creator = vocab.CREATORS[block.subject]
+        creators = set(vocab.CREATORS.values())
+        if not any(isinstance(st, Action) and st.verb == creator for st in walk(block.body)):
             self.report(block.line, block.col, block.col + len("run"),
-                        "A `run` block sends its own orders: it needs a `new`")
+                        "A `run` block sends something of its own: it needs a `new`, `ioi`, `advert` or `allocate`")
             return
-        if any(isinstance(st, Action) and st.verb == "new" for st in block.body):
+        for st in walk(block.body):
+            if isinstance(st, Action) and st.verb in creators and st.verb != creator:
+                self.report(st.line, st.col, st.col + len(st.verb),
+                            f"This `run` block sends {vocab.PLURALS[block.subject]} (`{creator}`): `{st.verb}` "
+                            "belongs in a `run` block of its own")
+        if any(isinstance(st, Action) and st.verb == creator for st in block.body):
             return
 
         def outside(body: list[Statement]) -> None:
             for st in body:
-                if isinstance(st, Repeat) and any(isinstance(x, Action) and x.verb == "new" for x in walk(st.body)):
+                if isinstance(st, Repeat) and any(isinstance(x, Action) and x.verb == creator for x in walk(st.body)):
                     continue                                   # the macros themselves
                 if isinstance(st, (Action, Wait, Expect, When)):
                     self.report(st.line, st.col, st.col + 4,
-                                "This line runs before any order exists: move it inside the `repeat` that sends")
+                                f"This line runs before any {block.subject} exists: move it inside the `repeat` "
+                                "that sends")
                 elif isinstance(st, If):
                     for _, branch in st.branches:
                         outside(branch)
@@ -155,20 +165,25 @@ class _Checker:
                 self.body(st.body, block, schema, trade_in_hand)
 
     def events(self, st: Wait | Expect | When, block: Block) -> None:
+        place = (block.subject, block.kind)
         for name in st.events:
             event = vocab.EVENTS[name]
-            if block.kind not in event.sides:
-                there = ", ".join(sorted(n for n, e in vocab.EVENTS.items() if block.kind in e.sides))
+            if place not in event.places:
+                there = ", ".join(sorted(n for n, e in vocab.EVENTS.items() if place in e.places))
                 self.report(st.line, st.col, st.col + 4,
-                            f"`{name}` never happens in {_SIDE_NAMES[block.kind]}. Events there: {there}")
+                            f"`{name}` never happens in {vocab.block_name(block.kind, block.subject)}. "
+                            f"Events there: {there}")
 
     def action(self, st: Action, block: Block, trade_in_hand: bool) -> None:
         verb = vocab.VERBS[st.verb]
         end = st.col + len(st.verb)
-        if block.kind not in verb.sides:
-            where = " or ".join(_SIDE_NAMES[s] for s in verb.sides)
-            extra = " — one order per macro; send more from a `run on` block" if st.verb == "new" else ""
-            self.report(st.line, st.col, end, f"`{st.verb}` belongs in {where}, not {_SIDE_NAMES[block.kind]}{extra}")
+        if (block.subject, block.kind) not in verb.places:
+            if block.kind == vocab.CLIENT and st.verb in vocab.CREATORS.values():
+                return                                          # `sending` said which block it belongs in
+            extra = " — one order per macro; send more from a `run on` block" \
+                if st.verb == "new" and block.subject == vocab.ORDER else ""
+            self.report(st.line, st.col, end, f"`{st.verb}` belongs in {_where(verb.places)}, not "
+                                              f"{vocab.block_name(block.kind, block.subject)}{extra}")
             return
 
         if st.target is not None and not verb.trade:
@@ -202,7 +217,7 @@ class _Checker:
             if missing:
                 self.report(st.line, st.col, end, f"`{st.verb}` needs {', '.join(missing)}")
         elif self.templates is not None:
-            scope = _TEMPLATE_SCOPE[st.verb]
+            scope = verb.scope
             if st.template not in self.templates.get(scope, set()):
                 self.report(st.line, st.col, end,
                             f"No {scope} template named {st.template!r}{_close(st.template, self.templates.get(scope, ()))}")

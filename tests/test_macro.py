@@ -246,7 +246,8 @@ class TestParser:
 
     def test_empty_text(self):
         assert [m for _, _, m in problems("")] == [
-            "A macro needs at least one block: `on order`, `on sent order` or `run`"]
+            "A macro needs at least one block: `on order`, `on sent order`, `run`, `on ioi`, `on advert`, "
+            "`on allocation`…"]
 
 
 # -- meaning ------------------------------------------------------------------------
@@ -283,15 +284,43 @@ class TestSides:
         assert {k: vocab.side_of(k) for k in vocab.SIDES} == {
             vocab.MARKET: "market", vocab.CLIENT: "client", vocab.ATTACHED: "client"}
         assert set(vocab.MACRO_SIDES) == {"client", "market"}
+        # the three families go the other way: the market side sends them, the client side receives them
+        for subject in ("ioi", "advert", "allocation"):
+            assert {k: vocab.side_of(k, subject) for k in vocab.SIDES} == {
+                vocab.MARKET: "client", vocab.CLIENT: "market", vocab.ATTACHED: "market"}
+        for header, (kind, subject) in vocab.BLOCK_HEADERS.items():
+            if subject:
+                assert vocab.side_of(kind, subject) == macro.check(f"{header}\n    log 1\n")[0].side, header
+
+    def test_a_run_block_is_about_what_it_sends(self):
+        assert clean("run\n    ioi symbol: 'A', side: buy, qty: 'L'\n").side == "market"
+        assert clean("run\n    advert symbol: 'A', side: buy, qty: 1\n").side == "market"
+        assert clean("run\n    allocate symbol: 'A', side: buy, qty: 1, accounts: 'X 1'\n").side == "market"
+        assert clean("on ioi\n    new symbol: 'A', side: buy, qty: 1\n").side == "client"
+        assert [b.subject for b in clean("on sent ioi\n    cancel ioi\non sent allocation\n    cancel allocation\n").blocks] \
+            == ["ioi", "allocation"]
+        (line, _, message), = problems("on ioi\n    stop\nrun\n    ioi symbol: 'A', side: buy, qty: 'L'\n")
+        assert line == 3 and "This is a client macro" in message
 
 
 class TestChecker:
     @pytest.mark.parametrize("text, line, col, message", [
-        (market("new symbol: 'A', side: buy, qty: 1\n"), 2, 4, "`new` belongs in a `run` block, not an `on order` block"),
-        (market("cancel\n"), 2, 4, "`cancel` belongs in a `run` block or an `on sent order` block"),
+        (market("new symbol: 'A', side: buy, qty: 1\n"), 2, 4,
+         "`new` belongs in an `on ioi` block or a `run` block that sends orders, not an `on order` block"),
+        (market("cancel\n"), 2, 4, "`cancel` belongs in an `on sent order` block or a `run` block that sends orders"),
         ("on sent order\n    accept\n", 2, 4, "`accept` belongs in an `on order` block"),
         ("on sent order\n    new symbol: 'A', side: buy, qty: 1\n", 2, 4, "one order per macro"),
-        ("run on S\n    cancel\n", 1, 0, "A `run` block sends its own orders: it needs a `new`"),
+        ("run on S\n    cancel\n", 1, 0, "A `run` block sends something of its own: it needs a `new`, `ioi`, `advert` or `allocate`"),
+        ("run on S\n    ioi symbol: 'A', side: buy, qty: 'L'\n    new symbol: 'A', side: buy, qty: 1\n", 3, 4,
+         "This `run` block sends IOIs (`ioi`): `new` belongs in a `run` block of its own"),
+        ("on ioi\n    accept\n", 2, 4, "`accept` belongs in an `on order` block, not an `on ioi` block"),
+        ("on ioi\n    wait ack\n", 2, 4, "`ack` never happens in an `on ioi` block. Events there: canceled, error"),
+        ("on allocation\n    accept\n", 2, 4, "`accept` belongs in an `on order` block, not an `on allocation` block"),
+        ("on order\n    accept allocation\n", 2, 4, "`accept allocation` belongs in an `on allocation` block"),
+        ("run\n    allocate symbol: 'A', side: buy, qty: 1\n", 2, 4, "`allocate` needs accounts"),
+        ("on ioi\n    if ioi.leaves_qty > 0\n        stop\n", 2, 11, "Unknown field: 'ioi.leaves_qty'. ioi has:"),
+        ("on ioi\n    if order.symbol == 'A'\n        stop\n", 2, 7, "Unknown field: 'order'"),
+        ("on sent allocation\n    when cancel\n        stop\n", 2, 4, "`cancel` never happens in an `on sent allocation` block"),
         ("run on S\n    expect ack within 1s\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",
          2, 4, "This line runs before any order exists: move it inside the `repeat` that sends"),
         ("run on S\n    if n == 0\n        cancel\n    repeat 2\n        new symbol: 'A', side: buy, qty: 1\n",
@@ -370,14 +399,20 @@ class TestChecker:
 
 class TestVocabulary:
     def test_every_verb_is_an_engine_action_with_its_terms(self):
+        # terms that are the message's own, never a template's
+        own = {"expire_time", "valid_until", "orders", "execs"}
         for verb in vocab.VERBS.values():
             assert verb.op in ACTIONS, verb.name
-            keys = set(TEMPLATE_TERMS[verb.op][1]) | {"expire_time"}
+            scope, terms = TEMPLATE_TERMS[verb.op]
+            keys = set(terms) | own
             assert set(verb.terms.values()) <= keys, f"{verb.name}: {set(verb.terms.values()) - keys}"
             assert set(verb.required) <= set(verb.terms) and verb.doc and set(verb.sides) <= set(vocab.SIDES)
+            assert verb.scope == scope, f"{verb.name}: `using` reads the {scope} templates"
+            assert verb.subject in vocab.SUBJECTS and (verb.subject, verb.sides[0]) in verb.places
         from mkfix.fix.actions import UNSCRIPTED
         assert {v.op for v in vocab.VERBS.values()} == set(TEMPLATE_TERMS) - UNSCRIPTED, \
             "one verb per dialog, bar the ops the language has no verb for yet"
+        assert UNSCRIPTED == set(), "every op has its verb"
 
     def test_every_report_the_engine_names_is_an_event(self):
         named = set(_REPORT_KINDS.values()) | set(_TRANS_KINDS.values()) | {"filled", "er", "cancel rejected", "message"}
@@ -387,17 +422,16 @@ class TestVocabulary:
         assert {"cancel", "replace", "dk"} <= {n for n, e in vocab.EVENTS.items() if e.sides == (vocab.MARKET,)}
 
     def test_enum_words_are_the_dialogs_options(self):
-        """The words are held to the dialogs of the ops the language speaks:
-        the IOI, advert and allocation dialogs list sides of their own
-        (Undisclosed, Cross; AdvSide's B/S/X/T) that no verb takes yet."""
+        """Each set of words is held to the dialog of the op that takes it:
+        `side` is one list on New Order, another on New IOI (Undisclosed,
+        Cross) and a third on New Advert (AdvSide's B/S/X/T)."""
         app = json.loads((ROOT / "mkfix" / "static" / "app.json").read_text(encoding="utf-8"))
-        spoken = {v.op for v in vocab.VERBS.values()}
-        def options(name):
+        def options(op, name):
             found = {}
             def walk(o, inside):
                 if isinstance(o, dict):
                     if "submit" in o and "fields" in o:
-                        inside = o["submit"].get("op") in spoken
+                        inside = o["submit"].get("op") == op
                     if inside and o.get("name") == name and o.get("options"):
                         found.update({opt["value"]: opt["label"] for opt in o["options"] if opt["value"] != ""})
                     for v in o.values():
@@ -407,10 +441,22 @@ class TestVocabulary:
                         walk(v, inside)
             walk(app, False)
             return found
-        for enum, field in [("side", "side"), ("type", "ord_type"), ("tif", "tif"), ("handl_inst", "handl_inst"),
-                            ("dk reason", "dk_reason")]:
-            assert set(vocab.ENUMS[enum].values()) == set(options(field)), enum
-        assert set(vocab.ENUMS["restate reason"].values()) <= set(options("restate_reason"))
+        exact = {"side": ("send_new_order", "side"), "type": ("send_new_order", "ord_type"),
+                 "tif": ("send_new_order", "tif"), "handl_inst": ("send_new_order", "handl_inst"),
+                 "dk reason": ("dk_trade", "dk_reason"), "ioi side": ("send_ioi", "side"),
+                 "adv side": ("send_advert", "side"), "quality": ("send_ioi", "qlty_ind"),
+                 "natural": ("send_ioi", "natural_flag"), "alloc type": ("send_allocation", "alloc_type"),
+                 "alloc reject reason": ("reject_allocation", "alloc_rej_code")}
+        for enum, (op, field) in exact.items():
+            assert set(vocab.ENUMS[enum].values()) == set(options(op, field)), enum
+        assert set(vocab.ENUMS["restate reason"].values()) <= set(options("restate_order", "restate_reason"))
+        assert set(vocab.ENUMS["alloc status"].values()) == set(options("accept_allocation", "alloc_status")) \
+            | set(options("reject_allocation", "alloc_status"))
+        assert set(exact) | {"restate reason", "alloc status"} == set(vocab.ENUMS), "every list is held to a dialog"
+        # every term with words names its list, and the words are what the verb's op takes
+        for verb, terms in vocab._ENUM_OF.items():
+            for term, enum in terms.items():
+                assert term in vocab.VERBS[verb].terms and enum in vocab.ENUMS, (verb, term)
 
     def test_enum_code(self):
         assert vocab.enum_code("dk reason", "Price exceeds limit") == "E"
@@ -421,14 +467,29 @@ class TestVocabulary:
         assert {"leaves_qty", "pending_action", "entered_qty", "cxl_rej_reason"} <= set(vocab.ORDER_FIELDS)
         assert {"dk_reason", "dk_text", "last_price", "trade_id"} <= set(vocab.TRADE_FIELDS)
         assert vocab.EVENT_FIELDS["prev"] is vocab.ORDER_FIELDS
+        assert {"ioi_id", "ioi_qty", "qualifiers", "order_cl_ord_id"} <= set(vocab.SUBJECT_FIELDS["ioi"])
+        assert {"adv_id", "quantity", "last_mkt"} <= set(vocab.SUBJECT_FIELDS["advert"])
+        assert {"alloc_id", "allocs", "pending_action", "alloc_status"} <= set(vocab.SUBJECT_FIELDS["allocation"])
+        # a block sees its own subject's row, and the event's `prev` is a row of that subject too
+        for subject in vocab.SUBJECTS:
+            schema = vocab.scope_schema((), subject)
+            assert schema[subject] is vocab.SUBJECT_FIELDS[subject] and schema["event"]["prev"] is schema[subject]
+            assert [s for s in vocab.SUBJECTS if s in schema] == [subject]
+            assert set(vocab.match_schema(subject)) == set(vocab.SUBJECT_FIELDS[subject]) | {subject}
 
     def test_vocabulary_is_plain_data_with_help_for_every_word(self):
         v = json.loads(json.dumps(macro.vocabulary()))
-        assert set(v) == {"statements", "verbs", "events", "trade_targets", "enums", "context", "fields", "functions"}
+        assert set(v) == {"statements", "verbs", "events", "trade_targets", "enums", "enum_of", "subjects", "blocks",
+                          "context", "fields", "functions"}
+        assert set(v["fields"]) == set(vocab.SUBJECTS) | {"trade", "event"}
+        assert v["blocks"]["on ioi"] == {"kind": "market", "subject": "ioi", "side": "client"}
+        assert v["blocks"]["run"] == {"kind": "client", "subject": None, "side": None}
+        assert v["verbs"]["accept allocation"]["places"] == [["allocation", "market"]]
+        assert ["ioi", "market"] in v["verbs"]["new"]["places"] and v["verbs"]["new"]["subject"] == "order"
         for group in ("statements", "verbs", "events"):
             assert all(entry["doc"] for entry in v[group].values()), group
         assert {"TICK", "RANDOM", "COUNT", "MIN"} <= set(v["functions"]) and v["functions"]["TICK"]["doc"]
-        assert set(v["context"]) == set(vocab.scope_schema())
+        assert set(v["context"]) == {n for s in vocab.SUBJECTS for n in vocab.scope_schema((), s)}
 
     def test_tick_and_random(self):
         run = lambda s, scope=None: expr.compile(s, functions.ENV)(scope or {})

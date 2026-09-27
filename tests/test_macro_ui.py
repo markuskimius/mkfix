@@ -85,7 +85,10 @@ class TestColouring:
 class TestCompletion:
     LINES = ["on order", "    ", "    when ", "    fill ", "    fill qty: 1, ", "    restate qty: 1, reason: ",
              "    if order.", "    bust ", "    fill using '", "run on ", "", "on sent order", "    ", "    when cancel rejected and event.",
-             "run ", "    "]
+             "run ", "    ",
+             "on ioi", "    ", "    when ", "    if ioi.", "    new symbol: ioi.symbol, side: ",
+             "on allocation", "    reject allocation status: ", "    when ",
+             "run", "    ioi symbol: 'A', side: ", "    ", "    when ", "    if event.prev."]
 
     def names(self, tmp_path, row, limit=None, side=None):
         extras = {"sessions": ["S1", "S2"], "templates": {"fill": ["half", "all"]}, "templateScopes": {"fill": "fill"}}
@@ -114,13 +117,34 @@ class TestCompletion:
         assert self.names(tmp_path, 7, 3) == ["last trade", "first trade", "trade where"]
         assert self.names(tmp_path, 8) == ["half", "all"]
         assert self.names(tmp_path, 9) == ["S1", "S2"]
-        assert self.names(tmp_path, 10) == ["seed", "on error", "on sent order", "on order", "run"]
+        assert self.names(tmp_path, 10) == ["seed", "on error", *macro.vocabulary()["blocks"]]
         assert self.names(tmp_path, 14) == ["on"], "`run` may name its session, or leave it to Run…"
         assert "new" in self.names(tmp_path, 15), "a bare `run` opens a client block"
 
+    def test_the_families_blocks_offer_their_own_words(self, tmp_path):
+        received_ioi = self.names(tmp_path, 17)
+        assert "new" in received_ioi and "cancel ioi" not in received_ioi and "accept" not in received_ioi
+        assert self.names(tmp_path, 18, 2) == ["replaced", "canceled"] and "ack" not in self.names(tmp_path, 18)
+        assert {"ioi_id", "ioi_qty", "qualifiers"} <= set(self.names(tmp_path, 19)) and "leaves_qty" not in self.names(tmp_path, 19)
+        assert self.names(tmp_path, 20) == ["buy", "sell", "sell_short", "sell_short_exempt"], "an order's sides on `new`"
+        assert self.names(tmp_path, 22)[:2] == ["accepted", "block_level_reject"], "the Ack's status words"
+        assert self.names(tmp_path, 23, 2) == ["cancel", "replace"]
+        sending = self.names(tmp_path, 25)
+        assert sending == ["buy", "sell", "undisclosed", "cross"], "an IOI's sides on `ioi`"
+        assert {"replace ioi", "cancel ioi"} <= set(self.names(tmp_path, 26)) and "new" not in self.names(tmp_path, 26)
+        assert set(self.names(tmp_path, 27)) == {"message", "manual", "session down", "session up", "error"}, \
+            "nothing answers an IOI"
+        assert {"ioi_id", "ioi_qty"} <= set(self.names(tmp_path, 28)), "event.prev is the block's own subject"
+        assert run_js(tmp_path, f"L.blockAt(vocab, {json.dumps(self.LINES)}, 26)") == {"kind": "client", "subject": "ioi"}
+        assert run_js(tmp_path, f"L.blockAt(vocab, {json.dumps(self.LINES)}, 17)") == {"kind": "market", "subject": "ioi"}
+
     def test_an_editor_offers_only_its_own_sides_blocks(self, tmp_path):
-        assert self.names(tmp_path, 10, side="market") == ["seed", "on error", "on order"]
-        assert self.names(tmp_path, 10, side="client") == ["seed", "on error", "on sent order", "run"]
+        """The market side receives orders and sends the three families; the
+        client side the other way round. `run` sends for either."""
+        assert self.names(tmp_path, 10, side="market") == [
+            "seed", "on error", "on order", "run", "on sent ioi", "on sent advert", "on sent allocation"]
+        assert self.names(tmp_path, 10, side="client") == [
+            "seed", "on error", "on sent order", "run", "on ioi", "on advert", "on allocation"]
         assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 13))
 
     def test_help_for_the_word_under_the_cursor(self, tmp_path):

@@ -1,0 +1,43 @@
+# IOI desk
+#
+# Shows:   the market side sending IOIs and adverts from `run` blocks — `ioi`,
+#          `replace ioi`, `cancel ioi`, `advert`, `replace advert`,
+#          `cancel advert` — and minding IOIs sent by hand with `on sent ioi`
+# Needs:   any active session; run it on LOOP-MKT with ioi-taker running on
+#          LOOP-CLI to see the orders come back
+# Watch:   Sent IOIs and Sent Adverts (Market menu): the IOIRefID moving as
+#          each replace and cancel lands; Received IOIs on the client side
+# Outcome: three IOIs go out a second apart, each replaced up after two
+#          seconds and cancelled two seconds later; one advert is sent,
+#          replaced and cancelled; an IOI sent by hand is cancelled after
+#          ten seconds
+
+seed 3
+
+# A `run` block that sends IOIs is a market block: what it sends is what it
+# is about, and `ioi.…` is its row. Each pass of the `repeat` is one IOI's
+# macro.
+run
+    repeat 3 every 1s with sym = ['IBM', 'MSFT', 'AAPL']
+        ioi symbol: sym, side: buy, qty: 'L', price: TICK(20 + n, 0.01), quality: high, natural: yes,
+        after 2s
+        # Terms left out keep the IOI's values: only the size and price change.
+        replace ioi qty: 'M', price: TICK(ioi.price + 0.05, 0.01)
+        after 2s
+        cancel ioi text: 'done ${ioi.ioi_id}'
+        pass 'IOI chain ended at ${ioi.ioi_id}'
+
+run
+    advert symbol: 'IBM', side: trade, qty: 5000, price: 20.5, last_mkt: 'XNAS'
+    after 1s
+    replace advert qty: 6000
+    after 1s
+    cancel advert
+    pass 'advertised ${advert.quantity} ${advert.symbol}'
+
+# An IOI sent from the Sent IOIs blotter by hand, on the session this run
+# was started on.
+on sent ioi
+    after 10s
+    if ioi.status == 'Active'
+        cancel ioi text: 'stale'

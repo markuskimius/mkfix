@@ -23,7 +23,7 @@ from mkio import expr
 from . import vocab
 from .nodes import (
     Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Let, Log, Repeat, Macro, Statement,
-    Stop, Term, TradeTarget, Wait, When, While,
+    Stop, Term, TradeTarget, Wait, When, While, walk,
 )
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -35,6 +35,8 @@ _UNIT_SECONDS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 # Longest first, so `cancel rejected` is not read as `cancel`.
 _EVENTS = sorted(vocab.EVENTS, key=lambda name: -len(name.split()))
 _VERBS = sorted(vocab.VERBS, key=lambda name: -len(name.split()))
+_BLOCKS = sorted(vocab.BLOCK_HEADERS, key=lambda name: -len(name.split()))
+_CREATOR_SUBJECT = {verb: subject for subject, verb in vocab.CREATORS.items()}
 _SIMPLE = ("after", "wait", "expect", "when", "if", "else", "while", "repeat", "let", "stop", "pass", "fail", "log")
 _HEADERS = ("seed", "on", "run")
 
@@ -208,13 +210,14 @@ class _Parser:
                         raise _Problem("Expected `continue` or `fail`", line.pos)
                     line.end()
                     macro.on_error = choice
-                elif line.at_phrase("on order") or line.at_phrase("on sent order") or line.at_phrase("run"):
+                elif any(line.at_phrase(header) for header in _BLOCKS):
                     macro.blocks.append(self.block(line))
                 else:
                     word = (line.words_ahead(1) or [line.text.split()[0]])[0]
                     raise _Problem(
-                        f"Expected `seed`, `on error`, or a block (`on order`, `on sent order`, "
-                        f"`run`), got {word!r}", line.indent, len(line.text))
+                        f"Expected `seed`, `on error`, or a block (`on order`, `on sent order`, `run`, "
+                        f"`on ioi`, `on advert`, `on allocation`, `on sent ioi`…), got {word!r}",
+                        line.indent, len(line.text))
             except _Problem as p:
                 self.problem(line, p)
                 self.skip_body(line.indent)
@@ -230,14 +233,21 @@ class _Parser:
                 session = m.group()
             line.end()
             block = Block(vocab.CLIENT, line.no, line.indent, session=session)
-        else:
-            kind = vocab.ATTACHED if line.take_phrase("on sent order") else vocab.MARKET
-            if kind == vocab.MARKET:
-                line.take_phrase("on order")
-            block = Block(kind, line.no, line.indent)
-            if line.take_phrase("where"):
-                block.where = line.expr("an expression")
-            line.end()
+            block.body = self.body(line)
+            # What it sends is what it is about: the first sending verb
+            # among its lines. None leaves it an order block for the
+            # checker to complain about.
+            for st in walk(block.body):
+                if isinstance(st, Action) and st.verb in _CREATOR_SUBJECT:
+                    block.subject = _CREATOR_SUBJECT[st.verb]
+                    break
+            return block
+        header = line.first_of(_BLOCKS)
+        kind, subject = vocab.BLOCK_HEADERS[header]
+        block = Block(kind, line.no, line.indent, subject=subject)
+        if line.take_phrase("where"):
+            block.where = line.expr("an expression")
+        line.end()
         block.body = self.body(line)
         return block
 

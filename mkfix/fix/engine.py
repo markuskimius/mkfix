@@ -2764,8 +2764,11 @@ class FixEngine:
 
     async def send_ioi(self, session_id: str, symbol: str, side: str, qty: str, price: float | None = None,
                        valid_until: str = "", qlty_ind: str = "", natural_flag: str = "", qualifiers: str = "",
-                       currency: str = "", client: str = "", text: str = "", extra_tags: str = "") -> str:
-        """Send a new IOI and return its IOIID. The row is written first."""
+                       currency: str = "", client: str = "", text: str = "", extra_tags: str = "",
+                       source: str = "manual", tag: str = "") -> str:
+        """Send a new IOI and return its IOIID. The row is written first and
+        announced (`sent ioi`, with `source` and the macro's `tag`) before
+        the send, as `send_new_order` does."""
         session = self._active_session(session_id)
         ioi_id = await self.ids.next_id("IO")
         terms = dict(symbol=symbol, side=side, qty=qty, price=price, valid_until=valid_until, qlty_ind=qlty_ind,
@@ -2775,7 +2778,7 @@ class FixEngine:
         row.update(status="Active", order_cl_ord_id="")
         await self._insert_family_row("fix_iois", row)
         row = await self._find_family_row("fix_iois", "ioi_id", session_id, ioi_id, "TX") or row
-        self._emit_row(("sent ioi",), session_id, "fix_iois", row, msg=msg, source="manual", request=ioi_id)
+        self._emit_row(("sent ioi",), session_id, "fix_iois", row, msg=msg, source=source, request=ioi_id, tag=tag)
         await self._send_family_message(session, "fix_iois", row, msg)
         return ioi_id
 
@@ -2857,7 +2860,7 @@ class FixEngine:
 
     async def send_advert(self, session_id: str, symbol: str, side: str, qty: float, price: float | None = None,
                           currency: str = "", trade_date: str = "", last_mkt: str = "", client: str = "",
-                          text: str = "", extra_tags: str = "") -> str:
+                          text: str = "", extra_tags: str = "", source: str = "manual", tag: str = "") -> str:
         """Send a new Advertisement and return its AdvId."""
         session = self._active_session(session_id)
         adv_id = await self.ids.next_id("AD")
@@ -2868,7 +2871,8 @@ class FixEngine:
         row["status"] = "Active"
         await self._insert_family_row("fix_adverts", row)
         row = await self._find_family_row("fix_adverts", "adv_id", session_id, adv_id, "TX") or row
-        self._emit_row(("sent advert",), session_id, "fix_adverts", row, msg=msg, source="manual", request=adv_id)
+        self._emit_row(("sent advert",), session_id, "fix_adverts", row, msg=msg, source=source, request=adv_id,
+                       tag=tag)
         await self._send_family_message(session, "fix_adverts", row, msg)
         return adv_id
 
@@ -2972,7 +2976,8 @@ class FixEngine:
                 updates.update(self._promoted_allocation(row, dictionary))
                 updates["status"] = "Canceled" if row["pending_action"] == "Cancel" else ALLOC_STATUS_OF[code]
             await self._update_family_row("fix_allocations", row, **updates)
-        self._emit_row((_ALLOC_ACK_KINDS.get(code, "allocation acked"), "message"), session_id, "fix_allocations",
+        self._emit_row((*([_ALLOC_ACK_KINDS[code]] if code in _ALLOC_ACK_KINDS else []), "allocation acked", "message"),
+                       session_id, "fix_allocations",
                        await self._load_family_row_by_id("fix_allocations", row["id"]), msg=msg, request=alloc_id,
                        reason=ack["alloc_rej_reason"])
 
@@ -3013,7 +3018,8 @@ class FixEngine:
 
     async def send_allocation(self, session_id: str, symbol: str, side: str, qty: float, avg_price: float,
                               trade_date: str = "", alloc_type: str = "", orders: str = "", execs: str = "",
-                              allocs: str = "", client: str = "", text: str = "", extra_tags: str = "") -> str:
+                              allocs: str = "", client: str = "", text: str = "", extra_tags: str = "",
+                              source: str = "manual", tag: str = "") -> str:
         """Send a new AllocationInstruction and return its AllocID; the row
         is Sent until the Ack arrives."""
         session = self._active_session(session_id)
@@ -3025,8 +3031,8 @@ class FixEngine:
         row["status"] = "Sent"
         await self._insert_family_row("fix_allocations", row)
         row = await self._find_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "TX") or row
-        self._emit_row(("sent allocation",), session_id, "fix_allocations", row, msg=msg, source="manual",
-                       request=alloc_id)
+        self._emit_row(("sent allocation",), session_id, "fix_allocations", row, msg=msg, source=source,
+                       request=alloc_id, tag=tag)
         await self._send_family_message(session, "fix_allocations", row, msg)
         return alloc_id
 

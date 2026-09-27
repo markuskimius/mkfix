@@ -1,0 +1,42 @@
+# Allocation desk
+#
+# Shows:   the market side allocating what it filled — `allocate` from a `run`
+#          block, `accepted`, `received`, `incomplete` and `rejected` on the
+#          Ack, `replace allocation` after a refusal, `cancel allocation`,
+#          `on sent allocation`
+# Needs:   any active session; run it on LOOP-MKT with allocation-check
+#          running on LOOP-CLI to be answered
+# Watch:   Sent Allocations (Market menu): Status, Alloc Status and Rej Reason
+#          as the Acks land; Received Allocations on the client side
+# Outcome: an allocation of 500 across two accounts goes out and is accepted;
+#          a second, wrongly totalled, is refused and then replaced with a
+#          correct one, which is accepted; an allocation sent by hand and
+#          still unanswered after a minute is cancelled
+
+on error continue
+
+run
+    allocate symbol: 'IBM', side: buy, qty: 500, avg_price: 20.5, accounts: 'ACC1 300; ACC2 200',
+    expect accepted or received or incomplete or rejected within 5s else fail 'no Ack'
+    if event.kind == 'received'
+        # Received is not yet accepted: the Ack that decides follows.
+        expect accepted or rejected within 5s
+    pass 'allocation ${allocation.alloc_id} is ${allocation.status}'
+
+run
+    # The accounts do not add up to the block: a careful counterparty refuses it.
+    allocate symbol: 'IBM', side: buy, qty: 500, avg_price: 20.5, accounts: 'ACC1 300; ACC2 100',
+    expect accepted or rejected within 5s
+    if event.kind == 'rejected'
+        log 'refused: ${allocation.alloc_rej_reason} — ${allocation.text}'
+        # Terms left out keep the allocation's values; the row moves to the
+        # new AllocID when the Ack accepts it.
+        replace allocation accounts: 'ACC1 300; ACC2 200'
+        expect accepted within 5s else fail 'the corrected allocation was refused too'
+    pass 'settled as ${allocation.allocs}'
+
+# An allocation sent from the Sent Allocations blotter by hand.
+on sent allocation
+    wait acked or timeout 1m
+    if allocation.status == 'Sent'
+        cancel allocation text: 'no answer'

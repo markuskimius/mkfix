@@ -1,0 +1,32 @@
+# IOI taker
+#
+# Shows:   the client side answering IOIs — `on ioi` with a `where`, `new`
+#          sending an order that names the IOI in tag 23, `replaced` and
+#          `canceled` on an IOI, `on advert` watching adverts
+# Needs:   a session that receives IOIs: run ioi-desk on LOOP-MKT and this
+#          on LOOP-CLI (Run… asks for the session)
+# Watch:   Received IOIs (Client menu): the Order column filling with the
+#          ClOrdID sent against each; Sent Orders for the orders themselves
+# Outcome: every large IBM or MSFT indication is answered with an order for
+#          100 at the indicated price; an IOI replaced or cancelled after
+#          that is logged; adverts are logged as they come
+
+on error continue
+
+# The IOI's row is `ioi`, and in the `where` its columns are names by
+# themselves. Nothing answers an IOI, so `new` here sends an order nobody's
+# macro owns — an `on sent order` block could take it — with `23=<IOIID>`
+# added to its extra tags unless the macro gives one.
+on ioi where symbol in ['IBM', 'MSFT'] and ioi_qty == 'L'
+    after 250ms ± 50ms
+    new symbol: ioi.symbol, side: ioi.side_code, qty: 100, type: limit, price: ioi.price
+    log 'ordered against ${ioi.ioi_id}'
+
+    wait replaced or canceled or timeout 30s
+    if event.kind == 'replaced'
+        log '${ioi.ioi_id} now ${ioi.ioi_qty} at ${ioi.price}'
+    else if event.kind == 'canceled'
+        log '${ioi.ioi_ref_id} was withdrawn'
+
+on advert
+    log 'advert: ${advert.side} ${advert.quantity} ${advert.symbol} at ${advert.price}'

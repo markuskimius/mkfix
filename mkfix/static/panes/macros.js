@@ -21,10 +21,8 @@ const ACE = "/static/vendor/ace";
 const VIM_PREF = "mkfix.macro.vim";
 const LIST_PREF = "mkfix.macro.list";       // the list's width, px — one for both editors
 const LIST_MIN = 80;
-const TEMPLATE_SCOPES = {
-  new: "order", replace: "order", cancel: "cancel", accept: "accept", reject: "reject", fill: "fill",
-  "unsol cxl": "unsolicited", restate: "restate", dk: "dk", correct: "correct", bust: "bust", renotify: "renotify",
-};
+// Which template scope each verb's `using` reads: the vocabulary says (`verbs[name].scope`).
+const templateScopes = (vocab) => Object.fromEntries(Object.entries(vocab.verbs).map(([name, verb]) => [name, verb.scope]));
 const STARTER = {
   market: "on order\n    after 250ms\n    accept\n",
   client: "run\n    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 100.00\n"
@@ -179,7 +177,7 @@ registerPaneType("macros", async (spec, app, host) => {
   let checked = { needs_session: false, session: "" };
   let markers = [];
   let liveMarkers = [];
-  let extras = { sessions: [], templates: {}, templateScopes: TEMPLATE_SCOPES, side };
+  let extras = { sessions: [], templates: {}, templateScopes: templateScopes(vocab), side };
   const sessions = new Map();
   const templates = new Map();
 

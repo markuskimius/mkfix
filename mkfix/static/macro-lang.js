@@ -9,16 +9,21 @@
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alt = (words) => [...words].sort((a, b) => b.length - a.length).map((w) => esc(w).replace(/ /g, "\\s+")).join("|");
 
-const HEADERS = ["seed", "on error", "on sent order", "on order", "run"];
-// A macro is for one side, so an editor offers only its side's blocks.
-const SIDE_BLOCKS = { market: ["on order"], client: ["run", "on sent order"] };
-const BLOCKS = Object.values(SIDE_BLOCKS).flat();
+// The block headers come from the vocabulary (`vocab.blocks`: kind, subject
+// and side of each); `run` has no side of its own — what it sends decides.
+const blockHeaders = (vocab) => Object.keys(vocab.blocks ?? { "on order": 1, "on sent order": 1, run: 1 });
+const headersOf = (vocab) => ["seed", "on error", ...blockHeaders(vocab)];
+// A macro is for one side, so an editor offers only its side's blocks: the
+// ones the vocabulary gives that side, and `run`, which sends for either.
+const sideBlocks = (vocab, side) => blockHeaders(vocab)
+  .filter((h) => !vocab.blocks?.[h]?.side || vocab.blocks[h].side === side);
 const CLAUSES = ["where", "within", "or timeout", "else fail", "using", "every", "with", "and", "or", "not", "in",
   "last trade", "first trade", "trade where", "continue"];
 
 // One ordered rule list: the first rule matching at a position wins, which is
 // how Ace applies them and how `tokenizeLine` does.
 export function buildRules(vocab) {
+  const HEADERS = headersOf(vocab);
   const statements = Object.keys(vocab.statements).filter((s) => !HEADERS.includes(s)).concat(["else if"]);
   const verbs = Object.keys(vocab.verbs);
   const events = Object.keys(vocab.events);
@@ -88,58 +93,102 @@ export function highlight(code, vocab) {
 
 // -- completion -----------------------------------------------------------------------
 
-// The kind of the block the row sits in: market | client | attached | null (the top of the file).
-export function blockKindAt(lines, row) {
+// The block the row sits in: { kind: market | client | attached, subject } or
+// null (the top of the file). A `run` block's subject is what it sends —
+// the first sending verb among its lines, `new` when none is written yet.
+export function blockAt(vocab, lines, row) {
   if (!/^\s/.test(lines[row] ?? "")) return null;          // not indented: the top of the file
+  const creators = { new: "order", ioi: "ioi", advert: "advert", allocate: "allocation" };
   for (let r = row - 1; r >= 0; r--) {
     const line = lines[r] ?? "";
     if (!line.trim() || /^\s/.test(line) || /^#/.test(line)) continue;
-    if (/^on\s+sent\s+order\b/i.test(line)) return "attached";
-    if (/^on\s+order\b/i.test(line)) return "market";
-    if (/^run\b/i.test(line)) return "client";
-    return null;
+    const header = Object.keys(vocab.blocks ?? {}).sort((a, b) => b.length - a.length)
+      .find((h) => new RegExp(`^${esc(h).replace(/ /g, "\\s+")}\\b`, "i").test(line));
+    if (!header) return null;
+    const { kind, subject } = vocab.blocks[header];
+    if (subject) return { kind, subject };
+    for (let k = r + 1; k < lines.length; k++) {
+      const body = lines[k] ?? "";
+      if (body.trim() && !/^\s/.test(body)) break;
+      const verb = /^\s+([a-z]+)\b/i.exec(body)?.[1]?.toLowerCase();
+      if (verb && creators[verb]) return { kind, subject: creators[verb] };
+    }
+    return { kind, subject: "order" };
   }
   return null;
 }
 
+// The kind alone: market | client | attached | null.
+export function blockKindAt(lines, row, vocab = null) {
+  const fallback = { blocks: { "on order": { kind: "market", subject: "order" },
+    "on sent order": { kind: "attached", subject: "order" }, run: { kind: "client", subject: null } } };
+  return blockAt(vocab ?? fallback, lines, row)?.kind ?? null;
+}
+
 const item = (value, meta, doc, extra = {}) => ({ caption: value, value, meta, doc: doc || "", ...extra });
+
+// The word list a verb's term draws on (`vocab.enum_of`), or the term's own name for an older vocabulary.
+const enumKeyOf = (vocab, verb, term) => vocab.enum_of ? vocab.enum_of[verb]?.[term] : (term === "reason"
+  ? { dk: "dk reason", restate: "restate reason" }[verb] : term);
+
+// Whether rows a and b sit under the same block header.
+function sameBlock(lines, a, b) {
+  const headerAbove = (row) => {
+    for (let r = row; r >= 0; r--) if (lines[r]?.trim() && !/^\s/.test(lines[r]) && !/^#/.test(lines[r])) return r;
+    return -1;
+  };
+  return headerAbove(a) === headerAbove(b);
+}
 
 // What could come next at (row, col). `extras` = { templates: {scope: [names]}, sessions: [names],
 // side: "client" | "market" — the editor's side, which narrows the blocks offered }.
 export function completionsAt(vocab, lines, row, col, extras = {}) {
   const line = (lines[row] ?? "").slice(0, col);
-  const kind = blockKindAt(lines, row);
+  const block = blockAt(vocab, lines, row);
+  const HEADERS = headersOf(vocab);
   const before = line.replace(/[A-Za-z_][A-Za-z0-9_]*$/, "");      // the line up to the word being typed
   const trimmed = before.trim().toLowerCase().replace(/\s+/g, " ");
-  const sideOk = (sides) => !kind || sides.includes(kind);
+  // A word stands where the block allows it: its places are (subject, kind)
+  // pairs; a `run` block still without its sending verb takes any sending verb.
+  const placeOk = (entry) => {
+    if (!block) return true;
+    if (entry.places) {
+      const ok = entry.places.some(([s, k]) => s === block.subject && k === block.kind);
+      return ok || (block.kind === "client" && entry.places.some(([, k]) => k === "client")
+        && !lines.some((l, r) => r !== row && /^\s+(new|ioi|advert|allocate)\b/i.test(l) && blockAt(vocab, lines, r)?.kind === "client"
+          && sameBlock(lines, r, row)));
+    }
+    return entry.sides.includes(block.kind);
+  };
 
-  // fields of order. trade. event. event.prev.
+  // fields of order. ioi. advert. allocation. trade. event. event.prev.
   const dotted = /([A-Za-z_][\w.]*)\.$/.exec(before);
   if (dotted) {
     const path = dotted[1];
-    const fields = path === "event.prev" ? vocab.fields.order
-      : path === "order" ? vocab.fields.order : path === "trade" ? vocab.fields.trade
-        : path === "event" ? vocab.fields.event : [];
+    const subject = block?.subject ?? "order";
+    const fields = path === "event.prev" ? vocab.fields[subject]
+      : path === "trade" ? vocab.fields.trade : path === "event" ? vocab.fields.event
+        : vocab.fields[path] ?? [];
     return fields.map((f) => item(f, path));
   }
 
   if (!/^\s/.test(lines[row] ?? "") && trimmed === "") {
-    const mine = SIDE_BLOCKS[extras.side];
-    return HEADERS.filter((h) => !mine || !BLOCKS.includes(h) || mine.includes(h))
+    const mine = extras.side ? sideBlocks(vocab, extras.side) : null;
+    return HEADERS.filter((h) => !mine || !blockHeaders(vocab).includes(h) || mine.includes(h))
       .map((h) => item(h, "block", vocab.statements[h]?.[1] ?? vocab.statements[h]?.doc));
   }
   if (/^run$/.test(trimmed)) return [item("on ", "session", "Name the session here, or leave it to be chosen at Run…", { caption: "on" })];
   if (/^run on$/.test(trimmed)) return (extras.sessions ?? []).map((s) => item(s, "session"));
 
   if (trimmed === "") {
-    const verbs = Object.entries(vocab.verbs).filter(([, v]) => sideOk(v.sides)).map(([n, v]) => item(n, "action", v.doc));
+    const verbs = Object.entries(vocab.verbs).filter(([, v]) => placeOk(v)).map(([n, v]) => item(n, "action", v.doc));
     const statements = Object.entries(vocab.statements).filter(([s]) => !HEADERS.includes(s))
       .map(([s, d]) => item(s, "statement", d.doc ?? d[1]));
     return [...verbs, ...statements];
   }
 
   if (/^(when|wait|expect)( .* or)?$/.test(trimmed)) {
-    return Object.entries(vocab.events).filter(([, e]) => sideOk(e.sides)).map(([n, e]) => item(n, "event", e.doc));
+    return Object.entries(vocab.events).filter(([, e]) => placeOk(e)).map(([n, e]) => item(n, "event", e.doc));
   }
 
   const verb = Object.keys(vocab.verbs).sort((a, b) => b.length - a.length)
@@ -154,8 +203,7 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
     }
     const term = /([a-z_]+)\s*:\s*$/.exec(trimmed);
     if (term) {
-      const enumKey = term[1] === "reason" ? { dk: "dk reason", restate: "restate reason" }[verb] : term[1];
-      const words = vocab.enums[enumKey];
+      const words = vocab.enums[enumKeyOf(vocab, verb, term[1])];
       if (words) return Object.entries(words).map(([w, code]) => item(w, `= ${code}`));
     }
     if (rest === "" || /,$/.test(rest) || /^(last|first) trade$/.test(rest)) {
@@ -235,8 +283,7 @@ export function hoverAt(vocab, lines, row, col) {
     const at = m.index + m[0].length - m[2].length;
     if (col < at || col > at + m[2].length) continue;
     const term = m[1].toLowerCase();
-    const key = term === "reason" ? { dk: "dk reason", restate: "restate reason" }[verbName] : term;
-    const code = vocab.enums[key]?.[m[2].toLowerCase()];
+    const code = vocab.enums[enumKeyOf(vocab, verbName, term)]?.[m[2].toLowerCase()];
     if (code !== undefined) return { title: `${m[2]} = ${code}`, lines: [`${term}: the FIX code ${code} goes on the wire. A quoted value is sent as written.`], start: at, end: at + m[2].length };
   }
   return null;

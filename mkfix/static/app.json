@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.63",
+    "version": "0.64",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -783,7 +783,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.63"
+        "text": "mkfix v0.64"
       }
     ],
     "bindStyle": {
@@ -3137,6 +3137,7 @@
         "order_cl_ord_id",
         "text",
         "extra_tags",
+        "macro",
         "updated_at",
         "id",
         "ioi_trans_type_code",
@@ -3167,6 +3168,7 @@
         "order_cl_ord_id",
         "text",
         "extra_tags",
+        "macro",
         "updated_at"
       ],
       "labels": {
@@ -3197,7 +3199,8 @@
         "timestamp": "Sent",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "macro": "Macro"
       },
       "filters": {
         "updated_at": {
@@ -4062,6 +4065,7 @@
         "adv_trans_type",
         "text",
         "extra_tags",
+        "macro",
         "updated_at",
         "id",
         "adv_trans_type_code",
@@ -4088,6 +4092,7 @@
         "adv_trans_type",
         "text",
         "extra_tags",
+        "macro",
         "updated_at"
       ],
       "labels": {
@@ -4114,7 +4119,8 @@
         "timestamp": "Sent",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "macro": "Macro"
       },
       "filters": {
         "updated_at": {
@@ -4835,6 +4841,7 @@
         "sent_text",
         "text",
         "extra_tags",
+        "macro",
         "updated_at",
         "id",
         "orders",
@@ -4874,6 +4881,7 @@
         "sent_text",
         "text",
         "extra_tags",
+        "macro",
         "updated_at"
       ],
       "labels": {
@@ -4913,7 +4921,8 @@
         "timestamp": "Sent",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "macro": "Macro"
       },
       "filters": {
         "updated_at": {
@@ -7444,6 +7453,7 @@
         "order_cl_ord_id",
         "text",
         "extra_tags",
+        "macro",
         "updated_at",
         "id",
         "ioi_trans_type_code",
@@ -7474,6 +7484,7 @@
         "order_cl_ord_id",
         "text",
         "extra_tags",
+        "macro",
         "updated_at"
       ],
       "labels": {
@@ -7504,7 +7515,8 @@
         "timestamp": "Received",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "macro": "Macro"
       },
       "filters": {
         "updated_at": {
@@ -7882,6 +7894,7 @@
         "adv_trans_type",
         "text",
         "extra_tags",
+        "macro",
         "updated_at",
         "id",
         "adv_trans_type_code",
@@ -7908,6 +7921,7 @@
         "adv_trans_type",
         "text",
         "extra_tags",
+        "macro",
         "updated_at"
       ],
       "labels": {
@@ -7934,7 +7948,8 @@
         "timestamp": "Received",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "macro": "Macro"
       },
       "filters": {
         "updated_at": {
@@ -8072,6 +8087,7 @@
         "sent_text",
         "text",
         "extra_tags",
+        "macro",
         "updated_at",
         "id",
         "orders",
@@ -8111,6 +8127,7 @@
         "sent_text",
         "text",
         "extra_tags",
+        "macro",
         "updated_at"
       ],
       "labels": {
@@ -8150,7 +8167,8 @@
         "timestamp": "Received",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "macro": "Macro"
       },
       "filters": {
         "updated_at": {
@@ -10303,6 +10321,7 @@
         "run_id",
         "macro",
         "status",
+        "subject",
         "cl_ord_id",
         "symbol",
         "session",
@@ -10334,6 +10353,7 @@
         "run_id",
         "macro",
         "status",
+        "subject",
         "cl_ord_id",
         "symbol",
         "session",
@@ -10358,7 +10378,7 @@
         "run_id": "Run",
         "macro": "Macro",
         "status": "Status",
-        "cl_ord_id": "ClOrdID",
+        "cl_ord_id": "ID",
         "symbol": "Symbol",
         "session": "Session",
         "line": "Line",
@@ -10383,7 +10403,8 @@
         "kind": "Kind",
         "key": "Key",
         "parent_key": "Parent Key",
-        "order_row": "Order Row"
+        "order_row": "Order Row",
+        "subject": "Subject"
       },
       "groups": [
         {
@@ -10599,7 +10620,8 @@
             "service": "fix_cmd",
             "op": "detach_order",
             "data": {
-              "order_row": "${row.order_row}"
+              "order_row": "${row.order_row}",
+              "subject": "${row.subject}"
             }
           }
         }
@@ -10688,6 +10710,7 @@
         "run_id",
         "macro",
         "status",
+        "subject",
         "cl_ord_id",
         "symbol",
         "session",
@@ -10719,6 +10742,7 @@
         "run_id",
         "macro",
         "status",
+        "subject",
         "cl_ord_id",
         "symbol",
         "session",
@@ -10743,7 +10767,7 @@
         "run_id": "Run",
         "macro": "Macro",
         "status": "Status",
-        "cl_ord_id": "ClOrdID",
+        "cl_ord_id": "ID",
         "symbol": "Symbol",
         "session": "Session",
         "line": "Line",
@@ -10768,7 +10792,8 @@
         "kind": "Kind",
         "key": "Key",
         "parent_key": "Parent Key",
-        "order_row": "Order Row"
+        "order_row": "Order Row",
+        "subject": "Subject"
       },
       "groups": [
         {
@@ -10984,7 +11009,8 @@
             "service": "fix_cmd",
             "op": "detach_order",
             "data": {
-              "order_row": "${row.order_row}"
+              "order_row": "${row.order_row}",
+              "subject": "${row.subject}"
             }
           }
         }
@@ -11243,7 +11269,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.63",
+      "version": "0.64",
       "mkio": "1.5",
       "expr": "2"
     },
