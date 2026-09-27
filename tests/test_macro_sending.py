@@ -475,7 +475,7 @@ class TestExamples:
                                               "corrected", "busted"}, "reports a script seldom needs to name"
         assert kinds == set(vocab.SIDES)
         sides = {macro.check(p.read_text(encoding="utf-8"))[0].side for p in EXAMPLES.glob("*.macro")}
-        assert sides == set(vocab.MACRO_SIDES)
+        assert sides == set(vocab.MACRO_KINDS), "a macro of each side, and end-to-end ones of both"
         assert {"Repeat", "repeat at", "repeat every", "repeat with", "else fail", "or timeout", "Expect", "Wait"} <= shapes
         # what the macros of a run say to each other, in every form it takes
         assert {"Signal", "signal with", "Share", "share at the top", "on signal", "on signal where",

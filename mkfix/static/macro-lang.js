@@ -15,8 +15,10 @@ const blockHeaders = (vocab) => Object.keys(vocab.blocks ?? { "on order": 1, "on
 const headersOf = (vocab) => ["seed", "on error", ...blockHeaders(vocab)];
 // A macro is for one side, so an editor offers only its side's blocks: the
 // ones the vocabulary gives that side, and `run`, which sends for either.
+// An end-to-end macro holds both sides', so its editor offers them all.
+export const END_TO_END = "end-to-end";
 const sideBlocks = (vocab, side) => blockHeaders(vocab)
-  .filter((h) => !vocab.blocks?.[h]?.side || vocab.blocks[h].side === side);
+  .filter((h) => side === END_TO_END || !vocab.blocks?.[h]?.side || vocab.blocks[h].side === side);
 const CLAUSES = ["where", "within", "or timeout", "else fail", "using", "every", "with", "and", "or", "not", "in",
   "last trade", "first trade", "trade where", "continue"];
 

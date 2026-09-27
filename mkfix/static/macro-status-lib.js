@@ -7,6 +7,10 @@ const RECENT_MS = 60_000;            // an ended run is news for a minute
 const FAILED_MS = 600_000;           // a failed one until something else happens on its side, ten minutes at most
 
 export const SIDES = ["client", "market"];
+// The kinds of macro: one for each side, and end-to-end macros, which hold
+// blocks of both. The blotters' controls are a side's; the status bar and
+// the editors know all three.
+export const KINDS = [...SIDES, "end-to-end"];
 
 // A FIX stamp (YYYYMMDD-HH:MM:SS[.mmm], UTC) as epoch milliseconds, or NaN.
 export function stampMs(fix) {
@@ -41,7 +45,7 @@ export function sideState(side, runs, recording, now) {
 }
 
 export function macroState(runs, recordings, now) {
-  return Object.fromEntries(SIDES.map((side) => [side, sideState(side, runs, recordings?.[side], now)]));
+  return Object.fromEntries(KINDS.map((side) => [side, sideState(side, runs, recordings?.[side], now)]));
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -52,7 +56,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 // tree over the log).
 export function statusItems(state) {
   const items = [];
-  for (const side of SIDES) {
+  for (const side of KINDS) {
     const s = state[side];
     if (!s) continue;
     if (s.recording) {

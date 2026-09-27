@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.68",
+    "version": "0.69",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -149,19 +149,6 @@
           "label": "Received Allocations",
           "action": "pane.show",
           "args": "allocation-blotter"
-        },
-        {
-          "sep": true
-        },
-        {
-          "label": "Client Macros",
-          "action": "pane.show",
-          "args": "client-macros"
-        },
-        {
-          "label": "Client Macro Runs",
-          "action": "frame.show",
-          "args": "client-runs"
         }
       ]
     },
@@ -192,6 +179,21 @@
           "label": "Sent Allocations",
           "action": "pane.show",
           "args": "market-allocation-blotter"
+        }
+      ]
+    },
+    {
+      "label": "Macro",
+      "items": [
+        {
+          "label": "Client Macros",
+          "action": "pane.show",
+          "args": "client-macros"
+        },
+        {
+          "label": "Client Macro Runs",
+          "action": "frame.show",
+          "args": "client-runs"
         },
         {
           "sep": true
@@ -205,6 +207,19 @@
           "label": "Market Macro Runs",
           "action": "frame.show",
           "args": "market-runs"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "End-to-end Macros",
+          "action": "pane.show",
+          "args": "end-to-end-macros"
+        },
+        {
+          "label": "End-to-end Macro Runs",
+          "action": "frame.show",
+          "args": "end-to-end-runs"
         }
       ]
     },
@@ -462,6 +477,83 @@
               "width": 0.5
             }
           ]
+        }
+      ]
+    },
+    "run_end_to_end": {
+      "title": "Run ${row.name} end to end",
+      "width": 360,
+      "submit": {
+        "label": "Run",
+        "service": "fix_cmd",
+        "op": "run_macro"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "hidden",
+          "value": "${row.name}"
+        },
+        {
+          "name": "side",
+          "type": "hidden",
+          "value": "${row.side}"
+        },
+        {
+          "name": "session",
+          "label": "Client session: where its orders go out",
+          "type": "select",
+          "optionsFrom": {
+            "service": "sessions_list",
+            "value": "session_id",
+            "label": "session_id",
+            "empty": "(the one the macro names, or any)"
+          },
+          "value": "${row.session}",
+          "required": "row.needs_session",
+          "remember": {
+            "key": "mkfix.end-to-end.session"
+          }
+        },
+        {
+          "name": "market_session",
+          "label": "Market session: where they come in",
+          "type": "select",
+          "optionsFrom": {
+            "service": "sessions_list",
+            "value": "session_id",
+            "label": "session_id",
+            "empty": "(the one the macro names, or any)"
+          },
+          "value": "",
+          "required": "row.needs_market_session",
+          "remember": {
+            "key": "mkfix.end-to-end.market_session"
+          }
+        },
+        {
+          "row": [
+            {
+              "name": "speed",
+              "label": "Speed",
+              "type": "number",
+              "value": 1,
+              "min": 0.01,
+              "step": "any",
+              "width": 0.5
+            },
+            {
+              "name": "seed",
+              "label": "Seed (blank: the macro's, or random)",
+              "type": "text",
+              "value": "",
+              "width": 0.5
+            }
+          ]
+        },
+        {
+          "type": "readonly",
+          "value": "An end-to-end macro plays both sides in one run. It is offered what arrives before the Client and Market runs are, so a desk that is armed does not answer its orders."
         }
       ]
     },
@@ -798,7 +890,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.68"
+        "text": "mkfix v0.69"
       }
     ],
     "bindStyle": {
@@ -11117,6 +11209,7 @@
         "cl_ord_id",
         "symbol",
         "session",
+        "market_session",
         "line",
         "waiting_for",
         "message",
@@ -11196,7 +11289,8 @@
         "key": "Key",
         "parent_key": "Parent Key",
         "order_row": "Order Row",
-        "subject": "Subject"
+        "subject": "Subject",
+        "market_session": "Market Session"
       },
       "groups": [
         {
@@ -11206,6 +11300,7 @@
             "macro",
             "status",
             "session",
+            "market_session",
             "priority",
             "verdict",
             "orders",
@@ -11507,6 +11602,7 @@
         "cl_ord_id",
         "symbol",
         "session",
+        "market_session",
         "line",
         "waiting_for",
         "message",
@@ -11586,7 +11682,8 @@
         "key": "Key",
         "parent_key": "Parent Key",
         "order_row": "Order Row",
-        "subject": "Subject"
+        "subject": "Subject",
+        "market_session": "Market Session"
       },
       "groups": [
         {
@@ -11596,6 +11693,7 @@
             "macro",
             "status",
             "session",
+            "market_session",
             "priority",
             "verdict",
             "orders",
@@ -11864,6 +11962,400 @@
         }
       }
     },
+    "end-to-end-macros": {
+      "title": "End-to-end Macros",
+      "type": "macros",
+      "side": "end-to-end"
+    },
+    "end-to-end-macro-runs": {
+      "title": "End-to-end Macro Runs",
+      "type": "mkio-table",
+      "service": "macro_runs_tree",
+      "protocol": "query",
+      "filter": "side == 'end-to-end'",
+      "tree": {
+        "child": "parent_key",
+        "parent": "key",
+        "expand": 1
+      },
+      "select": {
+        "state": "selected_macro_order"
+      },
+      "link": {
+        "broadcast": {
+          "end-to-end_macro_run": "run_id",
+          "end-to-end_macro_order": "order_row"
+        }
+      },
+      "columns": [
+        "run_id",
+        "macro",
+        "status",
+        "subject",
+        "cl_ord_id",
+        "symbol",
+        "session",
+        "market_session",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
+        "priority",
+        "verdict",
+        "orders",
+        "live",
+        "passed",
+        "failed",
+        "speed",
+        "seed",
+        "version",
+        "started_at",
+        "ended_at",
+        "updated_at",
+        "id",
+        "side",
+        "kind",
+        "key",
+        "parent_key",
+        "order_row",
+        "order_id"
+      ],
+      "visible": [
+        "run_id",
+        "macro",
+        "status",
+        "subject",
+        "cl_ord_id",
+        "symbol",
+        "session",
+        "market_session",
+        "line",
+        "waiting_for",
+        "message",
+        "actions",
+        "priority",
+        "verdict",
+        "orders",
+        "live",
+        "passed",
+        "failed",
+        "speed",
+        "seed",
+        "version",
+        "started_at",
+        "ended_at",
+        "updated_at"
+      ],
+      "labels": {
+        "run_id": "Run",
+        "macro": "Macro",
+        "status": "Status",
+        "cl_ord_id": "ID",
+        "symbol": "Symbol",
+        "session": "Session",
+        "line": "Line",
+        "waiting_for": "Waiting For",
+        "message": "Message",
+        "actions": "Actions",
+        "priority": "Priority",
+        "verdict": "Verdict",
+        "orders": "Orders",
+        "live": "Live",
+        "passed": "Passed",
+        "failed": "Failed",
+        "speed": "Speed",
+        "seed": "Seed",
+        "version": "Macro Ver",
+        "started_at": "Started",
+        "ended_at": "Ended",
+        "updated_at": "Updated",
+        "order_id": "Order ID",
+        "id": "Row",
+        "side": "Side",
+        "kind": "Kind",
+        "key": "Key",
+        "parent_key": "Parent Key",
+        "order_row": "Order Row",
+        "subject": "Subject",
+        "market_session": "Market Session"
+      },
+      "groups": [
+        {
+          "label": "Run",
+          "columns": [
+            "run_id",
+            "macro",
+            "status",
+            "session",
+            "market_session",
+            "priority",
+            "verdict",
+            "orders",
+            "live",
+            "passed",
+            "failed",
+            "speed",
+            "seed",
+            "version",
+            "started_at",
+            "ended_at"
+          ]
+        },
+        {
+          "label": "Order",
+          "columns": [
+            "subject",
+            "cl_ord_id",
+            "symbol",
+            "line",
+            "waiting_for",
+            "message",
+            "actions",
+            "order_id",
+            "updated_at"
+          ]
+        }
+      ],
+      "types": {
+        "started_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "ended_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "sort": [
+        "-id"
+      ],
+      "rowStyle": [
+        {
+          "when": "kind == 'order'",
+          "italic": true
+        }
+      ],
+      "styles": {
+        "status": [
+          {
+            "when": "value == 'armed'",
+            "color": "#4ec9b0",
+            "bold": true
+          },
+          {
+            "when": "CONTAINS(['running', 'listening'], value)",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'paused'",
+            "color": "#dcdcaa"
+          },
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
+          },
+          {
+            "when": "value == 'interrupted'",
+            "color": "#ce9178"
+          },
+          {
+            "when": "CONTAINS(['stopped', 'detached', 'completed'], value)",
+            "color": "#858585"
+          }
+        ],
+        "verdict": [
+          {
+            "when": "value == 'passed'",
+            "color": "#6a9955",
+            "bold": true
+          },
+          {
+            "when": "value == 'failed'",
+            "color": "#f44747",
+            "bold": true
+          }
+        ],
+        "priority": [
+          {
+            "when": "value == 0",
+            "color": "transparent"
+          }
+        ]
+      },
+      "buttons": [
+        {
+          "label": "Pause",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "pause_run",
+            "data": {
+              "run_id": "${row.run_id}"
+            }
+          }
+        },
+        {
+          "label": "Resume",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'paused')"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "resume_run",
+            "data": {
+              "run_id": "${row.run_id}"
+            }
+          }
+        },
+        {
+          "label": "Stop",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.kind == 'run' and CONTAINS(['armed', 'paused'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "stop_run",
+            "data": {
+              "run_id": "${row.run_id}"
+            }
+          }
+        },
+        {
+          "label": "Move Up",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "maxSelected": 1,
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed' and r.priority > 0)"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "move_run",
+            "data": {
+              "run_id": "${row.run_id}",
+              "direction": "up"
+            }
+          }
+        },
+        {
+          "label": "Move Down",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "maxSelected": 1,
+            "when": "ALL(rows, r -> r.kind == 'run' and r.status == 'armed' and r.priority > 0)"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "move_run",
+            "data": {
+              "run_id": "${row.run_id}",
+              "direction": "down"
+            }
+          }
+        },
+        {
+          "label": "Detach",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.kind == 'order' and CONTAINS(['running', 'listening'], r.status))"
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "detach_order",
+            "data": {
+              "order_row": "${row.order_row}",
+              "subject": "${row.subject}"
+            }
+          }
+        }
+      ]
+    },
+    "end-to-end-macro-log": {
+      "title": "End-to-end Macro Log",
+      "type": "mkio-table",
+      "service": "macro_log_query",
+      "protocol": "query",
+      "filter": "side == 'end-to-end'",
+      "columns": [
+        "timestamp",
+        "run_id",
+        "macro",
+        "cl_ord_id",
+        "line",
+        "text",
+        "id",
+        "order_row",
+        "side"
+      ],
+      "visible": [
+        "timestamp",
+        "run_id",
+        "macro",
+        "cl_ord_id",
+        "line",
+        "text"
+      ],
+      "labels": {
+        "timestamp": "Time",
+        "run_id": "Run",
+        "macro": "Macro",
+        "cl_ord_id": "ID",
+        "line": "Line",
+        "text": "Text",
+        "id": "Row",
+        "order_row": "Order Row",
+        "side": "Side"
+      },
+      "types": {
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "sort": [
+        "-timestamp"
+      ],
+      "link": {
+        "listen": {
+          "end-to-end_macro_run": "run_id",
+          "end-to-end_macro_order": "order_row"
+        }
+      }
+    },
     "help-guide": {
       "title": "Help",
       "type": "help-viewer",
@@ -12063,13 +12555,46 @@
           }
         ]
       }
+    },
+    {
+      "id": "end-to-end-runs",
+      "title": "End-to-end Macro Runs",
+      "open": false,
+      "x": 0.1,
+      "y": 0.1,
+      "w": 0.8,
+      "h": 0.8,
+      "layout": {
+        "type": "split",
+        "dir": "v",
+        "ratios": [
+          0.6,
+          0.4
+        ],
+        "children": [
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "end-to-end-macro-runs"
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              "end-to-end-macro-log"
+            ]
+          }
+        ]
+      }
     }
   ],
   "mkio": {
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.68",
+      "version": "0.69",
       "mkio": "1.5",
       "expr": "2"
     },

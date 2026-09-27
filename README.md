@@ -204,16 +204,23 @@ A FIX protocol testing engine for capital markets connectivity, built on
   report's Text. Older orders and trades are seeded once at startup from
   their recorded messages (HandlInst and trade tags; not Sent Text).
 - **Macros** -- Scripts, called macros, that act on orders as things happen
-  to them, in a small language of their own. There are two kinds, each with its own menu,
-  editor and run panes. A **market macro** (Market menu) answers the orders
+  to them, in a small language of their own. There is a kind for each side, each with its own
+  editor and run panes under the **Macro** menu, and a third that holds both.
+  A **market macro** answers the orders
   you receive (`on order`): **Arm…** it and it waits for orders to match; one
   that sends IOIs, adverts or allocations (`run`) is **Run…** instead. A
-  **client macro** (Client menu) sends orders of its own and manages them
+  **client macro** sends orders of its own and manages them
   (`run`), or minds the orders you send by hand (`on sent order`): **Run…** it
   (**Arm…**, when it only waits for what arrives)
   on the session you choose, as many runs at once as you like, of one macro
-  or of many. A macro is one kind or the other -- the editor underlines a
-  block of the wrong side. Every order gets its own copy of the macro, so
+  or of many. A macro of a side holds that side's blocks -- its editor
+  underlines a block of the other. An **end-to-end macro** holds blocks of
+  both and plays them in one run: a test in one file with one verdict, which
+  sends the order and answers it. It is run on two sessions, one a side; it is
+  offered what arrives before the Client and Market runs are, so an armed
+  desk does not answer its orders; it is over when what it sent is done; and
+  what its blocks `signal` and `share` crosses the sides, since it never
+  leaves the run. Every order gets its own copy of the macro, so
   the same few lines handle one order or a thousand.
 
   ```
@@ -258,13 +265,14 @@ A FIX protocol testing engine for capital markets connectivity, built on
   resumes them -- and editing a macro leaves its live runs on the version
   they started with. **Clone** saves the text shown under a new name; **Delete**
   takes the macros selected in the list (Ctrl-click, Shift-click), whole or
-  not at all. Twenty-four
+  not at all. Twenty-six
   bundled examples -- an auto-acknowledge, a cancel/replace desk, a dispute
   desk, a deliberately misbehaving counterparty; a single order's lifecycle,
   a replace chase, a seeded burst of twenty orders, a DK policy, a regression
   suite with verdicts, a minder for hand-sent orders; desks and takers for
   IOIs and allocations; buys hedged as they fill, a venue that works one
-  order a client at a time, and one that allocates what it fills; and a
+  order a client at a time, and one that allocates what it fills; an order
+  played end to end, and a venue told to reject by the test itself; and a
   loopback venue and client that together play both sides -- open as copies from each editor's
   **Example…**, and the language reference is under **Help**. The client
   examples run over two loopback sessions, this server talking to itself:
@@ -449,6 +457,7 @@ mkfix run order-burst.macro --session LOOP-CLI --wait
 mkfix run slow-fill.macro                     # a market macro: armed, and left armed
 mkfix run slow-fill.macro --for 30s           # armed for thirty seconds, then stopped
 mkfix run mine.macro --session S1 --speed 5 --seed 7 --wait -p 9090
+mkfix run test.macro --session LOOP-CLI --market-session LOOP-MKT --wait   # an end-to-end macro
 ```
 
 `mkfix check` needs no server: it parses and checks the files and answers the
@@ -458,7 +467,9 @@ and is checked again when the macro runs.
 
 `mkfix run` saves the file on a running server under the file's name
 (`--name` to choose another) and starts it the way **▶** in the editor does:
-a macro that sends is run on `--session`, one that only waits is armed. It
+a macro that sends is run on `--session`, one that only waits is armed, and
+one that holds blocks of both sides -- an end-to-end macro -- is run on
+`--session` for its client blocks and `--market-session` for its market ones. It
 prints the run's number and exits; `--wait` follows the run to its end,
 printing its log as it comes, and exits 0 when it passed (or gave no
 verdict), 1 when it failed, 2 when the server stopped it, 3 on a usage

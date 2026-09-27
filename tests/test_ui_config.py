@@ -1680,20 +1680,22 @@ class TestMenubar:
     most a console warning, and the order of the menus is a layout the eye
     learns, so both are pinned here."""
 
-    MENUS = ["FIX", "Edit", "Client", "Market", "Config", "Layout", "Window", "Help"]
+    MENUS = ["FIX", "Edit", "Client", "Market", "Macro", "Config", "Layout", "Window", "Help"]
     # What each menu of panes opens, in order (None is a separator): FIX is
     # the wire — sessions, messages, and the replay that plays a log into a
     # session, which has no side — Client the orders we send (and the IOIs,
-    # adverts and allocations we receive), Market the orders we receive
-    # (blotters, then that side's macros, then its Macro Runs window — a
-    # closed frame `frame.show` opens whole), Config what the rest is set
-    # up with.
+    # adverts and allocations we receive), Market the orders we receive,
+    # Macro every kind of macro — each kind's editor, then its Macro Runs
+    # window, a closed frame `frame.show` opens whole: the two sides' (on
+    # their own menus through 0.68), then the end-to-end ones, which are of
+    # neither side — Config what the rest is set up with.
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail", None, "replay-control"],
-        "Client": ["order-blotter", "trade-blotter", "ioi-blotter", "advert-blotter", "allocation-blotter", None,
-                   "client-macros", "client-runs"],          # Received IOIs/Adverts/Allocations
+        "Client": ["order-blotter", "trade-blotter", "ioi-blotter", "advert-blotter", "allocation-blotter"],
         "Market": ["market-order-blotter", "market-trade-blotter", "market-ioi-blotter", "market-advert-blotter",
-                   "market-allocation-blotter", None, "market-macros", "market-runs"],   # Sent ones
+                   "market-allocation-blotter"],
+        "Macro": ["client-macros", "client-runs", None, "market-macros", "market-runs", None,
+                  "end-to-end-macros", "end-to-end-runs"],
         "Config": ["templates", "dictionaries"],
     }
     BUILTIN_ACTIONS = {
@@ -1705,6 +1707,16 @@ class TestMenubar:
 
     def test_menu_order(self, app_config):
         assert [m["label"] for m in app_config["menubar"]] == self.MENUS
+
+    def test_the_macro_menu_names_each_kind_in_full(self, app_config):
+        """Off the menus of their sides, the items say which side they are of."""
+        menu = next(m for m in app_config["menubar"] if m["label"] == "Macro")
+        assert [i.get("label") for i in menu["items"]] == [
+            "Client Macros", "Client Macro Runs", None, "Market Macros", "Market Macro Runs", None,
+            "End-to-end Macros", "End-to-end Macro Runs"]
+        for label in ("Client", "Market"):
+            items = next(m for m in app_config["menubar"] if m["label"] == label)["items"]
+            assert not any("Macro" in i.get("label", "") for i in items) and not items[-1].get("sep"), label
 
     def test_each_pane_menu_holds_what_it_should(self, app_config):
         by = {m["label"]: m["items"] for m in app_config["menubar"]}

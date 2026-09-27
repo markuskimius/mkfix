@@ -148,9 +148,10 @@ class TestScripts:
         listed = {e["name"]: e for e in manager.examples()}
         assert {"auto-ack", "slow-fill", "cancel-replace-desk", "dispute-desk"} <= set(listed)
         assert all(set(e) == {"name", "side", "title", "shows", "needs", "watch", "outcome"} for e in listed.values())
-        assert {e["side"] for e in listed.values()} == {"client", "market"}
-        client, market = manager.examples("client"), manager.examples("market")
-        assert len(client) + len(market) == len(listed) and {e["side"] for e in client} == {"client"}
+        assert {e["side"] for e in listed.values()} == {"client", "market", "end-to-end"}
+        client, market, both = (manager.examples(side) for side in ("client", "market", "end-to-end"))
+        assert len(client) + len(market) + len(both) == len(listed) and {e["side"] for e in client} == {"client"}
+        assert {e["side"] for e in both} == {"end-to-end"} and len(both) >= 2
         assert {"loopback-client", "take-over", "order-burst"} <= {e["name"] for e in client}
         assert {"loopback-venue", "auto-ack"} <= {e["name"] for e in market}
         assert manager.example("take-over")["side"] == "client"
@@ -462,7 +463,7 @@ class TestSides:
         assert "This is a market macro" in wrong["diagnostics"][0]["message"]
         empty = await manager.save("blank", "", "client")
         assert empty["side"] == "client"
-        with pytest.raises(ValueError, match="client side or the market side, not 'both'"):
+        with pytest.raises(ValueError, match="a client, a market or an end-to-end macro, not 'both'"):
             await manager.save("x", "", "both")
         with pytest.raises(ValueError, match="has 1 problem"):
             await manager.arm("send")
@@ -481,9 +482,9 @@ class TestSides:
         ask = _ask(engine)
         await manager.save("slow", SLOW)
         await manager.save("send", CLIENT)
-        with pytest.raises(ValueError, match="'send' is a client macro: run it from Client Macros"):
+        with pytest.raises(ValueError, match="'send' is a client macro: start it from Client Macros"):
             await ask("arm_macro", {"name": "send", "session": "S1"})
-        with pytest.raises(ValueError, match="'slow' is a market macro: arm it from Market Macros"):
+        with pytest.raises(ValueError, match="'slow' is a market macro: start it from Market Macros"):
             await ask("run_macro", {"name": "slow"})
         with pytest.raises(Exception, match="`run` names no session"):
             await ask("run_macro", {"name": "send"})
@@ -803,7 +804,7 @@ class TestBlotterControls:
         for command, data, why in (("pause_runs", {"side": "market", "run": "2"}, "not a live market run that is playing"),
                                    ("pause_runs", {"side": "market", "run": "3"}, "Run 3 is not a live market run"),
                                    ("stop_runs", {"side": "client", "run": "1"}, "Run 1 is not a live client run"),
-                                   ("stop_runs", {"side": "sideways"}, "client side or the market side")):
+                                   ("stop_runs", {"side": "sideways"}, "a client, a market or an end-to-end macro")):
             with pytest.raises(ValueError, match=why):
                 await ask(command, data)
         # the dialogs' checklist submits the ticked runs together, and they are taken whole or not at all
@@ -942,7 +943,7 @@ class TestSendingRuns:
     @pytest.mark.asyncio
     async def test_stop_tidies_a_row_an_earlier_process_left(self, kit):
         db, engine, stub, manager, clock = kit
-        await manager._write("insert_run", ("ghost", "client", 1, "", 1, 1.0, "armed", "20260920-17:26:35.643", None))
+        await manager._write("insert_run", ("ghost", "client", 1, "", "", 1, 1.0, "armed", "20260920-17:26:35.643", None))
         await manager.stop_run(1)
         (run,) = await _fetch_all(db, "SELECT * FROM fix_macro_runs")
         assert run["status"] == "interrupted" and run["ended_at"]

@@ -211,7 +211,8 @@ class Recorder:
                 *notes, ""]
         if not lines:
             head += [nothing, ""]
-            return {"source": "\n".join(head), "orders": 0, "actions": 0}
+            return {"source": "\n".join(head), "orders": 0, "actions": 0, "blocks": [], "counts": counts,
+                    "sessions": sessions}
         blocks: list[str] = []
         for subject in vocab.SUBJECTS:
             mine = [line for line in lines if line.subject == subject]
@@ -220,7 +221,7 @@ class Recorder:
             blocks += await self._sent_blocks(mine, subject) if self._sends(subject) \
                 else await self._received_blocks(mine, subject)
         return {"source": "\n".join(head) + "\n" + "\n\n".join(blocks) + "\n", "orders": len(lines),
-                "actions": actions}
+                "actions": actions, "blocks": blocks, "counts": counts, "sessions": sessions}
 
     async def _body(self, line: _Timeline, since: float) -> list[str]:
         """One order's statements. What happened decides when the next thing
@@ -423,6 +424,63 @@ class Recorder:
         return blocks
 
     _client_blocks = _sent_blocks
+
+
+class EndToEndRecorder:
+    """Both sides recorded at once, written as one end-to-end macro: what
+    was sent by hand and what was done by hand to what arrived, the client
+    side's blocks first. It is two recorders — each side's rules are its
+    own — and one text, which run on the same two sessions plays both
+    parts against each other."""
+
+    side = vocab.E2E
+
+    def __init__(self, engine: FixEngine, session: str = "", market_session: str = "",
+                 clock: Callable[[], float] = time.monotonic, delays: bool = False) -> None:
+        self.session, self.market_session = session, market_session
+        self.client = Recorder(engine, "client", session, clock, delays)
+        self.market = Recorder(engine, "market", market_session, clock, delays)
+        self.started_at = self.client.started_at
+
+    @property
+    def recording(self) -> bool:
+        return self.client.recording or self.market.recording
+
+    @property
+    def actions(self) -> int:
+        return self.client.actions + self.market.actions
+
+    def status(self) -> dict[str, Any]:
+        return {"recording": self.recording, "side": self.side, "session": self.session,
+                "market_session": self.market_session,
+                "orders": len(self.client.timelines) + len(self.market.timelines), "actions": self.actions,
+                "since": self.started_at}
+
+    async def stop(self, name: str = "recorded", delays: bool | None = None) -> dict[str, Any]:
+        client, market = await self.client.stop(name, delays), await self.market.stop(name, delays)
+        keeps = self.client.delays
+        blocks = [*client["blocks"], *market["blocks"]]
+        counts = {s: client["counts"][s] + market["counts"][s] for s in vocab.SUBJECTS}
+        what = ", ".join(f"{n} {vocab.PLURALS[s] if n != 1 else vocab.PLURALS[s][:-1]}"
+                         for s, n in counts.items() if n) or "0 orders"
+        sessions = sorted({*client["sessions"], *market["sessions"]})
+        actions = client["actions"] + market["actions"]
+        stamp = self.started_at
+        head = [f"# End-to-end, recorded {stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} {stamp[9:17]} UTC"
+                + (f" on {', '.join(sessions)}" if sessions else "")
+                + f": {what}, {actions} action{'s' if actions != 1 else ''}.",
+                "# Both sides of what you did by hand, in one macro: what you sent, and what you did to what arrived.",
+                "# A first draft, literal about what happened: read it, and loosen what is too exact —",
+                "# a quantity, a bound, the `where`. It checks clean, so it runs as it stands.",
+                ("# Each action runs when what it answered comes, after the time you took to answer it."
+                 if keeps else
+                 "# Each action runs the moment what it answered comes; `after` is only where nothing came between two."),
+                ""]
+        if not blocks:
+            head += ["# Nothing was recorded: nothing was sent by hand, and nothing that arrived was worked.", ""]
+            return {"source": "\n".join(head), "orders": 0, "actions": 0}
+        return {"source": "\n".join(head) + "\n" + "\n\n".join(blocks) + "\n",
+                "orders": client["orders"] + market["orders"], "actions": actions}
 
 
 def _equal(a: Any, b: Any) -> bool:

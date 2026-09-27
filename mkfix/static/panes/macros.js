@@ -1,8 +1,10 @@
 // Macros pane: the list of saved macros and an Ace editor over the one
-// selected. It comes in two — Client Macros and Market Macros, the same
-// pane type told its `side` in app.json — because a macro is for one side:
-// a client macro sends orders and receives IOIs, adverts and allocations, a
-// market macro receives orders and sends the other three. ▶ is Run… for a
+// selected. It comes in three — Client Macros, Market Macros and
+// End-to-end Macros, the same pane type told its `side` in app.json. A
+// macro is for one side: a client macro sends orders and receives IOIs,
+// adverts and allocations, a market macro receives orders and sends the
+// other three. An end-to-end macro holds blocks of both and plays them in
+// one run, which has a session a side. ▶ is Run… for a
 // macro that sends (as many runs at once as asked for) and Arm… for one
 // that only waits, on either side. Each lists,
 // checks, saves and follows only its own side. Everything it knows about the language comes from the server —
@@ -14,7 +16,7 @@
 // scripts loaded on first use, no build step.
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
-import { aceRules, completionsAt, exportFileName, helpAt, hoverAt, recordingName } from "/static/macro-lang.js";
+import { END_TO_END, aceRules, completionsAt, exportFileName, helpAt, hoverAt, recordingName } from "/static/macro-lang.js";
 import { diffMarks, splitLines } from "/static/line-diff.js";
 
 const { registerPaneType } = window.Mkui;
@@ -114,8 +116,11 @@ function loadAce(vocab) {
 registerPaneType("macros", async (spec, app, host) => {
   const client = await ensureMkio(app.config?.mkio?.url);
   const cmd = (command, data = {}) => client.send("fix_cmd", { command, ...data }, { op: command });
-  const side = spec.side === "client" ? "client" : "market";
-  const Side = side === "client" ? "Client" : "Market";
+  const side = ["client", "market", END_TO_END].includes(spec.side) ? spec.side : "market";
+  const Side = side[0].toUpperCase() + side.slice(1);
+  const both = side === END_TO_END;
+  // A side's macro, in a sentence: "a client macro", "an end-to-end macro".
+  const aSide = `${both ? "an" : "a"} ${side}`;
 
   host.innerHTML = `
     <div class="macro-pane">
@@ -175,7 +180,7 @@ registerPaneType("macros", async (spec, app, host) => {
   let anchor = null;                    // where a Shift-click's range starts: the last plain click
   let saved = "";                       // its text as last saved
   let problems = 0;
-  let checked = { needs_session: false, session: "", sends: false };
+  let checked = { needs_session: false, needs_market_session: false, session: "", sends: false };
   let markers = [];
   let liveMarkers = [];
   let extras = { sessions: [], templates: {}, templateScopes: templateScopes(vocab), side };
@@ -201,14 +206,16 @@ registerPaneType("macros", async (spec, app, host) => {
       const live = liveRuns(name);
       const working = live.reduce((n, r) => n + (r.live || 0), 0);      // orders with a live macro
       const state = live.length && live.every((r) => r.status === "paused") ? "paused" : "armed";
-      const what = live.length > 1 ? `${live.length} runs` : side === "client" && state === "armed" ? "running" : state;
+      const what = live.length > 1 ? `${live.length} runs` : side !== "market" && state === "armed" ? "running" : state;
       const badge = live.length ? `<span class="macro-badge macro-${state}">${what}${working ? ` · ${working}` : ""}</span>`
         : row.problems ? `<span class="macro-badge macro-problems">${row.problems} problem${row.problems === 1 ? "" : "s"}</span>` : "";
       return `<div class="macro-item${name === current ? " macro-current" : ""}${selected.has(name) ? " macro-selected" : ""}" data-name="${name.replace(/"/g, "&quot;")}">
         <span class="macro-name"></span>${badge}</div>`;
-    }).join("") || `<div class="macro-empty">No ${side} macros yet — a ${side} macro ${side === "client"
-      ? "sends orders and acts on them, and answers the IOIs, adverts and allocations you receive"
-      : "acts on the orders you receive, and sends IOIs, adverts and allocations"}. <b>New</b> starts one; <b>Example…</b> copies a bundled one.</div>`;
+    }).join("") || `<div class="macro-empty">No ${side} macros yet — ${aSide} macro ${both
+      ? "plays both sides in one run: it sends orders and answers them, a test in one file with one verdict"
+      : side === "client"
+        ? "sends orders and acts on them, and answers the IOIs, adverts and allocations you receive"
+        : "acts on the orders you receive, and sends IOIs, adverts and allocations"}. <b>New</b> starts one; <b>Example…</b> copies a bundled one.</div>`;
     listEl.querySelectorAll(".macro-item").forEach((el) => { el.querySelector(".macro-name").textContent = el.dataset.name; });
   }
 
@@ -285,7 +292,8 @@ registerPaneType("macros", async (spec, app, host) => {
       session.addMarker(new Range(d.line - 1, d.col, d.line - 1, Math.max(d.end, d.col + 1)), `macro-mark-${d.severity}`, "text"));
     session.setAnnotations(result.diagnostics.map((d) => ({ row: d.line - 1, column: d.col, text: d.message, type: d.severity })));
     problems = result.errors;
-    checked = { needs_session: !!result.needs_session, session: result.session ?? "", sends: !!result.sends };
+    checked = { needs_session: !!result.needs_session, needs_market_session: !!result.needs_market_session,
+      session: result.session ?? "", sends: !!result.sends };
     const first = result.diagnostics.find((d) => d.severity === "error");
     status(problems ? `${problems} problem${problems === 1 ? "" : "s"} — line ${first.line}: ${first.message}`
       : result.diagnostics.length ? `${result.diagnostics.length} warning(s)` : "No problems", problems ? "error" : "ok");
@@ -330,7 +338,7 @@ registerPaneType("macros", async (spec, app, host) => {
       announced.add(r.id);
       if (r.macro !== current) continue;
       const tally = `${r.orders} order${r.orders === 1 ? "" : "s"}, ${r.passed} passed, ${r.failed} failed`;
-      if (r.verdict === "failed") status(`Run ${r.id} ${r.status}: FAILED (${tally}) — ${Side} Macro Log and ${Side} Macro Orders say why`, "error");
+      if (r.verdict === "failed") status(`Run ${r.id} ${r.status}: FAILED (${tally}) — ${Side} Macro Runs says why`, "error");
       else status(`Run ${r.id} ${r.status}${r.verdict ? ": " + r.verdict : ""} (${tally})`, r.verdict ? "ok" : "");
     }
   }
@@ -488,7 +496,7 @@ registerPaneType("macros", async (spec, app, host) => {
       await cmd("save_macro", { name: current, source, side });
       saved = source;
       if (versions !== null) loadVersions().then(renderHistory, () => {});
-      status(problems ? `Saved as a draft: ${problems} problem(s) keep it from being ${side === "client" ? "run" : "armed"}` : "Saved", problems ? "error" : "ok");
+      status(problems ? `Saved as a draft: ${problems} problem(s) keep it from being ${side === "market" ? "armed" : "run"}` : "Saved", problems ? "error" : "ok");
     } catch (err) {
       status(String(err.message ?? err), "error");
     }
@@ -527,7 +535,8 @@ registerPaneType("macros", async (spec, app, host) => {
     return new Promise((resolve) => {
       const bar = document.createElement("div");
       bar.className = "macro-ask";
-      bar.innerHTML = `<span>Record what you do by hand on</span><select></select>
+      bar.innerHTML = `<span>${both ? "Record both sides of what you do by hand; the orders you send on"
+        : "Record what you do by hand on"}</span><select></select>
         <button class="mkui-btn">Start</button><button class="mkui-btn">Cancel</button>`;
       const select = bar.querySelector("select");
       select.appendChild(new Option("every session", ""));
@@ -548,9 +557,11 @@ registerPaneType("macros", async (spec, app, host) => {
         if (session === null) return;
         recording = await cmd("record_start", { side, session });
         renderRecord();
-        status(side === "client"
-          ? "Recording: send orders from Sent Orders and work them — Replace, Cancel, DK. Stop recording writes the macro."
-          : "Recording: work the orders that arrive in Received Orders and Sent Trades. Stop recording writes the macro.", "live");
+        status(both
+          ? "Recording both sides: send orders from Sent Orders and work them as they arrive in Received Orders. Stop recording writes the macro."
+          : side === "client"
+            ? "Recording: send orders from Sent Orders and work them — Replace, Cancel, DK. Stop recording writes the macro."
+            : "Recording: work the orders that arrive in Received Orders and Sent Trades. Stop recording writes the macro.", "live");
         return;
       }
       const stamped = recordingName(side);
@@ -566,8 +577,9 @@ registerPaneType("macros", async (spec, app, host) => {
       recording = null;
       renderRecord();
       if (!result.orders) {
-        return status(side === "client" ? "Nothing recorded: no order was sent by hand while recording"
-          : "Nothing recorded: no order arrived and was worked by hand while recording", "error");
+        return status(both ? "Nothing recorded: nothing was sent by hand, and nothing that arrived was worked, while recording"
+          : side === "client" ? "Nothing recorded: no order was sent by hand while recording"
+            : "Nothing recorded: no order arrived and was worked by hand while recording", "error");
       }
       await cmd("save_macro", { name, source: result.source, side });
       await open(name, result.source);
@@ -732,7 +744,9 @@ registerPaneType("macros", async (spec, app, host) => {
     if (act === "play") {
       // Run… for a macro with a `run` block, Arm… for one that only waits:
       // either side has both. The dialog hands the side on (`row.side`).
+      // An end-to-end macro has a dialog of its own: it has a session a side.
       const context = { row: { name: current, side, ...checked } };
+      if (both) return app.dialog("run_end_to_end", context);
       return checked.sends ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);
     }
     if (act === "pause") {
@@ -872,7 +886,7 @@ registerPaneType("macros", async (spec, app, host) => {
   }
   followAll();
 
-  // The Macro Orders pane selects a macro's row: show where it is.
+  // The Macro Runs window selects a macro's row: show where it is.
   const unwatch = app.state.subscribe("selected_macro_order", (inst) => {
     if (!inst || inst.macro !== current || !inst.line) return;
     editor.gotoLine(inst.line, 0, true);

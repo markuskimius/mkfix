@@ -85,14 +85,16 @@ class _Checker:
                                  "`on ioi`, `on advert`, `on allocation`…")
         # One side per macro. A client macro sends orders and acts on
         # them, a market macro acts on orders received; the panes, the
-        # runs and what may run at once are all kept apart by that.
+        # runs and what may run at once are all kept apart by that. An
+        # end-to-end macro is the one kind that holds both.
         side = self.side or macro.side
         for block in macro.blocks:
-            if vocab.side_of(block.kind, block.subject) != side:
+            if side != vocab.E2E and vocab.side_of(block.kind, block.subject) != side:
                 other = vocab.side_of(block.kind, block.subject)
                 self.report(block.line, block.col, block.col + 3,
                             f"This is a {side} macro, and this block belongs in a {other} macro: a macro is "
-                            f"for one side. Keep {_SIDE_BLOCKS[side]} here and move this to a {other} macro")
+                            f"for one side. Keep {_SIDE_BLOCKS[side]} here and move this to a {other} macro — "
+                            "or keep both in an end-to-end macro")
         # What is shared and what is signalled is the run's, so the macro's:
         # a block reads a name another block sets, and waits for a signal
         # another block sends.
@@ -260,10 +262,14 @@ def check(text: str, *, templates: Mapping[str, Iterable[str]] | None = None,
           sessions: Iterable[str] | None = None, side: str | None = None) -> tuple[Macro, list[Diagnostic]]:
     """Parse and check ``text``. ``templates`` (scope -> names) and ``sessions``
     are checked against when given; a caller that does not know them says
-    None and those references pass. ``side`` (client | market) is the side
-    the macro must be for — the pane it is being edited in; without it the
-    macro's first block decides, and every other block must agree."""
+    None and those references pass. ``side`` (client | market |
+    end-to-end) is what the macro must be — the pane it is being edited in;
+    without it the blocks decide: of one side it is that side's, of both
+    it is end-to-end."""
     macro, diagnostics = parse(text)
+    if side and side not in vocab.MACRO_KINDS:
+        raise ValueError(f"A macro is a client, a market or an end-to-end macro, not {side!r}")
+    macro.declared = side or ""
     checker = _Checker(templates, sessions, side)
     checker.macro(macro)
     every = sorted({*diagnostics, *checker.out}, key=lambda d: (d.line, d.col, d.message))

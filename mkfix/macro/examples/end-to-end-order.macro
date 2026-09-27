@@ -1,0 +1,44 @@
+# End-to-end order
+#
+# Shows:   an end-to-end macro — both sides of an order in one file and one
+#          run: a `run` block that sends and an `on order` block that answers,
+#          each giving its own verdict
+# Needs:   the loopback sessions; run with LOOP-CLI as the client session
+#          and LOOP-MKT as the market session
+# Watch:   Sent Orders and Received Orders side by side; End-to-end Macro
+#          Runs (Macro menu): the order twice under one run, once a side
+# Outcome: the order is accepted, half filled, replaced up to 300 and
+#          cancelled with 50 done; the client side passes on what it heard,
+#          the market side on what it was asked
+
+run
+    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 10
+    expect ack within 2s
+    expect fill within 5s
+    replace qty: 300
+    expect replaced within 2s else fail 'the replace was not answered'
+    cancel
+    expect canceled within 2s
+    if order.cum_qty != 50
+        fail 'done ${order.cum_qty}, not the 50 that were filled'
+    pass '${order.cl_ord_id} cancelled with ${order.cum_qty} done'
+
+# The same run's other half: the order arrives here, under the ClOrdID the
+# block above gave it. An end-to-end run is offered what arrives before any
+# Market or Client run is, so a desk that happens to be armed does not
+# answer the test's orders.
+on order where symbol == 'IBM'
+    when replace
+        if order.pending_qty < order.cum_qty
+            reject text: 'below what is done'
+        else
+            accept
+    when cancel
+        let left = order.leaves_qty             # as it stands before the cancel is accepted
+        accept
+        pass 'asked to cancel ${order.cl_ord_id} with ${left} left'
+
+    after 200ms
+    accept
+    after 1s
+    fill qty: order.order_qty / 2, price: order.price

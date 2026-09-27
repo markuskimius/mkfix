@@ -4,7 +4,7 @@
 #          counter `n`, seeded RANDOM(), client, expire, handl_inst
 # Needs:   the loopback sessions with a market macro armed; run on LOOP-CLI.
 #          Run it twice at once for two bursts side by side
-# Watch:   Sent Orders filling up at five a second; Client Macro Orders, one row
+# Watch:   Sent Orders filling up at five a second; Client Macro Runs, one row
 #          an order
 # Outcome: twenty orders across three symbols and two clients, sizes and prices
 #          drawn from the seed, each its own macro that expects its

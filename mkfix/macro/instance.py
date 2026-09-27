@@ -194,6 +194,8 @@ class Instance:
             if flow in self.flows:
                 self.flows.remove(flow)
             self.runner.scheduler.finished(flow)
+            if self.live and not self.flows:
+                self.runner._maybe_finished(self.run)      # nothing of it is at work: was it the run's last?
 
     def bind(self, row: dict[str, Any]) -> None:
         """This macro's subject exists: from here on its events come here."""

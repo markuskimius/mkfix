@@ -9,7 +9,9 @@ again when the macro is run.
 ``run`` talks to a running server through its ``fix_cmd`` service, the
 way the UI does: the file is saved under its name (Import's rule: the
 file's stem), then armed or run for its side — a market macro that only
-sends, or a client one, on the session given. ``--wait`` follows the run
+sends, or a client one, on the session given; an end-to-end macro, which
+holds blocks of both sides, on ``--session`` for its client blocks and
+``--market-session`` for its market ones. ``--wait`` follows the run
 until it is over, printing its log as it comes, and exits by the verdict;
 ``--for`` bounds the wait and stops the run at the end of it, which is how
 a macro that waits for orders is given a turn.
@@ -40,14 +42,15 @@ def _parser(cmd: str) -> argparse.ArgumentParser:
             epilog="examples:\n  mkfix check slow-fill.macro\n  mkfix check --side client *.macro",
             formatter_class=argparse.RawDescriptionHelpFormatter)
         p.add_argument("files", nargs="+", metavar="FILE", help="a .macro file")
-        p.add_argument("--side", choices=("client", "market"), default=None,
-                       help="the side the macros must be for, as an editor's side would (default: each file's "
-                            "first block decides)")
+        p.add_argument("--side", choices=("client", "market", "end-to-end"), default=None,
+                       help="what the macros must be, as the editor they are kept in would have it (default: each "
+                            "file's blocks decide — of one side it is that side's, of both it is end-to-end)")
         return p
     p = argparse.ArgumentParser(
         prog="mkfix run",
         description="Save a macro file on a running server under the file's name and run it — a client macro "
-                    "or a market one that sends is run on --session, a market one that waits is armed — "
+                    "or a market one that sends is run on --session, a market one that waits is armed, an "
+                    "end-to-end one is run on --session and --market-session — "
                     "the way ▶ in the editor does. Prints the run's number; with --wait, follows the run to "
                     "its end, printing its log, and exits 0 when it passed, 1 when it failed, 2 when the server "
                     "stopped it.",
@@ -55,10 +58,13 @@ def _parser(cmd: str) -> argparse.ArgumentParser:
                "  mkfix run order-burst.macro --session LOOP-CLI --wait\n"
                "  mkfix run slow-fill.macro                    # a market macro: armed, and left armed\n"
                "  mkfix run slow-fill.macro --for 30s          # armed for thirty seconds, then stopped\n"
-               "  mkfix run mine.macro --session S1 --speed 5 --seed 7 --wait -p 9090",
+               "  mkfix run mine.macro --session S1 --speed 5 --seed 7 --wait -p 9090\n"
+               "  mkfix run test.macro --session LOOP-CLI --market-session LOOP-MKT --wait   # an end-to-end macro",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("file", metavar="FILE", help="a .macro file; the macro is saved under the file's name")
     p.add_argument("--session", default="", help="the session to run on (a `run` block that names none needs it)")
+    p.add_argument("--market-session", default="", metavar="SESSION",
+                   help="an end-to-end macro's second session: where its market blocks receive and send")
     p.add_argument("--name", default=None, help="save the macro under this name instead of the file's")
     p.add_argument("--speed", type=float, default=1.0, help="run the macro's waits this many times faster (default 1)")
     p.add_argument("--seed", type=int, default=None, help="the run's seed (default: the macro's, or random)")
@@ -108,7 +114,7 @@ def _duration(text: str) -> float:
 
 async def run_file(path: str, *, session: str = "", name: str | None = None, speed: float = 1.0,
                    seed: int | None = None, wait: bool = False, duration: float | None = None,
-                   url: str = "http://localhost:8080", out: Any = None) -> int:
+                   url: str = "http://localhost:8080", out: Any = None, market_session: str = "") -> int:
     """Save and run one macro file on the server at ``url``; the exit code."""
     from mkio.client import MkioClient
     out = out or sys.stdout
@@ -135,11 +141,13 @@ async def run_file(path: str, *, session: str = "", name: str | None = None, spe
             for d in saved.get("diagnostics", []):
                 print(f"{path}:{d['line']}:{d['col'] + 1}: {d['severity']}: {d['message']}", file=out)
             return _EXIT_USAGE
-        command = "run_macro" if macro.side == "client" else "arm_macro"          # by side: `side` is not sent
-        started = await cmd(command, name=name, session=session, seed=seed if seed is not None else "", speed=speed)
+        command = "arm_macro" if macro.side == "market" else "run_macro"
+        started = await cmd(command, name=name, side=macro.side, session=session, market_session=market_session,
+                            seed=seed if seed is not None else "", speed=speed)
         run_id = started["run_id"]
         sends = macro.sends
-        print(f"{name}: {'run' if sends else 'armed'} #{run_id} on {session or 'every session'} "
+        where = " and ".join(s for s in (session, market_session) if s) or "every session"
+        print(f"{name}: {'run' if sends else 'armed'} #{run_id} on {where} "
               f"(seed {started.get('seed')}, speed {speed:g})", file=out)
         if not wait and duration is None:
             return _EXIT_PASSED
@@ -188,7 +196,8 @@ def main(cmd: str, argv: list[str]) -> None:
     duration = _duration(args.duration) if args.duration else None
     try:
         code = asyncio.run(run_file(args.file, session=args.session, name=args.name, speed=args.speed,
-                                    seed=args.seed, wait=args.wait, duration=duration, url=url))
+                                    seed=args.seed, wait=args.wait, duration=duration, url=url,
+                                    market_session=args.market_session))
     except (OSError, RuntimeError) as exc:
         print(f"mkfix run: {exc}", file=sys.stderr)
         sys.exit(_EXIT_USAGE)

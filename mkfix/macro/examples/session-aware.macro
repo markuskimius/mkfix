@@ -3,7 +3,7 @@
 # Shows:   `session down` and `session up`, waiting for a reconnect, `on error
 #          continue`, and a verdict with pass / fail
 # Needs:   any session that receives orders; stop and start it mid-run
-# Watch:   Market Macro Orders: what each order's macro is waiting for
+# Watch:   Market Macro Runs: what each order's macro is waiting for
 # Outcome: fills pause while the session is down and resume when it is back;
 #          an order whose session stays down a minute fails its macro
 

@@ -28,7 +28,7 @@ Every blotter belongs to one of two sides, and the menus are split the same way.
 | Orders | sends them: **Sent Orders** | receives them: **Received Orders** |
 | Trades | receives them: **Received Trades** | sends them: **Sent Trades** |
 | IOIs, adverts, allocations | receives them | sends them |
-| Macros | **Client Macros**, **Client Macro Runs** | **Market Macros**, **Market Macro Runs** |
+| Macros, under the **Macro** menu | **Client Macros**, **Client Macro Runs** | **Market Macros**, **Market Macro Runs** |
 
 A session is not tied to a side. Whatever a session sends shows on the sent blotters and whatever it receives on the received ones, so one mkfix can be the client on one session and the market on another.
 
@@ -38,8 +38,9 @@ A session is not tied to a side. Whatever a session sends shows on the sent blot
 |---|---|
 | **FIX** | Sessions, Messages, Detail, Replay Control |
 | **Edit** | Undo and Redo of a session change, Copy, Select All |
-| **Client** | the client side's blotters and macros |
-| **Market** | the market side's blotters and macros |
+| **Client** | the client side's blotters |
+| **Market** | the market side's blotters |
+| **Macro** | the macros of each side and the end-to-end ones, each with its runs |
 | **Config** | Templates, Dictionaries |
 | **Layout** | Save Layout, Restore Layout, Reset to Default |
 | **Window** | tile, grid or cascade the windows, and the list of open ones |
@@ -289,7 +290,8 @@ on order where symbol in ['IBM', 'MSFT']
         fill qty: MIN(100, order.leaves_qty), price: order.price
 ```
 
-- Write one in **Client Macros** or **Market Macros**. The editor checks as you type and **Example…** opens a copy of a bundled one.
+- Write one in **Client Macros** or **Market Macros**, under the **Macro** menu. The editor checks as you type and **Example…** opens a copy of a bundled one.
+- An **end-to-end macro** plays both sides in one run: it sends the order and answers it, a test in one file with one verdict. It has an editor and a runs window of its own, and is run on two sessions, one a side.
 - **▶** starts it: **Run…** for a macro that sends, **Arm…** for one that waits for something to arrive.
 - **●** records what you do by hand and writes the macro that would have done it.
 - **Macro…**, on a blotter, writes the macro from what has already happened: select the orders and it reads your side's part back from the messages kept.

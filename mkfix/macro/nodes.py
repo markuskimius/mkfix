@@ -165,19 +165,47 @@ class Macro:
     on_error: str = "fail"            # fail | continue
     blocks: list[Block] = field(default_factory=list)
     shares: list[Share] = field(default_factory=list)   # `share NAME = EXPR` before the blocks: what a run starts with
+    declared: str = ""                # the side it was checked for — the editor it is kept in — when one was given
+
+    @property
+    def sides(self) -> set[str]:
+        """The sides its blocks are of."""
+        from .vocab import side_of
+        return {side_of(b.kind, b.subject) for b in self.blocks}
 
     @property
     def side(self) -> str:
-        """client | market — what its blocks make it; '' with no blocks, and
-        the first block's side for a macro that (wrongly) mixes the two."""
+        """client | market | end-to-end — the side it was checked for, else
+        what its blocks make it: end-to-end when they are of both sides,
+        '' with no blocks."""
+        from .vocab import E2E
+        if self.declared:
+            return self.declared
+        sides = self.sides
+        return E2E if len(sides) > 1 else next(iter(sides), "")
+
+    def needs(self, side: str) -> bool:
+        """Whether a `run` block of ``side`` leaves its session to be
+        chosen at Run… An `on signal` block sends where the macro that
+        signalled is."""
         from .vocab import side_of
-        return side_of(self.blocks[0].kind, self.blocks[0].subject) if self.blocks else ""
+        return any(b.kind == "client" and b.signal is None and not b.session
+                   and side_of(b.kind, b.subject) == side for b in self.blocks)
 
     @property
     def needs_session(self) -> bool:
-        """True when a `run` block leaves its session to be chosen at Run…
-        An `on signal` block sends where the macro that signalled is."""
-        return any(b.kind == "client" and b.signal is None and not b.session for b in self.blocks)
+        """True when a `run` block leaves its session to be chosen at Run… —
+        in an end-to-end macro, one that sends orders: the client session."""
+        from .vocab import E2E
+        return self.needs("client") if self.side == E2E else self.needs("client") or self.needs("market")
+
+    @property
+    def needs_market_session(self) -> bool:
+        """In an end-to-end macro, whether a `run` block that sends IOIs,
+        adverts or allocations leaves its session to Run…: the second of
+        the two sessions such a run has."""
+        from .vocab import E2E
+        return self.side == E2E and self.needs("market")
 
     @property
     def sends(self) -> bool:

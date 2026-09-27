@@ -14,7 +14,7 @@
 // stopped in an editor and the other way round.
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
-import { SIDES, macroState, statusItems } from "/static/macro-status-lib.js";
+import { KINDS, macroState, statusItems } from "/static/macro-status-lib.js";
 import { recordingName } from "/static/macro-lang.js";
 
 const { registerWidget } = window.Mkui;
@@ -51,7 +51,7 @@ registerWidget("macro-status", (spec, app, host) => {
 
   function publish() {
     state = macroState(online ? [...runs.values()] : [], online ? recordings : {}, Date.now());
-    for (const side of SIDES) state[side].offline = !online;
+    for (const side of KINDS) state[side].offline = !online;
     app.state.set("macros", state);
     bar.replaceChildren(...statusItems(state).map((item) => {
       const el = document.createElement("a");
@@ -68,10 +68,10 @@ registerWidget("macro-status", (spec, app, host) => {
     clearTimeout(timer);
     try {
       const status = await cmd("macro_status");
-      recordings = Object.fromEntries(SIDES.map((side) => [side, status[side]]));
+      recordings = Object.fromEntries(KINDS.map((side) => [side, status[side]]));
     } catch { /* the server is away: the last word stands */ }
     publish();
-    timer = setTimeout(poll, SIDES.some((s) => recordings[s]?.recording) ? RECORDING_MS : IDLE_MS);
+    timer = setTimeout(poll, KINDS.some((s) => recordings[s]?.recording) ? RECORDING_MS : IDLE_MS);
   }
 
   // -- the order blotters' controls -------------------------------------------------------
@@ -173,7 +173,7 @@ registerWidget("macro-status", (spec, app, host) => {
   app.registerAction("macro.refresh", () => poll());
   app.registerAction("macro.recorded", (_app, args) => {
     poll();
-    if (!args?.name || !SIDES.includes(args.side)) return;
+    if (!args?.name || !KINDS.includes(args.side)) return;
     app.fireAction("pane.show", `${args.side}-macros`);
     app.state.set("open_macro", { name: args.name, side: args.side, from: args.from ?? "recording" });
   });

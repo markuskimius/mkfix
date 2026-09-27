@@ -1,0 +1,46 @@
+# Told to reject
+#
+# Shows:   the two sides of an end-to-end macro working together — `share`
+#          read by the venue's block and set by the client's, and an
+#          `on signal` block sending the second order when the first is done
+# Needs:   the loopback sessions; run with LOOP-CLI as the client session
+#          and LOOP-MKT as the market session
+# Watch:   Received Orders: the first order filled, the second rejected;
+#          End-to-end Macro Runs: four macros under one run, and its log
+# Outcome: the first order is accepted and filled; the client side then
+#          tells the venue to refuse, sends a second order, and passes when
+#          that one is rejected with the reason it gave
+
+share mode = 'accept'           # what the venue does with the next order
+share why = ''
+
+on order
+    # Read when the order arrives: what the client side last said.
+    if shared.mode == 'reject'
+        reject text: shared.why
+        stop
+    after 200ms
+    accept
+    after 500ms
+    fill qty: order.leaves_qty, price: order.price
+
+run
+    new symbol: 'MSFT', side: buy, qty: 200, type: limit, price: 20
+    expect filled within 5s else fail 'the first order was not filled'
+
+    # Said inside the server, so it is there before the next order is:
+    # a message takes a round trip, a shared value does not.
+    share mode = 'reject'
+    share why = 'halted after ${order.cl_ord_id}'
+    signal 'halted'
+    pass
+
+# One order a macro: the second is a macro of its own, started by the first.
+on signal 'halted'
+    let first = event.sender.cl_ord_id
+    new symbol: 'MSFT', side: buy, qty: 200, type: limit, price: 20
+    expect rejected within 2s else fail 'the venue took it'
+    # ${…} is filled in where a text stands alone; inside a comparison the pieces are joined.
+    if order.text != CONCAT('halted after ', first)
+        fail 'rejected, but for ${order.text}'
+    pass 'refused as told: ${order.text}'

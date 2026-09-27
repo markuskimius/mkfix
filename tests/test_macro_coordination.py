@@ -117,8 +117,10 @@ class TestTheWords:
         clean("on order\n    accept\n    signal 'go'\n    when signal 'go' or dk\n        renotify last trade\n")
 
     def test_a_block_of_the_other_side_is_still_refused(self):
-        found = problems(f"on order\n    accept\n    signal 'go'\non signal 'go'\n    {NEW}\n")
+        found = problems(f"on order\n    accept\n    signal 'go'\non signal 'go'\n    {NEW}\n", side="market")
         assert any(line == 4 and "this block belongs in a client macro" in m for _, line, m in found)
+        # together they are an end-to-end macro, and what the order's macro says starts the block of the other side
+        assert clean(f"on order\n    accept\n    signal 'go'\non signal 'go'\n    {NEW}\n").side == "end-to-end"
 
     def test_names_a_macro_already_used_stay_its_own(self):
         """`orders`, `shared` and the rest came with 0.68; a macro written

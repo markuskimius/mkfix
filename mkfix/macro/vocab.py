@@ -37,6 +37,14 @@ _SENDING = (CLIENT, ATTACHED)
 # is a market block while `on ioi` is a client one, and `run` is either by
 # what it sends.
 MACRO_SIDES = ("client", "market")
+# A third kind of macro is for both at once: an *end-to-end* macro holds
+# blocks of either side and plays them in one run — a test that sends an
+# order and answers it, in one file, with one verdict. What its macros say
+# to each other (`signal`, `share`) crosses the sides because it never
+# leaves the run.
+E2E = "end-to-end"
+MACRO_KINDS = (*MACRO_SIDES, E2E)
+KIND_NAMES = {"client": "Client", "market": "Market", E2E: "End-to-end"}
 
 
 def side_of(kind: str, subject: str = ORDER) -> str:

@@ -36,10 +36,11 @@ registerPaneType("help-viewer", async (spec, app, host) => {
         <dl>${["shows", "needs", "watch", "outcome"].filter((k) => e[k]).map((k) =>
           `<dt>${k[0].toUpperCase() + k.slice(1)}</dt><dd>${escapeHtml(e[k])}</dd>`).join("")}</dl>
         <button class="mkui-btn" data-example="${escapeHtml(e.name)}" data-side="${escapeHtml(e.side)}">Open in ${
-          e.side === "client" ? "Client" : "Market"} Macros</button>
+          { client: "Client", market: "Market" }[e.side] ?? "End-to-end"} Macros</button>
       </section>`;
     const sides = [["market", "Market macros", "market-examples", "They act on the orders you receive, and send IOIs, adverts and allocations. <b>Arm…</b> one that waits for orders to match; <b>Run…</b> one that sends."],
-      ["client", "Client macros", "client-examples", "They send orders and act on them, and answer the IOIs, adverts and allocations you receive. <b>Run…</b> one that sends on a session — as many runs at once as you like; <b>Arm…</b> one that waits."]];
+      ["client", "Client macros", "client-examples", "They send orders and act on them, and answer the IOIs, adverts and allocations you receive. <b>Run…</b> one that sends on a session — as many runs at once as you like; <b>Arm…</b> one that waits."],
+      ["end-to-end", "End-to-end macros", "end-to-end-examples", "They play both sides in one run: a test in one file, with one verdict. <b>Run…</b> one with a session for each side — <code>LOOP-CLI</code> for the client's, <code>LOOP-MKT</code> for the market's."]];
     const sections = sides.map(([side, title, id, blurb]) =>
       `<h2 id="${id}">${title}</h2><p>${blurb}</p>${examples.filter((e) => e.side === side).map(card).join("")}`).join("");
     return { html: `<h1 id="macro-examples">Macro Examples</h1>
@@ -111,7 +112,7 @@ registerPaneType("help-viewer", async (spec, app, host) => {
     }
     const example = e.target.closest("[data-example]");
     if (example) {
-      const side = example.dataset.side === "client" ? "client" : "market";
+      const side = ["client", "market", "end-to-end"].includes(example.dataset.side) ? example.dataset.side : "market";
       app.fireAction("pane.show", `${side}-macros`);
       app.state.set("open_example", { name: example.dataset.example, side });
     }

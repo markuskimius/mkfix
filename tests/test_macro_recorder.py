@@ -454,7 +454,7 @@ class TestThroughTheManager:
             assert started["recording"] and started["session"] == "LOOP-MKT"
             await ask("record_start", {"side": "client"})
             for data, why in (({"side": "market"}, "A market recording is already under way"),
-                              ({"side": "both"}, "client side or the market side"), ({}, "Record the client side"),
+                              ({"side": "both"}, "a client, a market or an end-to-end macro, not 'both'"), ({}, "Record the client side"),
                               ({"side": "client", "session": "NOPE"}, "already under way")):
                 with pytest.raises(ValueError, match=why):
                     await ask("record_start", data)
@@ -486,8 +486,91 @@ class TestThroughTheManager:
             assert (nothing["saved"], nothing["orders"]) == (False, 0)
             with pytest.raises(ValueError, match="No macro named 'empty'"):
                 await manager.load("empty")
-            assert await ask("macro_status", {}) == {"ok": True, "client": await _status(ask, "client"), "market": await _status(ask, "market")}
+            assert await ask("macro_status", {}) == {"ok": True, "client": await _status(ask, "client"),
+                                                     "market": await _status(ask, "market"),
+                                                     "end-to-end": await _status(ask, "end-to-end")}
             assert not engine.events.active or manager.recorders.keys() == {"client"}
         finally:
             await manager.stop()
         assert manager.recorders == {} and not engine.events.active, "a recording does not outlive the server's stop"
+
+
+class TestEndToEnd:
+    """Both sides recorded at once, written as one macro."""
+
+    @pytest.mark.asyncio
+    async def test_both_sides_of_what_was_done_by_hand_are_one_macro(self, hand):
+        from mkfix.macro.recorder import EndToEndRecorder
+        recorder = EndToEndRecorder(hand.engine, clock=hand.clock)
+        market, client = hand.recorder("market"), hand.recorder("client")
+        await lifecycle(hand)
+        assert recorder.status() == {"recording": True, "side": "end-to-end", "session": "", "market_session": "",
+                                     "orders": 2, "actions": 6, "since": recorder.started_at}
+        result = await recorder.stop("test")
+        venue, chase = await market.stop("venue"), await client.stop("chase")
+        assert body(result["source"]) == [*body(chase["source"]), *body(venue["source"])], "the client's blocks first"
+        assert (result["orders"], result["actions"]) == (2, 6) and not recorder.recording
+        head = result["source"].splitlines()
+        assert head[0].startswith("# End-to-end, recorded 20") and head[0].endswith(
+            " on LOOP-CLI, LOOP-MKT: 2 orders, 6 actions.")
+        assert head[1] == ("# Both sides of what you did by hand, in one macro: what you sent, and what you did to "
+                           "what arrived.")
+        kept, found = macro.check(result["source"])
+        assert found == [] and (kept.side, kept.needs_session, kept.needs_market_session) == ("end-to-end", True, False)
+
+    @pytest.mark.asyncio
+    async def test_the_recording_plays_both_parts_again(self, hand):
+        from mkfix.macro.recorder import EndToEndRecorder
+        recorder = EndToEndRecorder(hand.engine, clock=hand.clock)
+        await lifecycle(hand)
+        source = (await recorder.stop("test", delays=True))["source"]
+        assert "after the time you took to answer it" in source
+        pair = hand.pair
+        parsed, found = macro.check(source, side="end-to-end")
+        assert found == []
+        run = pair.runner.arm(parsed, session="LOOP-CLI", market_session="LOOP-MKT")
+        await pair.advance(15)
+        assert [(i.kind, i.block.kind, i.status) for i in run.instances] == [
+            ("order", "client", PASSED), ("order", "market", "stopped")]
+        assert run.verdict == PASSED and run.status == "finished", "a test is over when what it sent is done"
+        sent = (await pair.orders("TX"))[-1]
+        assert (sent["status"], sent["order_qty"], sent["cum_qty"]) == ("Canceled", 200.0, 50.0)
+
+    @pytest.mark.asyncio
+    async def test_each_side_may_have_its_own_session_and_nothing_recorded_is_nothing_written(self, hand):
+        from mkfix.macro.recorder import EndToEndRecorder
+        recorder = EndToEndRecorder(hand.engine, "LOOP-CLI", "NOWHERE", clock=hand.clock)
+        cl = await hand.new()
+        await hand.market("accept_request", cl, wait=1)
+        result = await recorder.stop()
+        assert body(result["source"]) == ["run", "    new symbol: 'IBM', side: buy, qty: 100, type: limit, price: 10, tif: day",
+                                          "    expect ack within 5s", "    pass"], "the market side was another session's"
+        empty = await EndToEndRecorder(hand.engine, clock=hand.clock).stop()
+        assert (empty["orders"], empty["actions"]) == (0, 0)
+        assert "# Nothing was recorded: nothing was sent by hand, and nothing that arrived was worked." in empty["source"]
+
+    @pytest.mark.asyncio
+    async def test_through_the_manager_beside_a_recording_of_one_side(self, stack):
+        from tests.test_macro_store import _ask, _manager
+        db, writer, engine = stack
+        pair = Pair(db, engine)
+        manager, _ = await _manager(engine)
+        try:
+            ask, by_hand = _ask(engine), Hand(pair)
+            started = await ask("record_start", {"side": "end-to-end", "session": "LOOP-CLI", "market_session": "LOOP-MKT"})
+            assert (started["side"], started["session"], started["market_session"]) == ("end-to-end", "LOOP-CLI", "LOOP-MKT")
+            await ask("record_start", {"side": "market"})
+            for data, why in (({"side": "end-to-end"}, "An end-to-end recording is already under way"),
+                              ({"side": "client", "market_session": "LOOP-MKT"}, "A client recording is of one side"),
+                              ({"side": "client", "session": "NOPE"}, "No session named 'NOPE'")):
+                with pytest.raises(ValueError, match=why):
+                    await ask("record_start", data)
+            await lifecycle(by_hand)
+            assert (await ask("record_status", {"side": "end-to-end"}))["actions"] == 6
+            stopped = await ask("record_stop", {"side": "end-to-end", "name": "By hand", "save": "1"})
+            assert (stopped["saved"], stopped["side"], stopped["orders"]) == (True, "end-to-end", 2)
+            (row,) = await _fetch_all(db, "SELECT side, problems, needs_session FROM fix_macros WHERE name = 'By hand'")
+            assert (row["side"], row["problems"], row["needs_session"]) == ("end-to-end", 0, 1)
+            assert (await ask("record_status", {"side": "market"}))["recording"] is True, "the side's own goes on"
+        finally:
+            await manager.stop()

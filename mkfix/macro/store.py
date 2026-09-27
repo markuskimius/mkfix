@@ -29,7 +29,7 @@ from . import vocab
 from .check import check, errors
 from .instance import LIVE, Instance
 from .nodes import Diagnostic
-from .recorder import Recorder
+from .recorder import EndToEndRecorder, Recorder
 from .runner import Run, MacroError, MacroRunner
 
 if TYPE_CHECKING:
@@ -80,6 +80,11 @@ def example_header(text: str) -> dict[str, str]:
         elif key and body:
             out[key] += " " + body
     return out
+
+
+def _a(side: str) -> str:
+    """`a client`, `a market`, `an end-to-end`."""
+    return ("an " if side[:1] in "aeiou" else "a ") + side
 
 
 class MacroManager:
@@ -196,6 +201,8 @@ class MacroManager:
         return {"side": side or macro.side,
                 "diagnostics": [_diagnostic(d) for d in diagnostics], "errors": len(errors(diagnostics)),
                 "needs_session": macro.needs_session,
+                # An end-to-end macro has a session a side: the second is asked for the same way.
+                "needs_market_session": macro.needs_market_session,
                 # Whether ▶ is Run… (it has a `run` block: it sends, on either
                 # side) or Arm… (it only waits for what arrives).
                 "sends": macro.sends,
@@ -206,8 +213,8 @@ class MacroManager:
     @staticmethod
     def _side(side: Any) -> str:
         side = str(side or "").strip().lower()
-        if side and side not in vocab.MACRO_SIDES:
-            raise ValueError(f"A macro is for the client side or the market side, not {side!r}")
+        if side and side not in vocab.MACRO_KINDS:
+            raise ValueError(f"A macro is a client, a market or an end-to-end macro, not {side!r}")
         return side
 
     async def save(self, name: str, source: str, side: str = "") -> dict[str, Any]:
@@ -225,7 +232,7 @@ class MacroManager:
         # the log name a macro by name alone.
         held = await self._fetch("SELECT side FROM fix_macros WHERE name = ?", (name,))
         if held and held[0]["side"] not in ("", side):
-            raise ValueError(f"A {held[0]['side']} macro is already called {name!r}: choose another name")
+            raise ValueError(f"{_a(held[0]['side']).capitalize()} macro is already called {name!r}: choose another name")
         now = _fix_timestamp()
         await self._write("upsert_macro", (name, side, int(result["needs_session"]), source, result["errors"], now, now, None))
         return result
@@ -278,26 +285,29 @@ class MacroManager:
     # -- runs --------------------------------------------------------------------------------
 
     async def arm(self, name: str, *, side: str = "", session: str = "", seed: int | None = None,
-                  speed: float = 1.0) -> dict[str, Any]:
+                  speed: float = 1.0, market_session: str = "") -> dict[str, Any]:
         """Start a run of the saved macro. ``side`` is what the caller takes
         it for — `arm_macro` arms market macros, `run_macro` runs
-        client ones — and the macro must be that.
+        client ones — and the macro must be that. An end-to-end macro has
+        two sessions: ``session`` for its client blocks, ``market_session``
+        for its market ones.
 
         Any number of runs may be live at once, of one macro as of many.
         The one thing refused is a second run that could never be given an
         order: the same macro, waiting only, on the same sessions — the
         first would take every order it matched."""
-        row, macro = await self._armable(name, side, session)
+        row, macro = await self._armable(name, side, session, market_session)
         # Armed but not started: the run's row is written and known to the
         # hooks before any macro can act. A macro may fail in its first
         # instant — `new` on a session that has just dropped — ending a run
         # that only sends; started first, all of that went unrecorded and
         # left a row saying `armed` that Stop could not stop.
         run = self.runner.arm(macro, session=session or None, seed=seed or None, speed=float(speed or 1.0),
-                              start=False)
+                              start=False, market_session=market_session or None)
         try:
             await self._write("insert_run", (name, macro.side, row.get("_mkio_version") or 0, session or "",
-                                             run.seed, run.speed, "armed", _fix_timestamp(), None))
+                                             market_session or "", run.seed, run.speed, "armed", _fix_timestamp(),
+                                             None))
             run_id = (await self._fetch("SELECT MAX(id) AS id FROM fix_macro_runs"))[0]["id"]
         except BaseException:
             self.runner.stop(run)
@@ -308,7 +318,8 @@ class MacroManager:
         self.runner.start(run)
         return {"run_id": run_id, "seed": run.seed, "side": macro.side}
 
-    async def _armable(self, name: str, side: str = "", session: str = "") -> tuple[dict[str, Any], Any]:
+    async def _armable(self, name: str, side: str = "", session: str = "",
+                       market_session: str = "") -> tuple[dict[str, Any], Any]:
         """The saved macro and its parsed form, or why it cannot be started."""
         row = await self.load(name)
         macro, diagnostics = check(row["source"], side=row.get("side") or None, **await self.known())
@@ -318,13 +329,18 @@ class MacroManager:
             raise ValueError(f"{name!r} has {len(bad)} problem(s); the first: {bad[0]}")
         side = self._side(side)
         if side and macro.side != side:
-            raise ValueError(f"{name!r} is a {macro.side} macro: "
-                             + ("run it from Client Macros" if side == "market" else "arm it from Market Macros"))
-        if session and session not in self.engine.sessions:
-            raise ValueError(f"No session named {session!r}")
+            raise ValueError(f"{name!r} is {_a(macro.side)} macro: start it from "
+                             f"{vocab.KIND_NAMES[macro.side]} Macros")
+        for chosen in (session, market_session):
+            if chosen and chosen not in self.engine.sessions:
+                raise ValueError(f"No session named {chosen!r}")
+        if market_session and macro.side != vocab.E2E:
+            raise ValueError(f"{name!r} is {_a(macro.side)} macro: it has one session")
         if not macro.sends and any(
-                r.session == (session or None) for r in self.live_runs(name)):
-            raise ValueError(f"{name!r} is already armed on {session or 'every session'}: a second run there "
+                (r.session, r.market_session) == (session or None, market_session or None)
+                for r in self.live_runs(name)):
+            where = " and ".join(s for s in (session, market_session) if s) or "every session"
+            raise ValueError(f"{name!r} is already armed on {where}: a second run there "
                              "would never be given an order")
         return row, macro
 
@@ -332,7 +348,7 @@ class MacroManager:
         """`priority` is a waiting run's place in line on its side, 1 first;
         0 for a run that only sends, and for one that is over."""
         places: dict[int, int] = {}
-        for side in vocab.MACRO_SIDES:
+        for side in vocab.MACRO_KINDS:
             for n, run in enumerate((r for r in self.runner.offered(side) if r in self._run_rows), 1):
                 places[self._run_rows[run]] = n
         for run, row in self._run_rows.items():
@@ -552,17 +568,23 @@ class MacroManager:
 
     # -- recording ---------------------------------------------------------------------------
 
-    def record_start(self, side: str, session: str = "") -> dict[str, Any]:
+    def record_start(self, side: str, session: str = "", market_session: str = "") -> dict[str, Any]:
         """Begin recording what is done by hand on one side's orders — every
-        session's, or one's. One recording a side at a time."""
+        session's, or one's. One recording a side at a time; an end-to-end
+        recording is of both sides at once, and may go on beside one of
+        either."""
         side = self._side(side)
         if not side:
-            raise ValueError("Record the client side or the market side")
+            raise ValueError("Record the client side, the market side, or both end to end")
         if side in self.recorders:
-            raise ValueError(f"A {side} recording is already under way: stop it first")
-        if session and session not in self.engine.sessions:
-            raise ValueError(f"No session named {session!r}")
-        self.recorders[side] = Recorder(self.engine, side, session)
+            raise ValueError(f"{_a(side).capitalize()} recording is already under way: stop it first")
+        for chosen in (session, market_session):
+            if chosen and chosen not in self.engine.sessions:
+                raise ValueError(f"No session named {chosen!r}")
+        if market_session and side != vocab.E2E:
+            raise ValueError(f"{_a(side).capitalize()} recording is of one side: it has one session")
+        self.recorders[side] = EndToEndRecorder(self.engine, session, market_session) if side == vocab.E2E \
+            else Recorder(self.engine, side, session)
         return self.recorders[side].status()
 
     async def record_stop(self, side: str, name: str = "recorded", save: bool = False,
@@ -618,7 +640,7 @@ class MacroManager:
 
     def status(self) -> dict[str, Any]:
         """Both sides' recordings in one answer, for the status bar's poll."""
-        return {side: self.record_status(side) for side in vocab.MACRO_SIDES}
+        return {side: self.record_status(side) for side in vocab.MACRO_KINDS}
 
     def record_status(self, side: str) -> dict[str, Any]:
         recorder = self.recorders.get(self._side(side))
@@ -711,6 +733,7 @@ class MacroManager:
                                           ended=params.status != "armed")
                 elif op == "run_ended":
                     await self._write_run(params, params.status, ended=True)
+                    await self._renumber()      # an end-to-end run that waited had a place in line
                 else:
                     await self._write(op, params)
             except Exception:
@@ -757,9 +780,10 @@ class MacroManager:
         op("delete_macro", "fix_macros", "delete",
            "DELETE FROM fix_macros WHERE name = ? RETURNING *", ("name",))
         op("insert_run", "fix_macro_runs", "insert",
-           "INSERT INTO fix_macro_runs (macro, side, version, session, seed, speed, status, started_at, "
-           "_mkio_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
-           ("macro", "side", "version", "session", "seed", "speed", "status", "started_at", "_mkio_ref"))
+           "INSERT INTO fix_macro_runs (macro, side, version, session, market_session, seed, speed, status, "
+           "started_at, _mkio_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+           ("macro", "side", "version", "session", "market_session", "seed", "speed", "status", "started_at",
+            "_mkio_ref"))
         op("update_run", "fix_macro_runs", "update",
            "UPDATE fix_macro_runs SET status = ?, verdict = ?, orders = ?, live = ?, passed = ?, failed = ?, "
            "ended_at = ?, _mkio_ref = ? WHERE id = ? RETURNING *",

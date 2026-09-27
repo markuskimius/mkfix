@@ -454,6 +454,13 @@ def test_check_holds_a_file_to_a_side_and_a_warning_is_no_failure(tmp_path):
     result = _mkfix("check", "--side", "client", str(EXAMPLES / "auto-ack.macro"))
     assert result.returncode == 1 and "This is a client macro" in result.stdout
     assert _mkfix("check", "--side", "market", str(EXAMPLES / "auto-ack.macro")).returncode == 0
+    # a file that holds both sides is an end-to-end macro: clean by itself, a problem in the editor of a side
+    both = str(EXAMPLES / "told-to-reject.macro")
+    assert _mkfix("check", both).returncode == 0 and _mkfix("check", "--side", "end-to-end", both).returncode == 0
+    held = _mkfix("check", "--side", "client", both)
+    assert held.returncode == 1 and "or keep both in an end-to-end macro" in held.stdout
+    assert _mkfix("check", "--side", "end-to-end", str(EXAMPLES / "auto-ack.macro")).returncode == 0
+    assert _mkfix("check", "--side", "both", both).returncode == 2, "argparse names the three choices"
     warned = tmp_path / "warned.macro"
     warned.write_text("on order\n    restate qty: 1, reason: 'no such reason'\n", encoding="utf-8")
     result = _mkfix("check", str(warned))
@@ -524,6 +531,19 @@ def test_run_follows_a_run_to_its_verdict(tmp_path):
 
         unknown = _mkfix("run", str(failing), "--session", "NOPE", "-p", str(port))
         assert unknown.returncode == 3 and "NOPE" in unknown.stderr
+
+        # An end-to-end macro: both sides in one file, a session for each, and over when what it sent is done —
+        # with the venue of the first step still armed on LOOP-MKT, which it comes before.
+        test = _mkfix("run", str(EXAMPLES / "told-to-reject.macro"), "--session", "LOOP-CLI", "--market-session",
+                      "LOOP-MKT", "--wait", "-p", str(port))
+        assert test.returncode == 0, test.stdout + test.stderr
+        assert "told-to-reject: run #6 on LOOP-CLI and LOOP-MKT" in test.stdout
+        assert "told-to-reject #6: finished, passed · 4 orders, 2 passed, 0 failed" in test.stdout
+        assert "passed: refused as told: halted after " in test.stdout and "signal 'halted'" in test.stdout
+        one_side = _mkfix("run", str(EXAMPLES / "told-to-reject.macro"), "--market-session", "LOOP-MKT", "-p", str(port))
+        assert one_side.returncode == 3 and "choose the client session to send on" in one_side.stderr
+        not_both = _mkfix("run", str(failing), "--session", "LOOP-CLI", "--market-session", "LOOP-MKT", "-p", str(port))
+        assert not_both.returncode == 3 and "is a client macro: it has one session" in not_both.stderr
     finally:
         proc.terminate()
         proc.wait(timeout=10)

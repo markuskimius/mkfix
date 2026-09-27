@@ -18,6 +18,14 @@ runs may be live at once, of one macro or of many: a client macro run
 three times sends three sets of orders, on three sessions if asked. Runs
 that wait for orders are offered them in `runs` order — their priority,
 which `move` changes.
+
+An end-to-end macro holds blocks of both sides, and its run has a session
+for each: `session` is where its client blocks send and receive,
+`market_session` where its market blocks do. It is offered what arrives
+before the runs of either side are — a test comes before the desks that
+happen to be armed, or its own orders would be answered by them. And it
+is over when what it sent is done: a test that stayed armed after its
+verdict would go on taking what arrives, ahead of everything else.
 """
 
 from __future__ import annotations
@@ -33,7 +41,7 @@ from mkio import expr
 from . import vocab
 from .clock import Clock, Scheduler
 from .functions import ENV
-from .instance import DETACHED, FAILED, PASSED, STOPPED, Instance, contains_creator, event_map
+from .instance import DETACHED, FAILED, PASSED, RUNNING, STOPPED, Instance, contains_creator, event_map
 from .nodes import Action, Macro, Share, walk
 
 if TYPE_CHECKING:
@@ -63,8 +71,11 @@ class Run:
     seed: int
     speed: float = 1.0
     # Where `run` blocks send (over the session a block names, when given)
-    # and the only session whose orders the `on` blocks are offered.
+    # and the only session whose orders the `on` blocks are offered. An
+    # end-to-end run has two: this one for its client blocks, and
+    # `market_session` for its market blocks.
     session: str | None = None
+    market_session: str | None = None
     status: str = "armed"                 # armed | finished | stopped
     generators: list[Instance] = field(default_factory=list)
     paused: bool = False
@@ -86,8 +97,15 @@ class Run:
         """It has `on` blocks: it is offered orders, and stays armed until stopped."""
         return any(b.kind != vocab.CLIENT for b in self.macro.blocks)
 
+    def session_for(self, side: str) -> str | None:
+        """The session chosen for the blocks of ``side``: the run's one
+        session, or in an end-to-end run the one of that side."""
+        if self.macro.side == vocab.E2E and side == "market":
+            return self.market_session
+        return self.session
+
     def session_of(self, block: Any) -> str | None:
-        return self.session or block.session
+        return self.session_for(vocab.side_of(block.kind, block.subject)) or block.session
 
     @property
     def verdict(self) -> str:
@@ -128,7 +146,7 @@ class MacroRunner:
     # -- runs ------------------------------------------------------------------------------
 
     def arm(self, macro: Macro, *, session: str | None = None, seed: int | None = None,
-            speed: float = 1.0, start: bool = True) -> Run:
+            speed: float = 1.0, start: bool = True, market_session: str | None = None) -> Run:
         """Start a run: offer orders to ``macro``'s `on order` and `on sent
         order` blocks, and start its `run` blocks — on ``session`` when one is
         given, else on the session each names. The caller has checked the
@@ -138,10 +156,10 @@ class MacroRunner:
         caller that must record the run before anything can happen in it —
         a macro may fail, and the run end, in its first instant — and then
         calls `start(run)`."""
-        self.validate(macro, session=session, speed=speed)
+        self.validate(macro, session=session, speed=speed, market_session=market_session)
         if seed is None:
             seed = macro.seed if macro.seed is not None else random.SystemRandom().randrange(2**31)
-        run = Run(next(self._ids), macro, seed, speed, session)
+        run = Run(next(self._ids), macro, seed, speed, session, market_session)
         self._share(run)
         self.runs.append(run)
         if self._unsubscribe is None:
@@ -150,17 +168,24 @@ class MacroRunner:
             self.start(run)
         return run
 
-    def validate(self, macro: Macro, *, session: str | None = None, speed: float = 1.0) -> None:
+    def validate(self, macro: Macro, *, session: str | None = None, speed: float = 1.0,
+                 market_session: str | None = None) -> None:
         """Raise what `arm` would, and start nothing: several macros played
         together are all checked before the first of them sends an order."""
         if not macro.blocks:
             raise MacroError(f"{macro.name!r} has no block to run")
+        if market_session and macro.side != vocab.E2E:
+            raise MacroError(f"{macro.name!r} is a {macro.side} macro: it has one session. A market session beside "
+                             "it is an end-to-end macro's")
         for block in macro.blocks:
             if block.kind != vocab.CLIENT or block.signal is not None:
                 continue                  # an `on signal` block sends where the macro that signalled is
-            name = session or block.session
+            side = vocab.side_of(block.kind, block.subject)
+            chosen = market_session if macro.side == vocab.E2E and side == "market" else session
+            name = chosen or block.session
             if not name:
-                raise MacroError(f"line {block.line}: `run` names no session, so choose the one to send on")
+                which = f"the {side} session" if macro.side == vocab.E2E else "the one"
+                raise MacroError(f"line {block.line}: `run` names no session, so choose {which} to send on")
             target = self.engine.sessions.get(name)
             if target is None:
                 raise MacroError(f"`run` on {name}: no such session")
@@ -251,8 +276,10 @@ class MacroRunner:
         for block in run.macro.blocks:
             if block.signal != name or not await self._started_by(run, block, event):
                 continue
-            session = run.session or (sender.row["session_id"] if sender.row else
-                                      sender.session or run.session_of(sender.block))
+            # Where it sends: the session chosen for its side, else where the macro that
+            # signalled is — a venue's allocation goes out where the order came in.
+            session = run.session_for(vocab.side_of(block.kind, block.subject)) or (
+                sender.row["session_id"] if sender.row else sender.session or run.session_of(sender.block))
             if not session:
                 self._log(None, block.line, f"`on signal {name!r}` not started: the macro that signalled has no "
                                             "session yet, and the run names none", run=run)
@@ -396,8 +423,11 @@ class MacroRunner:
 
     def _offer(self, ev: EngineEvent, kind: str, subject: str, row: dict[str, Any], kinds: tuple[str, ...]) -> None:
         name = f"{subject} {row[vocab.SUBJECT_IDS[subject]]}"
-        for run in self.runs:
-            if run.status != "armed" or (run.session and run.session != row["session_id"]):
+        side = vocab.side_of(kind, subject)
+        # A test comes first: the end-to-end runs, then the rest, each in the order armed.
+        for run in sorted(self.runs, key=lambda r: r.macro.side != vocab.E2E):
+            chosen = run.session_for(side)
+            if run.status != "armed" or (chosen and chosen != row["session_id"]):
                 continue
             for block in run.macro.blocks:
                 if block.kind != kind or block.subject != subject or not self._matches(run, block, row):
@@ -444,12 +474,24 @@ class MacroRunner:
 
     def _maybe_finished(self, run: Run) -> None:
         """A run that only sends is over when its last macro is: nothing of
-        it waits for orders. One with `on` blocks stays armed until stopped."""
-        if run.status != "armed" or run.waits:
+        it waits for orders. One with `on` blocks stays armed until stopped
+        — but for an end-to-end run that sends, a test: it is over when
+        every macro it started by sending is, and none of those that took
+        what arrived is still in the middle of its lines. The ones left
+        listening are stopped with it."""
+        if run.status != "armed":
             return
-        if any(i.live for i in [*run.generators, *run.instances]):
+        test = run.macro.side == vocab.E2E and run.macro.sends
+        if run.waits and not test:
+            return
+        sending = [*run.generators, *(i for i in run.instances if i.block.kind == vocab.CLIENT)]
+        others = [i for i in run.instances if i.block.kind != vocab.CLIENT]
+        # In the middle of its lines: its main flow, or a `when` that is answering something.
+        if any(i.live for i in sending) or any(i.live and (i.status == RUNNING or i.flows) for i in others):
             return
         run.status = "finished"
+        for instance in others:
+            instance.finish(STOPPED, "")
         if self.on_run_finished is not None:
             self.on_run_finished(run)
         if not any(r.status == "armed" for r in self.runs) and self._unsubscribe is not None:
@@ -462,6 +504,8 @@ class MacroRunner:
                 self.on_change(instance)
             except Exception:
                 log.exception("macro on_change failed")
+        if instance.live and instance.status != RUNNING:
+            self._maybe_finished(instance.run)      # it has run out of lines and only listens: the last one to?
 
     def _log(self, instance: Instance | None, line: int, text: str, run: Run | None = None) -> None:
         run = run or (instance.run if instance is not None else None)

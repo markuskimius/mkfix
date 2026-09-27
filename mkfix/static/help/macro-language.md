@@ -2,7 +2,7 @@
 
 A macro acts on orders as things happen to them: accept this, fill that a second later, refuse the second replace, dispute a fill that is through its limit. Each order gets its own copy of the macro, so the same few lines handle one order or a thousand. Since 0.64 a macro can do the same for IOIs, adverts and allocations — send them, answer them, mind them — each in a block of its own kind.
 
-There are two kinds, kept apart throughout — two menus, two editors, two sets of runs:
+A macro is for one side, and the two sides are kept apart throughout — an editor and a set of runs each, all under the **Macro** menu:
 
 | | A **market macro** | A **client macro** |
 |---|---|---|
@@ -11,11 +11,11 @@ There are two kinds, kept apart throughout — two menus, two editors, two sets 
 | in blocks | `on order`; `run` (sending an IOI, advert or allocation), `on sent ioi`, `on sent advert`, `on sent allocation` | `run` (sending an order), `on sent order`; `on ioi`, `on advert`, `on allocation` |
 | is started with | **▶** in the editor opens **Arm…** — it waits for orders to match (or Run…, when it only sends) | **▶** opens **Run…** — it sends at once, on the session you choose (or Arm…, when it only waits) |
 | at once | once per session it is armed for | as many runs as you like |
-| lives in | **Market** menu: Market Macros, Macro Runs | **Client** menu: Client Macros, Macro Runs |
+| lives in | **Macro** menu: Market Macros, Market Macro Runs | **Macro** menu: Client Macros, Client Macro Runs |
 
-A macro is one or the other: a block of the other kind is a problem the editor underlines. To play both sides of an order, write one of each — the loopback tour in [Macro Examples](macro-examples.md) does.
+A macro of a side holds that side's blocks only: a block of the other side is a problem its editor underlines. To play both sides of an order, write one of each — the loopback tour in [Macro Examples](macro-examples.md) does — or write an **end-to-end macro**, the third kind, which holds both in one file and one run: see [End-to-end macros](#end-to-end-macros).
 
-The rest of the language — waiting, `when`, events, control, expressions — is the same on both sides. The editor checks as you type, completes words with Ctrl+Space, explains a word when the mouse rests on it — an action's terms, the FIX code behind `buy` or `day`, the problem on an underlined line — and opens this reference at the word under the cursor with F1. The **Macro Orders** pane of each side shows every order's macro, the line it is on and what it is waiting for.
+The rest of the language — waiting, `when`, events, control, expressions — is the same on both sides. The editor checks as you type, completes words with Ctrl+Space, explains a word when the mouse rests on it — an action's terms, the FIX code behind `buy` or `day`, the problem on an underlined line — and opens this reference at the word under the cursor with F1. The **Macro Runs** window of each side shows every order's macro, the line it is on and what it is waiting for.
 
 ## A first macro
 
@@ -345,6 +345,42 @@ A macro written before these names existed that calls something of its own `orde
 
 More than 100,000 signals in one run fails the macro that sent the last: two macros answering each other's signals would otherwise go round for ever.
 
+## End-to-end macros
+
+An end-to-end macro is a test in one file: it holds blocks of both sides and plays them in one run, with one verdict. It sends the order and answers it.
+
+```macro
+share mode = 'accept'
+
+on order
+    if shared.mode == 'reject'
+        reject text: 'told to'
+        stop
+    accept
+    fill qty: order.leaves_qty, price: order.price
+
+run
+    new symbol: 'IBM', side: buy, qty: 100, price: 10
+    expect filled within 5s
+    share mode = 'reject'
+    signal 'next'
+    pass
+
+on signal 'next'
+    new symbol: 'IBM', side: buy, qty: 100, price: 10
+    expect rejected within 2s
+    pass order.text
+```
+
+- It lives in **End-to-end Macros** and **End-to-end Macro Runs**, under the **Macro** menu, and its editor takes any block. A macro kept there is end-to-end whatever it holds so far.
+- Everything in [Working together](#working-together) crosses the sides, because it never leaves the run: the client's block sets `shared.mode` and the venue's reads it; what one side signals the other hears.
+- **Two sessions.** **▶** asks for a client session, where its orders go out and the IOIs, adverts and allocations it receives come in, and a market session, where its orders come in and the other three go out. One that a `run` block names, or that nothing sends on, may be left blank; a blank session for blocks that wait means any session.
+- **A test comes first.** What arrives is offered to the end-to-end runs before the Client and Market runs, so a desk that happens to be armed does not answer the test's orders. Among themselves they go by the order they were started in, so two tests at once need a pair of sessions each, or a `where` that tells their orders apart.
+- What is said inside the server is there before what is sent over FIX: a `share` or a `signal` followed by a `new` reaches the venue's block before the order does.
+- **●** in its editor records both sides at once and writes them as one macro, the client's blocks first.
+- The blotters' ● ▶ ⏸ ■ are a side's. An end-to-end macro is run from its editor, paused and stopped from there or from its Macro Runs window.
+- From the command line, `mkfix run test.macro --session LOOP-CLI --market-session LOOP-MKT --wait` runs a file that holds both sides as an end-to-end macro and exits by its verdict.
+
 ## When things go wrong
 
 - A failing expression, a refused action or a trade target that matches nothing fails the order's macro and names the line. With `on error continue` the last two raise an `error` event instead.
@@ -360,7 +396,7 @@ Every blotter of a side but the trade ones carries that side's macro controls �
 - **●** (record) starts a recording of that side (see below). While it records the dot is red and pulses — its tooltip and the status bar count what you have done — and pressing it asks for a name, saves the macro and opens it in the editor. If the name is taken the recording goes on, and if nothing was recorded nothing is saved.
 - **▶** (play) lists, as tick boxes, the runs you have paused — to resume — and then the side's macros that check clean. Tick one or several; nothing is ticked when it opens. Ticking a macro brings up the session, speed and seed, which are for every macro ticked, and the session is asked for only when one of them "asks for a session" (its `run` names none). What you tick is played whole or not at all: if one of them cannot start — its session is down, it is armed there already — none does, and the dialog says which. A single macro plays exactly as Run… or Arm… in the editor would.
 - **⏸** (pause) and **■** (stop) show the side's live runs as a list of tick boxes — macro, session, state and orders, scrolling when there are many. It opens with every run ticked: untick the ones to leave alone, or clear them all with the first row, "Every playing run" / "Every live run", and tick the few you mean. A paused run parks each order's macro before its next line; a stopped run is over and its orders are yours again.
-- Playing or pausing one run of several, moving a run up or down, and detaching an order are in **Macro Runs** and **Macro Orders**.
+- Playing or pausing one run of several, moving a run up or down, and detaching an order are in **Macro Runs**.
 
 The **status bar** says what the macros are doing, at the right, each item a link to the pane it is about: `● REC client · 3 actions` while a recording runs, `▶ market slow-fill · 3 orders` while macros play (`▶ client 2 runs · 14 orders` for several), `⏸ market slow-fill paused`, and for a minute after a run ends `■ replace-chase passed · 3 of 3` or `■ slow-fill stopped`. A failed run — `■ suite failed · 1 of 3 failed` — stays until something else happens on its side, ten minutes at most.
 
@@ -398,7 +434,7 @@ A recording has to be on while you work. **Macro…**, on a blotter, needs nothi
 
 - **▶** in the editor opens **Run…** for a macro with a `run` block and **Arm…** for one that only waits, in either editor; both ask for a session, a speed (2 runs the macro's waits twice as fast — mind that real answers do not get faster) and a seed (blank: the macro's `seed`, or a random one, shown in Macro Runs so a run can be repeated).
 - Any number of runs may be live at once, on either side. The server stops taking orders into macros at 20,000 live macros, and a single run at 10,000 orders; the run's log says so.
-- **Macro Runs** lists a side's runs. **Pause** parks every macro of a run before its next line; **Stop** ends it; **Move Up**/**Move Down** change its Priority. **Macro Orders** lists the orders' macros — **Detach** gives one order back to you — and selecting a row moves the editor to its line. **Log** holds what the macros `log`, and why one failed.
+- **Macro Runs** lists a side's runs, each opening to its orders' macros. **Pause** parks every macro of a run before its next line; **Stop** ends it; **Move Up**/**Move Down** change its Priority; **Detach** gives one order back to you, and selecting a row moves the editor to its line. The log under it holds what the macros `log`, and why one failed.
 - **⏸** in the editor pauses every playing run of the open macro and, once they are all paused, resumes them; **■** stops them all.
 - The editor's toolbar: **New**, **Clone** (the text shown — your unsaved edits, or the version you are looking at — saved under a new name, the original left as it was), **Save**, **Delete** (the macros selected in the list: click opens one, Ctrl/Cmd-click adds or removes one, Shift-click selects a range; none of them may have a live run, and the list goes whole or not at all), **History**, the deck, then **Example…** (a bundled example, opened as a copy), **Import** and **Export**. The list's edge drags to make room for long names, and a double-click on it fits the longest; the width is remembered by your browser.
 - **History** in an editor lists every Save of the open macro, newest first, with the runs that used each version. Click a version to look at it in the editor, read-only, against the macro as it is saved now: lines only in that version are marked red, and a green ▸ in the margin shows where the saved macro has lines that version lacks. **Restore** puts the version back in the editor as an unsaved edit — Save keeps it as a new version, so nothing is lost by restoring — and **Back to the macro** returns to your text, unsaved edits included. Deleting a macro deletes its history.

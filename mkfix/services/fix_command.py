@@ -129,7 +129,8 @@ class FixCommandService(Service):
             # button can start the other's macro.
             return {"ok": True, **await macros.arm(
                 data["name"], side=data.get("side") or ("market" if command == "arm_macro" else "client"),
-                session=data.get("session", ""), seed=int(data["seed"]) if data.get("seed") else None,
+                session=data.get("session", ""), market_session=data.get("market_session", ""),
+                seed=int(data["seed"]) if data.get("seed") else None,
                 speed=float(data.get("speed") or 1.0))}
         elif command == "stop_macro":
             return {"ok": True, **await macros.stop_macro(data["name"])}
@@ -152,7 +153,8 @@ class FixCommandService(Service):
         elif command == "setup_loopback":
             return {"ok": True, **await macros.setup_loopback(data.get("port"))}
         elif command == "record_start":
-            return {"ok": True, **macros.record_start(data.get("side", ""), data.get("session", ""))}
+            return {"ok": True, **macros.record_start(data.get("side", ""), data.get("session", ""),
+                                                      data.get("market_session", ""))}
         elif command == "record_stop":
             yes = lambda key: str(data.get(key, "")).lower() in ("1", "true", "yes")  # noqa: E731
             return {"ok": True, **await macros.record_stop(data.get("side", ""), data.get("name", "recorded"),

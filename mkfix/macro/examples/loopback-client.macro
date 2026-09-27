@@ -6,7 +6,7 @@
 # Needs:   the loopback sessions with loopback-venue armed in Market Macros.
 #          Run it on LOOP-CLI. Help > Macro Examples does all of it with
 #          "Run the loopback tour"
-# Watch:   Sent Orders and Received Trades; Client Macro Orders, one row an order
+# Watch:   Sent Orders and Received Trades; Client Macro Runs, one row an order
 # Outcome: five orders go out at two a second; each is acknowledged, part
 #          filled, replaced up once, and what is left is cancelled; every macro
 #          passes. The run stays live, minding orders sent by hand on the same

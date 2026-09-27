@@ -253,7 +253,8 @@ class TestParser:
 # -- meaning ------------------------------------------------------------------------
 
 class TestSides:
-    """A script is for the client side or the market side, never both."""
+    """A macro is for the client side or the market side — or, an
+    end-to-end macro, for both at once."""
 
     CLIENT = "run\n    new symbol: 'A', side: buy, qty: 1\non sent order\n    cancel\n"
     MARKET = "on order\n    accept\non order where symbol == 'A'\n    reject\n"
@@ -265,11 +266,40 @@ class TestSides:
 
     @pytest.mark.parametrize("second", ["run\n    new symbol: 'A', side: buy, qty: 1\n", "on sent order\n    cancel\n"])
     def test_a_script_of_both_is_a_problem_at_the_block_that_does_not_belong(self, second):
-        found = problems("on order\n    accept\n" + second)
+        """In the editor of a side, which says which side it is."""
+        found = [(d.line, d.col, d.message) for d in macro.check("on order\n    accept\n" + second, side="market")[1]]
         assert [(line, col) for line, col, _ in found] == [(3, 0)]
         assert found[0][2].startswith("This is a market macro, and this block belongs in a client macro")
-        (line, _, message), = problems(self.CLIENT + "on order\n    accept\n")
-        assert line == 5 and "This is a client macro" in message and "move this to a market macro" in message
+        assert found[0][2].endswith("or keep both in an end-to-end macro")
+        (d,) = macro.check(self.CLIENT + "on order\n    accept\n", side="client")[1]
+        assert d.line == 5 and "This is a client macro" in d.message and "move this to a market macro" in d.message
+
+    def test_blocks_of_both_sides_make_an_end_to_end_macro(self):
+        both = clean(self.CLIENT + self.MARKET)
+        assert (both.side, both.sides, both.declared) == ("end-to-end", {"client", "market"}, "")
+        assert clean(self.MARKET + "run\n    ioi symbol: 'A', side: buy, qty: 'L'\n").side == "market", "all of one side"
+        assert clean("on ioi\n    stop\n" + self.MARKET).side == "end-to-end", "the families turn the sides round"
+        # in its own editor a macro is end-to-end whatever it holds so far, and nothing is out of place
+        for text in (self.CLIENT, self.MARKET, self.CLIENT + self.MARKET):
+            kept, found = macro.check(text, side="end-to-end")
+            assert found == [] and (kept.side, kept.declared) == ("end-to-end", "end-to-end")
+        assert (vocab.E2E, vocab.MACRO_KINDS) == ("end-to-end", ("client", "market", "end-to-end"))
+        assert vocab.KIND_NAMES == {"client": "Client", "market": "Market", "end-to-end": "End-to-end"}
+        with pytest.raises(ValueError, match="not 'both'"):
+            macro.check(self.CLIENT, side="both")
+
+    def test_an_end_to_end_macro_has_a_session_a_side(self):
+        orders = "run\n    new symbol: 'A', side: buy, qty: 1\n"
+        iois = "run\n    ioi symbol: 'A', side: buy, qty: 'L'\n"
+        ask = lambda text, **kw: (lambda m: (m.needs_session, m.needs_market_session))(macro.check(text, **kw)[0])  # noqa: E731
+        assert ask(orders + self.MARKET) == (True, False)
+        assert ask(iois + "on ioi\n    stop\n") == (False, True)
+        assert ask(orders + iois) == (True, True)
+        assert ask(orders.replace("run", "run on S1") + iois.replace("run", "run on S2")) == (False, False)
+        assert ask("on signal 'go'\n    new symbol: 'A', side: buy, qty: 1\n" + self.MARKET + "    signal 'go'\n") == (False, False)
+        # a macro of one side has one session, whichever side it is
+        assert ask(orders) == (True, False) and ask(iois) == (True, False)
+        assert ask(iois, side="end-to-end") == (False, True)
 
     def test_the_pane_it_is_edited_in_decides(self):
         """Market Macros checks with side="market": a client script there
@@ -299,8 +329,8 @@ class TestSides:
         assert clean("on ioi\n    new symbol: 'A', side: buy, qty: 1\n").side == "client"
         assert [b.subject for b in clean("on sent ioi\n    cancel ioi\non sent allocation\n    cancel allocation\n").blocks] \
             == ["ioi", "allocation"]
-        (line, _, message), = problems("on ioi\n    stop\nrun\n    ioi symbol: 'A', side: buy, qty: 'L'\n")
-        assert line == 3 and "This is a client macro" in message
+        (d,) = macro.check("on ioi\n    stop\nrun\n    ioi symbol: 'A', side: buy, qty: 'L'\n", side="client")[1]
+        assert d.line == 3 and "This is a client macro" in d.message
 
 
 class TestChecker:

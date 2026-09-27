@@ -13,7 +13,8 @@ from mkfix import macro
 
 ROOT = Path(__file__).parent.parent
 STATIC = ROOT / "mkfix" / "static"
-SIDES = ("client", "market")
+TWO = ("client", "market")
+SIDES = (*TWO, "end-to-end")          # the kinds of macro: one a side, and the ones that hold both
 HELP = STATIC / "help"
 
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
@@ -307,7 +308,7 @@ class TestMacroStatus:
 
     def test_idle_says_nothing_and_enables_nothing(self, tmp_path):
         state = self.state(tmp_path, [])
-        assert set(state) == {"client", "market"}
+        assert set(state) == {"client", "market", "end-to-end"}
         assert all((s["recording"], s["playing"], s["paused"], s["live"], s["last"]) == (False, 0, 0, 0, None) for s in state.values())
         assert self.items(tmp_path, []) == []
 
@@ -922,7 +923,8 @@ class TestWiring:
         session = app["dialogs"]["run_macro"]["fields"][2]
         assert (session["required"], session["value"]) == ("row.needs_session", "${row.session}")
         pane = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
-        assert "checked = { needs_session: !!result.needs_session, session: result.session ?? \"\", sends: !!result.sends }" in pane
+        assert ("checked = { needs_session: !!result.needs_session, needs_market_session: !!result.needs_market_session,\n"
+                "      session: result.session ?? \"\", sends: !!result.sends };") in pane
         # ▶ follows what the macro does: Run… when it has a `run` block, Arm… when it only waits
         assert 'return checked.sends ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);' in pane
         assert "const context = { row: { name: current, side, ...checked } };" in pane
@@ -949,6 +951,83 @@ class TestWiring:
         for said in ("**Macro…**", "Sent Orders and Received Orders", "Sent IOIs, Sent Adverts and Sent Allocations",
                      "Received IOIs and Received Allocations", "**Keep the delays**", "Message Replay", "archived"):
             assert said in section, said
+
+    def test_the_end_to_end_panes_are_a_sides_with_a_session_for_each(self):
+        """A third set of the same panes, over the same tables: they differ
+        from the client's by the name, and by the second session a run of
+        both sides has."""
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        panes = app["panes"]
+        as_end_to_end = lambda spec: json.loads(json.dumps(spec).replace("Client", "End-to-end").replace("client", "end-to-end"))  # noqa: E731
+        assert panes["end-to-end-macros"] == {"title": "End-to-end Macros", "type": "macros", "side": "end-to-end"}
+        assert panes["end-to-end-macro-log"] == as_end_to_end(panes["client-macro-log"])
+        runs, clients = panes["end-to-end-macro-runs"], as_end_to_end(panes["client-macro-runs"])
+        # Session is the run's client session — and, on a row under it, the session of that row, either side's
+        assert runs["labels"]["session"] == "Session" and runs["labels"]["market_session"] == "Market Session"
+        at = runs["visible"].index("session")
+        assert runs["visible"][at:at + 2] == ["session", "market_session"]
+        clients["visible"].insert(clients["visible"].index("session") + 1, "market_session")
+        assert runs == clients
+        for side in TWO:
+            spec = panes[f"{side}-macro-runs"]
+            assert "market_session" in spec["columns"] and "market_session" not in spec["visible"], \
+                "listed, so the picker has it; a side's run has one session"
+            assert any("market_session" in g["columns"] for g in spec["groups"])
+        frames = {f["id"]: f for f in app["frames"]}
+        assert frames["end-to-end-runs"] == as_end_to_end(frames["client-runs"])
+        assert [f["id"] for f in app["frames"]][-3:] == ["client-runs", "market-runs", "end-to-end-runs"]
+
+    def test_an_end_to_end_macro_is_run_on_two_sessions(self):
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        dialog = app["dialogs"]["run_end_to_end"]
+        assert dialog["submit"] == {"label": "Run", "service": "fix_cmd", "op": "run_macro"} and "modal" not in dialog
+        fields = {f["name"]: f for item in dialog["fields"] for f in item.get("row", [item]) if f.get("name")}
+        assert list(fields) == ["name", "side", "session", "market_session", "speed", "seed"]
+        assert fields["side"] == {"name": "side", "type": "hidden", "value": "${row.side}"}
+        for name, needs in (("session", "row.needs_session"), ("market_session", "row.needs_market_session")):
+            field = fields[name]
+            assert (field["type"], field["required"]) == ("select", needs)
+            assert field["optionsFrom"]["service"] == "sessions_list" and field["remember"] == {"key": f"mkfix.end-to-end.{name}"}
+        assert fields["session"]["value"] == "${row.session}"
+        pane = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
+        assert 'const side = ["client", "market", END_TO_END].includes(spec.side) ? spec.side : "market";' in pane
+        assert 'if (both) return app.dialog("run_end_to_end", context);' in pane
+        lang = (STATIC / "macro-lang.js").read_text(encoding="utf-8")
+        assert 'export const END_TO_END = "end-to-end";' in lang
+        from mkfix.macro import vocab
+        assert vocab.E2E == "end-to-end"
+        # the viewer's Examples page has a section for them and opens them in their editor
+        viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")
+        assert '["end-to-end", "End-to-end macros", "end-to-end-examples",' in viewer
+        assert '["client", "market", "end-to-end"].includes(example.dataset.side)' in viewer
+
+    @needs_node
+    def test_the_end_to_end_editor_offers_every_block_and_the_status_bar_says_its_runs(self, tmp_path):
+        every = run_js(tmp_path, 'L.completionsAt(vocab, [""], 0, 0, { side: "end-to-end" }).map((c) => c.caption)')
+        assert every == ["seed", "on error", "share", *macro.vocabulary()["blocks"]]
+        assert "on order" in every and "on sent order" in every and "on ioi" in every
+        runs = [{"id": 1, "side": "end-to-end", "status": "armed", "macro": "round trip", "verdict": "", "orders": 2,
+                 "passed": 0, "failed": 0, "started_at": "20260920-11:00:00.000", "ended_at": "", "session": "C"},
+                {"id": 2, "side": "client", "status": "armed", "macro": "burst", "verdict": "", "orders": 5,
+                 "passed": 0, "failed": 0, "started_at": "20260920-11:00:00.000", "ended_at": "", "session": "C"}]
+        recordings = {"end-to-end": {"recording": True, "actions": 3, "session": ""}}
+        items = run_js(tmp_path, f"S.statusItems(S.macroState({json.dumps(runs)}, {json.dumps(recordings)}, "
+                                 "Date.UTC(2026, 8, 20, 12, 0, 0))).map((i) => [i.kind, i.text, i.frame ?? i.pane])")
+        assert items == [["playing", "▶ client burst · 5 orders", "client-runs"],
+                         ["recording", "● REC end-to-end · 3 actions", "end-to-end-macros"],
+                         ["playing", "▶ end-to-end round trip · 2 orders", "end-to-end-runs"]]
+        assert run_js(tmp_path, "S.KINDS") == ["client", "market", "end-to-end"] and run_js(tmp_path, "S.SIDES") == ["client", "market"]
+        assert run_js(tmp_path, 'L.recordingName("end-to-end", new Date(2026, 8, 22, 14, 30, 15))') == "End-to-end 2026-09-22 14:30:15"
+        from mkfix.macro.store import NAME
+        assert NAME.fullmatch("End-to-end 2026-09-22 14:30:15")
+
+    def test_the_blotters_controls_are_a_sides(self):
+        """An end-to-end macro is of neither side: no blotter's deck plays,
+        pauses, stops or records one."""
+        status = (STATIC / "macro-status.js").read_text(encoding="utf-8")
+        blotters = re.search(r"const BLOTTERS = \{(.*?)\};", status, re.S).group(1)
+        assert set(re.findall(r'": "([a-z-]+)"', blotters)) == set(TWO)
+        assert "KINDS.includes(args.side)" in status, "but a macro written or recorded opens in the editor of its kind"
 
     def test_the_examples_page_can_set_up_the_sessions_its_examples_name(self):
         from mkfix.macro.store import EXAMPLES, LOOPBACK

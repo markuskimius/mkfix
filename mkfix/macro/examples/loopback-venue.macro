@@ -5,7 +5,7 @@
 # Needs:   the loopback sessions, both started. Help > Macro Examples sets
 #          them up, and its "Run the loopback tour" arms this and runs
 #          loopback-client in one click
-# Watch:   Received Orders and Sent Trades; Market Macro Orders, one row an order
+# Watch:   Received Orders and Sent Trades; Market Macro Runs, one row an order
 # Outcome: every order on LOOP-MKT is accepted and filled in two clips a second
 #          apart; the first replace of an order is accepted and later ones are
 #          refused; cancels are honoured; a disputed trade is re-notified
