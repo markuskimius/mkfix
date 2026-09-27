@@ -443,14 +443,20 @@ class TestExamples:
         for path in EXAMPLES.glob("*.macro"):
             sc, diags = macro.check(path.read_text(encoding="utf-8"))
             assert diags == [], (path.name, [str(d) for d in diags])
+            shapes |= {"share at the top"} if sc.shares else set()
             for block in sc.blocks:
                 kinds.add(block.kind)
+                shapes |= {"on signal"} if block.signal else set()
+                shapes |= {"on signal where"} if block.signal and block.where is not None else set()
                 for st in nodes.walk(block.body):
                     shapes.add(type(st).__name__)
                     if isinstance(st, Action):
                         verbs.add(st.verb)
                     if isinstance(st, (Wait, Expect, When)):
-                        events |= set(st.events)
+                        events |= {vocab.event_of(name).name for name in st.events}     # `signal 'NAME'` is a signal
+                        shapes |= {f"{type(st).__name__} signal" for name in st.events if name.startswith("signal:")}
+                    if isinstance(st, nodes.Signal) and st.value is not None:
+                        shapes.add("signal with")
                     if isinstance(st, Repeat):
                         shapes |= {"repeat at"} if st.interval else set()
                         shapes |= {"repeat every"} if st.every else set()
@@ -471,4 +477,7 @@ class TestExamples:
         sides = {macro.check(p.read_text(encoding="utf-8"))[0].side for p in EXAMPLES.glob("*.macro")}
         assert sides == set(vocab.MACRO_SIDES)
         assert {"Repeat", "repeat at", "repeat every", "repeat with", "else fail", "or timeout", "Expect", "Wait"} <= shapes
+        # what the macros of a run say to each other, in every form it takes
+        assert {"Signal", "signal with", "Share", "share at the top", "on signal", "on signal where",
+                "When signal", "Expect signal"} <= shapes
         assert set(vocab.CONTEXT_DOCS) - roots == set(), "every name an expression can see is used somewhere"

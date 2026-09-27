@@ -1,0 +1,33 @@
+# One at a time
+#
+# Shows:   a venue whose orders know of each other — `orders`, the rows of
+#          every order the run holds, as they stand; `share` counting across
+#          them
+# Needs:   any session that receives orders
+# Watch:   Received Orders: a client's second order refused while its first
+#          is still working, and taken once the first is done
+# Outcome: each client has one working order; another is rejected with the
+#          ClOrdID of the one in its way; every order taken is filled in two
+#          clips two seconds apart
+
+share taken = 0
+
+on order
+    # `orders` is read afresh each time: a fill a moment ago is in it.
+    let others = FILTER(orders, o -> o.client == order.client and o.id != order.id)
+    let working = FILTER(others, o -> o.leaves_qty > 0 and o.status in ['New', 'PartiallyFilled', 'Replaced'])
+    if LEN(working) > 0
+        reject text: 'one working order per client: ${FIRST(working).cl_ord_id} is open'
+        stop
+
+    accept
+    share taken = shared.taken + 1
+    log 'order ${shared.taken} taken, ${COUNT(orders, o -> o.leaves_qty > 0)} working'
+
+    when cancel
+        accept
+        stop
+
+    repeat 2
+        after 2s
+        fill qty: MIN(order.leaves_qty, CEIL(order.order_qty / 2)), price: order.price

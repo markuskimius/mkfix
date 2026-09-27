@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.67",
+    "version": "0.68",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -798,7 +798,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.67"
+        "text": "mkfix v0.68"
       }
     ],
     "bindStyle": {
@@ -12069,7 +12069,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.67",
+      "version": "0.68",
       "mkio": "1.5",
       "expr": "2"
     },

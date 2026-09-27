@@ -1,0 +1,41 @@
+# Hedge pairs
+#
+# Shows:   macros of one run working together — `signal` and `expect signal`
+#          with `where`, an `on signal` block starting a macro for every
+#          signal, event.sender and event.value, `share` and shared
+# Needs:   the loopback sessions with slow-fill or loopback-venue armed;
+#          run on LOOP-CLI
+# Watch:   Sent Orders: each buy followed, once it has filled, by the sell
+#          that hedges it; Client Macro Runs: six macros under one run, and
+#          the signals in its log
+# Outcome: three buys go out a second apart; as each fills, a sell of what
+#          it filled goes out against it, and the buy passes when its hedge
+#          is acknowledged; the run has hedged 600 shares
+
+share hedged = 0            # what the run starts with; every macro of it reads shared.hedged
+
+run
+    repeat 3 every 1s with sym = ['IBM', 'MSFT', 'AAPL']
+        new symbol: sym, side: buy, qty: 100 * (n + 1), type: limit, price: 50
+        expect ack within 2s
+        expect filled within 30s
+
+        # Every other macro of the run hears this, and the block below
+        # starts one more: a macro acts on its own order and on no other.
+        signal 'filled' with order.cum_qty
+
+        # Three hedges will say so; the one that names this order is ours.
+        let mine = order.cl_ord_id
+        expect signal 'hedged' where event.value == mine within 10s else fail 'never hedged'
+        pass 'hedged by ${event.sender.cl_ord_id}'
+
+# Started once for every `filled`: `event` is the signal, event.sender the
+# row of the order whose macro said it. It sends where that order went.
+on signal 'filled'
+    let parent = event.sender.cl_ord_id         # `event` moves on at the next wait
+    let sym = event.sender.symbol
+    new symbol: sym, side: sell, qty: event.value, type: limit, price: 50, text: 'hedge of ${parent}'
+    expect ack within 2s
+    share hedged = shared.hedged + order.order_qty
+    signal 'hedged' with parent
+    pass '${shared.hedged} hedged so far'

@@ -135,10 +135,10 @@ async def run_file(path: str, *, session: str = "", name: str | None = None, spe
             for d in saved.get("diagnostics", []):
                 print(f"{path}:{d['line']}:{d['col'] + 1}: {d['severity']}: {d['message']}", file=out)
             return _EXIT_USAGE
-        command = "run_macro" if macro.side == "client" else "arm_macro"
+        command = "run_macro" if macro.side == "client" else "arm_macro"          # by side: `side` is not sent
         started = await cmd(command, name=name, session=session, seed=seed if seed is not None else "", speed=speed)
         run_id = started["run_id"]
-        sends = any(block.kind == "client" for block in macro.blocks)
+        sends = macro.sends
         print(f"{name}: {'run' if sends else 'armed'} #{run_id} on {session or 'every session'} "
               f"(seed {started.get('seed')}, speed {speed:g})", file=out)
         if not wait and duration is None:

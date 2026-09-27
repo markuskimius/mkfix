@@ -52,6 +52,8 @@ def side_of(kind: str, subject: str = ORDER) -> str:
 # subject by the verb that sends it (`new`, `ioi`, `advert`, `allocate`).
 BLOCK_HEADERS: dict[str, tuple[str, str | None]] = {
     "on order": (MARKET, ORDER), "on sent order": (ATTACHED, ORDER), "run": (CLIENT, None),
+    # A `run` started by a signal of the run's own macros instead of by Run…: once for each.
+    "on signal": (CLIENT, None),
     "on ioi": (MARKET, IOI), "on sent ioi": (ATTACHED, IOI),
     "on advert": (MARKET, ADVERT), "on sent advert": (ATTACHED, ADVERT),
     "on allocation": (MARKET, ALLOCATION), "on sent allocation": (ATTACHED, ALLOCATION),
@@ -221,6 +223,9 @@ EVENTS: dict[str, Event] = {e.name: e for e in (
     Event("session down", SIDES, subjects=SUBJECTS, doc="Its session lost its connection."),
     Event("session up", SIDES, subjects=SUBJECTS, doc="Its session is connected again."),
     Event("error", SIDES, subjects=SUBJECTS, doc="An action of this macro was refused; event.text says why."),
+    Event("signal", SIDES, subjects=SUBJECTS,
+          doc="Another macro of this run said `signal`: `signal 'NAME'` is that one, `signal` alone any; "
+              "event.name, event.value, and event.sender — the row of the macro that said it."),
 )}
 
 # Statement keywords, each with its form and one line of help.
@@ -249,6 +254,12 @@ STATEMENTS: dict[str, tuple[str, str]] = {
     "pass": ("pass ['WHY']", "End this order's macro as passed."),
     "fail": ("fail 'WHY'", "End this order's macro as failed."),
     "log": ("log EXPR", "Write a value to the run's log."),
+    "signal": ("signal 'NAME' [with EXPR]", "Tell every other macro of this run: each hears the event `signal 'NAME'`, "
+                                           "with the value as event.value and this macro's row as event.sender."),
+    "share": ("share NAME = EXPR", "Set a value every macro of this run reads as shared.NAME. At the top of the "
+                                   "macro, before its blocks, it is the value the run starts with."),
+    "on signal": ("on signal 'NAME' [where EXPR]", "A block that sends something of its own, like `run`, started once "
+                                                   "for every signal of that name; `event` is the signal."),
 }
 
 # Words that may stand where a trade verb needs to know which trade.
@@ -340,6 +351,8 @@ def event_fields(subject: str = ORDER) -> dict[str, Any]:
         "prev": SUBJECT_FIELDS[subject],           # the subject as it stood before this event
         "response_to": None, "reason": None,       # cancel rejected
         "text": None, "op": None,                  # error, manual
+        # signal: what was said, with what, and by whom — the sender's row, whatever it is a row of
+        "name": None, "value": None, "sender": {"*": None}, "subject": None, "n": None,
     }
 
 
@@ -358,19 +371,51 @@ CONTEXT_DOCS = {
     "elapsed": "Seconds since this macro started.",
     "since": "Seconds since the last event this macro waited for or reacted to.",
     "n": "The pass of the innermost `repeat`, from 0.",
+    "shared": "The values the run's macros share: shared.NAME is what `share NAME = …` last set, NULL before.",
+    "orders": "Every order this run's macros hold, as it stands now, oldest first.",
+    "iois": "Every IOI this run's macros hold, as it stands now, oldest first.",
+    "adverts": "Every advert this run's macros hold, as it stands now, oldest first.",
+    "allocations": "Every allocation this run's macros hold, as it stands now, oldest first.",
 }
+# The names a `let` or a `with` may not take. The ones 0.68 added — `shared`
+# and the run's rows — are not among them: a macro written before them that
+# calls something `orders` keeps its name, which wins.
+RESERVED = frozenset(CONTEXT_DOCS) - {"shared", "orders", "iois", "adverts", "allocations"}
+# The run's rows of each kind, by the name an expression reads them under.
+PEERS = {ORDER: "orders", IOI: "iois", ADVERT: "adverts", ALLOCATION: "allocations"}
+SIGNAL = "signal"
 
 
-def scope_schema(names: tuple[str, ...] | list[str] = (), subject: str = ORDER) -> dict[str, Any]:
+def signal_event(name: str) -> str:
+    """How `signal 'NAME'` stands in a statement's list of events: a kind
+    of its own, beside the bare `signal` every signal also is."""
+    return f"{SIGNAL}:{name}"
+
+
+def event_text(name: str) -> str:
+    """An event as the macro wrote it: `signal 'NAME'`, or the word."""
+    return f"{SIGNAL} {name.split(':', 1)[1]!r}" if name.startswith(SIGNAL + ":") else name
+
+
+def event_of(name: str) -> "Event | None":
+    """The vocabulary's event for a name as a statement holds it."""
+    return EVENTS.get(SIGNAL if name.startswith(SIGNAL + ":") else name)
+
+
+def scope_schema(names: tuple[str, ...] | list[str] = (), subject: str = ORDER,
+                 shared: tuple[str, ...] | list[str] = ()) -> dict[str, Any]:
     """The schema `mkio.expr.check_fields` checks a block's expressions
-    against; ``names`` are the macro's own `let`/`with` names. The subject's
-    row stands under its own name (`order`, `ioi`, `advert`, `allocation`);
-    trades are an order's alone."""
+    against; ``names`` are the macro's own `let`/`with` names and ``shared``
+    the ones its `share` lines set. The subject's row stands under its own
+    name (`order`, `ioi`, `advert`, `allocation`); trades are an order's
+    alone; the run's rows stand under their plurals."""
     fields = SUBJECT_FIELDS[subject]
     return {
         subject: fields, "trade": TRADE_FIELDS, "trades": {"*": TRADE_FIELDS},
         "history": {"*": {**fields, **_VERSION_FIELDS}}, "event": event_fields(subject),
         "elapsed": None, "since": None, "n": None,
+        "shared": {name: None for name in shared},
+        **{name: {"*": SUBJECT_FIELDS[kind]} for kind, name in PEERS.items()},
         **{name: None for name in names},
     }
 

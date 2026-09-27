@@ -192,13 +192,13 @@ class MacroManager:
         side is a problem. Without it the macro's first block decides."""
         side = self._side(side)
         macro, diagnostics = check(source, side=side or None, **await self.known())
-        named = {b.session for b in macro.blocks if b.kind == vocab.CLIENT}
+        named = {b.session for b in macro.blocks if b.kind == vocab.CLIENT and b.signal is None}
         return {"side": side or macro.side,
                 "diagnostics": [_diagnostic(d) for d in diagnostics], "errors": len(errors(diagnostics)),
                 "needs_session": macro.needs_session,
                 # Whether ▶ is Run… (it has a `run` block: it sends, on either
                 # side) or Arm… (it only waits for what arrives).
-                "sends": any(b.kind == vocab.CLIENT for b in macro.blocks),
+                "sends": macro.sends,
                 # What Run… opens on: the one session every `run` block names.
                 "session": next(iter(named)) if len(named) == 1 and None not in named else "",
                 "blocks": [{"kind": b.kind, "line": b.line, "session": b.session or ""} for b in macro.blocks]}
@@ -322,7 +322,7 @@ class MacroManager:
                              + ("run it from Client Macros" if side == "market" else "arm it from Market Macros"))
         if session and session not in self.engine.sessions:
             raise ValueError(f"No session named {session!r}")
-        if not any(b.kind == vocab.CLIENT for b in macro.blocks) and any(
+        if not macro.sends and any(
                 r.session == (session or None) for r in self.live_runs(name)):
             raise ValueError(f"{name!r} is already armed on {session or 'every session'}: a second run there "
                              "would never be given an order")
@@ -643,7 +643,7 @@ class MacroManager:
             or any(i.live for i in run.instances if i.block.kind == vocab.CLIENT))
         return {
             "run": rows[0],
-            "sends": bool(run) and any(b.kind == vocab.CLIENT for b in run.macro.blocks),
+            "sends": bool(run) and run.macro.sends,
             "sending": sending,
             "orders": await self._fetch(
                 "SELECT subject, order_row, cl_ord_id, symbol, status, line, waiting_for, message, actions "

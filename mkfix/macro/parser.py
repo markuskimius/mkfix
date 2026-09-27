@@ -22,14 +22,15 @@ from mkio import expr
 
 from . import vocab
 from .nodes import (
-    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Let, Log, Repeat, Macro, Statement,
-    Stop, Term, TradeTarget, Wait, When, While, walk,
+    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Let, Log, Repeat, Macro, Share, Signal,
+    Statement, Stop, Term, TradeTarget, Wait, When, While, walk,
 )
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SESSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _RATE = re.compile(r"(\d+(?:\.\d+)?)\s*/\s*(ms|s|m|h)\b")
 _JITTER = re.compile(r"±|\+/-")
+_QUOTED = re.compile(r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*\"""")
 _UNIT_SECONDS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 
 # Longest first, so `cancel rejected` is not read as `cancel`.
@@ -37,7 +38,8 @@ _EVENTS = sorted(vocab.EVENTS, key=lambda name: -len(name.split()))
 _VERBS = sorted(vocab.VERBS, key=lambda name: -len(name.split()))
 _BLOCKS = sorted(vocab.BLOCK_HEADERS, key=lambda name: -len(name.split()))
 _CREATOR_SUBJECT = {verb: subject for subject, verb in vocab.CREATORS.items()}
-_SIMPLE = ("after", "wait", "expect", "when", "if", "else", "while", "repeat", "let", "stop", "pass", "fail", "log")
+_SIMPLE = ("after", "wait", "expect", "when", "if", "else", "while", "repeat", "let", "stop", "pass", "fail", "log",
+           "signal", "share")
 _HEADERS = ("seed", "on", "run")
 
 
@@ -210,29 +212,69 @@ class _Parser:
                         raise _Problem("Expected `continue` or `fail`", line.pos)
                     line.end()
                     macro.on_error = choice
+                elif line.take_phrase("share"):
+                    # What the run starts with: before any block, so before any macro of it.
+                    if macro.blocks:
+                        raise _Problem("`share` at the start of a line sets what the run starts with: it belongs "
+                                       "before the first block", line.indent, len(line.text))
+                    macro.shares.append(self.share(line, (line.no, line.indent)))
                 elif any(line.at_phrase(header) for header in _BLOCKS):
                     macro.blocks.append(self.block(line))
                 else:
                     word = (line.words_ahead(1) or [line.text.split()[0]])[0]
                     raise _Problem(
-                        f"Expected `seed`, `on error`, or a block (`on order`, `on sent order`, `run`, "
-                        f"`on ioi`, `on advert`, `on allocation`, `on sent ioi`…), got {word!r}",
+                        f"Expected `seed`, `on error`, `share`, or a block (`on order`, `on sent order`, `run`, "
+                        f"`on ioi`, `on advert`, `on allocation`, `on sent ioi`, `on signal`…), got {word!r}",
                         line.indent, len(line.text))
             except _Problem as p:
                 self.problem(line, p)
                 self.skip_body(line.indent)
         return macro
 
+    def quoted(self, line: _Line, what: str, example: str) -> str:
+        """A name in quotes, as it stands: a signal's. Read as a string and
+        nothing more — an expression would run on into the `or` of the next
+        event."""
+        line.skip()
+        start = line.pos
+        m = _QUOTED.match(line.text, start)
+        if not m:
+            raise _Problem(f"{what} is named in quotes: {example}", start, len(line.text))
+        line.pos = m.end()
+        value = re.sub(r"\\(.)", r"\1", m.group()[1:-1])
+        if not value.strip():
+            raise _Problem(f"{what} needs a name: {example}", start, m.end())
+        if expr.has_expressions(value):
+            raise _Problem(f"{what}'s name is the name itself, without ${{…}}: say what differs `with` a value",
+                           start, m.end())
+        return " ".join(value.split())
+
+    def share(self, line: _Line, at: tuple[int, int]) -> Share:
+        m = line.take_re(_WORD)
+        if not m:
+            raise _Problem("Expected a name", line.pos)
+        if not line.take_char("="):
+            raise _Problem("Expected `=`", line.pos)
+        st = Share(*at, name=m.group(), value=line.expr("a value"))
+        line.end()
+        return st
+
     def block(self, line: _Line) -> Block:
-        if line.take_phrase("run"):
-            session = None
-            if line.take_phrase("on"):
-                m = line.take_re(_SESSION)
-                if not m:
-                    raise _Problem("Expected a session name", line.pos)
-                session = m.group()
+        if line.at_phrase("on signal") or line.at_phrase("run"):
+            session = signal = where = None
+            if line.take_phrase("on signal"):
+                signal = self.quoted(line, "A signal", "on signal 'filled'")
+                if line.take_phrase("where"):
+                    where = line.expr("an expression")
+            else:
+                line.take_phrase("run")
+                if line.take_phrase("on"):
+                    m = line.take_re(_SESSION)
+                    if not m:
+                        raise _Problem("Expected a session name", line.pos)
+                    session = m.group()
             line.end()
-            block = Block(vocab.CLIENT, line.no, line.indent, session=session)
+            block = Block(vocab.CLIENT, line.no, line.indent, session=session, signal=signal, where=where)
             block.body = self.body(line)
             # What it sends is what it is about: the first sending verb
             # among its lines. None leaves it an order block for the
@@ -361,13 +403,23 @@ class _Parser:
             m = line.take_re(_WORD)
             if not m:
                 raise _Problem("Expected a name", line.pos)
-            if m.group() in vocab.CONTEXT_DOCS:
+            if m.group() in vocab.RESERVED:
                 raise _Problem(f"{m.group()!r} is the macro's own name for something", m.start(), m.end())
             if not line.take_char("="):
                 raise _Problem("Expected `=`", line.pos)
             st = Let(*at, name=m.group(), value=line.expr("a value"))
             line.end()
             return st
+
+        if line.take_phrase("signal"):
+            sg = Signal(*at, name=self.quoted(line, "A signal", "signal 'filled'"))
+            if line.take_phrase("with"):
+                sg.value = line.expr("a value")
+            line.end()
+            return sg
+
+        if line.take_phrase("share"):
+            return self.share(line, at)
 
         if line.take_phrase("stop"):
             line.end()
@@ -409,6 +461,9 @@ class _Parser:
                 got = repr(words[0]) if words else "the end of the line"
                 hint = _suggest(words[0], list(vocab.EVENTS)) if words else ""
                 raise _Problem(f"Expected an event, got {got}{hint}", line.pos, line.pos + (len(words[0]) if words else 1))
+            line.skip()
+            if name == vocab.SIGNAL and line.text.startswith(("'", '"'), line.pos):
+                name = vocab.signal_event(self.quoted(line, "A signal", "when signal 'filled'"))
             out.append(name)
             if line.at_phrase("or timeout") or not line.take_phrase("or"):
                 return out
@@ -428,7 +483,7 @@ class _Parser:
             m = line.take_re(_WORD)
             if not m:
                 raise _Problem("Expected a name", line.pos)
-            if m.group() in vocab.CONTEXT_DOCS:
+            if m.group() in vocab.RESERVED:
                 raise _Problem(f"{m.group()!r} is the macro's own name for something", m.start(), m.end())
             if not line.take_char("="):
                 raise _Problem("Expected `=`", line.pos)

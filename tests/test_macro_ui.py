@@ -117,7 +117,7 @@ class TestCompletion:
         assert self.names(tmp_path, 7, 3) == ["last trade", "first trade", "trade where"]
         assert self.names(tmp_path, 8) == ["half", "all"]
         assert self.names(tmp_path, 9) == ["S1", "S2"]
-        assert self.names(tmp_path, 10) == ["seed", "on error", *macro.vocabulary()["blocks"]]
+        assert self.names(tmp_path, 10) == ["seed", "on error", "share", *macro.vocabulary()["blocks"]]
         assert self.names(tmp_path, 14) == ["on"], "`run` may name its session, or leave it to Run…"
         assert "new" in self.names(tmp_path, 15), "a bare `run` opens a client block"
 
@@ -132,7 +132,7 @@ class TestCompletion:
         sending = self.names(tmp_path, 25)
         assert sending == ["buy", "sell", "undisclosed", "cross"], "an IOI's sides on `ioi`"
         assert {"replace ioi", "cancel ioi"} <= set(self.names(tmp_path, 26)) and "new" not in self.names(tmp_path, 26)
-        assert set(self.names(tmp_path, 27)) == {"message", "manual", "session down", "session up", "error"}, \
+        assert set(self.names(tmp_path, 27)) == {"message", "manual", "session down", "session up", "error", "signal"}, \
             "nothing answers an IOI"
         assert {"ioi_id", "ioi_qty"} <= set(self.names(tmp_path, 28)), "event.prev is the block's own subject"
         assert run_js(tmp_path, f"L.blockAt(vocab, {json.dumps(self.LINES)}, 26)") == {"kind": "client", "subject": "ioi"}
@@ -142,10 +142,52 @@ class TestCompletion:
         """The market side receives orders and sends the three families; the
         client side the other way round. `run` sends for either."""
         assert self.names(tmp_path, 10, side="market") == [
-            "seed", "on error", "on order", "run", "on sent ioi", "on sent advert", "on sent allocation"]
+            "seed", "on error", "share", "on order", "run", "on signal", "on sent ioi", "on sent advert",
+            "on sent allocation"]
         assert self.names(tmp_path, 10, side="client") == [
-            "seed", "on error", "on sent order", "run", "on ioi", "on advert", "on allocation"]
+            "seed", "on error", "share", "on sent order", "run", "on signal", "on ioi", "on advert", "on allocation"]
         assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 13))
+
+    TOGETHER = ["share done = 0", "run", "    new symbol: 'IBM', side: buy, qty: 1", "    share last = order.cl_ord_id",
+                "    signal 'parent filled' with 1   # not signal 'in a comment'", "    signal 'go'",
+                "    when signal '", "    log shared.", "    log event.sender.", "    ", "    when ",
+                "on signal '", "    allocate symbol: 'A', side: ", "    ", "on signal "]
+
+    def together(self, tmp_path, row):
+        return run_js(tmp_path, f"L.completionsAt(vocab, {json.dumps(self.TOGETHER)}, {row}, "
+                                f"{len(self.TOGETHER[row])}, {{}}).map((c) => c.caption)")
+
+    def test_what_the_macros_of_a_run_say_to_each_other(self, tmp_path):
+        assert self.together(tmp_path, 6) == ["go", "parent filled"], "the signals the macro's own lines send"
+        assert self.together(tmp_path, 11) == ["go", "parent filled"], "and in a block's header"
+        assert self.together(tmp_path, 7) == ["done", "last"], "what it shares, wherever it is set"
+        sender = self.together(tmp_path, 8)
+        assert {"cl_ord_id", "leaves_qty", "ioi_id", "alloc_id", "adv_id"} <= set(sender), "a row of any kind"
+        assert sender == sorted(set(sender))
+        statements = self.together(tmp_path, 9)
+        assert {"signal", "share"} <= set(statements) and "on signal" not in statements
+        assert "signal" in self.together(tmp_path, 10)
+        assert self.together(tmp_path, 14) == ["'NAME'"]
+        # an `on signal` block is a sending block: its subject is what it sends
+        assert run_js(tmp_path, f"L.blockAt(vocab, {json.dumps(self.TOGETHER)}, 13)") == {"kind": "client", "subject": "allocation"}
+        assert self.together(tmp_path, 12) == ["buy", "sell", "sell_short", "sell_short_exempt"]
+        assert {"replace allocation", "cancel allocation"} <= set(self.together(tmp_path, 13))
+        assert run_js(tmp_path, f"L.signalNames({json.dumps(self.TOGETHER)})") == ["go", "parent filled"]
+        assert run_js(tmp_path, f"L.sharedNames({json.dumps(self.TOGETHER)})") == ["done", "last"]
+
+    def test_the_new_words_are_coloured_and_explained(self, tmp_path):
+        rules = "L.buildRules(vocab)"
+        tokens = lambda line: run_js(tmp_path, f"L.tokenizeLine({rules}, {json.dumps(line)})")  # noqa: E731
+        assert tokens("    signal 'go' with n")[:3] == [["keyword", "    signal"], ["text", " "], ["string", "'go'"]]
+        assert ["constant.language", "signal"] in tokens("    when signal 'go' or fill")
+        assert tokens("on signal 'go'")[0] == ["keyword.control", "on signal"]
+        assert tokens("share done = 0")[0][0].startswith("keyword")
+        assert ["variable.language", "shared"] in tokens("    log shared.done + LEN(orders)")
+        assert ["variable.language", "orders"] in tokens("    log shared.done + LEN(orders)")
+        for line, col, name in (("    signal 'go' with n", 6, "signal"), ("    share a = 1", 6, "share"),
+                                ("    when signal 'go'", 11, "signal"), ("    log shared.a", 10, "shared"),
+                                ("on signal 'go'", 4, "on signal")):
+            assert run_js(tmp_path, f"L.helpAt(vocab, {json.dumps([line])}, 0, {col}).name") == name, line
 
     def test_help_for_the_word_under_the_cursor(self, tmp_path):
         line = ["    expect cancel rejected within 2s"]

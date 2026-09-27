@@ -161,11 +161,21 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
     return entry.sides.includes(block.kind);
   };
 
-  // fields of order. ioi. advert. allocation. trade. event. event.prev.
+  // A signal's name, wherever one is named: the ones the macro's own lines say.
+  if (/\bsignal\s+'[^']*$/i.test(before)) return signalNames(lines, row).map((n) => item(n, "signal"));
+
+  // fields of order. ioi. advert. allocation. trade. event. event.prev. —
+  // and what the macro shares, and the row of whoever signalled, which may
+  // be a row of any kind.
   const dotted = /([A-Za-z_][\w.]*)\.$/.exec(before);
   if (dotted) {
     const path = dotted[1];
     const subject = block?.subject ?? "order";
+    if (path === "shared") return sharedNames(lines).map((n) => item(n, "shared"));
+    if (path === "event.sender") {
+      return [...new Set((vocab.subjects ?? ["order"]).flatMap((s) => vocab.fields[s] ?? []))].sort()
+        .map((f) => item(f, path));
+    }
     const fields = path === "event.prev" ? vocab.fields[subject]
       : path === "trade" ? vocab.fields.trade : path === "event" ? vocab.fields.event
         : vocab.fields[path] ?? [];
@@ -174,9 +184,12 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
 
   if (!/^\s/.test(lines[row] ?? "") && trimmed === "") {
     const mine = extras.side ? sideBlocks(vocab, extras.side) : null;
-    return HEADERS.filter((h) => !mine || !blockHeaders(vocab).includes(h) || mine.includes(h))
+    // `share` before the blocks is what a run starts with; an older vocabulary has no such word.
+    const top = [...HEADERS.slice(0, 2), ...(vocab.statements.share ? ["share"] : []), ...HEADERS.slice(2)];
+    return top.filter((h) => !mine || !blockHeaders(vocab).includes(h) || mine.includes(h))
       .map((h) => item(h, "block", vocab.statements[h]?.[1] ?? vocab.statements[h]?.doc));
   }
+  if (/^on signal$/.test(trimmed)) return [item("'", "signal", "The signal that starts this block, in quotes", { caption: "'NAME'" })];
   if (/^run$/.test(trimmed)) return [item("on ", "session", "Name the session here, or leave it to be chosen at Run…", { caption: "on" })];
   if (/^run on$/.test(trimmed)) return (extras.sessions ?? []).map((s) => item(s, "session"));
 
@@ -220,6 +233,27 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
   const roots = Object.entries(vocab.context).map(([n, d]) => item(n, "macro", d));
   const functions = Object.entries(vocab.functions).map(([n, f]) => item(n + "(", "function", f.doc, { caption: n }));
   return [...roots, ...functions];
+}
+
+// The signals a macro's lines name, other than on the row being typed, and
+// the names it shares: what completion offers after `signal '` and `shared.`.
+export function signalNames(lines, row = -1) {
+  const names = new Set();
+  lines.forEach((line, r) => {
+    if (r === row) return;
+    const code = line.replace(/#.*$/, "");
+    for (const m of code.matchAll(/\bsignal\s+'((?:[^'\\]|\\.)+)'/gi)) names.add(m[1].trim().replace(/\s+/g, " "));
+  });
+  return [...names].sort();
+}
+
+export function sharedNames(lines) {
+  const names = new Set();
+  for (const line of lines) {
+    const m = /^\s*share\s+([A-Za-z_]\w*)\s*=/i.exec(line);
+    if (m) names.add(m[1]);
+  }
+  return [...names].sort();
 }
 
 // One line of help for the word at (row, col), or null.

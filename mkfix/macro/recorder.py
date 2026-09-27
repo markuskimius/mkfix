@@ -51,7 +51,7 @@ _VERB_OF = {v.op: v.name for v in vocab.VERBS.values()} | {
 # What the counterparty does that a macro can wait for, by the kind of block
 # a timeline becomes: the events of the received (`on …`) or sent (`run`)
 # block of each subject, bar the ones a script seldom names.
-_NEVER_HEARD = {"er", "acked", "message", "manual", "session down", "session up", "error"}
+_NEVER_HEARD = {"er", "acked", "message", "manual", "session down", "session up", "error", "signal"}
 _HEARD = {
     (subject, kind): tuple(e.name for e in vocab.EVENTS.values()
                            if (subject, kind) in e.places and e.name not in _NEVER_HEARD)

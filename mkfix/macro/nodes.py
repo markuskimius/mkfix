@@ -135,6 +135,18 @@ class Log(Statement):
 
 
 @dataclass(slots=True)
+class Signal(Statement):
+    name: str = ""                    # signal 'NAME'
+    value: Expr | None = None         # with EXPR
+
+
+@dataclass(slots=True)
+class Share(Statement):
+    name: str = ""                    # share NAME = EXPR
+    value: Expr | None = None
+
+
+@dataclass(slots=True)
 class Block:
     kind: str                         # vocab.MARKET | CLIENT | ATTACHED
     line: int
@@ -143,6 +155,7 @@ class Block:
     session: str | None = None
     body: list[Statement] = field(default_factory=list)
     subject: str = "order"            # vocab.SUBJECTS: what the block is about; a `run`'s by the verb that sends it
+    signal: str | None = None         # on signal 'NAME': the signal that starts it, once for each
 
 
 @dataclass(slots=True)
@@ -151,6 +164,7 @@ class Macro:
     seed: int | None = None
     on_error: str = "fail"            # fail | continue
     blocks: list[Block] = field(default_factory=list)
+    shares: list[Share] = field(default_factory=list)   # `share NAME = EXPR` before the blocks: what a run starts with
 
     @property
     def side(self) -> str:
@@ -161,8 +175,14 @@ class Macro:
 
     @property
     def needs_session(self) -> bool:
-        """True when a `run` block leaves its session to be chosen at Run…"""
-        return any(b.kind == "client" and not b.session for b in self.blocks)
+        """True when a `run` block leaves its session to be chosen at Run…
+        An `on signal` block sends where the macro that signalled is."""
+        return any(b.kind == "client" and b.signal is None and not b.session for b in self.blocks)
+
+    @property
+    def sends(self) -> bool:
+        """It has a `run` block: something goes out the moment it is run."""
+        return any(b.kind == "client" and b.signal is None for b in self.blocks)
 
 
 def walk(body: list[Statement]):

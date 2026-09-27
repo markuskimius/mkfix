@@ -9,6 +9,11 @@ the main one. All the flows of an instance share its names (`let` has one
 flat scope) and its order; each has its own `event`, `trade`, `since` and
 `n`, so a handler cannot trample what the main flow is looking at.
 
+An instance acts on its own subject and on nothing else. What it has to do
+with the run's other macros goes through the run: it says `signal`, which
+the others hear as an event; it sets `share`d values, which all of them
+read; and it may look at the rows the others hold (`orders`, `iois`…).
+
 A flow is only ever parked in three places — an `after`, a `wait`/`expect`,
 or a paused run — and everything between two parks runs without yielding to
 another flow of the same instance, except across an action, which awaits the
@@ -27,7 +32,8 @@ from mkio import expr
 from . import vocab
 from .functions import ENV, RNG_NAME
 from .nodes import (
-    Action, After, Block, Expect, Expr, Finish, If, Let, Log, Repeat, Statement, Stop, Wait, When, While,
+    Action, After, Block, Expect, Expr, Finish, If, Let, Log, Repeat, Share, Signal, Statement, Stop, Wait,
+    When, While,
 )
 
 if TYPE_CHECKING:
@@ -111,8 +117,9 @@ class Instance:
 
     def __init__(self, runner: MacroRunner, run: Run, block: Block, row: dict[str, Any] | None, index: int,
                  *, body: list[Statement] | None = None, vars: dict[str, Any] | None = None, n: int = 0,
-                 generator: bool = False) -> None:
+                 generator: bool = False, session: str | None = None) -> None:
         self.runner, self.run, self.block, self.index = runner, run, block, index
+        self.session = session                # where an `on signal` block sends: the run's, or the signaller's
         self.kind = block.subject
         self.row = row
         self.key: int | None = row["id"] if row else None
@@ -273,7 +280,7 @@ class Instance:
             found = await self._wait(flow, st.events, st.where, await self._seconds(flow, st.within))
             if not found:
                 why = await self.value(flow, st.message) if st.message is not None else \
-                    f"expected {' or '.join(st.events)} within {st.within.source}"
+                    f"expected {' or '.join(map(vocab.event_text, st.events))} within {st.within.source}"
                 raise _Verdict(FAILED, f"line {st.line}: {why}")
         elif isinstance(st, When):
             self.handlers.append(_Handler(st, depth))
@@ -293,6 +300,11 @@ class Instance:
             self.vars[st.name] = await self.value(flow, st.value)
         elif isinstance(st, Log):
             self.runner._log(self, st.line, expr.to_string(await self.value(flow, st.message)))
+        elif isinstance(st, Signal):
+            value = await self.value(flow, st.value) if st.value is not None else None
+            await self.runner._signal(self, st.name, value, st.line, flow.n)
+        elif isinstance(st, Share):
+            self.run.shared[st.name] = await self.value(flow, st.value)
         elif isinstance(st, Stop):
             raise _Stop()
         elif isinstance(st, Finish):
@@ -330,7 +342,10 @@ class Instance:
                     # One order per macro: each pass is a macro of its own,
                     # started at the pace asked for and not waited on.
                     await self._gate(flow)
-                    if not self.runner._start_script(self.run, self.block, st.body, dict(self.vars), i):
+                    # What started the generator — the signal of an `on signal` block — and
+                    # where it sends are each pass's too.
+                    if not self.runner._start_script(self.run, self.block, st.body, dict(self.vars), i,
+                                                     event=self.main.event, session=self.session):
                         return
                 else:
                     await self._body(flow, st.body, depth + 1)
@@ -366,7 +381,7 @@ class Instance:
         `timeout` event so the macro can tell."""
         clock = self.runner.clock
         deadline = None if timeout is None else clock.now() + timeout / self.run.speed
-        what = "wait " + " or ".join(names)
+        what = "wait " + " or ".join(map(vocab.event_text, names))
         while True:
             while flow.cursor < len(self.log_events):
                 event, trade = self.log_events[flow.cursor]
@@ -408,12 +423,16 @@ class Instance:
             self.kind: self.row, "trade": flow.trade, "event": flow.event,
             "elapsed": (now - self.started_at) * self.run.speed,
             "since": (now - flow.since_at) * self.run.speed, "n": flow.n,
-            "trades": None, "history": None, **self.vars, RNG_NAME: self.rng,
+            "trades": None, "history": None, "shared": self.run.shared,
+            **dict.fromkeys(vocab.PEERS.values()), **self.vars, RNG_NAME: self.rng,
         }
         if "trades" in refs:
             scope["trades"] = await self.runner._trades(self)
         if "history" in refs:
             scope["history"] = await self.runner._history(self)
+        for kind, name in vocab.PEERS.items():
+            if name in refs and name not in self.vars:       # a name of the macro's own wins
+                scope[name] = await self.runner._peers(self.run, kind)
         try:
             return fn(scope)
         except expr.ExprError as err:
@@ -443,7 +462,7 @@ class Instance:
         if creates:
             if self.row is not None:
                 raise ScriptError(st.line, f"this macro has already sent its {self.kind}: one {self.kind} per macro")
-            payload["session_id"], payload["_tag"] = self.run.session_of(self.block), self.tag
+            payload["session_id"], payload["_tag"] = self.session or self.run.session_of(self.block), self.tag
         elif self.row is None:
             raise ScriptError(st.line, f"`{st.verb}` before `{creator}`: this macro has no {self.kind} yet")
         else:

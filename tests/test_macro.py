@@ -174,7 +174,7 @@ class TestParser:
         ("macro b\non order\n    accept\n", 1, 0, "`macro` is no longer a word: a macro is named where it is saved. Delete this line"),
         ("seed x\non order\n    accept\n", 1, 5, "Expected a whole number"),
         ("on error maybe\non order\n    accept\n", 1, 9, "Expected `continue` or `fail`"),
-        ("banana\n", 1, 0, "Expected `seed`, `on error`, or a block"),
+        ("banana\n", 1, 0, "Expected `seed`, `on error`, `share`, or a block"),
         ("    accept\n", 1, 0, "Unexpected indent: this line belongs to no block"),
         ("on order\naccept\n", 1, 0, "Expected an indented block under this line"),
         ("run on\n    cancel\n", 1, 6, "Expected a session name"),
@@ -546,7 +546,7 @@ class TestExamples:
                         targets |= {st.target.which} if st.target else set()
                         statements |= {"using"} if st.template else set()
                     if isinstance(st, (Wait, Expect, When)):
-                        events |= set(st.events)
+                        events |= {vocab.event_of(name).name for name in st.events}     # `signal 'NAME'` is a signal
                     if isinstance(st, After) and st.jitter:
                         statements.add("jitter")
                     for e in nodes.expressions(st):

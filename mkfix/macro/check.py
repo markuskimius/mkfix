@@ -16,7 +16,7 @@ from mkio import expr
 from . import vocab
 from .functions import ENV
 from .nodes import (
-    Action, Block, Diagnostic, Expect, Expr, If, Let, Repeat, Macro, Statement, Wait, When,
+    Action, Block, Diagnostic, Expect, Expr, If, Let, Repeat, Macro, Share, Signal, Statement, Wait, When,
     expressions, walk,
 )
 from .parser import parse
@@ -44,6 +44,8 @@ class _Checker:
         self.templates = {scope: set(names) for scope, names in templates.items()} if templates is not None else None
         self.sessions = set(sessions) if sessions is not None else None
         self.out: list[Diagnostic] = []
+        self.shared: list[str] = []          # the names the macro's `share` lines set, anywhere in it
+        self.signals: set[str] = set()       # the signals its `signal` lines send
 
     def report(self, line: int, col: int, end: int, message: str, severity: str = "error") -> None:
         self.out.append(Diagnostic(line, col, max(end, col + 1), message, severity))
@@ -91,18 +93,43 @@ class _Checker:
                 self.report(block.line, block.col, block.col + 3,
                             f"This is a {side} macro, and this block belongs in a {other} macro: a macro is "
                             f"for one side. Keep {_SIDE_BLOCKS[side]} here and move this to a {other} macro")
+        # What is shared and what is signalled is the run's, so the macro's:
+        # a block reads a name another block sets, and waits for a signal
+        # another block sends.
+        every = [st for block in macro.blocks for st in walk(block.body)]
+        self.shared = list(dict.fromkeys(st.name for st in [*macro.shares, *every] if isinstance(st, Share)))
+        self.signals = {st.name for st in every if isinstance(st, Signal)}
+        for st in macro.shares:
+            # Before any macro of the run exists: only what is shared already can be read.
+            self.expression(st.value, {"shared": {name: None for name in self.shared}})
         for block in macro.blocks:
             self.block(block)
 
+    def heard(self, name: str, line: int, col: int, end: int) -> None:
+        """A signal waited for by name that nothing in the macro sends never
+        comes: signals stay within the run."""
+        if name not in self.signals:
+            sent = ", ".join(repr(s) for s in sorted(self.signals)) or "none"
+            self.report(line, col, end, f"Nothing in this macro signals {name!r}, so this never happens: a signal "
+                                        f"is heard by the macros of its own run. Signals sent here: {sent}"
+                                        f"{_close(name, self.signals)}", severity="warning")
+
     def block(self, block: Block) -> None:
-        if block.where is not None:
+        if block.signal is not None:
+            self.heard(block.signal, block.line, block.col, block.col + len("on signal"))
+            if block.where is not None:
+                # The signal is all there is to look at: the block's subject is still to be sent.
+                started = vocab.scope_schema((), block.subject, self.shared)
+                self.expression(block.where, {k: v for k, v in started.items()
+                                              if k in ("event", "shared", *vocab.PEERS.values())})
+        elif block.where is not None:
             self.expression(block.where, vocab.match_schema(block.subject))
         if block.session is not None and self.sessions is not None and block.session not in self.sessions:
             self.report(block.line, block.col, block.col + len("run on ") + len(block.session),
                         f"No session named {block.session!r}{_close(block.session, self.sessions)}")
         names = [st.name for st in walk(block.body) if isinstance(st, Let)]
         names += [st.var for st in walk(block.body) if isinstance(st, Repeat) and st.var]
-        schema = vocab.scope_schema(names, block.subject)
+        schema = vocab.scope_schema(names, block.subject, self.shared)
         self.body(block.body, block, schema, trade_in_hand=False)
         if block.kind == vocab.CLIENT:
             self.sending(block)
@@ -117,9 +144,13 @@ class _Checker:
         second kind of sending verb belongs in a block of its own."""
         creator = vocab.CREATORS[block.subject]
         creators = set(vocab.CREATORS.values())
+        header = "on signal" if block.signal is not None else "run"
         if not any(isinstance(st, Action) and st.verb == creator for st in walk(block.body)):
-            self.report(block.line, block.col, block.col + len("run"),
-                        "A `run` block sends something of its own: it needs a `new`, `ioi`, `advert` or `allocate`")
+            self.report(block.line, block.col, block.col + len(header),
+                        f"A{'n' if header[0] == 'o' else ''} `{header}` block sends something of its own: it needs a "
+                        "`new`, `ioi`, `advert` or `allocate`"
+                        + (". To react to a signal in a macro that already has its order, write "
+                           "`when signal 'NAME'` inside that block" if block.signal is not None else ""))
             return
         for st in walk(block.body):
             if isinstance(st, Action) and st.verb in creators and st.verb != creator:
@@ -154,7 +185,7 @@ class _Checker:
             if isinstance(st, Action):
                 self.action(st, block, trade_in_hand)
             if isinstance(st, When):
-                carries = all(vocab.EVENTS[name].trade for name in st.events if name in vocab.EVENTS)
+                carries = all(event.trade for event in map(vocab.event_of, st.events) if event is not None)
                 self.body(st.body, block, schema, trade_in_hand=bool(st.events) and carries)
             elif isinstance(st, If):
                 for _, branch in st.branches:
@@ -167,11 +198,13 @@ class _Checker:
     def events(self, st: Wait | Expect | When, block: Block) -> None:
         place = (block.subject, block.kind)
         for name in st.events:
-            event = vocab.EVENTS[name]
+            event = vocab.event_of(name)
+            if name.startswith(vocab.SIGNAL + ":"):
+                self.heard(name.split(":", 1)[1], st.line, st.col, st.col + 4)
             if place not in event.places:
                 there = ", ".join(sorted(n for n, e in vocab.EVENTS.items() if place in e.places))
                 self.report(st.line, st.col, st.col + 4,
-                            f"`{name}` never happens in {vocab.block_name(block.kind, block.subject)}. "
+                            f"`{vocab.event_text(name)}` never happens in {vocab.block_name(block.kind, block.subject)}. "
                             f"Events there: {there}")
 
     def action(self, st: Action, block: Block, trade_in_hand: bool) -> None:

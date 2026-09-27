@@ -34,7 +34,7 @@ from . import vocab
 from .clock import Clock, Scheduler
 from .functions import ENV
 from .instance import DETACHED, FAILED, PASSED, STOPPED, Instance, contains_creator, event_map
-from .nodes import Action, Macro
+from .nodes import Action, Macro, Share, walk
 
 if TYPE_CHECKING:
     from mkfix.fix.engine import FixEngine
@@ -71,6 +71,11 @@ class Run:
     instances: list[Instance] = field(default_factory=list)
     log: list[tuple[float, int | None, int, str]] = field(default_factory=list)   # (time, order id, line, text)
     _gates: list[tuple[Any, Any]] = field(default_factory=list)
+    # What the run's macros share (`share NAME = …`, read as shared.NAME):
+    # every name the macro sets, NULL until it is.
+    shared: dict[str, Any] = field(default_factory=dict)
+    signals: int = 0                      # how many were sent: a runaway is stopped
+    _started: dict[int, int] = field(default_factory=dict)      # `on signal` block -> how many macros it has started
 
     @property
     def side(self) -> str:
@@ -101,12 +106,14 @@ class MacroRunner:
     BUSTED: tuple[str, ...] = ("Cancel", "TradeCancel")
 
     def __init__(self, engine: FixEngine, clock: Clock | None = None, *,
-                 max_actions: int = 1000, max_instances: int = 10000, max_live: int = 20000) -> None:
+                 max_actions: int = 1000, max_instances: int = 10000, max_live: int = 20000,
+                 max_signals: int = 100000) -> None:
         self.engine = engine
         self.scheduler = clock.scheduler if clock is not None else Scheduler()
         self.clock = clock if clock is not None else Clock(self.scheduler)
         self.max_actions, self.max_instances = max_actions, max_instances
         self.max_live = max_live              # live macros, every run together
+        self.max_signals = max_signals        # signals in one run
         self.live = 0
         self.runs: list[Run] = []
         self.owners: dict[tuple[str, int], Instance] = {}     # (kind, row id) -> the macro that owns it
@@ -135,6 +142,7 @@ class MacroRunner:
         if seed is None:
             seed = macro.seed if macro.seed is not None else random.SystemRandom().randrange(2**31)
         run = Run(next(self._ids), macro, seed, speed, session)
+        self._share(run)
         self.runs.append(run)
         if self._unsubscribe is None:
             self._unsubscribe = self.engine.events.subscribe(self._on_event)
@@ -148,8 +156,8 @@ class MacroRunner:
         if not macro.blocks:
             raise MacroError(f"{macro.name!r} has no block to run")
         for block in macro.blocks:
-            if block.kind != vocab.CLIENT:
-                continue
+            if block.kind != vocab.CLIENT or block.signal is not None:
+                continue                  # an `on signal` block sends where the macro that signalled is
             name = session or block.session
             if not name:
                 raise MacroError(f"line {block.line}: `run` names no session, so choose the one to send on")
@@ -162,23 +170,48 @@ class MacroRunner:
         if speed <= 0:
             raise MacroError("speed must be more than zero")
 
+    def _share(self, run: Run) -> None:
+        """What the run starts with: every shared name the macro sets, NULL,
+        then the `share` lines before its blocks, in order."""
+        macro = run.macro
+        every = [st for block in macro.blocks for st in walk(block.body) if isinstance(st, Share)]
+        run.shared = dict.fromkeys(st.name for st in [*macro.shares, *every])
+        for st in macro.shares:
+            try:
+                run.shared[st.name] = expr.compile_node(st.value.node, ENV)(
+                    expr.Scope({"shared": run.shared}, None, True))
+            except expr.ExprError as e:
+                raise MacroError(f"line {st.line}: {e.message} — in `{st.value.source}`") from None
+
     def start(self, run: Run) -> None:
         """Start the run's `run` blocks."""
         for block in run.macro.blocks:
-            if block.kind != vocab.CLIENT:
-                continue
-            creator = vocab.CREATORS[block.subject]
-            if any(isinstance(st, Action) and st.verb == creator for st in block.body) \
-                    or not contains_creator(block.body, block.subject):
-                self._start_script(run, block, block.body, {}, 0)        # the block is one subject's macro
-            else:
-                generator = Instance(self, run, block, None, -1 - len(run.generators), generator=True)
-                run.generators.append(generator)
-                generator.start()
+            if block.kind == vocab.CLIENT and block.signal is None:
+                self._start_block(run, block)
         self._maybe_finished(run)
 
-    def _start_script(self, run: Run, block: Any, body: Any, names: dict[str, Any], n: int) -> bool:
-        """A sending macro, its order still to come. False when the run is full or over."""
+    def _start_block(self, run: Run, block: Any, n: int = 0, *, event: dict[str, Any] | None = None,
+                     session: str | None = None) -> bool:
+        """Start a sending block — a `run` at Run…, an `on signal` at its
+        signal: one subject's macro when its sending verb stands among its
+        own lines, else a generator whose `repeat` starts one each pass."""
+        creator = vocab.CREATORS[block.subject]
+        if any(isinstance(st, Action) and st.verb == creator for st in block.body) \
+                or not contains_creator(block.body, block.subject):
+            return self._start_script(run, block, block.body, {}, n, event=event, session=session)
+        if run.status != "armed":
+            return False
+        generator = Instance(self, run, block, None, -1 - len(run.generators), n=n, generator=True, session=session)
+        generator.main.event = event
+        run.generators.append(generator)
+        generator.start()
+        return True
+
+    def _start_script(self, run: Run, block: Any, body: Any, names: dict[str, Any], n: int, *,
+                      event: dict[str, Any] | None = None, session: str | None = None) -> bool:
+        """A sending macro, its order still to come. False when the run is
+        full or over. ``event`` is what started it — the signal an `on
+        signal` block was waiting for — and ``session`` where it sends."""
         if run.status != "armed":
             return False
         if len(run.instances) >= self.max_instances:
@@ -187,12 +220,79 @@ class MacroRunner:
         if self.live >= self.max_live:
             self._log(None, block.line, f"no more orders: {self.max_live} macros are live already", run=run)
             return False
-        instance = Instance(self, run, block, None, len(run.instances), body=body, vars=names, n=n)
+        instance = Instance(self, run, block, None, len(run.instances), body=body, vars=names, n=n, session=session)
+        instance.main.event = event
         run.instances.append(instance)
         self.live += 1
         self._claims[instance.tag] = instance
         instance.start()
         return True
+
+    # -- between the macros of a run ---------------------------------------------------------
+
+    async def _signal(self, sender: Instance, name: str, value: Any, line: int, n: int = 0) -> None:
+        """``sender`` said `signal 'name'`: every other live macro of its run
+        hears it, and every `on signal 'name'` block whose `where` it meets
+        starts a macro. It stays within the run, and the sender does not
+        hear itself."""
+        run = sender.run
+        run.signals += 1
+        if run.signals > self.max_signals:
+            from .instance import ScriptError
+            raise ScriptError(line, f"more than {self.max_signals} signals in one run: is something answering itself?")
+        event = event_map((vocab.signal_event(name), vocab.SIGNAL), "macro")
+        # A signal is a `signal` by kind, whatever its name: the name is event.name.
+        event.update(kind=vocab.SIGNAL, name=name, value=value, sender=dict(sender.row) if sender.row else None,
+                     subject=sender.kind, n=n)
+        self._log(sender, line, f"signal {name!r}" + ("" if value is None else f" with {expr.to_string(value)}"))
+        for instance in list(run.instances):
+            if instance is not sender and instance.live:
+                instance.deliver(event)
+        for block in run.macro.blocks:
+            if block.signal != name or not await self._started_by(run, block, event):
+                continue
+            session = run.session or (sender.row["session_id"] if sender.row else
+                                      sender.session or run.session_of(sender.block))
+            if not session:
+                self._log(None, block.line, f"`on signal {name!r}` not started: the macro that signalled has no "
+                                            "session yet, and the run names none", run=run)
+                continue
+            count = run._started.get(id(block), 0)
+            if self._start_block(run, block, count, event=event, session=session):
+                run._started[id(block)] = count + 1
+
+    async def _started_by(self, run: Run, block: Any, event: dict[str, Any]) -> bool:
+        """Whether the signal meets an `on signal` block's `where`, which
+        sees the signal, what is shared and the run's rows."""
+        if block.where is None:
+            return True
+        fn = self._matchers.get(id(block.where))
+        if fn is None:
+            fn = self._matchers[id(block.where)] = expr.compile_node(block.where.node, ENV)
+        scope: dict[str, Any] = {"event": event, "shared": run.shared, **dict.fromkeys(vocab.PEERS.values())}
+        refs = expr.field_refs(block.where.node)
+        for kind, name in vocab.PEERS.items():
+            if name in refs:
+                scope[name] = await self._peers(run, kind)
+        try:
+            return expr.truthy(fn(expr.Scope(scope, None, True)))
+        except expr.ExprError as e:
+            self._log(None, block.line, f"`where` failed on signal {event['name']!r}: {e.message}", run=run)
+            return False
+
+    async def _peers(self, run: Run, kind: str) -> list[dict[str, Any]]:
+        """The rows of ``kind`` the run's macros hold — taken or sent, live
+        or done — as they stand now, oldest first."""
+        ids = sorted({i.key for i in run.instances if i.kind == kind and i.key is not None})
+        rows: list[dict[str, Any]] = []
+        for at in range(0, len(ids), 500):
+            some = ids[at:at + 500]
+            cursor = await self.engine.db.read_conn.execute(
+                f"SELECT * FROM {vocab.SUBJECT_TABLES[kind]} WHERE id IN ({','.join('?' * len(some))}) ORDER BY id",
+                tuple(some))
+            rows += [dict(r) for r in await cursor.fetchall()]
+            await cursor.close()
+        return rows
 
     def stop(self, run: Run) -> None:
         """Disarm: no new orders, and every live macro of the run stops where it is."""

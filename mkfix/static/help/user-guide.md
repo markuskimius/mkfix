@@ -293,6 +293,7 @@ on order where symbol in ['IBM', 'MSFT']
 - **▶** starts it: **Run…** for a macro that sends, **Arm…** for one that waits for something to arrive.
 - **●** records what you do by hand and writes the macro that would have done it.
 - **Macro…**, on a blotter, writes the macro from what has already happened: select the orders and it reads your side's part back from the messages kept.
+- The macros of one run can work together: one says `signal`, the others hear it, and an `on signal` block sends something new for each, such as the sell that hedges a buy that has filled.
 - Each side's **Macro Runs** window shows what is running, line by line, over its log.
 - The same four symbols sit on each blotter's toolbar, and the status bar says what the macros are doing.
 

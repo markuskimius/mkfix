@@ -33,6 +33,9 @@ run
     replace advert qty: 6000
     after 1s
     cancel advert
+    # The run's own rows, as they stand: every IOI and advert its macros hold.
+    let active = COUNT(iois, i -> i.status == 'Active')
+    log '${active} of ${LEN(iois)} IOIs active, ${LEN(adverts)} advert out'
     pass 'advertised ${advert.quantity} ${advert.symbol}'
 
 # An IOI sent from the Sent IOIs blotter by hand, on the session this run

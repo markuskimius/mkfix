@@ -1,0 +1,42 @@
+# Fill and allocate
+#
+# Shows:   one macro about two things — an `on order` block that fills and
+#          an `on signal` block that allocates what it filled; `when signal`
+#          with a guard; a signal carrying a value back
+# Needs:   any session that receives orders; allocation-check armed on the
+#          client side to answer the allocations
+# Watch:   Received Orders, then Sent Allocations (Market menu): an
+#          allocation for every order filled, naming it; Market Macro Runs:
+#          an order's macro and an allocation's under one run
+# Outcome: each order is accepted and filled, its fill is allocated to one
+#          account on the session the order came in on, and the order's macro
+#          logs how the allocation was answered
+
+on order
+    # Beside the main flow, for as long as the macro lives: the word that
+    # comes back from the allocation, which names the order it was for.
+    when signal 'allocated' and event.value == order.cl_ord_id
+        log 'allocated as ${event.sender.alloc_id}: ${event.sender.status}'
+        stop
+
+    after 200ms
+    accept
+    after 500ms
+    fill qty: order.leaves_qty, price: order.price
+
+    # The order's macro cannot send an allocation: a macro is about one
+    # thing. It says what happened, and the block below does the rest.
+    signal 'filled'
+
+# Started once for every `filled` that meets the `where`: `event` is the
+# signal, event.sender the order's row. It sends where that order came in.
+on signal 'filled' where event.sender.cum_qty > 0
+    let o = event.sender                        # `event` moves on at the next wait
+    let parent = o.cl_ord_id
+    let accounts = 'ACC1 ${o.cum_qty}'
+    let px = o.avg_price
+    let qty = o.cum_qty
+    allocate symbol: o.symbol, side: o.side_code, qty: qty, avg_price: px, orders: parent, accounts: accounts
+    wait accepted or rejected or timeout 5s
+    log '${LEN(allocations)} allocations for ${LEN(orders)} orders so far'
+    signal 'allocated' with parent

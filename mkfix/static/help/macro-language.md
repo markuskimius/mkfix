@@ -55,6 +55,7 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 | `on ioi where EXPR` | client | an IOI you received | `new` — an order answering it, with the IOI's ID in tag 23 |
 | `on advert where EXPR` | client | an advert you received | nothing answers an advert: watch and `log` |
 | `on allocation where EXPR` | client | an allocation you received | `accept allocation`, `reject allocation` |
+| `on signal 'NAME' where EXPR` | either, by what it sends | what the block sends, as in `run` | what `run` may; it starts once for every such signal of the run's own macros — see [Working together](#working-together) |
 
 `where` is optional. In it the subject's columns are names by themselves — `symbol == 'IBM' and order_qty >= 1000` — and `order.symbol` (or `ioi.symbol`, `advert.symbol`, `allocation.symbol`) works too. A `run` block is about whatever its sending verb sends, and one `run` sends one kind of thing.
 
@@ -227,6 +228,7 @@ on order
 | `session down` | both | its session lost its connection |
 | `session up` | both | its session is connected again |
 | `error` | both | an action of this macro was refused; `event.text` says why |
+| `signal` | both | another macro of this run said `signal`: `signal 'NAME'` is that one, `signal` alone any; see [Working together](#working-together) |
 
 A macro never hears its own actions.
 
@@ -239,6 +241,8 @@ A macro never hears its own actions.
 | `repeat N at 10/s with sym = ['IBM', 'MSFT']` | Runs the block N times; `at` or `every 250ms` paces the passes; `with` hands each pass the next value of a list; `n` counts from 0 |
 | `let NAME = EXPR` | Names a value. Setting a name again changes it, and a macro has one set of names, so it can count |
 | `log EXPR` | Writes to the run's log |
+| `signal 'NAME' with EXPR` | Tells every other macro of the run; see [Working together](#working-together) |
+| `share NAME = EXPR` | Sets a value every macro of the run reads as `shared.NAME` |
 | `stop` | Ends this order's macro with no verdict |
 | `pass 'WHY'` | Ends it as passed |
 | `fail 'WHY'` | Ends it as failed |
@@ -261,6 +265,11 @@ Expressions are mkio's expression language: `and or not`, `in`, `== != < <= > >=
 | `elapsed` | seconds since this order's macro started |
 | `since` | seconds since the last event this macro waited for or reacted to |
 | `n` | the pass of the innermost `repeat`, from 0 |
+| `shared` | the values the run's macros share: `shared.NAME` is what `share NAME = …` last set, NULL before |
+| `orders` | every order this run's macros hold, as it stands now, oldest first |
+| `iois` | every IOI this run's macros hold, the same way |
+| `adverts` | every advert this run's macros hold |
+| `allocations` | every allocation this run's macros hold |
 
 A misspelt column is an error when you save, not a surprise when you run: `order.leave_qty` is underlined.
 
@@ -268,6 +277,73 @@ Two functions exist only in macros:
 
 - `TICK(price, size)` rounds a price to a tick without floating-point noise: `TICK(order.price + 0.05, 0.01)`.
 - `RANDOM()` is a number from 0 up to 1 from the run's seeded generator.
+
+## Working together
+
+Every order gets its own copy of the macro, and a copy acts on its own order and on no other. What the copies of one run have to do with each other goes through the run, in three ways. None of it leaves the run: two runs, of one macro or of two, do not hear each other.
+
+```macro
+share hedged = 0
+
+run
+    repeat 3 every 1s with sym = ['IBM', 'MSFT', 'AAPL']
+        new symbol: sym, side: buy, qty: 100, price: 50
+        expect filled within 30s
+        signal 'filled' with order.cum_qty
+        let mine = order.cl_ord_id
+        expect signal 'hedged' where event.value == mine within 10s
+        pass
+
+on signal 'filled'
+    let parent = event.sender.cl_ord_id
+    new symbol: event.sender.symbol, side: sell, qty: event.value, price: 50
+    expect ack within 2s
+    share hedged = shared.hedged + order.order_qty
+    signal 'hedged' with parent
+    pass
+```
+
+**Signals.** `signal 'NAME'` tells every other macro of the run, and `with EXPR` sends a value along. The others hear it as an event:
+
+| Written | Means |
+|---|---|
+| `signal 'filled' with order.cum_qty` | say it, with a value |
+| `when signal 'filled'` | react to every one, beside the main flow |
+| `wait signal 'filled' where event.value > 100 or timeout 5s` | wait for one that matches |
+| `expect signal 'filled' within 10s` | wait, and fail if none comes |
+| `when signal` | any signal, whatever its name |
+
+- `event.name` is the name, `event.value` the value, and `event.sender` the row of the macro that said it: `event.sender.cl_ord_id`, `event.sender.symbol`. `event.subject` says what kind of row that is and `event.n` which pass of its `repeat` the sender was.
+- A macro does not hear its own signals, and a macro that starts later does not hear the ones said before it started. One said before a `wait` began, to a macro that was already running, is not missed.
+- A signal has no address. To reach one macro of many, send what tells it apart and test for it: `where event.value == order.cl_ord_id`.
+- `event` moves on at the next wait. Name what you need from a signal first: `let parent = event.sender.cl_ord_id`.
+- Every signal is written to the run's log under the macro that said it.
+- Waiting for a name nothing in the macro signals is a warning in the editor: it would wait for ever.
+
+**Blocks a signal starts.** `on signal 'NAME' [where EXPR]` is a block that sends something of its own, like `run`, started once for every signal of that name that meets its `where`. It is how one thing leads to another of a different kind — a fill to the order that hedges it, an order's fill to its allocation — since a macro is about one thing.
+
+- `event` is the signal that started it, and `n` counts the macros the block has started, from 0.
+- With its sending verb inside a `repeat` it sends one for every pass, as a `run` block does, and each pass has the signal that started them.
+- Its `where` sees the signal, what is shared and the run's rows — not a row of its own, which is still to be sent.
+- It sends on the session chosen at Run…, or else on the session of the macro that signalled, so a venue's allocation goes out where the order came in.
+- A macro with only `on order` and `on signal` blocks is armed, not run: nothing goes out until something signals.
+
+**Shared values.** `share NAME = EXPR` sets a value every macro of the run reads as `shared.NAME`. Before the first block it is what the run starts with; inside a block it changes it. A name nobody has set yet is NULL, so count with a start value or with `(shared.count ?? 0) + 1`.
+
+**The run's rows.** `orders` is every order the run's macros hold, as it stands at that moment, oldest first — the ones still working and the ones that are done. `iois`, `adverts` and `allocations` are the same for the other three. They are for asking about the others without keeping count:
+
+```macro
+on order
+    let others = FILTER(orders, o -> o.client == order.client and o.id != order.id)
+    if COUNT(others, o -> o.leaves_qty > 0 and o.status != 'Rejected') > 0
+        reject text: 'one working order per client'
+        stop
+    accept
+```
+
+A macro written before these names existed that calls something of its own `orders` or `shared` keeps working: its own name wins.
+
+More than 100,000 signals in one run fails the macro that sent the last: two macros answering each other's signals would otherwise go round for ever.
 
 ## When things go wrong
 

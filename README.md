@@ -258,12 +258,14 @@ A FIX protocol testing engine for capital markets connectivity, built on
   resumes them -- and editing a macro leaves its live runs on the version
   they started with. **Clone** saves the text shown under a new name; **Delete**
   takes the macros selected in the list (Ctrl-click, Shift-click), whole or
-  not at all. Seventeen
+  not at all. Twenty-four
   bundled examples -- an auto-acknowledge, a cancel/replace desk, a dispute
   desk, a deliberately misbehaving counterparty; a single order's lifecycle,
   a replace chase, a seeded burst of twenty orders, a DK policy, a regression
-  suite with verdicts, a minder for hand-sent orders; and a loopback venue and
-  client that together play both sides -- open as copies from each editor's
+  suite with verdicts, a minder for hand-sent orders; desks and takers for
+  IOIs and allocations; buys hedged as they fill, a venue that works one
+  order a client at a time, and one that allocates what it fills; and a
+  loopback venue and client that together play both sides -- open as copies from each editor's
   **Example…**, and the language reference is under **Help**. The client
   examples run over two loopback sessions, this server talking to itself:
   **Help › Macro Language › Macro Examples › Set up loopback sessions**
@@ -280,7 +282,15 @@ A FIX protocol testing engine for capital markets connectivity, built on
   you pressed Stop; Export writes the colons as dots). It is triggered by events, not the clock: each action waits for
   what you heard before you took it, a request you always answered the same
   way becomes a `when` handler, and time is written only where nothing came
-  between two of your actions (or everywhere, with **Keep my delays**). **Macro…** on a
+  between two of your actions (or everywhere, with **Keep my delays**). The macros of
+  one run work together: `signal 'filled' with order.cum_qty` tells every
+  other macro of the run, which `wait`, `expect` or react with `when signal
+  'filled'` and read who said it as `event.sender`; an `on signal 'filled'`
+  block sends something of its own for every such signal -- the sell that
+  hedges a buy, the allocation of an order's fill; `share total = …` sets a
+  value they all read as `shared.total`; and `orders` (`iois`, `adverts`,
+  `allocations`) is every row the run holds, as it stands, so a venue can
+  refuse a client's second working order. **Macro…** on a
   blotter needs no recording: select orders that have already been through
   their lives -- worked by hand, by a macro, or by Message Replay -- and it
   writes the macro that would have played your side's part, read back from
