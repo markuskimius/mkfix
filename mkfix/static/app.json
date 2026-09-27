@@ -136,6 +136,9 @@
           "args": "trade-blotter"
         },
         {
+          "sep": true
+        },
+        {
           "label": "Received IOIs",
           "action": "pane.show",
           "args": "ioi-blotter"
@@ -164,6 +167,9 @@
           "label": "Sent Trades",
           "action": "pane.show",
           "args": "market-trade-blotter"
+        },
+        {
+          "sep": true
         },
         {
           "label": "Sent IOIs",

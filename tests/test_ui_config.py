@@ -1691,8 +1691,8 @@ class TestMenubar:
     # neither side — Config what the rest is set up with.
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail", None, "replay-control"],
-        "Client": ["order-blotter", "trade-blotter", "ioi-blotter", "advert-blotter", "allocation-blotter"],
-        "Market": ["market-order-blotter", "market-trade-blotter", "market-ioi-blotter", "market-advert-blotter",
+        "Client": ["order-blotter", "trade-blotter", None, "ioi-blotter", "advert-blotter", "allocation-blotter"],
+        "Market": ["market-order-blotter", "market-trade-blotter", None, "market-ioi-blotter", "market-advert-blotter",
                    "market-allocation-blotter"],
         "Macro": ["client-macros", "client-runs", None, "market-macros", "market-runs", None,
                   "end-to-end-macros", "end-to-end-runs"],
