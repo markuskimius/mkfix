@@ -29,6 +29,24 @@ ORDER_KEY = {
 }
 TRADE_KEY = {"correct_trade": "exec_id", "bust_trade": "exec_id", "renotify_trade": "exec_id",
              "dk_trade": "exec_id"}
+# The IOI, advert and allocation actions: the table, payload key and
+# direction of the row each acts on, and for the sends, the table and the
+# key the result names the new row by.
+SUBJECT_KEY = {
+    "replace_ioi": ("fix_iois", "ioi_id", "TX"), "cancel_ioi": ("fix_iois", "ioi_id", "TX"),
+    "replace_advert": ("fix_adverts", "adv_id", "TX"), "cancel_advert": ("fix_adverts", "adv_id", "TX"),
+    "replace_allocation": ("fix_allocations", "alloc_id", "TX"),
+    "cancel_allocation": ("fix_allocations", "alloc_id", "TX"),
+    "accept_allocation": ("fix_allocations", "alloc_id", "RX"),
+    "reject_allocation": ("fix_allocations", "alloc_id", "RX"),
+}
+CREATES = {"send_ioi": ("fix_iois", "ioi_id"), "send_advert": ("fix_adverts", "adv_id"),
+           "send_allocation": ("fix_allocations", "alloc_id")}
+# The actions the macro language has no verb for yet (0.63: the IOI, advert
+# and allocation ops). perform() runs them and announces them like the
+# rest; the recorder and the vocabulary leave them out until the language
+# learns them.
+UNSCRIPTED = frozenset(SUBJECT_KEY) | frozenset(CREATES)
 
 
 def _action(name: str) -> Callable[[Action], Action]:
@@ -128,3 +146,85 @@ async def _dk_trade(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     await e.dk_trade(session_id=d["session_id"], exec_id=d["exec_id"],
                      reason=d.get("dk_reason", ""), **_common(d))
     return {}
+
+
+# ── IOIs, adverts and allocations ─────────────────────────────────────
+
+def _ioi_terms(d: dict[str, Any]) -> dict[str, Any]:
+    return dict(symbol=d["symbol"], side=d["side"], qty=str(d.get("qty", "")), price=_price(d),
+                valid_until=d.get("valid_until", ""), qlty_ind=d.get("qlty_ind", ""),
+                natural_flag=d.get("natural_flag", ""), qualifiers=d.get("qualifiers", ""),
+                currency=d.get("currency", ""), client=d.get("client", ""), **_common(d))
+
+
+@_action("send_ioi")
+async def _send_ioi(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"ioi_id": await e.send_ioi(session_id=d["session_id"], **_ioi_terms(d))}
+
+
+@_action("replace_ioi")
+async def _replace_ioi(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"ioi_id": await e.replace_ioi(session_id=d["session_id"], ioi_id=d["ioi_id"], **_ioi_terms(d))}
+
+
+@_action("cancel_ioi")
+async def _cancel_ioi(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"ioi_id": await e.cancel_ioi(session_id=d["session_id"], ioi_id=d["ioi_id"], **_common(d))}
+
+
+def _advert_terms(d: dict[str, Any]) -> dict[str, Any]:
+    return dict(symbol=d["symbol"], side=d["side"], qty=float(d["qty"]), price=_price(d),
+                currency=d.get("currency", ""), trade_date=d.get("trade_date", ""),
+                last_mkt=d.get("last_mkt", ""), client=d.get("client", ""), **_common(d))
+
+
+@_action("send_advert")
+async def _send_advert(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"adv_id": await e.send_advert(session_id=d["session_id"], **_advert_terms(d))}
+
+
+@_action("replace_advert")
+async def _replace_advert(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"adv_id": await e.replace_advert(session_id=d["session_id"], adv_id=d["adv_id"], **_advert_terms(d))}
+
+
+@_action("cancel_advert")
+async def _cancel_advert(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"adv_id": await e.cancel_advert(session_id=d["session_id"], adv_id=d["adv_id"], **_common(d))}
+
+
+def _allocation_terms(d: dict[str, Any]) -> dict[str, Any]:
+    return dict(symbol=d["symbol"], side=d["side"], qty=float(d["qty"]), avg_price=float(d.get("avg_price") or 0),
+                trade_date=d.get("trade_date", ""), alloc_type=d.get("alloc_type", ""),
+                orders=d.get("orders", ""), execs=d.get("execs", ""), allocs=d.get("allocs", ""),
+                client=d.get("client", ""), **_common(d))
+
+
+@_action("send_allocation")
+async def _send_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"alloc_id": await e.send_allocation(session_id=d["session_id"], **_allocation_terms(d))}
+
+
+@_action("replace_allocation")
+async def _replace_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"alloc_id": await e.replace_allocation(session_id=d["session_id"], alloc_id=d["alloc_id"],
+                                                   **_allocation_terms(d))}
+
+
+@_action("cancel_allocation")
+async def _cancel_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"alloc_id": await e.cancel_allocation(session_id=d["session_id"], alloc_id=d["alloc_id"], **_common(d))}
+
+
+@_action("accept_allocation")
+async def _accept_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"alloc_id": await e.accept_allocation(
+        session_id=d["session_id"], alloc_id=d["alloc_id"], alloc_status=d.get("alloc_status") or "0",
+        **_common(d))}
+
+
+@_action("reject_allocation")
+async def _reject_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"alloc_id": await e.reject_allocation(
+        session_id=d["session_id"], alloc_id=d["alloc_id"], alloc_status=d.get("alloc_status") or "1",
+        alloc_rej_code=d.get("alloc_rej_code", ""), **_common(d))}

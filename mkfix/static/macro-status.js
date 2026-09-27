@@ -6,7 +6,7 @@
 //   - shows what the macros are doing in the status bar, each item a link to
 //     the pane it is about;
 //   - puts ● ▶ ⏸ ■ — record, play, pause, stop; symbols only, the words in
-//     their tooltips — in the toolbars of the two order blotters (mkio-table's
+//     their tooltips — in the toolbars of each side's blotters (mkio-table's
 //     `_toolbar` slot). mkui's declared buttons cannot
 //     follow app state, and these must: enabled by what is live, the record
 //     button red and counting while it records.
@@ -19,7 +19,13 @@ import { recordingName } from "/static/macro-lang.js";
 
 const { registerWidget } = window.Mkui;
 
-const BLOTTERS = { "order-blotter": "client", "market-order-blotter": "market" };
+// The deck is one per side, so the IOI, advert and allocation blotters of a
+// side carry the same controls as its order blotter.
+const BLOTTERS = {
+  "order-blotter": "client", "ioi-blotter": "client", "advert-blotter": "client", "allocation-blotter": "client",
+  "market-order-blotter": "market", "market-ioi-blotter": "market", "market-advert-blotter": "market",
+  "market-allocation-blotter": "market",
+};
 const IDLE_MS = 3000;
 const RECORDING_MS = 1000;
 

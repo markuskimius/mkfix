@@ -549,6 +549,153 @@ class FixMessageFactory:
         self._strip_legacy_body_time(fields)
         return self.create(fields)
 
+    def _legacy_body(self) -> bool:
+        """FIX 4.0 through 4.2: the versions whose IOI carries no
+        TransactTime(60) — it joined the message in 4.3."""
+        return self.dictionary.begin_string() in ("FIX.4.0", "FIX.4.1", "FIX.4.2")
+
+    def ioi(
+        self,
+        ioi_id: str,
+        trans_type: str,
+        symbol: str,
+        side: str,
+        qty: str,
+        price: float | None = None,
+        ref_id: str = "",
+        valid_until: str = "",
+        qlty_ind: str = "",
+        natural_flag: str = "",
+        qualifiers: list[str] | tuple[str, ...] = (),
+        currency: str = "",
+        text: str | None = None,
+    ) -> FixMessage:
+        """IOI (35=6): IOITransType(28) N/C/R with IOIRefID(26) naming the one
+        replaced or canceled. IOIQty(27) takes a number or S/M/L and goes as
+        given; the quality indicator, natural flag and qualifier group ride
+        only where defined and given; TransactTime(60) from FIX 4.3."""
+        fields: dict[str, str] = {"35": "6", "23": ioi_id, "28": trans_type}
+        if ref_id and self.dictionary.defines("26"):
+            fields["26"] = ref_id
+        fields.update({"55": symbol, "54": side, "27": qty})
+        if price is not None:
+            fields["44"] = str(price)
+        if currency:
+            fields["15"] = currency
+        if valid_until:
+            fields["62"] = valid_until
+        if qlty_ind and self.dictionary.defines("25"):
+            fields["25"] = qlty_ind
+        if natural_flag in ("Y", "N") and self.dictionary.defines("130"):
+            fields["130"] = natural_flag
+        if text:
+            fields["58"] = text
+        if not self._legacy_body():
+            fields["60"] = self._now()
+        msg = self.create(fields)
+        qualifiers = [q for q in qualifiers if q]
+        if qualifiers and self.dictionary.defines("199"):
+            msg.extra = [("199", str(len(qualifiers)))] + [("104", q) for q in qualifiers]
+        return msg
+
+    def advertisement(
+        self,
+        adv_id: str,
+        trans_type: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        price: float | None = None,
+        ref_id: str = "",
+        currency: str = "",
+        trade_date: str = "",
+        last_mkt: str = "",
+        text: str | None = None,
+    ) -> FixMessage:
+        """Advertisement (35=7): AdvTransType(5) N/C/R with AdvRefID(3);
+        AdvSide(4) is B/S/X/T, Shares/Quantity(53) the size."""
+        fields: dict[str, str] = {"35": "7", "2": adv_id, "5": trans_type}
+        if ref_id:
+            fields["3"] = ref_id
+        fields.update({"55": symbol, "4": side, "53": _qty(qty)})
+        if price is not None:
+            fields["44"] = str(price)
+        if currency:
+            fields["15"] = currency
+        if trade_date:
+            fields["75"] = normalize_expire_date(trade_date)
+        fields["60"] = self._now()
+        if text:
+            fields["58"] = text
+        if last_mkt:
+            fields["30"] = last_mkt
+        return self.create(fields)
+
+    def allocation_instruction(
+        self,
+        alloc_id: str,
+        trans_type: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        avg_price: float,
+        trade_date: str = "",
+        alloc_type: str = "",
+        ref_alloc_id: str = "",
+        orders: list[dict[str, str]] | None = None,
+        execs: list[dict[str, str]] | None = None,
+        allocs: list[dict[str, str]] | None = None,
+        text: str | None = None,
+    ) -> FixMessage:
+        """AllocationInstruction (35=J; Allocation through FIX 4.2):
+        AllocTransType(71) 0/1/2 with RefAllocID(72) naming the one replaced
+        or canceled, AllocType(626) where defined (4.3+), TradeDate(75)
+        today when not given. The three groups — NoOrders(73), NoExecs(124),
+        NoAllocs(78) — ride as ordered pairs on `extra`, each instance's
+        members as `families.ALLOC_GROUPS` lists them."""
+        from mkfix.fix.families import ALLOC_GROUPS, group_pairs
+        fields: dict[str, str] = {"35": "J", "70": alloc_id, "71": trans_type}
+        if ref_alloc_id:
+            fields["72"] = ref_alloc_id
+        if alloc_type and self.dictionary.defines("626"):
+            fields["626"] = alloc_type
+        fields.update({
+            "55": symbol, "54": side, "53": _qty(qty), "6": str(avg_price),
+            "75": normalize_expire_date(trade_date) or self._today(),
+            "60": self._now(),
+        })
+        if text:
+            fields["58"] = text
+        msg = self.create(fields)
+        given = {"orders": orders or [], "execs": execs or [], "allocs": allocs or []}
+        for column, (counter, members) in ALLOC_GROUPS.items():
+            msg.extra += group_pairs(counter, members, given[column], self.dictionary)
+        return msg
+
+    def allocation_ack(
+        self,
+        alloc_id: str,
+        status: str,
+        trade_date: str = "",
+        rej_code: str = "",
+        text: str | None = None,
+    ) -> FixMessage:
+        """AllocationInstructionAck (35=P; AllocationACK through FIX 4.2)
+        answering the AllocID(70) named: AllocStatus(87), AllocRejCode(88)
+        when given, TradeDate(75) the allocation's or today."""
+        fields: dict[str, str] = {
+            "35": "P", "70": alloc_id, "75": normalize_expire_date(trade_date) or self._today(),
+            "60": self._now(), "87": status,
+        }
+        if rej_code:
+            fields["88"] = rej_code
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
+    def _today(self) -> str:
+        return self._now()[:8]
+
     def dont_know_trade(
         self,
         order_id: str,
@@ -596,6 +743,11 @@ _CLIENT_SPEC_RE = re.compile(r"^(\d+)(?:\[(\d+)=([^\]]*)\])?$")
 class ClientTag(NamedTuple):
     tag: str
     qualifier: tuple[str, str] | None = None
+
+
+def _qty(value: float) -> str:
+    """A quantity on the wire: whole numbers without a fraction."""
+    return str(int(value)) if float(value) == int(value) else str(value)
 
 
 def parse_client_tags(spec: str) -> list[ClientTag]:
@@ -700,7 +852,7 @@ def parse_fix(data: bytes | str) -> FixMessage:
 # order columns (and regenerates itself on the answering message) — everything
 # else on the message is a custom tag worth echoing back.
 CONSUMED_ORDER_TAGS = frozenset({
-    "11", "21", "37", "38", "40", "41", "44", "54", "55", "58", "59", "60", "99",
+    "11", "21", "23", "37", "38", "40", "41", "44", "54", "55", "58", "59", "60", "99",
 })
 
 

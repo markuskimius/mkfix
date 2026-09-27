@@ -50,7 +50,9 @@ class EngineEvent:
     event and ``prev`` the row before it — None when there was none — so a
     listener can tell a report that moved CumQty from one that restated it.
     ``source`` is ``wire`` for what the counterparty sent, ``manual`` for an
-    action from the UI and ``macro`` for one a script took.
+    action from the UI and ``macro`` for one a script took. An IOI, advert
+    or allocation event carries its row as ``row`` with ``table`` naming
+    which, and no ``order``.
     """
     kinds: tuple[str, ...]
     session_id: str
@@ -61,6 +63,10 @@ class EngineEvent:
     msg: FixMessage | None = None
     request: str = ""                     # the ClOrdID a request or its answer names
     detail: dict[str, Any] = field(default_factory=dict)
+    # An IOI, advert or allocation event: the row after it and its table
+    # (fix_iois, fix_adverts, fix_allocations); ``order`` is None on those.
+    table: str = ""
+    row: dict[str, Any] | None = None
 
     @property
     def kind(self) -> str:

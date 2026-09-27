@@ -375,7 +375,9 @@ class TestVocabulary:
             keys = set(TEMPLATE_TERMS[verb.op][1]) | {"expire_time"}
             assert set(verb.terms.values()) <= keys, f"{verb.name}: {set(verb.terms.values()) - keys}"
             assert set(verb.required) <= set(verb.terms) and verb.doc and set(verb.sides) <= set(vocab.SIDES)
-        assert {v.op for v in vocab.VERBS.values()} == set(TEMPLATE_TERMS), "one verb per dialog"
+        from mkfix.fix.actions import UNSCRIPTED
+        assert {v.op for v in vocab.VERBS.values()} == set(TEMPLATE_TERMS) - UNSCRIPTED, \
+            "one verb per dialog, bar the ops the language has no verb for yet"
 
     def test_every_report_the_engine_names_is_an_event(self):
         named = set(_REPORT_KINDS.values()) | set(_TRANS_KINDS.values()) | {"filled", "er", "cancel rejected", "message"}
@@ -385,19 +387,25 @@ class TestVocabulary:
         assert {"cancel", "replace", "dk"} <= {n for n, e in vocab.EVENTS.items() if e.sides == (vocab.MARKET,)}
 
     def test_enum_words_are_the_dialogs_options(self):
+        """The words are held to the dialogs of the ops the language speaks:
+        the IOI, advert and allocation dialogs list sides of their own
+        (Undisclosed, Cross; AdvSide's B/S/X/T) that no verb takes yet."""
         app = json.loads((ROOT / "mkfix" / "static" / "app.json").read_text(encoding="utf-8"))
+        spoken = {v.op for v in vocab.VERBS.values()}
         def options(name):
             found = {}
-            def walk(o):
+            def walk(o, inside):
                 if isinstance(o, dict):
-                    if o.get("name") == name and o.get("options"):
+                    if "submit" in o and "fields" in o:
+                        inside = o["submit"].get("op") in spoken
+                    if inside and o.get("name") == name and o.get("options"):
                         found.update({opt["value"]: opt["label"] for opt in o["options"] if opt["value"] != ""})
                     for v in o.values():
-                        walk(v)
+                        walk(v, inside)
                 elif isinstance(o, list):
                     for v in o:
-                        walk(v)
-            walk(app)
+                        walk(v, inside)
+            walk(app, False)
             return found
         for enum, field in [("side", "side"), ("type", "ord_type"), ("tif", "tif"), ("handl_inst", "handl_inst"),
                             ("dk reason", "dk_reason")]:

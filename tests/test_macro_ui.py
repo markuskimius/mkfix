@@ -554,8 +554,18 @@ class TestWiring:
         module = (STATIC / "macro-status.js").read_text(encoding="utf-8")
         assert 'import "/static/macro-status.js";' in (STATIC / "index.html").read_text(encoding="utf-8")
         assert app["statusbar"]["right"][0] == {"type": "macro-status"} and 'registerWidget("macro-status"' in module
-        assert 'const BLOTTERS = { "order-blotter": "client", "market-order-blotter": "market" };' in module
-        assert {"order-blotter", "market-order-blotter"} <= set(app["panes"]), "the panes the controls are put into"
+        # One deck per side, in every blotter of that side: the pane ids the
+        # module mounts into, read from its map, are the Client and Market
+        # menus' blotters (TestMenubar.PANES pins those).
+        mount = re.search(r"const BLOTTERS = \{([^}]*)\};", module).group(1)
+        blotters = dict(re.findall(r'"([\w-]+)": "(client|market)"', mount))
+        # the order, IOI, advert and allocation blotters of each side; the
+        # trade blotters, which only answer, carry none
+        menus = {m["label"]: [i["args"] for i in m["items"] if i.get("action") == "pane.show"
+                              and app["panes"][i["args"]]["type"] == "mkio-table" and "trade" not in i["args"]]
+                 for m in app["menubar"] if m["label"] in ("Client", "Market")}
+        assert blotters == {**dict.fromkeys(menus["Client"], "client"), **dict.fromkeys(menus["Market"], "market")}
+        assert len(blotters) == 8 and set(blotters) <= set(app["panes"]), "the panes the controls are put into"
         ops = {"play_macro": "play_macro", "pause_runs": "pause_runs", "stop_runs": "stop_runs",
                "record_macro": "record_start", "stop_recording": "record_stop"}
         for dialog, op in ops.items():

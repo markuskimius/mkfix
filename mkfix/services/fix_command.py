@@ -21,6 +21,15 @@ if TYPE_CHECKING:
 # pick fills; every other dialog acts on its row's session.
 ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "extra_tags", "client",
                "handl_inst", "text")
+# The IOI, advert and allocation sends keep a session like an order; a
+# valid-until time, and an allocation's orders and executions, are the
+# message's own and never a template's.
+IOI_TERMS = ("session_id", "symbol", "side", "qty", "price", "currency", "qlty_ind", "natural_flag", "qualifiers",
+             "text", "extra_tags", "client")
+ADVERT_TERMS = ("session_id", "symbol", "side", "qty", "price", "currency", "trade_date", "last_mkt", "text",
+                "extra_tags", "client")
+ALLOCATION_TERMS = ("session_id", "symbol", "side", "qty", "avg_price", "trade_date", "alloc_type", "allocs",
+                    "text", "extra_tags", "client")
 TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_new_order": ("order", ORDER_TERMS),
     "send_cancel_replace": ("order", ORDER_TERMS),
@@ -34,6 +43,17 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "correct_trade": ("correct", ("qty", "price", "text", "extra_tags")),
     "bust_trade": ("bust", ("text", "extra_tags")),
     "renotify_trade": ("renotify", ("text", "extra_tags")),
+    "send_ioi": ("ioi", IOI_TERMS),
+    "replace_ioi": ("ioi", IOI_TERMS),
+    "cancel_ioi": ("cancel", ("text", "extra_tags")),
+    "send_advert": ("advert", ADVERT_TERMS),
+    "replace_advert": ("advert", ADVERT_TERMS),
+    "cancel_advert": ("cancel", ("text", "extra_tags")),
+    "send_allocation": ("allocation", ALLOCATION_TERMS),
+    "replace_allocation": ("allocation", ALLOCATION_TERMS),
+    "cancel_allocation": ("cancel", ("text", "extra_tags")),
+    "accept_allocation": ("alloc_accept", ("alloc_status", "text", "extra_tags")),
+    "reject_allocation": ("alloc_reject", ("alloc_status", "alloc_rej_code", "text", "extra_tags")),
 }
 
 

@@ -1,6 +1,6 @@
 # Replaying a Log
 
-Replay Control (To Do menu) plays a FIX log — a day's worth, both sides — into one of your sessions, as that session. Load a file once, choose what to play, and Start asks which side you are.
+Replay Control (FIX menu) plays a FIX log — a day's worth, both sides — into one of your sessions, as that session. Load a file once, choose what to play, and Start asks which side you are.
 
 ## Load
 

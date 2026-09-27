@@ -320,15 +320,25 @@ A FIX protocol testing engine for capital markets connectivity, built on
   match. Orders and trades are read-only history, since the
   counterparty's view of them cannot be rewound.
 - **Archiving** -- `mkfix archive` moves the running data (messages, orders,
-  trades, IOIs, allocations) from before a cutoff -- midnight at the start of
+  trades, IOIs, adverts, allocations) from before a cutoff -- midnight at the start of
   today by default -- into CSV files and deletes it, so a test bed starts
   fresh with its sessions intact and the old data on disk. Run it while the
   server is up and the blotters drop the rows live; the config tables
   (sessions with their state, dictionaries, settings, ID counters, replay
   jobs, layouts) go only when named, and a running session refuses. `mkfix
   restore` puts an archive back exactly as it was, history included.
-- **IOI & Allocation Viewers** -- Indications of Interest and Allocation message
-  tracking.
+- **IOIs, Adverts and Allocations** -- The market side sends them: Sent IOIs,
+  Sent Adverts and Sent Allocations under the Market menu, Received ones under
+  Client, each a chain the way an order is: New, Replace and Cancel on the
+  sent side (Clone too), with History on both. Nothing answers an IOI or an
+  advert, so Received IOIs offers Order -- the New Order form with the IOI's
+  ID in tag 23 -- and Received Adverts only shows. An allocation is answered:
+  Received Allocations has Accept and Reject (AllocationInstructionAck with
+  AllocStatus and a reject code), Sent Allocations shows the answer, and
+  Received Orders' Allocate opens a New Allocation from the order. The
+  allocation's orders, executions and accounts are typed one per line. Each
+  blotter carries its side's macro controls; the macro language itself does
+  not speak these families yet.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages
@@ -421,7 +431,7 @@ mkfix restore archive/mkfix_20260912-020000
 change it): a `manifest.json`, a CSV per table with every column, the version
 history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
-`--tables` takes the short names `messages`, `orders`, `trades`, `iois`,
+`--tables` takes the short names `messages`, `orders`, `trades`, `iois`, `adverts`,
 `allocations`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
 `settings`, `ids`, `replay_jobs`, `templates`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
@@ -465,7 +475,7 @@ with an error instead of starting.
    restated, or canceled unsolicited;
    fills land in Sent Trades, where they can be corrected or busted, and on
    the client side in Received Trades, where they can be DK'd.
-4. **Replay a log** from To Do > Replay Control -- Load the bundled
+4. **Replay a log** from FIX > Replay Control -- Load the bundled
    `two-sided-day` example (or a log of your own), Configure it onto a
    session, and Start it in either direction; the other end's blotters fill
    as if the day were happening again.

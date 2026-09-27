@@ -11,13 +11,17 @@ from typing import Any, TYPE_CHECKING
 from mkfix.fix.dictionary import (FixDictionary, STANDARD_VERSIONS,
                                   custom_meta, custom_names, register_custom,
                                   unregister_custom)
-from mkfix.fix.actions import ACTIONS, ORDER_KEY, TRADE_KEY
+from mkfix.fix.actions import ACTIONS, ORDER_KEY, TRADE_KEY, SUBJECT_KEY, CREATES
 from mkfix.fix.events import EngineEvent, EventBus, report_kinds
 from mkfix.fix.idgen import IdGenerator
 from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
                                extra_pairs_of, format_extra_tags, parse_fix,
                                CONSUMED_EXEC_TAGS,
                                ClientTag, client_of, parse_client_tags)
+from mkfix.fix.families import (ALLOC_GROUPS, ALLOC_STATUS_OF, ALLOC_ACCEPTING,
+                                 CONSUMED_IOI_TAGS, CONSUMED_ADVERT_TAGS, CONSUMED_ALLOC_TAGS,
+                                 ioi_columns, advert_columns, allocation_columns, ack_columns,
+                                 parse_lines, parse_qualifiers)
 from mkfix.fix import replay
 from mkfix.fix.replay import ReplayTask
 from mkfix.fix.session import FixSession
@@ -36,7 +40,7 @@ ORDER_COLS = [
     "pending_extra_tags",
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date", "client",
-    "handl_inst", "handl_inst_code", "sent_text", "market_order_id",
+    "handl_inst", "handl_inst_code", "sent_text", "market_order_id", "ioi_id",
 ]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
@@ -104,11 +108,51 @@ EXEC_UPDATE_COLS = [
 # "ask the row" when loaded). A name is unique within its scope, so a
 # dialog's Save-as overwrites the template it names.
 TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct",
-                   "bust", "renotify")
+                   "bust", "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
+    "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt",
+    "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code",
 ]
+
+# The IOI, advert and allocation rows (families.py): one row per chain,
+# the ID column the chain's latest ID. `_FAMILY_IDENTITY` is what a Replace
+# leaves alone; everything else on the row is a new version's.
+IOI_COLS = [
+    "session_id", "ioi_id", "ioi_ref_id", "ioi_trans_type", "ioi_trans_type_code", "symbol", "side",
+    "side_code", "ioi_qty", "price", "currency", "valid_until", "qlty_ind", "qlty_ind_code",
+    "natural_flag", "qualifiers", "status", "order_cl_ord_id", "text", "client", "extra_tags",
+    "transact_time", "timestamp", "updated_at", "direction", "raw_message",
+]
+ADVERT_COLS = [
+    "session_id", "adv_id", "adv_ref_id", "adv_trans_type", "adv_trans_type_code", "symbol", "side",
+    "side_code", "quantity", "price", "currency", "trade_date", "last_mkt", "status", "text", "client",
+    "extra_tags", "transact_time", "timestamp", "updated_at", "direction", "raw_message",
+]
+ALLOC_COLS = [
+    "session_id", "alloc_id", "ref_alloc_id", "alloc_trans_type", "alloc_trans_type_code", "alloc_type",
+    "alloc_type_code", "symbol", "side", "side_code", "quantity", "avg_price", "trade_date", "orders",
+    "execs", "allocs", "num_allocs", "status", "alloc_status", "alloc_status_code", "alloc_rej_reason",
+    "alloc_rej_code", "pending_action", "pending_alloc_id", "pending_terms", "pending_extra_tags", "text",
+    "sent_text", "client", "extra_tags", "transact_time", "timestamp", "updated_at", "direction",
+    "raw_message",
+]
+# The terms a Replace request carries into the slot and an accepted one
+# moves onto the row (the identity columns and the answer's stay).
+_ALLOC_TERM_COLS = frozenset({
+    "alloc_type", "alloc_type_code", "symbol", "side", "side_code", "quantity", "avg_price", "trade_date",
+    "orders", "execs", "allocs", "num_allocs", "extra_tags", "transact_time", "raw_message",
+})
+_FAMILY_COLS = {"fix_iois": IOI_COLS, "fix_adverts": ADVERT_COLS, "fix_allocations": ALLOC_COLS}
+_FAMILY_IDENTITY = frozenset({"session_id", "direction", "timestamp", "order_cl_ord_id"})
+_FAMILY_UPDATE_COLS = {t: [c for c in cols if c not in ("session_id", "direction", "timestamp")]
+                       for t, cols in _FAMILY_COLS.items()}
+_FAMILY_NAMES = {"fix_iois": "IOI", "fix_adverts": "advert", "fix_allocations": "allocation"}
+_CLEAR_ALLOC_SLOT = {"pending_action": "", "pending_alloc_id": "", "pending_terms": "", "pending_extra_tags": ""}
+# AllocStatus(87) to the event an Ack is for the allocation it answers.
+_ALLOC_ACK_KINDS = {"0": "allocation accepted", "1": "allocation rejected", "2": "allocation rejected",
+                    "3": "allocation received", "4": "allocation incomplete", "5": "allocation rejected"}
 
 # A replay job: what Load found in the file (summary and its readable
 # columns), what Configure chose, and the run's own progress. The direction
@@ -209,6 +253,7 @@ class FixEngine:
         await self._backfill_client()
         await self._backfill_handling_and_trade_tags()
         await self._backfill_trade_order_ids()
+        await self._backfill_families()
         await self.ids.start()
         await self._load_custom_dictionaries()
         await self._load_sessions()
@@ -431,31 +476,33 @@ class FixEngine:
             param_names=("dk_reason", "dk_text", "_mkio_ref", "id"),
         ),)
 
-        ioi_cols = [
-            "session_id", "ioi_id", "ioi_trans_type", "symbol", "side",
-            "ioi_qty", "price", "valid_until", "timestamp", "direction", "raw_message",
-        ]
-        ioi_ph = ", ".join(["?"] * (len(ioi_cols) + 1))
-        ioi_col_str = ", ".join(ioi_cols + ["_mkio_ref"])
-        self._compiled_ops["insert_ioi"] = (CompiledOp(
+        # The IOI, advert and allocation rows: an insert of every column and
+        # an update by row id of everything but the identity (session,
+        # direction, arrival stamp) — a Replace, a Cancel or an Ack is a new
+        # version of the row it names.
+        for table, cols in _FAMILY_COLS.items():
+            self._compiled_ops[f"insert_{table}"] = (CompiledOp(
+                table=table,
+                op_type="insert",
+                sql=(f"INSERT INTO {table} ({', '.join(cols)}, _mkio_ref) "
+                     f"VALUES ({', '.join(['?'] * (len(cols) + 1))}) RETURNING *"),
+                param_names=tuple(cols + ["_mkio_ref"]),
+            ),)
+            update_cols = _FAMILY_UPDATE_COLS[table]
+            self._compiled_ops[f"update_{table}"] = (CompiledOp(
+                table=table,
+                op_type="update",
+                sql=(f"UPDATE {table} SET {', '.join(c + ' = ?' for c in update_cols)}, _mkio_ref = ? "
+                     "WHERE id = ? RETURNING *"),
+                param_names=tuple(update_cols + ["_mkio_ref", "id"]),
+            ),)
+        # An order naming an IOI (tag 23) is written onto the IOI's row.
+        self._compiled_ops["link_ioi_order"] = (CompiledOp(
             table="fix_iois",
-            op_type="insert",
-            sql=f"INSERT INTO fix_iois ({ioi_col_str}) VALUES ({ioi_ph}) RETURNING *",
-            param_names=tuple(ioi_cols + ["_mkio_ref"]),
-        ),)
-
-        alloc_cols = [
-            "session_id", "alloc_id", "alloc_trans_type", "alloc_type", "symbol",
-            "side", "quantity", "avg_price", "trade_date", "alloc_status",
-            "num_allocs", "timestamp", "direction", "raw_message",
-        ]
-        alloc_ph = ", ".join(["?"] * (len(alloc_cols) + 1))
-        alloc_col_str = ", ".join(alloc_cols + ["_mkio_ref"])
-        self._compiled_ops["insert_allocation"] = (CompiledOp(
-            table="fix_allocations",
-            op_type="insert",
-            sql=f"INSERT INTO fix_allocations ({alloc_col_str}) VALUES ({alloc_ph}) RETURNING *",
-            param_names=tuple(alloc_cols + ["_mkio_ref"]),
+            op_type="update",
+            sql=("UPDATE fix_iois SET order_cl_ord_id = ?, updated_at = ?, _mkio_ref = ? "
+                 "WHERE id = (SELECT MAX(id) FROM fix_iois WHERE session_id = ? AND ioi_id = ?) RETURNING *"),
+            param_names=("order_cl_ord_id", "updated_at", "_mkio_ref", "session_id", "ioi_id"),
         ),)
 
         tmpl_cols = ["scope", "name"] + TEMPLATE_TERM_COLS
@@ -526,9 +573,15 @@ class FixEngine:
         )).close()
         # orders_query/executions_query join fix_session_state by session_id
         # and re-run on every state write.
-        for table in ("fix_orders", "fix_executions"):
+        for table in ("fix_orders", "fix_executions", "fix_iois", "fix_adverts", "fix_allocations"):
             await (await conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table}(session_id)"
+            )).close()
+        # A chain is found by its current ID; an Ack by the request the slot holds.
+        for table, id_col in (("fix_iois", "ioi_id"), ("fix_adverts", "adv_id"), ("fix_allocations", "alloc_id"),
+                              ("fix_allocations", "pending_alloc_id")):
+            await (await conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{table}_{id_col} ON {table}(session_id, {id_col})"
             )).close()
         # A template name is unique within its scope (save_template
         # overwrites by it). Templates never shipped without the index, so a
@@ -972,9 +1025,13 @@ class FixEngine:
         elif msg_type == "Q":
             await self._handle_dont_know_trade(session, msg)
         elif msg_type == "6":
-            await self._handle_ioi(session, msg, "RX")
+            await self._handle_ioi(session, msg)
+        elif msg_type == "7":
+            await self._handle_advertisement(session, msg)
         elif msg_type == "J":
-            await self._handle_allocation(session, msg, "RX")
+            await self._handle_allocation(session, msg)
+        elif msg_type == "P":
+            await self._handle_allocation_ack(session, msg)
 
     async def _handle_execution_report(self, session: FixSession, msg: FixMessage) -> None:
         """Process an ExecutionReport (35=8): update order state and record fills."""
@@ -1059,6 +1116,7 @@ class FixEngine:
             "handl_inst_code": "",
             "sent_text": "",
             "market_order_id": msg.get("37", ""),
+            "ioi_id": "",
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(
@@ -1270,9 +1328,11 @@ class FixEngine:
             "handl_inst_code": handl_inst_code,
             "sent_text": "",
             "market_order_id": "",
+            "ioi_id": msg.get("23", ""),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
+        await self._link_ioi_order(session.session_id, order_row["ioi_id"], order_row["cl_ord_id"])
         if self.events.active:
             self.events.emit(EngineEvent(
                 ("order", "message"), session.session_id, msg=msg, request=order_row["cl_ord_id"],
@@ -1422,9 +1482,11 @@ class FixEngine:
             "client": self._client_as_sent(session, msg),
             **self._handling_as_sent(session, msg),
             "market_order_id": "",
+            "ioi_id": self._as_sent(session, msg).get("23", ""),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
+        await self._link_ioi_order(session_id, order_row["ioi_id"], cl_ord_id)
         if self.events.active:
             self.events.emit(EngineEvent(
                 ("sent order",), session_id, source=source, request=cl_ord_id, msg=msg,
@@ -1623,18 +1685,37 @@ class FixEngine:
         session_id = data.get("session_id", "")
         data = {**data, "_source": source}
         prev, trade = await self._action_subject(op, data)
+        prev_row, table = await self._family_subject(op, data)
         result = await action(self, data)
         if op == "send_new_order":      # announced as `sent order` by send_new_order itself, before its send
             order = await self._find_order(session_id, result["cl_ord_id"])
         else:
             order = await self._load_order_by_id(prev["id"] if prev else None)
+        row = None
+        if op in CREATES:
+            table, id_col = CREATES[op]
+            row = await self._find_family_row(table, id_col, session_id, str(result.get(id_col, "")), "TX")
+        elif prev_row is not None:
+            row = await self._load_family_row_by_id(table, prev_row["id"])
         self.events.emit(EngineEvent(
             ("action",), session_id, source=source, order=order, prev=prev,
             trade=await self._load_execution_by_id(trade["id"] if trade else None),
-            request=str(result.get("cl_ord_id", "")),
+            request=str(result.get("cl_ord_id", "")), table=table, row=row,
             detail={"op": op, "result": result, "trade_before": trade,
+                    **({"prev_row": prev_row} if table else {}),
                     "data": {k: v for k, v in data.items() if not k.startswith("_")}}))
         return result
+
+    async def _family_subject(self, op: str, data: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+        """The IOI, advert or allocation row an action is about, as it
+        stands before it, and its table."""
+        if op in SUBJECT_KEY:
+            table, key, direction = SUBJECT_KEY[op]
+            return await self._find_family_row(table, key, data.get("session_id", ""),
+                                               str(data.get(key, "")), direction), table
+        if op in CREATES:
+            return None, CREATES[op][0]
+        return None, ""
 
     async def _action_subject(self, op: str, data: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         """The order and trade rows an action is about, as they stand before it."""
@@ -2530,50 +2611,600 @@ class FixEngine:
             raise ValueError(f"Unknown session: {session_id}")
         await session.reset_sequence_numbers(tx, rx)
 
-    async def _handle_ioi(self, session: FixSession, msg: FixMessage, direction: str) -> None:
-        """Process an IOI (35=6)."""
-        dictionary = session.dictionary
-        now = _fix_timestamp()
-        params = (
-            session.session_id,
-            msg.get("23", ""),
-            dictionary.enum_name("28", msg.get("28", "")),
-            msg.get("55", ""),
-            dictionary.enum_name("54", msg.get("54", "")),
-            msg.get("27", ""),
-            msg.get_float("44", 0.0),
-            msg.get("62", ""),
-            now,
-            direction,
-            msg.to_wire_string(),
-            None,
-        )
-        ops = self._compiled_ops["insert_ioi"]
-        await self.writer.submit(ops, (params,), {"ioi_id": msg.get("23", "")})
+    # ── IOIs, adverts and allocations ────────────────────────────────
+    # One row per chain, on the order model: the ID column holds the chain's
+    # latest ID, the row is versioned, and a Replace or Cancel is a new
+    # version of the row it names (families.py has the pure part). Sent
+    # rows are written before the send, received ones on arrival; an
+    # allocation alone is answered, so its rows carry a request slot the
+    # way orders do.
 
-    async def _handle_allocation(self, session: FixSession, msg: FixMessage, direction: str) -> None:
-        """Process an Allocation (35=J)."""
-        dictionary = session.dictionary
-        now = _fix_timestamp()
-        params = (
-            session.session_id,
-            msg.get("70", ""),
-            dictionary.enum_name("71", msg.get("71", "")),
-            dictionary.enum_name("626", msg.get("626", "")),
-            msg.get("55", ""),
-            dictionary.enum_name("54", msg.get("54", "")),
-            msg.get_float("53", 0.0),
-            msg.get_float("6", 0.0),
-            msg.get("75", ""),
-            dictionary.enum_name("87", msg.get("87", "")),
-            msg.get_int("78", 0),
-            now,
-            direction,
-            msg.to_wire_string(),
-            None,
+    async def _find_family_row(self, table: str, id_col: str, session_id: str, value: str,
+                               direction: str | None = None) -> dict[str, Any] | None:
+        """The newest row of ``table`` holding ``value`` as its current ID."""
+        if not value:
+            return None
+        sql = f"SELECT * FROM {table} WHERE session_id = ? AND {id_col} = ?"
+        params: list[Any] = [session_id, value]
+        if direction:
+            sql += " AND direction = ?"
+            params.append(direction)
+        return await self._fetch_one(sql + " ORDER BY id DESC LIMIT 1", tuple(params))
+
+    async def _load_family_row(self, table: str, id_col: str, session_id: str, value: str,
+                               direction: str) -> dict[str, Any]:
+        row = await self._find_family_row(table, id_col, session_id, value, direction)
+        if row is None:
+            raise ValueError(f"Unknown {_FAMILY_NAMES[table]}: {value} on {session_id}")
+        return row
+
+    async def _load_family_row_by_id(self, table: str, row_id: int | None) -> dict[str, Any] | None:
+        if row_id is None:
+            return None
+        return await self._fetch_one(f"SELECT * FROM {table} WHERE id = ?", (row_id,))
+
+    async def _insert_family_row(self, table: str, row: dict[str, Any]) -> None:
+        cols = _FAMILY_COLS[table]
+        params = tuple(row[c] for c in cols) + (None,)
+        await self.writer.submit(self._compiled_ops[f"insert_{table}"], (params,),
+                                 {"id": None, "session_id": row["session_id"]})
+
+    async def _update_family_row(self, table: str, row: dict[str, Any], **updates: Any) -> None:
+        """A new version of a family row: the snapshot with ``updates`` on
+        top. Callers submit this before their message goes out."""
+        row = {**row, **updates, "updated_at": _fix_timestamp()}
+        params = tuple(row[c] for c in _FAMILY_UPDATE_COLS[table]) + (None, row["id"])
+        await self.writer.submit(self._compiled_ops[f"update_{table}"], (params,), {"id": row["id"]})
+
+    def _emit_row(self, kinds: tuple[str, ...], session_id: str, table: str,
+                  row: dict[str, Any] | None, msg: FixMessage | None = None,
+                  source: str = "wire", request: str = "", **detail: Any) -> None:
+        if self.events.active:
+            self.events.emit(EngineEvent(kinds, session_id, source=source, msg=msg, request=request,
+                                         table=table, row=row, detail=detail))
+
+    async def _link_ioi_order(self, session_id: str, ioi_id: str, cl_ord_id: str) -> None:
+        """An order naming an IOI (tag 23) is the IOI's answer: the IOI row —
+        ours or theirs — records the order's ClOrdID. A no-op for an
+        unknown IOI."""
+        if not ioi_id:
+            return
+        params = (cl_ord_id, _fix_timestamp(), None, session_id, ioi_id)
+        await self.writer.submit(self._compiled_ops["link_ioi_order"], (params,), {"ioi_id": ioi_id})
+
+    def _received_family_row(self, session: FixSession, msg: FixMessage, columns: dict[str, Any],
+                             consumed: frozenset[str], now: str) -> dict[str, Any]:
+        """The columns every received family row shares."""
+        return {
+            **columns,
+            "session_id": session.session_id,
+            "client": client_of(msg, self._client_specs(session)),
+            "extra_tags": format_extra_tags(extra_pairs_of(msg, session.dictionary, consumed)),
+            "transact_time": columns.get("transact_time", ""),
+            "timestamp": now, "updated_at": now, "direction": "RX",
+            "raw_message": msg.to_wire_string(),
+        }
+
+    def _sent_family_row(self, session: FixSession, msg: FixMessage, columns_of: Any,
+                         extra_tags: str, now: str) -> dict[str, Any]:
+        """The columns of a sent family row, from the message as it will go
+        out — extras applied, the way `_as_sent` previews it."""
+        sent = self._as_sent(session, msg)
+        return {
+            **columns_of(sent, session.dictionary),
+            "session_id": session.session_id,
+            "client": client_of(sent, self._client_specs(session)),
+            "extra_tags": extra_tags,
+            "timestamp": now, "updated_at": now, "direction": "TX",
+            "raw_message": sent.to_wire_string(),
+        }
+
+    async def _send_family_message(self, session: FixSession, table: str, row: dict[str, Any],
+                                   msg: FixMessage, revert: dict[str, Any] | None = None) -> None:
+        """Send after the row is written. A send that fails leaves the row
+        saying so: a new row is marked Failed, a changed one put back as it
+        was (``revert``)."""
+        try:
+            await session.send_message(msg)
+        except Exception as exc:
+            if revert is not None:
+                await self._update_family_row(table, revert)
+            else:
+                await self._update_family_row(table, row, status="Failed", text=f"Send failed: {exc}")
+            raise
+
+    @staticmethod
+    def _trans(dictionary: FixDictionary, tag: str, code: str) -> dict[str, str]:
+        """The trans-type pair (name and code) a family row records."""
+        prefix = {"28": "ioi_trans_type", "5": "adv_trans_type", "71": "alloc_trans_type"}[tag]
+        return {prefix: dictionary.enum_name(tag, code), f"{prefix}_code": code}
+
+    # ── IOIs ─────────────────────────────────────────────────────────
+
+    async def _handle_ioi(self, session: FixSession, msg: FixMessage) -> None:
+        """A received IOI (35=6): New is a row; Replace and Cancel are new
+        versions of the row IOIRefID(26) names — a reference matching
+        nothing starts a row of its own, since nothing answers an IOI."""
+        session_id, dictionary, now = session.session_id, session.dictionary, _fix_timestamp()
+        columns = ioi_columns(msg, dictionary)
+        trans, ref = columns["ioi_trans_type_code"], columns["ioi_ref_id"]
+        fresh = self._received_family_row(session, msg, columns, CONSUMED_IOI_TAGS, now)
+        fresh.update(status="Canceled" if trans == "C" else "Active", order_cl_ord_id="")
+        row = await self._find_family_row("fix_iois", "ioi_id", session_id, ref, "RX") if trans in ("R", "C") else None
+        if row is None:
+            await self._insert_family_row("fix_iois", fresh)
+            kinds: tuple[str, ...] = ("ioi",)
+        elif trans == "R":
+            await self._update_family_row("fix_iois", row, **{k: v for k, v in fresh.items()
+                                                              if k not in _FAMILY_IDENTITY})
+            kinds = ("ioi replaced",)
+        else:
+            await self._update_family_row(
+                "fix_iois", row, status="Canceled", ioi_id=columns["ioi_id"], ioi_ref_id=ref,
+                text=columns["text"], transact_time=columns["transact_time"],
+                raw_message=fresh["raw_message"], **self._trans(dictionary, "28", trans))
+            kinds = ("ioi canceled",)
+        self._emit_row(kinds + ("message",), session_id, "fix_iois",
+                       await self._find_family_row("fix_iois", "ioi_id", session_id, columns["ioi_id"], "RX"),
+                       msg=msg, request=columns["ioi_id"])
+
+    def _ioi_message(self, session: FixSession, ioi_id: str, trans_type: str, terms: dict[str, Any],
+                     ref_id: str = "", text: str = "", extra_tags: str = "", client: str = "") -> FixMessage:
+        factory = session.factory
+        msg = factory.ioi(
+            ioi_id, trans_type, terms["symbol"], terms["side"], str(terms["qty"]),
+            price=float(terms["price"]) if terms.get("price") not in (None, "", 0, 0.0) else None,
+            ref_id=ref_id, valid_until=factory.expire_time_stamp(str(terms.get("valid_until") or "")),
+            qlty_ind=str(terms.get("qlty_ind") or ""), natural_flag=str(terms.get("natural_flag") or ""),
+            qualifiers=parse_qualifiers(str(terms.get("qualifiers") or "")),
+            currency=str(terms.get("currency") or ""), text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, client)
+        return msg
+
+    async def send_ioi(self, session_id: str, symbol: str, side: str, qty: str, price: float | None = None,
+                       valid_until: str = "", qlty_ind: str = "", natural_flag: str = "", qualifiers: str = "",
+                       currency: str = "", client: str = "", text: str = "", extra_tags: str = "") -> str:
+        """Send a new IOI and return its IOIID. The row is written first."""
+        session = self._active_session(session_id)
+        ioi_id = await self.ids.next_id("IO")
+        terms = dict(symbol=symbol, side=side, qty=qty, price=price, valid_until=valid_until, qlty_ind=qlty_ind,
+                     natural_flag=natural_flag, qualifiers=qualifiers, currency=currency)
+        msg = self._ioi_message(session, ioi_id, "N", terms, text=text, extra_tags=extra_tags, client=client)
+        row = self._sent_family_row(session, msg, ioi_columns, extra_tags, _fix_timestamp())
+        row.update(status="Active", order_cl_ord_id="")
+        await self._insert_family_row("fix_iois", row)
+        row = await self._find_family_row("fix_iois", "ioi_id", session_id, ioi_id, "TX") or row
+        self._emit_row(("sent ioi",), session_id, "fix_iois", row, msg=msg, source="manual", request=ioi_id)
+        await self._send_family_message(session, "fix_iois", row, msg)
+        return ioi_id
+
+    async def replace_ioi(self, session_id: str, ioi_id: str, symbol: str, side: str, qty: str,
+                          price: float | None = None, valid_until: str = "", qlty_ind: str = "",
+                          natural_flag: str = "", qualifiers: str = "", currency: str = "", client: str = "",
+                          text: str = "", extra_tags: str = "") -> str:
+        """Replace a sent IOI: a new IOIID with the old one in IOIRefID(26),
+        and the row moves to it at once — nothing answers an IOI."""
+        session = self._active_session(session_id)
+        row = await self._load_family_row("fix_iois", "ioi_id", session_id, ioi_id, "TX")
+        new_id = await self.ids.next_id("IO")
+        terms = dict(symbol=symbol, side=side, qty=qty, price=price, valid_until=valid_until, qlty_ind=qlty_ind,
+                     natural_flag=natural_flag, qualifiers=qualifiers, currency=currency)
+        msg = self._ioi_message(session, new_id, "R", terms, ref_id=ioi_id, text=text,
+                                extra_tags=extra_tags, client=client or row["client"])
+        fresh = self._sent_family_row(session, msg, ioi_columns, extra_tags, _fix_timestamp())
+        await self._update_family_row("fix_iois", row, status="Active",
+                                      **{k: v for k, v in fresh.items() if k not in _FAMILY_IDENTITY})
+        await self._send_family_message(session, "fix_iois", row, msg, revert=row)
+        return new_id
+
+    async def cancel_ioi(self, session_id: str, ioi_id: str, text: str = "", extra_tags: str = "") -> str:
+        """Cancel a sent IOI under a new IOIID naming the old one; the row
+        keeps its terms and becomes Canceled."""
+        session = self._active_session(session_id)
+        row = await self._load_family_row("fix_iois", "ioi_id", session_id, ioi_id, "TX")
+        new_id = await self.ids.next_id("IO")
+        terms = dict(symbol=row["symbol"], side=row["side_code"], qty=row["ioi_qty"], price=row["price"],
+                     valid_until=row["valid_until"], qlty_ind=row["qlty_ind_code"], natural_flag=row["natural_flag"],
+                     qualifiers=row["qualifiers"], currency=row["currency"])
+        msg = self._ioi_message(session, new_id, "C", terms, ref_id=ioi_id, text=text,
+                                extra_tags=extra_tags, client=row["client"])
+        sent = self._as_sent(session, msg)
+        await self._update_family_row(
+            "fix_iois", row, status="Canceled", ioi_id=new_id, ioi_ref_id=ioi_id,
+            text=sent.get("58", ""), transact_time=sent.get("60", ""), raw_message=sent.to_wire_string(),
+            **self._trans(session.dictionary, "28", "C"))
+        await self._send_family_message(session, "fix_iois", row, msg, revert=row)
+        return new_id
+
+    # ── Adverts ──────────────────────────────────────────────────────
+
+    async def _handle_advertisement(self, session: FixSession, msg: FixMessage) -> None:
+        """A received Advertisement (35=7), the IOI rules with AdvRefID(3)."""
+        session_id, dictionary, now = session.session_id, session.dictionary, _fix_timestamp()
+        columns = advert_columns(msg, dictionary)
+        trans, ref = columns["adv_trans_type_code"], columns["adv_ref_id"]
+        fresh = self._received_family_row(session, msg, columns, CONSUMED_ADVERT_TAGS, now)
+        fresh.update(status="Canceled" if trans == "C" else "Active")
+        row = await self._find_family_row("fix_adverts", "adv_id", session_id, ref, "RX") if trans in ("R", "C") else None
+        if row is None:
+            await self._insert_family_row("fix_adverts", fresh)
+            kinds: tuple[str, ...] = ("advert",)
+        elif trans == "R":
+            await self._update_family_row("fix_adverts", row, **{k: v for k, v in fresh.items()
+                                                                 if k not in _FAMILY_IDENTITY})
+            kinds = ("advert replaced",)
+        else:
+            await self._update_family_row(
+                "fix_adverts", row, status="Canceled", adv_id=columns["adv_id"], adv_ref_id=ref,
+                text=columns["text"], transact_time=columns["transact_time"],
+                raw_message=fresh["raw_message"], **self._trans(dictionary, "5", trans))
+            kinds = ("advert canceled",)
+        self._emit_row(kinds + ("message",), session_id, "fix_adverts",
+                       await self._find_family_row("fix_adverts", "adv_id", session_id, columns["adv_id"], "RX"),
+                       msg=msg, request=columns["adv_id"])
+
+    def _advert_message(self, session: FixSession, adv_id: str, trans_type: str, terms: dict[str, Any],
+                        ref_id: str = "", text: str = "", extra_tags: str = "", client: str = "") -> FixMessage:
+        msg = session.factory.advertisement(
+            adv_id, trans_type, terms["symbol"], terms["side"], float(terms["qty"]),
+            price=float(terms["price"]) if terms.get("price") not in (None, "", 0, 0.0) else None,
+            ref_id=ref_id, currency=str(terms.get("currency") or ""), trade_date=str(terms.get("trade_date") or ""),
+            last_mkt=str(terms.get("last_mkt") or ""), text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, client)
+        return msg
+
+    async def send_advert(self, session_id: str, symbol: str, side: str, qty: float, price: float | None = None,
+                          currency: str = "", trade_date: str = "", last_mkt: str = "", client: str = "",
+                          text: str = "", extra_tags: str = "") -> str:
+        """Send a new Advertisement and return its AdvId."""
+        session = self._active_session(session_id)
+        adv_id = await self.ids.next_id("AD")
+        terms = dict(symbol=symbol, side=side, qty=qty, price=price, currency=currency, trade_date=trade_date,
+                     last_mkt=last_mkt)
+        msg = self._advert_message(session, adv_id, "N", terms, text=text, extra_tags=extra_tags, client=client)
+        row = self._sent_family_row(session, msg, advert_columns, extra_tags, _fix_timestamp())
+        row["status"] = "Active"
+        await self._insert_family_row("fix_adverts", row)
+        row = await self._find_family_row("fix_adverts", "adv_id", session_id, adv_id, "TX") or row
+        self._emit_row(("sent advert",), session_id, "fix_adverts", row, msg=msg, source="manual", request=adv_id)
+        await self._send_family_message(session, "fix_adverts", row, msg)
+        return adv_id
+
+    async def replace_advert(self, session_id: str, adv_id: str, symbol: str, side: str, qty: float,
+                             price: float | None = None, currency: str = "", trade_date: str = "",
+                             last_mkt: str = "", client: str = "", text: str = "", extra_tags: str = "") -> str:
+        session = self._active_session(session_id)
+        row = await self._load_family_row("fix_adverts", "adv_id", session_id, adv_id, "TX")
+        new_id = await self.ids.next_id("AD")
+        terms = dict(symbol=symbol, side=side, qty=qty, price=price, currency=currency, trade_date=trade_date,
+                     last_mkt=last_mkt)
+        msg = self._advert_message(session, new_id, "R", terms, ref_id=adv_id, text=text,
+                                   extra_tags=extra_tags, client=client or row["client"])
+        fresh = self._sent_family_row(session, msg, advert_columns, extra_tags, _fix_timestamp())
+        await self._update_family_row("fix_adverts", row, status="Active",
+                                      **{k: v for k, v in fresh.items() if k not in _FAMILY_IDENTITY})
+        await self._send_family_message(session, "fix_adverts", row, msg, revert=row)
+        return new_id
+
+    async def cancel_advert(self, session_id: str, adv_id: str, text: str = "", extra_tags: str = "") -> str:
+        session = self._active_session(session_id)
+        row = await self._load_family_row("fix_adverts", "adv_id", session_id, adv_id, "TX")
+        new_id = await self.ids.next_id("AD")
+        terms = dict(symbol=row["symbol"], side=row["side_code"], qty=row["quantity"], price=row["price"],
+                     currency=row["currency"], trade_date=row["trade_date"], last_mkt=row["last_mkt"])
+        msg = self._advert_message(session, new_id, "C", terms, ref_id=adv_id, text=text,
+                                   extra_tags=extra_tags, client=row["client"])
+        sent = self._as_sent(session, msg)
+        await self._update_family_row(
+            "fix_adverts", row, status="Canceled", adv_id=new_id, adv_ref_id=adv_id,
+            text=sent.get("58", ""), transact_time=sent.get("60", ""), raw_message=sent.to_wire_string(),
+            **self._trans(session.dictionary, "5", "C"))
+        await self._send_family_message(session, "fix_adverts", row, msg, revert=row)
+        return new_id
+
+    # ── Allocations ──────────────────────────────────────────────────
+
+    async def _handle_allocation(self, session: FixSession, msg: FixMessage) -> None:
+        """A received AllocationInstruction (35=J): a New parks as a row
+        awaiting Accept/Reject; a Replace or Cancel parks in the request
+        slot of the row RefAllocID(72) names, and one naming no row is
+        answered at once with a block-level reject."""
+        session_id, dictionary, now = session.session_id, session.dictionary, _fix_timestamp()
+        columns = allocation_columns(msg, dictionary)
+        trans, ref, alloc_id = columns["alloc_trans_type_code"], columns["ref_alloc_id"], columns["alloc_id"]
+        extras = format_extra_tags(extra_pairs_of(msg, dictionary, CONSUMED_ALLOC_TAGS))
+        if trans not in ("1", "2") or not ref:
+            row = self._received_family_row(session, msg, columns, CONSUMED_ALLOC_TAGS, now)
+            row.update(status="PendingNew", alloc_status="", alloc_status_code="", alloc_rej_reason="",
+                       alloc_rej_code="", pending_action="New", pending_alloc_id="", pending_terms="",
+                       pending_extra_tags=extras, sent_text="")
+            await self._insert_family_row("fix_allocations", row)
+            self._emit_row(("allocation", "message"), session_id, "fix_allocations",
+                           await self._find_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "RX"),
+                           msg=msg, request=alloc_id)
+            return
+        action = "Replace" if trans == "1" else "Cancel"
+        async with self._order_lock(session_id):
+            row = await self._find_family_row("fix_allocations", "alloc_id", session_id, ref, "RX")
+            if row is not None:
+                terms = {**columns, "raw_message": msg.to_wire_string(), "extra_tags": extras} if action == "Replace" \
+                    else {k: columns[k] for k in ("alloc_trans_type", "alloc_trans_type_code", "transact_time")} | {
+                        "raw_message": msg.to_wire_string()}
+                terms.pop("alloc_id", None)
+                terms.pop("ref_alloc_id", None)
+                await self._update_family_row(
+                    "fix_allocations", row, pending_action=action, pending_alloc_id=alloc_id,
+                    pending_terms=json.dumps(terms), pending_extra_tags=extras, text=columns["text"])
+        if row is None:
+            reject = session.factory.allocation_ack(alloc_id, "1", trade_date=columns["trade_date"],
+                                                    rej_code="7", text=f"Unknown allocation: {ref}")
+            await session.send_message(reject)
+            self._emit_row(("message",), session_id, "fix_allocations", None, msg=msg, request=alloc_id,
+                           unknown_allocation=ref, request_kind=action.lower())
+            return
+        self._emit_row((f"allocation {action.lower()}", "message"), session_id, "fix_allocations",
+                       await self._load_family_row_by_id("fix_allocations", row["id"]), msg=msg, request=alloc_id)
+
+    async def _handle_allocation_ack(self, session: FixSession, msg: FixMessage) -> None:
+        """A received AllocationInstructionAck (35=P) answers the sent
+        allocation whose AllocID(70) it names: the chain's current ID (the
+        New's, or one acknowledged again), else the request the slot holds
+        — accepted, the request's terms and ID become the row's; refused,
+        the row keeps them. One naming nothing stays a recorded message."""
+        session_id, dictionary = session.session_id, session.dictionary
+        alloc_id = msg.get("70", "")
+        ack = ack_columns(msg, dictionary)
+        code = ack["alloc_status_code"]
+        row = await self._find_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "TX")
+        if row is not None:
+            await self._update_family_row("fix_allocations", row, **ack,
+                                          status=ALLOC_STATUS_OF.get(code, row["status"]))
+        else:
+            row = await self._fetch_one(
+                "SELECT * FROM fix_allocations WHERE session_id = ? AND direction = 'TX' AND pending_alloc_id = ? "
+                "ORDER BY id DESC LIMIT 1", (session_id, alloc_id))
+            if row is None:
+                return
+            updates: dict[str, Any] = {**ack, **_CLEAR_ALLOC_SLOT}
+            if code in ALLOC_ACCEPTING:
+                updates.update(self._promoted_allocation(row, dictionary))
+                updates["status"] = "Canceled" if row["pending_action"] == "Cancel" else ALLOC_STATUS_OF[code]
+            await self._update_family_row("fix_allocations", row, **updates)
+        self._emit_row((_ALLOC_ACK_KINDS.get(code, "allocation acked"), "message"), session_id, "fix_allocations",
+                       await self._load_family_row_by_id("fix_allocations", row["id"]), msg=msg, request=alloc_id,
+                       reason=ack["alloc_rej_reason"])
+
+    @staticmethod
+    def _promoted_allocation(row: dict[str, Any], dictionary: FixDictionary) -> dict[str, Any]:
+        """The columns an accepted Replace or Cancel moves onto its row: the
+        request's terms (a Cancel carries only its identity and message)
+        and the chain's next ID."""
+        terms = json.loads(row["pending_terms"] or "{}")
+        code = "1" if row["pending_action"] == "Replace" else "2"
+        return {
+            **{k: v for k, v in terms.items() if k in _ALLOC_TERM_COLS},
+            "alloc_id": row["pending_alloc_id"], "ref_alloc_id": row["alloc_id"],
+            "alloc_trans_type": dictionary.enum_name("71", code), "alloc_trans_type_code": code,
+        }
+
+    def _allocation_message(self, session: FixSession, alloc_id: str, trans_type: str, terms: dict[str, Any],
+                            ref_alloc_id: str = "", text: str = "", extra_tags: str = "",
+                            client: str = "") -> FixMessage:
+        msg = session.factory.allocation_instruction(
+            alloc_id, trans_type, terms["symbol"], terms["side"], float(terms["qty"]), float(terms["avg_price"] or 0),
+            trade_date=str(terms.get("trade_date") or ""), alloc_type=str(terms.get("alloc_type") or ""),
+            ref_alloc_id=ref_alloc_id,
+            orders=parse_lines(str(terms.get("orders") or ""), ALLOC_GROUPS["orders"][1]),
+            execs=parse_lines(str(terms.get("execs") or ""), ALLOC_GROUPS["execs"][1]),
+            allocs=parse_lines(str(terms.get("allocs") or ""), ALLOC_GROUPS["allocs"][1]),
+            text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, client)
+        return msg
+
+    def _sent_allocation_row(self, session: FixSession, msg: FixMessage, extra_tags: str) -> dict[str, Any]:
+        row = self._sent_family_row(session, msg, allocation_columns, extra_tags, _fix_timestamp())
+        row["sent_text"] = row.pop("text")
+        row.update(text="", alloc_status="", alloc_status_code="", alloc_rej_reason="", alloc_rej_code="",
+                   pending_action="", pending_alloc_id="", pending_terms="", pending_extra_tags="")
+        return row
+
+    async def send_allocation(self, session_id: str, symbol: str, side: str, qty: float, avg_price: float,
+                              trade_date: str = "", alloc_type: str = "", orders: str = "", execs: str = "",
+                              allocs: str = "", client: str = "", text: str = "", extra_tags: str = "") -> str:
+        """Send a new AllocationInstruction and return its AllocID; the row
+        is Sent until the Ack arrives."""
+        session = self._active_session(session_id)
+        alloc_id = await self.ids.next_id("AL")
+        terms = dict(symbol=symbol, side=side, qty=qty, avg_price=avg_price, trade_date=trade_date,
+                     alloc_type=alloc_type, orders=orders, execs=execs, allocs=allocs)
+        msg = self._allocation_message(session, alloc_id, "0", terms, text=text, extra_tags=extra_tags, client=client)
+        row = self._sent_allocation_row(session, msg, extra_tags)
+        row["status"] = "Sent"
+        await self._insert_family_row("fix_allocations", row)
+        row = await self._find_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "TX") or row
+        self._emit_row(("sent allocation",), session_id, "fix_allocations", row, msg=msg, source="manual",
+                       request=alloc_id)
+        await self._send_family_message(session, "fix_allocations", row, msg)
+        return alloc_id
+
+    async def replace_allocation(self, session_id: str, alloc_id: str, symbol: str, side: str, qty: float,
+                                 avg_price: float, trade_date: str = "", alloc_type: str = "", orders: str = "",
+                                 execs: str = "", allocs: str = "", client: str = "", text: str = "",
+                                 extra_tags: str = "") -> str:
+        """Ask to replace a sent allocation: a new AllocID naming the old in
+        RefAllocID(72), parked in the row's request slot until the Ack."""
+        session = self._active_session(session_id)
+        row = await self._load_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "TX")
+        new_id = await self.ids.next_id("AL")
+        terms = dict(symbol=symbol, side=side, qty=qty, avg_price=avg_price, trade_date=trade_date,
+                     alloc_type=alloc_type, orders=orders, execs=execs, allocs=allocs)
+        msg = self._allocation_message(session, new_id, "1", terms, ref_alloc_id=alloc_id, text=text,
+                                       extra_tags=extra_tags, client=client or row["client"])
+        fresh = self._sent_allocation_row(session, msg, extra_tags)
+        pending = {k: v for k, v in fresh.items() if k in _ALLOC_TERM_COLS}
+        await self._update_family_row("fix_allocations", row, pending_action="Replace", pending_alloc_id=new_id,
+                                      pending_terms=json.dumps(pending), sent_text=fresh["sent_text"])
+        await self._send_family_message(session, "fix_allocations", row, msg, revert=row)
+        return new_id
+
+    async def cancel_allocation(self, session_id: str, alloc_id: str, text: str = "", extra_tags: str = "") -> str:
+        """Ask to cancel a sent allocation, its terms repeated under a new
+        AllocID; parked as the row's pending Cancel until the Ack."""
+        session = self._active_session(session_id)
+        row = await self._load_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "TX")
+        new_id = await self.ids.next_id("AL")
+        terms = dict(symbol=row["symbol"], side=row["side_code"], qty=row["quantity"], avg_price=row["avg_price"],
+                     trade_date=row["trade_date"], alloc_type=row["alloc_type_code"], orders=row["orders"],
+                     execs=row["execs"], allocs=row["allocs"])
+        msg = self._allocation_message(session, new_id, "2", terms, ref_alloc_id=alloc_id, text=text,
+                                       extra_tags=extra_tags, client=row["client"])
+        sent = self._as_sent(session, msg)
+        pending = {"raw_message": sent.to_wire_string(), "transact_time": sent.get("60", "")}
+        await self._update_family_row("fix_allocations", row, pending_action="Cancel", pending_alloc_id=new_id,
+                                      pending_terms=json.dumps(pending), sent_text=sent.get("58", ""))
+        await self._send_family_message(session, "fix_allocations", row, msg, revert=row)
+        return new_id
+
+    @_market_action
+    async def accept_allocation(self, session_id: str, alloc_id: str, alloc_status: str = "0", text: str = "",
+                                extra_tags: str = "") -> tuple[FixMessage, str]:
+        """Accept what is pending on a received allocation — the New, or a
+        Replace or Cancel request — with an Ack of AllocStatus(87)
+        Accepted, Received or Incomplete. Returns the AllocID answered."""
+        session = self._active_session(session_id)
+        if alloc_status not in ALLOC_ACCEPTING:
+            raise ValueError(f"AllocStatus {alloc_status} does not accept; use Reject")
+        row = await self._load_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "RX")
+        action = row["pending_action"]
+        if action not in ("New", "Replace", "Cancel"):
+            raise ValueError(f"Nothing pending on allocation {alloc_id}")
+        answered = row["pending_alloc_id"] if action != "New" else alloc_id
+        msg = session.factory.allocation_ack(answered, alloc_status, trade_date=row["trade_date"], text=text or None)
+        msg.extra = parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, row.get("client"))
+        updates = self._ack_as_sent(session, msg)
+        updates.update(_CLEAR_ALLOC_SLOT)
+        if action == "New":
+            updates["status"] = ALLOC_STATUS_OF[alloc_status]
+        else:
+            updates.update(self._promoted_allocation(row, session.dictionary))
+            updates["status"] = "Canceled" if action == "Cancel" else ALLOC_STATUS_OF[alloc_status]
+        await self._update_family_row("fix_allocations", row, **updates)
+        return msg, answered
+
+    @_market_action
+    async def reject_allocation(self, session_id: str, alloc_id: str, alloc_status: str = "1",
+                                alloc_rej_code: str = "", text: str = "",
+                                extra_tags: str = "") -> tuple[FixMessage, str]:
+        """Refuse what is pending on a received allocation with an Ack of
+        AllocStatus(87) 1 (block level), 2 (account level) or 5 and
+        AllocRejCode(88): a refused New is Rejected, a refused request
+        leaves the row as it was."""
+        session = self._active_session(session_id)
+        if alloc_status in ALLOC_ACCEPTING:
+            raise ValueError(f"AllocStatus {alloc_status} accepts; use Accept")
+        row = await self._load_family_row("fix_allocations", "alloc_id", session_id, alloc_id, "RX")
+        action = row["pending_action"]
+        if action not in ("New", "Replace", "Cancel"):
+            raise ValueError(f"Nothing pending on allocation {alloc_id}")
+        answered = row["pending_alloc_id"] if action != "New" else alloc_id
+        msg = session.factory.allocation_ack(answered, alloc_status, trade_date=row["trade_date"],
+                                             rej_code=alloc_rej_code, text=text or None)
+        msg.extra = parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, row.get("client"))
+        updates = self._ack_as_sent(session, msg)
+        updates.update(_CLEAR_ALLOC_SLOT)
+        if action == "New":
+            updates["status"] = "Rejected"
+        await self._update_family_row("fix_allocations", row, **updates)
+        return msg, answered
+
+    def _ack_as_sent(self, session: FixSession, msg: FixMessage) -> dict[str, Any]:
+        """What the row records of the Ack we send, extras applied."""
+        ack = ack_columns(self._as_sent(session, msg), session.dictionary)
+        ack["sent_text"] = ack.pop("text")
+        return ack
+
+    async def _backfill_families(self) -> None:
+        """Seed, once (fix_settings `families_backfill`), the columns 0.63
+        gave the IOI and allocation rows the earlier viewers recorded —
+        one row per message, terms only — from their recorded wire
+        message, and fold each Replace or Cancel into the row it names, so
+        the tables hold chains as the blotters now expect. Raw-connection
+        writes, like the other backfills."""
+        conn = self.db.write_conn
+        cur = await conn.execute("SELECT value FROM fix_settings WHERE key = 'families_backfill'")
+        done = await cur.fetchone()
+        await cur.close()
+        if done:
+            return
+        cur = await conn.execute("SELECT session_id, fix_version, client_tags FROM fix_sessions")
+        sessions = {r["session_id"]: dict(r) for r in await cur.fetchall()}
+        await cur.close()
+        dictionaries: dict[str, FixDictionary] = {}
+
+        def dictionary_of(session_id: str) -> FixDictionary:
+            version = (sessions.get(session_id) or {}).get("fix_version") or "FIX.4.2"
+            if version not in dictionaries:
+                try:
+                    dictionaries[version] = FixDictionary(version)
+                except Exception:
+                    dictionaries[version] = FixDictionary("FIX.4.2")
+            return dictionaries[version]
+
+        plans = (
+            ("fix_iois", "ioi_id", "ioi_ref_id", "ioi_trans_type_code", ioi_columns, CONSUMED_IOI_TAGS, ("R", "C")),
+            ("fix_allocations", "alloc_id", "ref_alloc_id", "alloc_trans_type_code", allocation_columns,
+             CONSUMED_ALLOC_TAGS, ("1", "2")),
         )
-        ops = self._compiled_ops["insert_allocation"]
-        await self.writer.submit(ops, (params,), {"alloc_id": msg.get("70", "")})
+        for table, id_col, ref_col, trans_col, columns_of, consumed, references in plans:
+            cur = await conn.execute(f"SELECT * FROM {table} WHERE {trans_col} = '' AND raw_message != '' ORDER BY id")
+            rows = [dict(r) for r in await cur.fetchall()]
+            await cur.close()
+            for old in rows:
+                dictionary = dictionary_of(old["session_id"])
+                msg = parse_fix(old["raw_message"])
+                columns = columns_of(msg, dictionary)
+                columns["extra_tags"] = format_extra_tags(extra_pairs_of(msg, dictionary, consumed))
+                columns["client"] = client_of(msg, _client_specs_of((sessions.get(old["session_id"]) or {})
+                                                                     .get("client_tags")))
+                trans, ref = columns[trans_col], columns[ref_col]
+                target = None
+                if trans in references and ref:
+                    cur = await conn.execute(
+                        f"SELECT * FROM {table} WHERE session_id = ? AND direction = ? AND {id_col} = ? "
+                        "AND id < ? ORDER BY id DESC LIMIT 1", (old["session_id"], old["direction"], ref, old["id"]))
+                    found = await cur.fetchone()
+                    await cur.close()
+                    target = dict(found) if found else None
+                canceled = trans == references[1]
+                if target is None:
+                    columns["status"] = "Canceled" if canceled else "Active"
+                    if table == "fix_allocations":
+                        columns["status"] = "Sent" if old["direction"] == "TX" else "Accepted"
+                    await self._raw_update(conn, table, old["id"], columns)
+                    continue
+                if canceled:
+                    columns = {k: columns[k] for k in (id_col, ref_col, trans_col, trans_col[:-5], "text",
+                                                       "transact_time")}
+                    columns["status"] = "Canceled"
+                columns["raw_message"] = old["raw_message"]
+                columns["updated_at"] = old["timestamp"]
+                await self._raw_update(conn, table, target["id"], columns)
+                await (await conn.execute(f"DELETE FROM {table} WHERE id = ?", (old["id"],))).close()
+        await (await conn.execute(
+            "INSERT OR REPLACE INTO fix_settings (key, value) VALUES ('families_backfill', '1')")).close()
+        await conn.commit()
+
+    @staticmethod
+    async def _raw_update(conn: Any, table: str, row_id: int, columns: dict[str, Any]) -> None:
+        cols = [c for c in columns if c in _FAMILY_COLS[table]]
+        await (await conn.execute(
+            f"UPDATE {table} SET {', '.join(c + ' = ?' for c in cols)} WHERE id = ?",
+            tuple(columns[c] for c in cols) + (row_id,))).close()
 
     # ── Replay ───────────────────────────────────────────────────────
 

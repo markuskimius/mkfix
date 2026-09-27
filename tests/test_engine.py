@@ -73,7 +73,7 @@ def _order_params(**overrides):
         "pending_qty": 0.0, "pending_price": 0.0, "pending_extra_tags": "",
         "tif_code": "0", "extra_tags": "", "entered_qty": 100.0, "entered_price": 150.25,
         "expire_time": "", "expire_date": "", "client": "",
-        "handl_inst": "", "handl_inst_code": "", "sent_text": "", "market_order_id": "",
+        "handl_inst": "", "handl_inst_code": "", "sent_text": "", "market_order_id": "", "ioi_id": "",
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
@@ -290,20 +290,25 @@ class TestWireRecording:
         assert await engine.sent_messages("S1", 3, 5, epoch) == []
 
     @pytest.mark.asyncio
-    async def test_ioi_and_allocation_viewers_store_wire_form(self, stack):
+    async def test_ioi_advert_and_allocation_rows_store_wire_form(self, stack):
         db, writer, engine = stack
         stub = StubSession()
         engine.sessions["S1"] = stub
         ioi = SOH.join(["8=FIX.4.2", "35=6", "23=I1", "28=N", "55=AAPL", "54=1", "27=L",
                         "58=x|y", "10=000", ""]).encode()
+        adv = SOH.join(["8=FIX.4.2", "35=7", "2=D1", "5=N", "55=AAPL", "4=B", "53=100",
+                        "58=a|b", "10=000", ""]).encode()
         alloc = SOH.join(["8=FIX.4.2", "35=J", "70=A1", "71=0", "55=AAPL", "54=1", "53=100",
                           "6=1.5", "75=20260904", "58=p|q", "10=000", ""]).encode()
-        await engine._handle_ioi(stub, parse_fix(ioi), "RX")
-        await engine._handle_allocation(stub, parse_fix(alloc), "RX")
-        ioi_row, = await _fetch_all(db, "SELECT raw_message FROM fix_iois")
-        alloc_row, = await _fetch_all(db, "SELECT raw_message FROM fix_allocations")
-        assert parse_fix(ioi_row["raw_message"])["58"] == "x|y"
-        assert parse_fix(alloc_row["raw_message"])["58"] == "p|q"
+        await engine._handle_ioi(stub, parse_fix(ioi))
+        await engine._handle_advertisement(stub, parse_fix(adv))
+        await engine._handle_allocation(stub, parse_fix(alloc))
+        ioi_row, = await _fetch_all(db, "SELECT raw_message, text FROM fix_iois")
+        adv_row, = await _fetch_all(db, "SELECT raw_message, text FROM fix_adverts")
+        alloc_row, = await _fetch_all(db, "SELECT raw_message, text FROM fix_allocations")
+        assert parse_fix(ioi_row["raw_message"])["58"] == "x|y" == ioi_row["text"]
+        assert parse_fix(adv_row["raw_message"])["58"] == "a|b" == adv_row["text"]
+        assert parse_fix(alloc_row["raw_message"])["58"] == "p|q" == alloc_row["text"]
 
     @pytest.mark.asyncio
     async def test_seq_epoch_persists_in_state(self, stack):
@@ -3219,7 +3224,8 @@ class TestVersioning:
     @pytest.mark.asyncio
     async def test_tables_are_versioned(self):
         assert set(versioned_tables(CONFIG)) == {
-            "fix_sessions", "fix_orders", "fix_executions", "fix_macros"}
+            "fix_sessions", "fix_orders", "fix_executions", "fix_macros",
+            "fix_iois", "fix_adverts", "fix_allocations"}
 
     @pytest.mark.asyncio
     async def test_order_lifecycle_is_one_chain(self, stack):

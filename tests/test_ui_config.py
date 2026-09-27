@@ -20,7 +20,7 @@ from mkfix import __version__
 
 STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
 TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct", "bust",
-                   "renotify"}
+                   "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -120,16 +120,14 @@ def _walk_dicts(obj):
 
 
 def _find_dialog(app_config: dict, op: str) -> dict:
-    """The first dialog submitting `op`: for send_new_order the New dialog,
-    which precedes the Clone dialogs that submit the same op (the button
-    order tests pin that); `_clone_button` finds those."""
-    dialog = next(
-        (node for node in _walk_dicts(app_config)
-         if node.get("submit", {}).get("op") == op),
-        None,
-    )
-    assert dialog, f"no {op} dialog in app.json"
-    return dialog
+    """The dialog submitting `op` that opens on the Template pick: the New
+    dialog rather than a Clone, or Sent Orders' Allocate, which prefill a
+    row instead (`_clone_button` finds those); the first one when none
+    carries a pick."""
+    dialogs = [node for node in _walk_dicts(app_config) if node.get("submit", {}).get("op") == op]
+    assert dialogs, f"no {op} dialog in app.json"
+    led = [d for d in dialogs if d.get("fields") and d["fields"][0].get("name") == "_template"]
+    return (led or dialogs)[0]
 
 
 def _clone_button(app_config: dict, pane_id: str) -> dict:
@@ -507,6 +505,11 @@ class TestServiceReferences:
         assert panes["market-order-blotter"]["filter"] == "direction == 'RX'"
         assert panes["trade-blotter"]["filter"] == "direction == 'RX'"
         assert panes["market-trade-blotter"]["filter"] == "direction == 'TX'"
+        # the market side sends IOIs, adverts and allocations; the client side receives them
+        for family in ("ioi", "advert", "allocation"):
+            assert panes[f"market-{family}-blotter"]["filter"] == "direction == 'TX'"
+            assert panes[f"{family}-blotter"]["filter"] == "direction == 'RX'"
+            assert panes[f"{family}-blotter"]["service"] == panes[f"market-{family}-blotter"]["service"]
 
     def test_sent_orders_button_order(self, app_config):
         """Deliberate 0.6.2 ordering: entry first, then the two amend actions
@@ -591,7 +594,7 @@ class TestServiceReferences:
         pending request must not block them on the still-working order."""
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
         assert [b["label"] for b in buttons] == \
-            ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Clone", "History"]
+            ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Clone", "Allocate", "History"]
         by = {b["label"]: b for b in buttons}
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
         assert _conditions(by["Accept"]["enable"]["when"]) == pending
@@ -612,9 +615,12 @@ class TestServiceReferences:
         dialog picks the session itself, and the server rejects a dead one."""
         gated = {
             "order-blotter": ["Replace", "Cancel"],
-            "market-order-blotter": ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate"],
+            "market-order-blotter": ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Allocate"],
             "market-trade-blotter": ["Correct", "Bust", "Re-notify"],
             "trade-blotter": ["DK"],
+            "market-ioi-blotter": ["Replace", "Cancel"], "ioi-blotter": ["Order"],
+            "market-advert-blotter": ["Replace", "Cancel"],
+            "market-allocation-blotter": ["Replace", "Cancel"], "allocation-blotter": ["Accept", "Reject"],
         }
         for pane_id, labels in gated.items():
             by = {b["label"]: b for b in app_config["panes"][pane_id]["buttons"]}
@@ -642,7 +648,8 @@ class TestServiceReferences:
         extra_tags field — the whole point of the feature is that no send
         path is exempt. Flatten row groups: fields may nest one level."""
         send_panes = ["order-blotter", "market-order-blotter", "market-trade-blotter",
-                      "trade-blotter"]
+                      "trade-blotter", "ioi-blotter", "market-ioi-blotter", "advert-blotter",
+                      "allocation-blotter", "market-allocation-blotter"]
         checked = 0
         for pane_id in send_panes:
             for button in app_config["panes"][pane_id]["buttons"]:
@@ -659,7 +666,7 @@ class TestServiceReferences:
                     if f.get("name") == "extra_tags"
                 ), "extra_tags must stay optional"
                 checked += 1
-        assert checked >= 8
+        assert checked >= 22
 
     def test_renotify_gates_on_the_dk_alone(self, app_config):
         """Re-notify answers a DontKnowTrade, so it opens on a DK'd row
@@ -937,7 +944,9 @@ class TestServiceReferences:
         Extra Tags (which can still override it), and never prefilled."""
         ops = ("send_new_order", "send_cancel_replace", "send_cancel", "accept_request",
                "reject_request", "fill_order", "dk_trade", "correct_trade", "bust_trade",
-               "renotify_trade")
+               "renotify_trade", "send_ioi", "replace_ioi", "cancel_ioi", "send_advert", "replace_advert",
+               "cancel_advert", "send_allocation", "replace_allocation", "cancel_allocation",
+               "accept_allocation", "reject_allocation")
         for op in ops:
             names = [f.get("name") for item in _find_dialog(app_config, op)["fields"]
                      for f in _leaves(item)]
@@ -978,7 +987,9 @@ class TestServiceReferences:
         a title contradicting the pane's filter would mislead."""
         panes = app_config["panes"]
         for pane_id in ("order-blotter", "trade-blotter",
-                        "market-order-blotter", "market-trade-blotter"):
+                        "market-order-blotter", "market-trade-blotter",
+                        "ioi-blotter", "advert-blotter", "allocation-blotter",
+                        "market-ioi-blotter", "market-advert-blotter", "market-allocation-blotter"):
             spec = panes[pane_id]
             word = "Sent" if "'TX'" in spec["filter"] else "Received"
             assert spec["title"].startswith(word), \
@@ -990,6 +1001,9 @@ class TestServiceReferences:
         hosts = _pane_frame_ids(app_config)
         assert hosts["order-blotter"] != hosts["market-order-blotter"]
         assert hosts["trade-blotter"] != hosts["market-trade-blotter"]
+        for family in ("ioi", "advert", "allocation"):
+            assert hosts[f"{family}-blotter"] == hosts["order-blotter"]
+            assert hosts[f"market-{family}-blotter"] == hosts["market-order-blotter"]
 
 
 class TestReplayControl:
@@ -1665,17 +1679,20 @@ class TestMenubar:
     most a console warning, and the order of the menus is a layout the eye
     learns, so both are pinned here."""
 
-    MENUS = ["FIX", "Edit", "Client", "Market", "Config", "To Do", "Layout", "Window", "Help"]
+    MENUS = ["FIX", "Edit", "Client", "Market", "Config", "Layout", "Window", "Help"]
     # What each menu of panes opens, in order (None is a separator): FIX is
-    # the wire, Client the orders we send and Market the orders we receive
+    # the wire — sessions, messages, and the replay that plays a log into a
+    # session, which has no side — Client the orders we send (and the IOIs,
+    # adverts and allocations we receive), Market the orders we receive
     # (blotters, then that side's macros, then its Macro Runs window — a
-    # closed frame `frame.show` opens whole), To Do what has no side yet,
-    # Config what the rest is set up with.
+    # closed frame `frame.show` opens whole), Config what the rest is set
+    # up with.
     PANES = {
-        "FIX": ["session-blotter", None, "raw-messages", "message-detail"],
-        "Client": ["order-blotter", "trade-blotter", None, "client-macros", "client-runs"],
-        "Market": ["market-order-blotter", "market-trade-blotter", None, "market-macros", "market-runs"],
-        "To Do": ["ioi-viewer", "allocation-viewer", "replay-control"],
+        "FIX": ["session-blotter", None, "raw-messages", "message-detail", None, "replay-control"],
+        "Client": ["order-blotter", "trade-blotter", "ioi-blotter", "advert-blotter", "allocation-blotter", None,
+                   "client-macros", "client-runs"],          # Received IOIs/Adverts/Allocations
+        "Market": ["market-order-blotter", "market-trade-blotter", "market-ioi-blotter", "market-advert-blotter",
+                   "market-allocation-blotter", None, "market-macros", "market-runs"],   # Sent ones
         "Config": ["templates", "dictionaries"],
     }
     BUILTIN_ACTIONS = {
@@ -2470,12 +2487,14 @@ def _primary_key(table_cfg: dict) -> list[str]:
 
 
 class TestRecordHistory:
-    """The five blotters' `history` blocks name services mkio never writes on
+    """The record blotters' `history` blocks name services mkio never writes on
     its own; a missing or misnamed one leaves the History pane, the As of…
     button, or Undo silently dead in the browser (mkui warns at most)."""
 
     HISTORY_PANES = ("session-blotter", "order-blotter", "trade-blotter",
-                     "market-order-blotter", "market-trade-blotter")
+                     "market-order-blotter", "market-trade-blotter",
+                     "ioi-blotter", "market-ioi-blotter", "advert-blotter", "market-advert-blotter",
+                     "allocation-blotter", "market-allocation-blotter")
 
     @pytest.fixture(scope="class")
     def history_panes(self, app_config):
@@ -2484,7 +2503,7 @@ class TestRecordHistory:
             assert "history" in spec, f"{pid} declares no history block"
         return panes
 
-    def test_only_the_five_blotters_carry_history(self, app_config):
+    def test_only_the_record_blotters_carry_history(self, app_config):
         with_history = {pid for pid, spec in app_config["panes"].items() if "history" in spec}
         assert with_history == set(self.HISTORY_PANES)
 
@@ -2809,6 +2828,10 @@ class TestTemplates:
         "unsolicited_cancel": "unsolicited", "restate_order": "restate",
         "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
         "renotify_trade": "renotify",
+        "send_ioi": "ioi", "replace_ioi": "ioi", "cancel_ioi": "cancel",
+        "send_advert": "advert", "replace_advert": "advert", "cancel_advert": "cancel",
+        "send_allocation": "allocation", "replace_allocation": "allocation", "cancel_allocation": "cancel",
+        "accept_allocation": "alloc_accept", "reject_allocation": "alloc_reject",
     }
 
     @staticmethod
@@ -2842,7 +2865,7 @@ class TestTemplates:
             fill = first["fill"]
             assert set(fill.values()) <= columns, op
             keys = set(TEMPLATE_TERMS[op][1])
-            assert ("session_id" in keys) == (scope == "order"), op
+            assert ("session_id" in keys) == (scope in ("order", "ioi", "advert", "allocation")), op
             assert set(fill) == keys & names, op
             assert keys - names <= set(dialog.get("rowData", {})), op
             assert all(fill[k] == k for k in fill), f"{op}: template columns are named as the fields"
@@ -3083,3 +3106,182 @@ class TestClone:
                 assert self._fields(clone)[name] == field, name
         add = toml_config["services"]["templates"]["ops"]["add"][0]
         assert {"scope", "name"} <= set(add["fields"]) and "scope" not in add.get("defaults", {})
+
+
+class TestFamilyBlotters:
+    """The IOI, advert and allocation blotters (0.63): the market side sends
+    them (Sent IOIs/Adverts/Allocations under Market, `market-*-blotter`),
+    the client side receives them (Received ones under Client), each pair
+    one query split by direction like the order blotters, every send a
+    dialog on the order dialogs' shape. Each family is a chain — a Replace or Cancel names the
+    ID it supersedes — and an allocation alone is answered, so only its
+    received blotter has Accept/Reject and only its rows a request slot."""
+
+    FAMILIES = {
+        "ioi": ("fix_iois", "ioi_id", "send_ioi", "replace_ioi", "cancel_ioi"),
+        "advert": ("fix_adverts", "adv_id", "send_advert", "replace_advert", "cancel_advert"),
+        "allocation": ("fix_allocations", "alloc_id", "send_allocation", "replace_allocation", "cancel_allocation"),
+    }
+    REF_COLS = {"ioi": "ioi_ref_id", "advert": "adv_ref_id", "allocation": "ref_alloc_id"}
+
+    @staticmethod
+    def _fields(dialog):
+        return {f["name"]: f for item in dialog["fields"] for f in _leaves(item) if f.get("name")}
+
+    def test_sent_blotters_send_replace_and_cancel_the_chain(self, app_config, toml_config):
+        for family, (table, id_col, send, replace, cancel) in self.FAMILIES.items():
+            buttons = {b["label"]: b for b in app_config["panes"][f"market-{family}-blotter"]["buttons"]}
+            assert list(buttons) == ["New", "Clone", "Replace", "Cancel", "History"], family
+            ops = {label: b["action"]["dialog"]["submit"]["op"] for label, b in buttons.items() if label != "History"}
+            assert ops == {"New": send, "Clone": send, "Replace": replace, "Cancel": cancel}, family
+            for label in ("Replace", "Cancel"):
+                dialog = buttons[label]["action"]["dialog"]
+                assert dialog["rowData"] == {"session_id": "${row.session_id}", id_col: "${row.%s}" % id_col}, \
+                    f"{family} {label}: the chain's current ID rides as rowData"
+                assert dialog.get("submitPerRow") is True
+            assert "when" not in buttons["New"].get("enable", {}) and "minSelected" not in buttons["New"]["enable"]
+            assert buttons["Replace"]["unit"] == "row" and buttons["Cancel"]["enable"]["minSelected"] == 1
+            assert id_col in toml_config["tables"][table]["columns"]
+
+    def test_replace_and_clone_prefill_every_new_field(self, app_config):
+        """Replace and Clone open the New form prefilled from the row (the
+        session read-only on Replace, editable on Clone); Clone carries no
+        Template pick, whose remembered fill would overwrite the row."""
+        for family, (table, id_col, send, replace, cancel) in self.FAMILIES.items():
+            new = _find_dialog(app_config, send)
+            new_fields = _dialog_field_names(new) - {"_template"}
+            clone = _clone_button(app_config, f"market-{family}-blotter")["action"]["dialog"]
+            assert _dialog_field_names(clone) == new_fields, family
+            assert clone["fields"][0].get("name") != "_template", family
+            rep = _find_dialog(app_config, replace)
+            assert _dialog_field_names(rep) - {"_template"} == new_fields - {"session_id"}, family
+            assert rep["fields"][0]["name"] == "_template"
+            assert {"label": "Session", "type": "readonly", "value": "${row.session_id}"} in rep["fields"]
+            for name, f in self._fields(rep).items():
+                if name not in ("_template", "save_as", "text"):
+                    assert "${row." in str(f.get("value", "")), f"{family} Replace does not prefill {name}"
+            assert "value" not in self._fields(rep)["text"], f"{family} Replace: Text belongs to one message"
+            for name, f in self._fields(clone).items():
+                if name != "save_as":
+                    assert "${row." in str(f.get("value", "")), f"{family} Clone does not prefill {name}"
+            assert self._fields(clone)["text"]["value"] == (
+                "${row.sent_text}" if family == "allocation" else "${row.text}"), f"{family} Clone: the row's own Text"
+
+    def test_received_blotters_answer_only_what_can_be_answered(self, app_config):
+        """No message answers an IOI or an advert: Received IOIs offers an
+        Order (the New Order dialog with the IOI's ID in tag 23), Received
+        Adverts nothing but History. Received Allocations has Accept and
+        Reject over the request slot, the Received Orders way."""
+        panes = app_config["panes"]
+        assert [b["label"] for b in panes["advert-blotter"]["buttons"]] == ["History"]
+        order, history = panes["ioi-blotter"]["buttons"]
+        assert order["label"] == "Order" and history["label"] == "History"
+        dialog = order["action"]["dialog"]
+        assert dialog["submit"]["op"] == "send_new_order" and dialog["fields"][0].get("name") != "_template"
+        fields = self._fields(dialog)
+        assert fields["extra_tags"]["value"] == "23=${row.ioi_id}"
+        assert fields["symbol"]["value"] == "${row.symbol}" and fields["side"]["value"] == "${row.side_code}"
+        assert fields["qty"]["value"] == "${row.ioi_qty}" and fields["price"]["value"] == "${row.price}"
+        assert fields["session_id"]["value"] == "${row.session_id}" and fields["session_id"]["type"] == "select"
+        assert "expire_time" in fields and "value" not in fields["expire_time"]
+        assert _conditions(order["enable"]["when"]) == {"session_status": ["ACTIVE"]}, "any IOI, even a canceled one"
+
+        accept, reject, history = panes["allocation-blotter"]["buttons"]
+        assert (accept["label"], reject["label"], history["label"]) == ("Accept", "Reject", "History")
+        for button in (accept, reject):
+            assert _conditions(button["enable"]["when"]) == {
+                "pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
+            dialog = button["action"]["dialog"]
+            assert dialog["rowData"] == {"session_id": "${row.session_id}", "alloc_id": "${row.alloc_id}"}
+            fields = self._fields(dialog)
+            assert fields["extra_tags"]["value"] == "${row.pending_extra_tags}", "inbound tags echo on the Ack"
+            assert fields["alloc_status"]["type"] == "select" and fields["alloc_status"]["required"] is True
+        assert accept["action"]["dialog"]["submit"]["op"] == "accept_allocation"
+        assert reject["action"]["dialog"]["submit"]["op"] == "reject_allocation"
+        assert "alloc_rej_code" in self._fields(reject["action"]["dialog"])
+        assert "alloc_rej_code" not in self._fields(accept["action"]["dialog"])
+
+    def test_allocate_opens_the_allocation_form_from_the_received_order(self, app_config):
+        """The market side allocates the order it received and filled."""
+        button = next(b for b in app_config["panes"]["market-order-blotter"]["buttons"] if b["label"] == "Allocate")
+        assert [b["label"] for b in app_config["panes"]["market-order-blotter"]["buttons"]][-2:] == ["Allocate", "History"]
+        dialog = button["action"]["dialog"]
+        assert dialog["submit"]["op"] == "send_allocation" and dialog["fields"][0].get("name") != "_template"
+        assert _dialog_field_names(dialog) == _dialog_field_names(_find_dialog(app_config, "send_allocation")) - {"_template"}
+        fields = self._fields(dialog)
+        assert fields["qty"]["value"] == "${row.cum_qty}" and fields["avg_price"]["value"] == "${row.avg_price}"
+        assert fields["symbol"]["value"] == "${row.symbol}" and fields["side"]["value"] == "${row.side_code}"
+        assert fields["orders"]["value"] == "${row.cl_ord_id},${row.order_id}"
+        assert fields["client"]["value"] == "${row.client}" and fields["session_id"]["value"] == "${row.session_id}"
+        assert "value" not in fields["allocs"] and fields["allocs"]["required"] is True
+        assert button["unit"] == "row"
+
+    def test_group_fields_are_textareas_of_lines(self, app_config):
+        for op in ("send_allocation", "replace_allocation"):
+            fields = self._fields(_find_dialog(app_config, op))
+            for name, counter in (("orders", "73"), ("execs", "124"), ("allocs", "78")):
+                assert fields[name]["type"] == "textarea" and f"({counter}:" in fields[name]["label"], (op, name)
+                assert "one per line" in fields[name]["label"]
+            assert fields["allocs"]["required"] is True
+
+    def test_dropdown_codes_are_dictionary_values(self, app_config):
+        """The hand-listed codes (side, AdvSide, quality, AllocType,
+        AllocStatus, AllocRejCode) are values some standard dictionary
+        defines; a version note marks the ones not in every version."""
+        from mkfix.fix.dictionary import FixDictionary, STANDARD_VERSIONS
+        dictionaries = {v: FixDictionary(v) for v in STANDARD_VERSIONS}
+        lists = {("send_ioi", "side"): "54", ("send_advert", "side"): "4", ("send_ioi", "qlty_ind"): "25",
+                 ("send_allocation", "side"): "54", ("send_allocation", "alloc_type"): "626",
+                 ("accept_allocation", "alloc_status"): "87", ("reject_allocation", "alloc_status"): "87",
+                 ("reject_allocation", "alloc_rej_code"): "88"}
+        for (op, name), tag in lists.items():
+            field = self._fields(_find_dialog(app_config, op))[name]
+            assert field["type"] == "select", (op, name)
+            values = [o["value"] for o in field["options"]]
+            assert len(values) == len(set(values)), (op, name)
+            for option in field["options"]:
+                value = option["value"]
+                if value == "":
+                    assert "withhold" in option["label"] or "unset" in option["label"], (op, name)
+                    continue
+                assert option["label"].startswith(value + " - "), (op, name, value)
+                defining = [v for v, d in dictionaries.items() if d.has_enum(tag, value)]
+                assert defining, f"{op} {name} offers {value!r}, not a value of tag {tag} anywhere"
+                if len(defining) < len(dictionaries):
+                    assert "FIX" in option["label"], f"{op} {name} {value!r} is not in every version: say so"
+        natural = self._fields(_find_dialog(app_config, "send_ioi"))["natural_flag"]
+        assert [o["value"] for o in natural["options"]] == ["", "Y", "N"]
+
+    def test_history_columns_are_the_chains_terms(self, app_config, toml_config):
+        for family, (table, id_col, *_) in self.FAMILIES.items():
+            columns = set(toml_config["tables"][table]["columns"])
+            for pane_id in (f"{family}-blotter", f"market-{family}-blotter"):
+                h = app_config["panes"][pane_id]["history"]
+                assert set(h["columns"]) <= columns, pane_id
+                assert {id_col, "status", "text", "extra_tags"} <= set(h["columns"]), pane_id
+                assert "session_id" not in h["columns"] and "raw_message" not in h["columns"], pane_id
+
+    def test_blotters_show_the_chain_and_open_on_today(self, app_config):
+        for family, (table, id_col, *_) in self.FAMILIES.items():
+            for pane_id in (f"{family}-blotter", f"market-{family}-blotter"):
+                spec = app_config["panes"][pane_id]
+                assert spec["visible"][:2] == [id_col, self.REF_COLS[family]], pane_id
+                assert {"status", "text", "extra_tags", "updated_at", "client"} <= set(spec["visible"]), pane_id
+                assert spec["filters"] == {"updated_at": {"preset": "today"}}, pane_id
+                assert "raw_message" not in spec["visible"] and "session_status" not in spec["visible"]
+        for pane_id in ("allocation-blotter", "market-allocation-blotter"):
+            visible = app_config["panes"][pane_id]["visible"]
+            assert {"pending_action", "pending_alloc_id", "alloc_status", "alloc_rej_reason", "allocs"} <= set(visible)
+        for pane_id in ("order-blotter", "market-order-blotter"):
+            spec = app_config["panes"][pane_id]
+            assert "ioi_id" in spec["columns"] and "ioi_id" not in spec["visible"], "the IOI an order answers, on request"
+
+    def test_the_old_viewers_and_the_to_do_menu_are_gone(self, app_config):
+        """Replay Control, the last To Do item, has no side — Start asks the
+        direction each time — so it lives on the FIX menu with the sessions
+        and the wire it plays into."""
+        assert not {"ioi-viewer", "allocation-viewer"} & set(app_config["panes"])
+        assert "To Do" not in {m["label"] for m in app_config["menubar"]}
+        fix = next(m for m in app_config["menubar"] if m["label"] == "FIX")
+        assert fix["items"][-1] == {"label": "Replay Control", "action": "pane.show", "args": "replay-control"}
+        assert fix["items"][-2] == {"sep": True}

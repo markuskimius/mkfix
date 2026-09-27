@@ -428,10 +428,11 @@ class TestWriting:
         assert sc.blocks[0].body[0].terms[0].value.node.value == text
 
     def test_every_verb_is_recorded_under_its_op(self):
-        from mkfix.fix.actions import ACTIONS
+        from mkfix.fix.actions import ACTIONS, UNSCRIPTED
         from mkfix.macro.recorder import _VERB_OF
         from mkfix.macro import vocab
-        assert set(_VERB_OF) == set(ACTIONS), "an action the recorder cannot name would be dropped silently"
+        assert set(_VERB_OF) == set(ACTIONS) - UNSCRIPTED, \
+            "an action the recorder cannot name would be dropped silently (UNSCRIPTED lists the ones it may)"
         assert set(_VERB_OF.values()) == set(vocab.VERBS)
 
 

@@ -5,6 +5,9 @@ Type codes identify the ID kind at a glance:
     OR  immutable Order ID
     EX  ExecID on ExecutionReports mkfix sends
     TR  immutable Trade ID grouping a fill with its corrections/busts
+    IO  IOIID on IOIs mkfix sends (a Replace or Cancel mints the next)
+    AD  AdvId on Advertisements mkfix sends
+    AL  AllocID on AllocationInstructions mkfix sends
 
 The instance code is the first two characters of the username, uppercased and
 padded with trailing X's, so concurrent mkfix users facing the same

@@ -43,6 +43,7 @@ ALIASES: dict[str, str] = {
     "trades": "fix_executions",
     "executions": "fix_executions",
     "iois": "fix_iois",
+    "adverts": "fix_adverts",
     "allocations": "fix_allocations",
     "sessions": "fix_sessions",
     "dictionaries": "fix_dictionaries",
@@ -121,7 +122,7 @@ def _parser(cmd: str) -> argparse.ArgumentParser:
                             + ", ".join(ALIASES) + " (default: the data group; "
                             "overrides --group)")
         p.add_argument("--group", default=None, metavar="{data,config}",
-                       help="archive one group: data (messages, orders, trades, iois, "
+                       help="archive one group: data (messages, orders, trades, iois, adverts, "
                             "allocations, macro_runs, macro_orders, macro_log; the default) or config (the rest). Most config "
                             "tables are archived whole, whatever the cutoff")
         p.add_argument("--all", action="store_true",
