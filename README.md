@@ -280,7 +280,12 @@ A FIX protocol testing engine for capital markets connectivity, built on
   you pressed Stop; Export writes the colons as dots). It is triggered by events, not the clock: each action waits for
   what you heard before you took it, a request you always answered the same
   way becomes a `when` handler, and time is written only where nothing came
-  between two of your actions (or everywhere, with **Keep my delays**). Macros are versioned
+  between two of your actions (or everywhere, with **Keep my delays**). **Macro…** on a
+  blotter needs no recording: select orders that have already been through
+  their lives -- worked by hand, by a macro, or by Message Replay -- and it
+  writes the macro that would have played your side's part, read back from
+  the messages kept, by the recorder's rules; the same for the IOIs, adverts
+  and allocations you sent and the allocations and IOIs you answered. Macros are versioned
   like sessions, so every Save is kept: **History** in an editor lists the
   versions with the runs that used each, shows one against the macro as
   saved now, and **Restore** brings it back as an unsaved edit. A macro can do more than the blotter

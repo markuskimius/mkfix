@@ -175,7 +175,7 @@ registerWidget("macro-status", (spec, app, host) => {
     poll();
     if (!args?.name || !SIDES.includes(args.side)) return;
     app.fireAction("pane.show", `${args.side}-macros`);
-    app.state.set("open_macro", { name: args.name, side: args.side });
+    app.state.set("open_macro", { name: args.name, side: args.side, from: args.from ?? "recording" });
   });
 
   app.state.subscribe("mkio.connected", (connected) => {

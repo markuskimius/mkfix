@@ -466,6 +466,8 @@ class TestHelpPages:
             buttons = [b["label"] for b in app["panes"][pane]["buttons"]]
             assert set(named) <= set(buttons), (heading, set(named) - set(buttons))
             assert set(buttons) - set(named) <= {"History"}, (heading, set(buttons) - set(named))
+            if "Macro…" in buttons:
+                assert "Macro…" in named, heading
         # session statuses are the engine's
         engine = (ROOT / "mkfix" / "fix" / "session.py").read_text(encoding="utf-8") \
             + (ROOT / "mkfix" / "fix" / "engine.py").read_text(encoding="utf-8")
@@ -885,6 +887,26 @@ class TestWiring:
         # … and its tooltip says the same: worded by the side it named the dialog the click did not open
         assert "checked.sends ? `Run… — " in pane and ": `Arm… — " in pane
         assert "startWord" not in pane and 'side === "client" ? `' not in pane
+
+    def test_a_macro_written_from_history_opens_in_its_editor_and_says_so(self):
+        """The blotters' Macro… dialog fires `macro.recorded` like Stop
+        recording does, with `from: "history"`: the status bar's action hands
+        it on and the editor words its status line by it."""
+        status = (STATIC / "macro-status.js").read_text(encoding="utf-8")
+        assert 'app.state.set("open_macro", { name: args.name, side: args.side, from: args.from ?? "recording" });' in status
+        editor = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
+        assert '${wanted.from === "history" ? "Written from history" : "Recorded"} as ${wanted.name}' in editor
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        fired = [b["action"]["dialog"]["submit"]["then"] for pane in app["panes"].values() for b in pane.get("buttons", [])
+                 if b.get("label") == "Macro…"]
+        assert len(fired) == 7 and all(t["action"] == "macro.recorded" and t["args"]["from"] == "history" for t in fired)
+        assert app["dialogs"]["stop_recording"]["submit"]["then"]["args"].get("from") is None, "a recording is the default"
+        # the help says where the button is and what it writes
+        text = (HELP / "macro-language.md").read_text(encoding="utf-8")
+        section = text.split("## From history\n", 1)[1].split("\n## ", 1)[0]
+        for said in ("**Macro…**", "Sent Orders and Received Orders", "Sent IOIs, Sent Adverts and Sent Allocations",
+                     "Received IOIs and Received Allocations", "**Keep the delays**", "Message Replay", "archived"):
+            assert said in section, said
 
     def test_the_examples_page_can_set_up_the_sessions_its_examples_name(self):
         from mkfix.macro.store import EXAMPLES, LOOPBACK

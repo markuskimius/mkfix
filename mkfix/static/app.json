@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.66",
+    "version": "0.67",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -798,7 +798,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.66"
+        "text": "mkfix v0.67"
       }
     ],
     "bindStyle": {
@@ -2772,6 +2772,86 @@
               "pane": "order-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' orders'), row.cl_ord_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "client"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "order"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.cl_ord_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The order, each replace, cancel and DK you sent becomes an action, and each report you heard an `expect`."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Client Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "client",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -4030,6 +4110,86 @@
               "pane": "market-ioi-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' IOIs'), row.ioi_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "ioi"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.ioi_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The IOI, each replace and its cancel become actions, spaced as they were."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -4791,6 +4951,86 @@
             "name": "table.history",
             "args": {
               "pane": "market-advert-blotter"
+            }
+          }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' adverts'), row.adv_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "advert"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.adv_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The advert, each replace and its cancel become actions, spaced as they were."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
             }
           }
         }
@@ -5760,6 +6000,86 @@
             "name": "table.history",
             "args": {
               "pane": "market-allocation-blotter"
+            }
+          }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' allocations'), row.alloc_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "allocation"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.alloc_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The allocation, each replace and cancel you sent becomes an action, and each Ack you heard an `expect`."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
             }
           }
         }
@@ -6982,6 +7302,86 @@
               "pane": "market-order-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' orders'), row.cl_ord_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "order"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.cl_ord_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. Each answer you gave — accept, reject, fill, correct, bust — becomes an action, run when what it answered comes."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -8076,6 +8476,86 @@
               "pane": "ioi-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' IOIs'), row.ioi_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "client"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "ioi"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.ioi_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The orders you sent against the IOI become `new` actions in an `on ioi` block."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Client Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "client",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -8777,6 +9257,86 @@
             "name": "table.history",
             "args": {
               "pane": "allocation-blotter"
+            }
+          }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' allocations'), row.alloc_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "client"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "allocation"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.alloc_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. Each Ack you sent — accept or reject — becomes an action, run when what it answered comes."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Client Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "client",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
             }
           }
         }
@@ -11509,7 +12069,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.66",
+      "version": "0.67",
       "mkio": "1.5",
       "expr": "2"
     },

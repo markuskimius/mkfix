@@ -517,14 +517,15 @@ class TestServiceReferences:
         a reorder that swaps actions under the labels would be worse than the
         old order."""
         buttons = app_config["panes"]["order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["New", "Clone", "Replace", "Cancel", "History"]
+        assert [b["label"] for b in buttons] == ["New", "Clone", "Replace", "Cancel", "History", "Macro…"]
         ops = {
             b["label"]: b["action"].get("op")
             or b["action"]["dialog"]["submit"]["op"]
             for b in buttons if b["action"]["type"] != "action"
         }
         assert ops == {"New": "send_new_order", "Clone": "send_new_order",
-                       "Replace": "send_cancel_replace", "Cancel": "send_cancel"}
+                       "Replace": "send_cancel_replace", "Cancel": "send_cancel",
+                       "Macro…": "macro_from_history"}
 
     def test_order_blotters_show_the_request_slot(self, app_config, toml_config):
         """Both sides show what is pending and under which ClOrdID — the
@@ -594,7 +595,7 @@ class TestServiceReferences:
         pending request must not block them on the still-working order."""
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
         assert [b["label"] for b in buttons] == \
-            ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Clone", "Allocate", "History"]
+            ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Clone", "Allocate", "History", "Macro…"]
         by = {b["label"]: b for b in buttons}
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
         assert _conditions(by["Accept"]["enable"]["when"]) == pending
@@ -656,8 +657,8 @@ class TestServiceReferences:
                 if button["action"]["type"] == "action":
                     continue
                 dialog = button["action"]["dialog"]
-                if dialog["submit"]["service"] != "fix_cmd":
-                    continue
+                if dialog["submit"]["service"] != "fix_cmd" or dialog["submit"]["op"] == "macro_from_history":
+                    continue                     # Macro… writes a macro: it sends nothing
                 names = _dialog_field_names(dialog)
                 assert "extra_tags" in names, \
                     f"{pane_id} {button['label']} dialog must offer extra_tags"
@@ -1914,6 +1915,89 @@ def _mkui_floor() -> tuple[int, ...]:
     return _dependency_floor("mkui")
 
 
+class TestMacroFromHistory:
+    """Macro… on a blotter writes the macro that would have played this
+    side's part in what the selected rows have been through. One dialog
+    for the whole selection: the rows go as a list, and the side and the
+    subject are the blotter's."""
+
+    PANES = {"order-blotter": ("client", "order", "cl_ord_id"), "market-order-blotter": ("market", "order", "cl_ord_id"),
+             "market-ioi-blotter": ("market", "ioi", "ioi_id"), "market-advert-blotter": ("market", "advert", "adv_id"),
+             "market-allocation-blotter": ("market", "allocation", "alloc_id"),
+             "ioi-blotter": ("client", "ioi", "ioi_id"), "allocation-blotter": ("client", "allocation", "alloc_id")}
+
+    def test_the_blotters_that_have_it(self, app_config):
+        have = {pane for pane, spec in app_config["panes"].items()
+                if any(b.get("label") == "Macro…" for b in spec.get("buttons", []))}
+        assert have == set(self.PANES), "not the trade blotters (a trade is its order's), nor Received Adverts (nothing answers one)"
+
+    @pytest.mark.parametrize("pane", sorted(PANES))
+    def test_the_dialog_submits_the_selection_whole(self, app_config, pane):
+        from mkfix.macro import vocab
+        side, subject, id_col = self.PANES[pane]
+        spec = app_config["panes"][pane]
+        button = next(b for b in spec["buttons"] if b["label"] == "Macro…")
+        assert spec["buttons"][[b["label"] for b in spec["buttons"]].index("Macro…") - 1]["label"] == "History"
+        # any row, whatever its session is doing: nothing is sent
+        assert button["enable"] == {"connected": True, "minSelected": 1} and "unit" not in button
+        dialog = button["action"]["dialog"]
+        assert "submitPerRow" not in dialog and "rowData" not in dialog and "modal" not in dialog and "pin" not in dialog
+        fields = {f["name"]: f for f in dialog["fields"] if f.get("name")}
+        # `row_ids`, not `rows`: a field's name is a name in the form's scope, where `rows` is the selection
+        assert list(fields) == ["side", "subject", "row_ids", "save", "name", "delays"]
+        assert [fields[n]["value"] for n in ("side", "subject", "save")] == [side, subject, "1"]
+        assert fields["row_ids"] == {"name": "row_ids", "type": "hidden", "value": "${JOIN(MAP(rows, r -> r.id), ',')}"}
+        assert not {"row", "rows", "cell", "cells", "selection", "state", "form"} & set(fields), "shadowed, the templates read the field"
+        assert "id" in spec["columns"], "the rows are named by their row id"
+        assert (subject == vocab.ORDER) == (side == "client") or spec["filter"] == "direction == 'RX'" or "TX" in spec["filter"]
+        assert spec["filter"] == f"direction == '{'TX' if (subject == 'order') == (side == 'client') else 'RX'}'"
+        assert vocab.SUBJECT_IDS[subject] == id_col and f"row.{id_col}" in dialog["title"] and f"row.{id_col}" in fields["name"]["value"]
+        assert fields["name"]["required"] is True and fields["delays"] == {
+            "name": "delays", "label": "Keep the delays", "type": "checkbox", "value": False}
+        assert dialog["submit"] == {"label": "Write macro", "service": "fix_cmd", "op": "macro_from_history",
+                                    "then": {"action": "macro.recorded",
+                                             "args": {"side": side, "name": "${name}", "from": "history"}}}
+        notes = [f["value"] for f in dialog["fields"] if f.get("type") == "readonly"]
+        assert f"The macro opens in {side.capitalize()} Macros." in notes[-1]
+
+    def test_no_dialog_names_a_field_after_what_it_was_opened_on(self, app_config):
+        """A field's name is a name in the form's scope, where it hides the
+        opening context of the same name from every template of the
+        dialog. mkui warns in the console since 1.20; nobody reads the
+        console of a test run, so every dialog is held to it here."""
+        names = {"row", "rows", "cell", "cells", "selection", "state"}
+        try:
+            source = TestHelpMenu._mkui_source("widgets", "mkui-dialog.js")
+            listed = re.search(r"export const CONTEXT_NAMES = \[([^\]]*)\]", source)
+            if listed:                        # mkui 1.20 and later say which names they are
+                assert set(re.findall(r'"(\w+)"', listed.group(1))) == names
+        except OSError:
+            pass
+        dialogs = {f"dialogs.{name}": spec for name, spec in app_config["dialogs"].items()}
+        for pane_id, pane in app_config["panes"].items():
+            for button in pane.get("buttons", []):
+                dialog = button.get("action", {}).get("dialog")
+                if isinstance(dialog, dict):
+                    dialogs[f"{pane_id} {button['label']}"] = dialog
+        assert len(dialogs) > 50
+        for where, dialog in dialogs.items():
+            taken = names & _dialog_field_names(dialog)
+            assert not taken, f"{where}: a field named {sorted(taken)} hides the selection from the dialog's own templates"
+
+    def test_the_templates_say_what_they_should(self, app_config):
+        from mkio import expr
+        dialog = next(b for b in app_config["panes"]["market-order-blotter"]["buttons"] if b["label"] == "Macro…")["action"]["dialog"]
+        fields = {f["name"]: f for f in dialog["fields"] if f.get("name")}
+        one = {"rows": [{"id": 3, "cl_ord_id": "A1"}], "row": {"id": 3, "cl_ord_id": "A1"}}
+        three = {"rows": [{"id": n, "cl_ord_id": f"A{n}"} for n in (3, 7, 9)], "row": {"id": 3, "cl_ord_id": "A3"}}
+        said = lambda text, scope: expr.compile_template(text)(scope)  # noqa: E731
+        assert [said(fields["row_ids"]["value"], s) for s in (one, three)] == ["3", "3,7,9"]
+        assert [said(dialog["title"], s) for s in (one, three)] == ["Macro from A1", "Macro from 3 orders"]
+        assert [said(fields["name"]["value"], s) for s in (one, three)] == ["History of A1", "History of A3 and 2 more"]
+        from mkfix.macro.store import NAME
+        assert NAME.fullmatch("History of RTMA00000001 and 2 more")
+
+
 class TestHelpMenu:
     """The Help menu is two mkui message boxes built from config alone. mkui
     ignores what it does not know — an `app.about` key, a dialog name, a
@@ -3133,8 +3217,9 @@ class TestFamilyBlotters:
     def test_sent_blotters_send_replace_and_cancel_the_chain(self, app_config, toml_config):
         for family, (table, id_col, send, replace, cancel) in self.FAMILIES.items():
             buttons = {b["label"]: b for b in app_config["panes"][f"market-{family}-blotter"]["buttons"]}
-            assert list(buttons) == ["New", "Clone", "Replace", "Cancel", "History"], family
-            ops = {label: b["action"]["dialog"]["submit"]["op"] for label, b in buttons.items() if label != "History"}
+            assert list(buttons) == ["New", "Clone", "Replace", "Cancel", "History", "Macro…"], family
+            ops = {label: b["action"]["dialog"]["submit"]["op"] for label, b in buttons.items()
+                   if label not in ("History", "Macro…")}
             assert ops == {"New": send, "Clone": send, "Replace": replace, "Cancel": cancel}, family
             for label in ("Replace", "Cancel"):
                 dialog = buttons[label]["action"]["dialog"]
@@ -3176,8 +3261,8 @@ class TestFamilyBlotters:
         Reject over the request slot, the Received Orders way."""
         panes = app_config["panes"]
         assert [b["label"] for b in panes["advert-blotter"]["buttons"]] == ["History"]
-        order, history = panes["ioi-blotter"]["buttons"]
-        assert order["label"] == "Order" and history["label"] == "History"
+        order, history, written = panes["ioi-blotter"]["buttons"]
+        assert (order["label"], history["label"], written["label"]) == ("Order", "History", "Macro…")
         dialog = order["action"]["dialog"]
         assert dialog["submit"]["op"] == "send_new_order" and dialog["fields"][0].get("name") != "_template"
         fields = self._fields(dialog)
@@ -3188,7 +3273,7 @@ class TestFamilyBlotters:
         assert "expire_time" in fields and "value" not in fields["expire_time"]
         assert _conditions(order["enable"]["when"]) == {"session_status": ["ACTIVE"]}, "any IOI, even a canceled one"
 
-        accept, reject, history = panes["allocation-blotter"]["buttons"]
+        accept, reject, history, _written = panes["allocation-blotter"]["buttons"]
         assert (accept["label"], reject["label"], history["label"]) == ("Accept", "Reject", "History")
         for button in (accept, reject):
             assert _conditions(button["enable"]["when"]) == {
@@ -3210,7 +3295,7 @@ class TestFamilyBlotters:
         total and their average onto the form; remembered, so the next open
         fills at once."""
         button = next(b for b in app_config["panes"]["market-order-blotter"]["buttons"] if b["label"] == "Allocate")
-        assert [b["label"] for b in app_config["panes"]["market-order-blotter"]["buttons"]][-2:] == ["Allocate", "History"]
+        assert [b["label"] for b in app_config["panes"]["market-order-blotter"]["buttons"]][-3:] == ["Allocate", "History", "Macro…"]
         dialog = button["action"]["dialog"]
         assert dialog["submit"]["op"] == "send_allocation" and dialog["fields"][0].get("name") != "_template"
         assert {n for n in _dialog_field_names(dialog) if not n.startswith("_")} == \

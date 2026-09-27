@@ -877,8 +877,9 @@ registerPaneType("macros", async (spec, app, host) => {
     if (!inst || inst.macro !== current || !inst.line) return;
     editor.gotoLine(inst.line, 0, true);
   });
-  // A recording stopped and saved from an order blotter: open it here. The
-  // row may still be on its way when the ask arrives, and may never come — a
+  // A recording stopped and saved from a blotter, or a macro written from
+  // a row's history there (`from: "history"`): open it here. The row may
+  // still be on its way when the ask arrives, and may never come — a
   // recording of nothing saves nothing.
   const unopen = app.state.subscribe("open_macro", async (wanted) => {
     if (!wanted || wanted.side !== side) return;
@@ -887,7 +888,7 @@ registerPaneType("macros", async (spec, app, host) => {
     if (!macros.has(wanted.name)) return status("Nothing was recorded, so nothing was saved", "error");
     await select(wanted.name);
     clearTimeout(checkTimer);
-    status(`Recorded as ${wanted.name} — a first draft: read it, and loosen what is too exact`, "ok");
+    status(`${wanted.from === "history" ? "Written from history" : "Recorded"} as ${wanted.name} — a first draft: read it, and loosen what is too exact`, "ok");
   });
   // The recording is the server's and the blotters can start and stop it too.
   const unrecording = app.state.subscribe(`macros.${side}`, (s) => {

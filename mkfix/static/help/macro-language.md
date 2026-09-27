@@ -304,6 +304,20 @@ You do not have to start from an empty page: **●** (record) — in an editor, 
 - The result is a first draft, literal about what happened. It checks clean and runs as it stands; then loosen it — a quantity into `order.leaves_qty / 2`, a run of `expect fill` lines into `wait filled`, the `where` into the orders you mean. It expects exactly the events it heard, in their order: a venue that answers differently — three fills where there were two — fails or stalls it, which is what a regression test should do and not what a general-purpose macro should.
 - Not recorded: orders already under way when recording began, orders a macro owns, and an arrival you never touched. The recording lives in the server, so it goes on if you close the editor, and ends with nothing written if the server stops.
 
+## From history
+
+A recording has to be on while you work. **Macro…**, on a blotter, needs nothing beforehand: select an order that has already been through its life — or several — and it writes the macro that would have played your side's part in it, from the messages mkfix kept.
+
+- It is on Sent Orders and Received Orders, on Sent IOIs, Sent Adverts and Sent Allocations, and on Received IOIs and Received Allocations. The macro is for the blotter's side, and opens in that side's editor under the name you give it.
+- What comes out reads as a recording of the same thing would, by the same rules: each action runs when what it answered comes, a request answered the same way every time is a `when` rule, and time is written only where nothing came between two actions. **Keep the delays** writes the time each answer took as well.
+- On the market side every ExecutionReport and OrderCancelReject you sent on the order becomes the action that sends it — `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` — and each request and dispute of the client's is what they wait for. On the client side the order, its replaces, cancels and DKs are the actions, and every report heard is an `expect`.
+- A sent IOI, advert or allocation is a `run` block with its replaces and cancel; a received allocation an `on allocation` block with the Ack you gave; a received IOI an `on ioi` block with the orders you sent against it.
+- An allocation's trade date is written only when one was given. Sent without, it went out with the day's own, which a macro should not repeat for ever; a recording leaves it out too.
+- Extra tags are the tags a message carried beyond the ones mkfix writes itself, and the client is left to the session's client tag, so neither is written twice.
+- It does not matter who worked the order: by hand, by a macro, or by Message Replay — which is how a day's log, replayed once, becomes a macro you can run again.
+- A report the language has no action for — a PendingCancel, an Expired — is left out, and the macro's header says so. An order nothing was done to is no block, and if nothing is left to write nothing is saved.
+- The messages are the source. An order whose messages have been archived cannot be written from.
+
 ## Running
 
 - **▶** in the editor opens **Run…** for a macro with a `run` block and **Arm…** for one that only waits, in either editor; both ask for a session, a speed (2 runs the macro's waits twice as fast — mind that real answers do not get faster) and a seed (blank: the macro's `seed`, or a random one, shown in Macro Runs so a run can be repeated).

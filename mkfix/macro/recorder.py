@@ -72,6 +72,7 @@ class _Step:
     terms: dict[str, Any] = field(default_factory=dict)
     trade: dict[str, Any] | None = None
     stamp: str = ""
+    target: str = ""               # the trade target already worked out (a macro from history)
 
 
 @dataclass
@@ -94,7 +95,7 @@ class Recorder:
             raise ValueError(f"A recording is of the client side or the market side, not {side!r}")
         self.engine, self.side, self.session, self.clock = engine, side, session, clock
         self.delays = delays            # write the time taken to answer an event too; settable until `stop`
-        self.timelines: dict[int, _Timeline] = {}
+        self.timelines: dict[tuple[str, int], _Timeline] = {}
         self.started = clock()
         self.started_at = _fix_timestamp()
         self._unsubscribe: Callable[[], None] | None = engine.events.subscribe(self._on_event)
@@ -184,21 +185,32 @@ class Recorder:
         # nothing done — is no block: a block needs a line.
         lines = [line for line in self.timelines.values()
                  if line.sent or any(s.kind == "did" for s in line.steps)]
+        stamp = self.started_at
+        return await self._write(
+            lines, f"recorded {stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} {stamp[9:17]} UTC",
+            nothing="# Nothing was recorded: no order "
+                    + ("arrived and was worked" if self.side == "market" else "was sent by hand") + " while recording.")
+
+    async def _write(self, lines: list[_Timeline], how: str, nothing: str, notes: tuple[str, ...] = (),
+                     took: str = "you took") -> dict[str, Any]:
+        """The timelines as a macro: `{source, orders, actions}`. ``how``
+        says where they came from, in the header's first line; ``notes`` are
+        further header lines, and ``nothing`` the one for no timelines."""
+        actions = sum(1 for line in lines for s in line.steps if s.kind == "did")
         sessions = sorted({line.order["session_id"] for line in lines})
         counts = {subject: sum(1 for line in lines if line.subject == subject) for subject in vocab.SUBJECTS}
-        what = ", ".join(f"{n} {vocab.PLURALS[subject] if n != 1 else subject}"
+        what = ", ".join(f"{n} {vocab.PLURALS[subject] if n != 1 else vocab.PLURALS[subject][:-1]}"     # 1 IOI, not 1 ioi
                          for subject, n in counts.items() if n) or "0 orders"
-        head = [f"# {self.side.capitalize()} side, recorded {self.started_at[:4]}-{self.started_at[4:6]}-{self.started_at[6:8]} "
-                f"{self.started_at[9:17]} UTC" + (f" on {', '.join(sessions)}" if sessions else "")
-                + f": {what}, {self.actions} action{'s' if self.actions != 1 else ''}.",
+        head = [f"# {self.side.capitalize()} side, {how}" + (f" on {', '.join(sessions)}" if sessions else "")
+                + f": {what}, {actions} action{'s' if actions != 1 else ''}.",
                 "# A first draft, literal about what happened: read it, and loosen what is too exact —",
                 "# a quantity, a bound, the `where`. It checks clean, so it runs as it stands.",
-                ("# Each action runs when what it answered comes, after the time you took to answer it."
+                (f"# Each action runs when what it answered comes, after the time {took} to answer it."
                  if self.delays else
-                 "# Each action runs the moment what it answered comes; `after` is only where nothing came between two."), ""]
+                 "# Each action runs the moment what it answered comes; `after` is only where nothing came between two."),
+                *notes, ""]
         if not lines:
-            head += ["# Nothing was recorded: no order "
-                     + ("arrived and was worked" if self.side == "market" else "was sent by hand") + " while recording.", ""]
+            head += [nothing, ""]
             return {"source": "\n".join(head), "orders": 0, "actions": 0}
         blocks: list[str] = []
         for subject in vocab.SUBJECTS:
@@ -208,7 +220,7 @@ class Recorder:
             blocks += await self._sent_blocks(mine, subject) if self._sends(subject) \
                 else await self._received_blocks(mine, subject)
         return {"source": "\n".join(head) + "\n" + "\n\n".join(blocks) + "\n", "orders": len(lines),
-                "actions": self.actions}
+                "actions": actions}
 
     async def _body(self, line: _Timeline, since: float) -> list[str]:
         """One order's statements. What happened decides when the next thing
@@ -300,7 +312,7 @@ class Recorder:
     async def _action(self, line: _Timeline, step: _Step) -> str:
         parts = [step.name]
         if vocab.VERBS[step.name].trade:
-            parts.append(await self._target(line, step))
+            parts.append(step.target or await self._target(line, step))
         terms = ", ".join(f"{k}: {_value(step.name, k, v)}" for k, v in step.terms.items())
         # `trade where EXPR` ends at a comma; `last trade` and a plain verb run straight into the terms.
         joint = ", " if " where " in parts[-1] else " "
@@ -387,8 +399,12 @@ class Recorder:
             return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["quantity"], "price": o["price"] or None,
                     "currency": o["currency"], "trade_date": o["trade_date"], "last_mkt": o["last_mkt"],
                     "client": o.get("client"), "text": o["text"], "extra": o["extra_tags"]}
+        # An allocation sent without a trade date goes out with the day's: written down, the
+        # macro would send that day's for ever. The day it was sent is no term; any other was given.
+        sent_on = str(o.get("transact_time") or o.get("timestamp") or "")[:8]
         return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["quantity"], "avg_price": o["avg_price"] or None,
-                "trade_date": o["trade_date"], "alloc_type": o["alloc_type_code"], "orders": o["orders"],
+                "trade_date": o["trade_date"] if o["trade_date"] != sent_on else "",
+                "alloc_type": o["alloc_type_code"], "orders": o["orders"],
                 "execs": o["execs"], "accounts": o["allocs"], "client": o.get("client"), "text": o["sent_text"],
                 "extra": o["extra_tags"]}
 

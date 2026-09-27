@@ -583,6 +583,39 @@ class MacroManager:
             result["saved"] = True
         return result
 
+    async def from_history(self, side: str, subject: str, rows: Any, name: str = "", save: bool = False,
+                           delays: bool = False) -> dict[str, Any]:
+        """The macro that would have played this side's part in what these
+        rows have been through (`history.FromHistory`), from the messages
+        kept. With ``save`` it is kept under ``name``: refused before
+        anything is read if the name is taken, and if there is nothing to
+        write — a macro with no block is not worth a name."""
+        from .history import FromHistory
+        side = self._side(side)
+        name = " ".join(str(name).split())
+        ids = [int(r) for r in (rows if isinstance(rows, (list, tuple)) else str(rows or "").split(",")) if str(r).strip()]
+        if not side and ids and subject in vocab.SUBJECT_TABLES:
+            # The side that sent or received the first of them: the client
+            # side sends orders and receives the rest, the market side the other way round.
+            held = await self._fetch(f"SELECT direction FROM {vocab.SUBJECT_TABLES[subject]} WHERE id = ?", (ids[0],))
+            sent = bool(held) and held[0]["direction"] == "TX"
+            side = "client" if (subject == vocab.ORDER) == sent else "market"
+        if save:
+            if not NAME.fullmatch(name):
+                raise ValueError(f"{name!r} cannot name a macro: letters, digits, spaces, `.`, `_`, `-` and `:` only, "
+                                 "starting with a letter or digit")
+            if await self._fetch("SELECT 1 FROM fix_macros WHERE name = ?", (name,)):
+                raise ValueError(f"A macro is already called {name!r}: choose another name")
+        await self.flush()
+        result = await FromHistory(self.engine, side, delays=delays).write(subject, ids)
+        result.update(name=name, side=side, saved=False)
+        if save:
+            if not result["orders"]:
+                raise ValueError("Nothing to write a macro from: " + ("; ".join(result["left_out"]) or "no messages"))
+            await self.save(name, result["source"], side)
+            result["saved"] = True
+        return result
+
     def status(self) -> dict[str, Any]:
         """Both sides' recordings in one answer, for the status bar's poll."""
         return {side: self.record_status(side) for side in vocab.MACRO_SIDES}

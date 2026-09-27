@@ -192,8 +192,6 @@ class TestRecording:
                                allocs="A 60; B 40", orders="C1 O1"))["alloc_id"]
         await hand.do("accept_allocation", 0.5, session_id="LOOP-CLI", alloc_id=alloc, alloc_status="0")
         source = (await recorder.stop("desk"))["source"]
-        from mkfix.fix.message import _fix_timestamp
-        today = _fix_timestamp()[:8]
         assert body(source) == [
             "run",
             "    ioi symbol: 'IBM', side: buy, qty: 'L', price: 10.5, quality: high, qualifiers: 'A,X'",
@@ -202,12 +200,21 @@ class TestRecording:
             "    after 1s",
             "    cancel ioi text: 'done'",
             "run",
-            f"    allocate symbol: 'IBM', side: buy, qty: 100, avg_price: 10, trade_date: '{today}', orders: 'C1 O1', "
-            "accounts: 'A 60; B 40'",
+            # no trade date was given, so none is written: the day's own would be sent for ever
+            "    allocate symbol: 'IBM', side: buy, qty: 100, avg_price: 10, orders: 'C1 O1', accounts: 'A 60; B 40'",
             "    expect accepted within 5s",
             "    pass"]
         sc, diags = macro.check(source, side="market")
         assert diags == [] and sc.needs_session
+
+    @pytest.mark.asyncio
+    async def test_a_trade_date_that_was_given_is_written(self, hand):
+        recorder = hand.recorder("market")
+        await hand.do("send_allocation", session_id="LOOP-MKT", symbol="IBM", side="1", qty=100, avg_price=10,
+                      allocs="A 100", trade_date="20260102")
+        source = (await recorder.stop("desk"))["source"]
+        assert body(source)[1] == ("    allocate symbol: 'IBM', side: buy, qty: 100, avg_price: 10, trade_date: '20260102', "
+                                   "accounts: 'A 100'")
 
     @pytest.mark.asyncio
     async def test_received_ones_become_on_blocks_with_the_answers_given(self, hand):

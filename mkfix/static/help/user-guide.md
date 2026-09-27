@@ -124,6 +124,7 @@ The order and trade blotters open on today's rows. Clear the *Today* chip to see
 | **Replace** | OrderCancelReplaceRequest, the form filled from the terms last accepted | the order is working, or filled |
 | **Cancel** | OrderCancelRequest | the order is working |
 | **History** | nothing; see [History](#history) | one order is selected |
+| **Macro…** | nothing; writes a macro, see [Macros](#macros) | any order is selected |
 
 A Replace or Cancel waits on the row as **Pending**, with the request's ClOrdID and terms beside it, until the counterparty answers:
 
@@ -160,6 +161,7 @@ A new order, a cancel request and a replace request all arrive the same way: as 
 | **Restate** | ExecutionReport Restated with new quantity and price | the same |
 | **Clone** | the order, sent out again as your own | one order is selected |
 | **Allocate** | AllocationInstruction for the order's fills | the session is active |
+| **Macro…** | nothing; writes a macro, see [Macros](#macros) | any order is selected |
 
 Things the buttons allow on purpose:
 
@@ -221,9 +223,9 @@ The market side sends these and the client side receives them, the other way rou
 
 | | Sent blotter | Received blotter |
 |---|---|---|
-| **IOIs** | New, Clone, Replace, Cancel | **Order**: a new order naming the IOI in tag 23 |
-| **Adverts** | New, Clone, Replace, Cancel | nothing to press |
-| **Allocations** | New, Clone, Replace, Cancel | **Accept**, **Reject** |
+| **IOIs** | New, Clone, Replace, Cancel, Macro… | **Order**: a new order naming the IOI in tag 23; Macro… |
+| **Adverts** | New, Clone, Replace, Cancel, Macro… | nothing to press |
+| **Allocations** | New, Clone, Replace, Cancel, Macro… | **Accept**, **Reject**, Macro… |
 
 - Nothing answers an IOI or an advert. A Replace or Cancel takes effect at once.
 - An allocation is answered with an AllocationInstructionAck. Until then a replace or cancel waits in the Pending column, the way an order's request does.
@@ -290,6 +292,7 @@ on order where symbol in ['IBM', 'MSFT']
 - Write one in **Client Macros** or **Market Macros**. The editor checks as you type and **Example…** opens a copy of a bundled one.
 - **▶** starts it: **Run…** for a macro that sends, **Arm…** for one that waits for something to arrive.
 - **●** records what you do by hand and writes the macro that would have done it.
+- **Macro…**, on a blotter, writes the macro from what has already happened: select the orders and it reads your side's part back from the messages kept.
 - Each side's **Macro Runs** window shows what is running, line by line, over its log.
 - The same four symbols sit on each blotter's toolbar, and the status bar says what the macros are doing.
 
