@@ -217,7 +217,9 @@ _EPILOG = """\
 commands:
   mkfix archive ...     move old rows out of the database into CSV files
   mkfix restore DIR     put an archive back (server stopped)
-  Each has its own help: mkfix archive -h, mkfix restore -h
+  mkfix check FILE...   check macro files, no server needed
+  mkfix run FILE        save a macro file on the running server and run it
+  Each has its own help: mkfix archive -h, mkfix restore -h, mkfix check -h, mkfix run -h
 
 examples:
   mkfix                 port 8080, mkfix.db, built-in config
@@ -230,12 +232,16 @@ examples:
 
 
 def main() -> None:
-    """CLI entry point. ``mkfix archive`` and ``mkfix restore`` are
-    subcommands; anything else is the server, whose optional positional is
-    a config path."""
+    """CLI entry point. ``mkfix archive``, ``mkfix restore``, ``mkfix check``
+    and ``mkfix run`` are subcommands; anything else is the server, whose
+    optional positional is a config path."""
     if len(sys.argv) > 1 and sys.argv[1] in ("archive", "restore"):
         from mkfix.archive import main as archive_main
         archive_main(sys.argv[1], sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] in ("check", "run"):
+        from mkfix.macro.cli import main as macro_main
+        macro_main(sys.argv[1], sys.argv[2:])
         return
     parser = argparse.ArgumentParser(
         prog="mkfix",

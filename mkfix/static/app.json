@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.64",
+    "version": "0.65",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -783,7 +783,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.64"
+        "text": "mkfix v0.65"
       }
     ],
     "bindStyle": {
@@ -6772,6 +6772,28 @@
                   "value": "${row.client}"
                 },
                 {
+                  "name": "_fills",
+                  "label": "Fills (124)",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "order_fills",
+                    "params": {
+                      "order_id": "${row.order_id}"
+                    },
+                    "value": "pick",
+                    "label": "label",
+                    "empty": "(none yet: type them, or leave blank)"
+                  },
+                  "fill": {
+                    "execs": "execs",
+                    "qty": "qty",
+                    "avg_price": "avg_price"
+                  },
+                  "remember": {
+                    "key": "mkfix.allocate.fills"
+                  }
+                },
+                {
                   "row": [
                     {
                       "name": "symbol",
@@ -7380,6 +7402,201 @@
                 "label": "Re-notify",
                 "service": "fix_cmd",
                 "op": "renotify_trade"
+              }
+            }
+          }
+        },
+        {
+          "label": "Allocate",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> not CONTAINS(['Cancel', 'TradeCancel'], r.exec_type) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Allocate ${row.exec_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "value": "${row.symbol}",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "value": "${row.side_code}",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (53)",
+                      "type": "number",
+                      "value": "${row.last_qty}",
+                      "placeholder": "100",
+                      "min": 1,
+                      "required": true,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "avg_price",
+                      "label": "Avg Px (6)",
+                      "type": "number",
+                      "value": "${row.last_price}",
+                      "placeholder": "0.00",
+                      "step": "0.01",
+                      "required": true,
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "trade_date",
+                      "label": "Trade Date (75)",
+                      "type": "text",
+                      "placeholder": "YYYYMMDD, blank = today",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "alloc_type",
+                      "label": "Alloc Type (626)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 626)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Calculated (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Preliminary (FIX 4.3+)"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Ready to book (FIX 4.3+)"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - Warehouse instruction (FIX 4.4+)"
+                        },
+                        {
+                          "value": "8",
+                          "label": "8 - Request to intermediary (FIX 4.4+)"
+                        }
+                      ],
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "orders",
+                  "label": "Orders (73: ClOrdID [OrderID], one per line)",
+                  "type": "textarea",
+                  "value": "${row.cl_ord_id},${row.order_id}",
+                  "rows": 2,
+                  "placeholder": "RTMA00000001,OR12"
+                },
+                {
+                  "name": "execs",
+                  "label": "Executions (124: ExecID Qty [Px], one per line)",
+                  "type": "textarea",
+                  "rows": 2,
+                  "placeholder": "EX1 60 150.5",
+                  "value": "${row.exec_id} ${row.last_qty} ${row.last_price}"
+                },
+                {
+                  "name": "allocs",
+                  "label": "Accounts (78: Account Qty [Px], one per line)",
+                  "type": "textarea",
+                  "rows": 3,
+                  "placeholder": "ACC1 60 150.5\nACC2 40",
+                  "required": true
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|53=', STR(qty), '|6=', STR(avg_price), IF(COALESCE(trade_date, '') != '', CONCAT('|75=', trade_date), ''), IF(COALESCE(alloc_type, '') != '', CONCAT('|626=', alloc_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''), ' + the 73/124/78 groups')"
+                }
+              ],
+              "submit": {
+                "label": "Send Allocation",
+                "service": "fix_cmd",
+                "op": "send_allocation"
               }
             }
           }
@@ -11269,7 +11486,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.64",
+      "version": "0.65",
       "mkio": "1.5",
       "expr": "2"
     },

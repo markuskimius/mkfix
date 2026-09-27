@@ -254,6 +254,39 @@ class TestRuns:
         assert (await _fetch_all(db, "SELECT text FROM fix_macro_log"))[-1]["text"] == "passed: done"
 
     @pytest.mark.asyncio
+    async def test_a_runs_report_is_what_the_command_line_follows(self, kit):
+        """`mkfix run --wait` polls `run_report`: the run's row, its orders'
+        rows, the log lines after the one it last saw, and whether the run's
+        `run` blocks are still sending — a run that also waits stays armed
+        after they are done."""
+        db, engine, stub, manager, clock = kit
+        await manager.save("slow", SLOW)
+        run_id = (await manager.arm("slow"))["run_id"]
+        await _order(engine, stub, manager)
+        report = await _ask(engine)("run_report", {"run_id": run_id})
+        assert report["ok"] and (report["sends"], report["sending"]) == (False, False), "it only waits"
+        assert (report["run"]["status"], report["run"]["orders"], report["run"]["live"]) == ("armed", 1, 1)
+        assert [(o["subject"], o["cl_ord_id"], o["status"]) for o in report["orders"]] == [("order", "C1", "running")]
+        assert [(l["line"], l["text"]) for l in report["log"]] == [(3, "working C1")]
+        await clock.advance(2)
+        later = await manager.report(run_id, after=report["log"][-1]["id"])
+        assert [l["text"] for l in later["log"]] == ["passed: done"], "only what is new"
+        assert later["orders"][0]["status"] == "passed" and later["run"]["passed"] == 1
+        with pytest.raises(ValueError, match="No run 99"):
+            await manager.report(99)
+
+        stub.is_active = True
+        await manager.save("both", "run on S1\n    new symbol: 'A', side: buy, qty: 1, price: 1\n    after 5s\n    pass\n"
+                                   "on sent order\n    stop\n", side="client")
+        both = (await manager.arm("both", side="client"))["run_id"]
+        report = await manager.report(both)
+        assert (report["sends"], report["sending"], report["run"]["status"]) == (True, True, "armed")
+        await clock.advance(6)
+        report = await manager.report(both)
+        assert (report["sends"], report["sending"], report["run"]["status"]) == (True, False, "armed"), \
+            "its `on sent order` block waits on; nothing of it is sending"
+
+    @pytest.mark.asyncio
     async def test_the_tag_survives_the_orders_own_writes(self, kit):
         db, engine, stub, manager, clock = kit
         await manager.save("slow", SLOW)
@@ -585,18 +618,31 @@ class TestTour:
         monkeypatch.setattr(manager, "setup_loopback", setup)
         await manager.save("loopback-client", manager.example("loopback-client")["source"] + "# mine\n", "client")
         first = await _ask(engine)("run_loopback_tour", {})
-        assert (first["venue_run"], first["client_run"]) == (1, 2)
+        assert (first["venue_run"], first["client_run"]) == (1, 4)
+        assert first["runs"] == {"loopback-venue": 1, "ioi-taker": 2, "allocation-check": 3, "loopback-client": 4,
+                                 "ioi-desk": 5, "allocation-desk": 6}, "what waits is armed first, then what sends"
         saved = {r["name"]: r for r in await _fetch_all(db, "SELECT * FROM fix_macros")}
         assert saved["loopback-venue"]["side"] == "market" and saved["loopback-client"]["source"].endswith("# mine\n")
+        assert saved["ioi-desk"]["side"] == "market" and saved["ioi-taker"]["side"] == "client"
         runs = await _fetch_all(db, "SELECT macro, session, side FROM fix_macro_runs ORDER BY id")
         assert [(r["macro"], r["session"], r["side"]) for r in runs] == [
-            ("loopback-venue", "LOOP-MKT", "market"), ("loopback-client", "LOOP-CLI", "client")]
+            ("loopback-venue", "LOOP-MKT", "market"), ("ioi-taker", "", "client"), ("allocation-check", "", "client"),
+            ("loopback-client", "LOOP-CLI", "client"), ("ioi-desk", "LOOP-MKT", "market"),
+            ("allocation-desk", "LOOP-MKT", "market")]
         again = await manager.run_tour()
-        assert (again["venue_run"], again["client_run"]) == (1, 3), "the venue is left armed; the client runs again"
+        assert (again["venue_run"], again["client_run"]) == (1, 7), "what waits is left armed; what sends runs again"
+        assert again["runs"]["ioi-taker"] == 2 and again["runs"]["ioi-desk"] == 8
         await clock.advance(12)
         await manager.flush()
-        rows = await _fetch_all(db, "SELECT * FROM fix_macro_runs WHERE side = 'client' ORDER BY id")
-        assert [(r["orders"], r["passed"], r["failed"]) for r in rows] == [(5, 5, 0), (5, 5, 0)]
+        rows = await _fetch_all(db, "SELECT macro, orders, passed, failed FROM fix_macro_runs WHERE side = 'client' "
+                                    "AND macro = 'loopback-client' ORDER BY id")
+        # The first client run stays armed (`on sent order`) and minds the four orders ioi-taker sent
+        # against the desks' IOIs — two per desk run — which complete without a verdict.
+        assert [(r["orders"], r["passed"], r["failed"]) for r in rows] == [(9, 5, 0), (5, 5, 0)]
+        desks = await _fetch_all(db, "SELECT macro, orders, passed, failed FROM fix_macro_runs WHERE side = 'market' "
+                                     "AND macro != 'loopback-venue' ORDER BY id")
+        assert [(r["macro"], r["orders"], r["passed"], r["failed"]) for r in desks] == [
+            ("ioi-desk", 4, 4, 0), ("allocation-desk", 2, 2, 0)] * 2
 
     @pytest.mark.asyncio
     async def test_a_session_that_never_logs_on_is_said(self, kit, monkeypatch):

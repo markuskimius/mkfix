@@ -421,6 +421,28 @@ SELECT -o.id, 'order', 'o' || o.id, 'r' || o.run_id,
 protocol = "reqrep"
 sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst, currency, qlty_ind, natural_flag, qualifiers, trade_date, last_mkt, avg_price, alloc_type, allocs, alloc_status, alloc_rej_code FROM fix_templates WHERE scope = :scope ORDER BY name"
 
+# The Allocate dialog's Fills pick: a received order's live fills (the sent
+# trades of its order_id, busts left out) as one row the dialog's `fill`
+# copies onto the form — the executions as lines for NoExecs(124), their
+# total for Quantity(53) and their average for AvgPx(6). No fills, no row.
+[services.order_fills]
+protocol = "reqrep"
+description = "One order's fills as lines, with their total and average, for the Allocate dialog"
+sql = """
+SELECT 'all' AS pick,
+       COUNT(*) || ' fill' || CASE COUNT(*) WHEN 1 THEN '' ELSE 's' END || ': '
+           || printf('%g', SUM(last_qty)) || ' at ' || printf('%g', SUM(last_qty * last_price) / SUM(last_qty)) AS label,
+       (SELECT GROUP_CONCAT(exec_id || ' ' || printf('%g', last_qty) || ' ' || printf('%g', last_price), '; ')
+          FROM (SELECT exec_id, last_qty, last_price FROM fix_executions
+                 WHERE order_id = :order_id AND direction = 'TX' AND last_qty > 0
+                   AND exec_type NOT IN ('Cancel', 'TradeCancel') ORDER BY id)) AS execs,
+       printf('%g', SUM(last_qty)) AS qty,
+       printf('%g', SUM(last_qty * last_price) / SUM(last_qty)) AS avg_price
+  FROM fix_executions
+ WHERE order_id = :order_id AND direction = 'TX' AND last_qty > 0 AND exec_type NOT IN ('Cancel', 'TradeCancel')
+HAVING COUNT(*) > 0
+"""
+
 # Replay jobs, with the target session's live status so Start can gate on
 # it (the join and watch rules are orders_query's).
 [services.replay_jobs]

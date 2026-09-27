@@ -167,6 +167,8 @@ class FixCommandService(Service):
             return {"ok": True, **macros.record_status(data.get("side", ""))}
         elif command == "run_loopback_tour":
             return {"ok": True, **await macros.run_tour(data.get("port"))}
+        elif command == "run_report":
+            return {"ok": True, **await macros.report(data["run_id"], data.get("after", 0))}
         elif command == "detach_order":
             await macros.detach(data["order_row"], data.get("subject") or "order")
             return {"ok": True}

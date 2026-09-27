@@ -616,7 +616,7 @@ class TestServiceReferences:
         gated = {
             "order-blotter": ["Replace", "Cancel"],
             "market-order-blotter": ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Allocate"],
-            "market-trade-blotter": ["Correct", "Bust", "Re-notify"],
+            "market-trade-blotter": ["Correct", "Bust", "Re-notify", "Allocate"],
             "trade-blotter": ["DK"],
             "market-ioi-blotter": ["Replace", "Cancel"], "ioi-blotter": ["Order"],
             "market-advert-blotter": ["Replace", "Cancel"],
@@ -675,7 +675,7 @@ class TestServiceReferences:
         shows the ExecRefID(19) a correction or bust will carry again."""
         from mkio import expr
         buttons = app_config["panes"]["market-trade-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "History"]
+        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "Allocate", "History"]
         when = next(b for b in buttons if b["label"] == "Re-notify")["enable"]["when"]
         def enabled(*rows):
             return expr.evaluate(when, {"rows": [
@@ -3201,13 +3201,18 @@ class TestFamilyBlotters:
         assert "alloc_rej_code" in self._fields(reject["action"]["dialog"])
         assert "alloc_rej_code" not in self._fields(accept["action"]["dialog"])
 
-    def test_allocate_opens_the_allocation_form_from_the_received_order(self, app_config):
-        """The market side allocates the order it received and filled."""
+    def test_allocate_opens_the_allocation_form_from_the_received_order(self, app_config, toml_config):
+        """The market side allocates the order it received and filled. A
+        dialog cannot read the order's trades, so a Fills pick fetches them
+        (`order_fills`) and its `fill` copies the executions as lines, their
+        total and their average onto the form; remembered, so the next open
+        fills at once."""
         button = next(b for b in app_config["panes"]["market-order-blotter"]["buttons"] if b["label"] == "Allocate")
         assert [b["label"] for b in app_config["panes"]["market-order-blotter"]["buttons"]][-2:] == ["Allocate", "History"]
         dialog = button["action"]["dialog"]
         assert dialog["submit"]["op"] == "send_allocation" and dialog["fields"][0].get("name") != "_template"
-        assert _dialog_field_names(dialog) == _dialog_field_names(_find_dialog(app_config, "send_allocation")) - {"_template"}
+        assert {n for n in _dialog_field_names(dialog) if not n.startswith("_")} == \
+            {n for n in _dialog_field_names(_find_dialog(app_config, "send_allocation")) if not n.startswith("_")}
         fields = self._fields(dialog)
         assert fields["qty"]["value"] == "${row.cum_qty}" and fields["avg_price"]["value"] == "${row.avg_price}"
         assert fields["symbol"]["value"] == "${row.symbol}" and fields["side"]["value"] == "${row.side_code}"
@@ -3215,6 +3220,32 @@ class TestFamilyBlotters:
         assert fields["client"]["value"] == "${row.client}" and fields["session_id"]["value"] == "${row.session_id}"
         assert "value" not in fields["allocs"] and fields["allocs"]["required"] is True
         assert button["unit"] == "row"
+        pick = fields["_fills"]
+        assert pick["optionsFrom"] == {"service": "order_fills", "params": {"order_id": "${row.order_id}"},
+                                       "value": "pick", "label": "label", "empty": "(none yet: type them, or leave blank)"}
+        assert pick["fill"] == {"execs": "execs", "qty": "qty", "avg_price": "avg_price"}
+        assert pick["remember"] == {"key": "mkfix.allocate.fills"}
+        svc = toml_config["services"]["order_fills"]
+        assert svc["protocol"] == "reqrep" and ":order_id" in svc["sql"]
+        for column in ("pick", "label", "execs", "qty", "avg_price"):
+            assert f"AS {column}" in svc["sql"], column
+        assert "direction = 'TX'" in svc["sql"] and "'Cancel', 'TradeCancel'" in svc["sql"], "the order's own live fills"
+
+    def test_allocate_from_a_sent_trade(self, app_config):
+        """Sent Trades allocates one fill: the same form, that trade as the
+        executions line and its quantity and price as the block."""
+        buttons = app_config["panes"]["market-trade-blotter"]["buttons"]
+        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "Allocate", "History"]
+        button = buttons[3]
+        dialog = button["action"]["dialog"]
+        assert dialog["submit"]["op"] == "send_allocation" and button["unit"] == "row"
+        fields = self._fields(dialog)
+        assert "_fills" not in fields and "_template" not in fields
+        assert fields["qty"]["value"] == "${row.last_qty}" and fields["avg_price"]["value"] == "${row.last_price}"
+        assert fields["orders"]["value"] == "${row.cl_ord_id},${row.order_id}"
+        assert fields["execs"]["value"] == "${row.exec_id} ${row.last_qty} ${row.last_price}"
+        assert _conditions(button["enable"]["when"]) == {"exec_type": ["Cancel", "TradeCancel"], "session_status": ["ACTIVE"]}
+        assert button["enable"]["when"].startswith("ALL(rows, r -> not CONTAINS("), "a busted trade allocates nothing"
 
     def test_group_fields_are_textareas_of_lines(self, app_config):
         for op in ("send_allocation", "replace_allocation"):

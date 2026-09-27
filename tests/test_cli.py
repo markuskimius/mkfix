@@ -21,6 +21,8 @@ def test_help():
     assert "--instance-code" in result.stdout
     assert "mkfix archive -h" in result.stdout
     assert "mkfix restore -h" in result.stdout
+    assert "mkfix check FILE..." in result.stdout and "mkfix run FILE" in result.stdout
+    assert "mkfix check -h" in result.stdout and "mkfix run -h" in result.stdout
 
 
 def test_help_states_the_shipped_defaults():
@@ -392,3 +394,136 @@ def test_serve_runs_on_the_loop_mkio_picks(monkeypatch, capsys):
 
     assert len(seen) == 1 and issubclass(seen[0], asyncio.SelectorEventLoop)
     assert f"http://127.0.0.1:{port}/" in capsys.readouterr().out
+
+
+# -- mkfix check, mkfix run -----------------------------------------------------------
+
+EXAMPLES = Path(__file__).parent.parent / "mkfix" / "macro" / "examples"
+
+
+def _mkfix(*args: str, timeout: float = 60) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-m", "mkfix", *args], capture_output=True, text=True, timeout=timeout)
+
+
+@pytest.mark.parametrize("cmd", ["check", "run"])
+def test_macro_subcommand_help(cmd):
+    result = _mkfix(cmd, "--help")
+    assert result.returncode == 0
+    assert f"usage: mkfix {cmd}" in result.stdout and "examples:" in result.stdout
+    if cmd == "run":
+        for option in ("--session", "--speed", "--seed", "--wait", "--for", "--port", "--url", "--name"):
+            assert option in result.stdout, option
+
+
+def test_macro_help_examples_parse():
+    """Every example line in the two help screens is a command line its
+    parser accepts."""
+    import shlex
+    from mkfix.macro.cli import _parser
+    checked = 0
+    for cmd in ("check", "run"):
+        parser = _parser(cmd)
+        for line in parser.epilog.splitlines():
+            line = line.split("#")[0].strip()
+            if line.startswith(f"mkfix {cmd} "):
+                parser.parse_args(shlex.split(line)[2:])
+                checked += 1
+    assert checked >= 5
+
+
+def test_check_passes_every_bundled_example():
+    files = sorted(str(p) for p in EXAMPLES.glob("*.macro"))
+    result = _mkfix("check", *files)
+    assert result.returncode == 0, result.stdout
+    assert result.stdout.count(": no problems") == len(files) >= 21
+
+
+def test_check_reports_problems_like_a_compiler(tmp_path):
+    bad = tmp_path / "bad.macro"
+    bad.write_text("on order\n    fill qty: 1\n    bogus\n", encoding="utf-8")
+    good = tmp_path / "good.macro"
+    good.write_text("on order\n    accept\n", encoding="utf-8")
+    result = _mkfix("check", str(good), str(bad))
+    assert result.returncode == 1
+    assert f"{bad}:2:5: error: `fill` needs price" in result.stdout, "columns count from 1, as editors do"
+    assert f"{bad}:3:5: error: Unknown statement 'bogus'" in result.stdout
+    assert f"{bad}: 2 error(s), 0 warning(s)" in result.stdout and f"{good}: no problems" in result.stdout
+
+
+def test_check_holds_a_file_to_a_side_and_a_warning_is_no_failure(tmp_path):
+    result = _mkfix("check", "--side", "client", str(EXAMPLES / "auto-ack.macro"))
+    assert result.returncode == 1 and "This is a client macro" in result.stdout
+    assert _mkfix("check", "--side", "market", str(EXAMPLES / "auto-ack.macro")).returncode == 0
+    warned = tmp_path / "warned.macro"
+    warned.write_text("on order\n    restate qty: 1, reason: 'no such reason'\n", encoding="utf-8")
+    result = _mkfix("check", str(warned))
+    assert result.returncode == 0 and ": warning: " in result.stdout and "0 error(s), 1 warning(s)" in result.stdout
+
+
+def test_check_says_a_file_it_cannot_read():
+    result = _mkfix("check", "no-such-file.macro")
+    assert result.returncode == 3 and "no-such-file.macro: " in result.stdout
+
+
+def test_run_needs_a_server_and_a_clean_macro(tmp_path):
+    macro = tmp_path / "m.macro"
+    macro.write_text("on order\n    accept\n", encoding="utf-8")
+    result = _mkfix("run", str(macro), "-p", str(_free_port()))
+    assert result.returncode == 3 and result.stderr.startswith("mkfix run: ")
+    bad = tmp_path / "bad.macro"
+    bad.write_text("on order\n    bogus\n", encoding="utf-8")
+    result = _mkfix("run", str(bad), "-p", str(_free_port()))
+    assert result.returncode == 3 and f"{bad}:2:5: error: Unknown statement 'bogus'" in result.stdout, \
+        "a macro with problems is never sent to the server"
+
+
+def test_run_follows_a_run_to_its_verdict(tmp_path):
+    """Against a real server: the loopback sessions, a venue armed from the
+    command line, then client and market macros run with --wait and --for,
+    each ending with its verdict as the exit code."""
+    import asyncio
+    from mkio.client import MkioClient
+    port, fix_port = _free_port(), _free_port()
+    proc = _start(port)
+    try:
+        _read_until(proc, "Press Ctrl+C")
+
+        async def loopback():
+            async with MkioClient(f"ws://localhost:{port}/ws", reconnect=False) as client:
+                reply = await client.send("fix_cmd", {"command": "setup_loopback", "port": fix_port}, op="setup_loopback")
+                assert reply.get("ok") and reply["started"] == ["LOOP-MKT", "LOOP-CLI"], reply
+        asyncio.run(loopback())
+        import time
+        time.sleep(1.5)                                   # the initiator logs on
+
+        # Real answers take real time: at speed 4 the macros' 2 s bounds are still half a second.
+        venue = _mkfix("run", str(EXAMPLES / "loopback-venue.macro"), "--session", "LOOP-MKT", "--speed", "4",
+                       "-p", str(port))
+        assert venue.returncode == 0 and "loopback-venue: armed #1 on LOOP-MKT" in venue.stdout, venue.stdout + venue.stderr
+
+        client = _mkfix("run", str(EXAMPLES / "loopback-client.macro"), "--session", "LOOP-CLI", "--speed", "4",
+                        "--wait", "-p", str(port))
+        assert client.returncode == 0, client.stdout + client.stderr
+        assert "loopback-client: run #2 on LOOP-CLI (seed 1, speed 4)" in client.stdout
+        assert "loopback-client #2: stopped, passed · 5 orders, 5 passed, 0 failed" in client.stdout, \
+            "its `on sent order` block was still waiting, so the run is stopped once nothing is sending"
+        assert client.stdout.count("passed: ") == 5
+
+        failing = tmp_path / "failing.macro"
+        failing.write_text("run\n    new symbol: 'ZZZ', side: buy, qty: 1, price: 1\n    fail 'on purpose'\n", encoding="utf-8")
+        failed = _mkfix("run", str(failing), "--session", "LOOP-CLI", "--wait", "-p", str(port))
+        assert failed.returncode == 1 and "failing #3: finished, failed · 1 order, 0 passed, 1 failed" in failed.stdout
+        assert "on purpose" in failed.stdout
+
+        check = _mkfix("run", str(EXAMPLES / "allocation-check.macro"), "-p", str(port))
+        assert check.returncode == 0 and "allocation-check: armed #4 on every session" in check.stdout
+        desk = _mkfix("run", str(EXAMPLES / "allocation-desk.macro"), "--session", "LOOP-MKT", "--speed", "4",
+                      "--for", "10s", "--name", "desk", "-p", str(port))
+        assert desk.returncode == 0 and "desk: run #5 on LOOP-MKT" in desk.stdout, desk.stdout + desk.stderr
+        assert "desk #5: stopped, passed · 2 orders, 2 passed, 0 failed" in desk.stdout
+
+        unknown = _mkfix("run", str(failing), "--session", "NOPE", "-p", str(port))
+        assert unknown.returncode == 3 and "NOPE" in unknown.stderr
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)

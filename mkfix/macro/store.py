@@ -50,7 +50,12 @@ EXAMPLES = Path(__file__).parent / "examples"
 LOOPBACK = {"market": "LOOP-MKT", "client": "LOOP-CLI"}
 LOOPBACK_PORT = 9880
 # The two examples that are one demonstration, and the order to start them in.
+# The loopback tour: what waits is armed, what sends is run. The venue and
+# the two client checkers wait; loopback-client and the two market desks
+# send (the desks keep waiting for hand-sent IOIs and allocations after).
 TOUR = {"market": "loopback-venue", "client": "loopback-client"}
+TOUR_ARMED = {"market": ("loopback-venue",), "client": ("ioi-taker", "allocation-check")}
+TOUR_RUN = {"client": ("loopback-client",), "market": ("ioi-desk", "allocation-desk")}
 _LIVE_RUNS = ("armed", "paused")
 
 
@@ -437,10 +442,12 @@ class MacroManager:
         return {"sessions": LOOPBACK, "port": port, "created": created, "started": started}
 
     async def run_tour(self, port: Any = None, timeout: float = 10.0) -> dict[str, Any]:
-        """The loopback tour in one step: the two sessions, the venue armed
-        on one and the client run on the other. The examples are saved under
-        their own names unless macros of those names are there already —
-        yours are left as they are — and a venue already armed is left armed."""
+        """The loopback tour in one step: the two sessions; the venue armed on
+        one and the client run on the other; since 0.65 the families too —
+        ioi-taker and allocation-check armed on the client side, ioi-desk and
+        allocation-desk run on the venue. The examples are saved under their
+        own names unless macros of those names are there already — yours are
+        left as they are — and whatever is already armed is left armed."""
         sessions = await self.setup_loopback(port)
         client = self.engine.sessions[LOOPBACK["client"]]
         deadline = asyncio.get_running_loop().time() + timeout
@@ -449,14 +456,22 @@ class MacroManager:
                 raise ValueError(f"{LOOPBACK['client']} did not log on within {timeout:g} s: is port "
                                  f"{sessions['port']} free?")
             await asyncio.sleep(0.05)
-        for side, name in TOUR.items():
-            if not await self._fetch("SELECT 1 FROM fix_macros WHERE name = ?", (name,)):
-                await self.save(name, self.example(name)["source"], side)
-        armed = [r for r in self.live_runs(TOUR["market"]) if r.session == LOOPBACK["market"]]
-        venue = ({"run_id": self._run_rows[armed[0]]} if armed
-                 else await self.arm(TOUR["market"], side="market", session=LOOPBACK["market"]))
-        run = await self.arm(TOUR["client"], side="client", session=LOOPBACK["client"])
-        return {"sessions": sessions["sessions"], "venue_run": venue["run_id"], "client_run": run["run_id"]}
+        for side in ("market", "client"):
+            for name in (*TOUR_ARMED[side], *TOUR_RUN.get(side, ())):
+                if not await self._fetch("SELECT 1 FROM fix_macros WHERE name = ?", (name,)):
+                    await self.save(name, self.example(name)["source"], side)
+        runs: dict[str, int] = {}
+        for side, names in TOUR_ARMED.items():
+            session = LOOPBACK[side] if side == "market" else ""
+            for name in names:
+                armed = [r for r in self.live_runs(name) if r.session == (session or None)]
+                runs[name] = self._run_rows[armed[0]] if armed \
+                    else (await self.arm(name, side=side, session=session))["run_id"]
+        for side, names in TOUR_RUN.items():
+            for name in names:
+                runs[name] = (await self.arm(name, side=side, session=LOOPBACK[side]))["run_id"]
+        return {"sessions": sessions["sessions"], "venue_run": runs[TOUR["market"]],
+                "client_run": runs[TOUR["client"]], "runs": runs}
 
     # -- a side's runs together: the order blotters' Play, Pause and Stop ----------------------
 
@@ -573,6 +588,34 @@ class MacroManager:
         recorder = self.recorders.get(self._side(side))
         return recorder.status() if recorder else {"recording": False, "side": side, "session": "", "orders": 0,
                                                    "actions": 0, "since": ""}
+
+    async def report(self, run_id: Any, after: Any = 0) -> dict[str, Any]:
+        """A run as the tables have it — its row, its orders' (IOIs',
+        allocations') rows, and its log lines after row id ``after`` — for
+        `mkfix run --wait`, which polls it."""
+        run_id, after = int(run_id), int(after or 0)
+        await self.flush()
+        rows = await self._fetch("SELECT * FROM fix_macro_runs WHERE id = ?", (run_id,))
+        if not rows:
+            raise ValueError(f"No run {run_id}")
+        # Whether its `run` blocks are still at it: a pass still to come, or
+        # a macro that sent its own subject still live. A run that also
+        # waits (`on` blocks) stays armed after that, with nothing sending.
+        run = self._runs_by_row.get(run_id)
+        sending = bool(run) and run.status == "armed" and (
+            any(i.live for i in run.generators)
+            or any(i.live for i in run.instances if i.block.kind == vocab.CLIENT))
+        return {
+            "run": rows[0],
+            "sends": bool(run) and any(b.kind == vocab.CLIENT for b in run.macro.blocks),
+            "sending": sending,
+            "orders": await self._fetch(
+                "SELECT subject, order_row, cl_ord_id, symbol, status, line, waiting_for, message, actions "
+                "FROM fix_macro_orders WHERE run_id = ? ORDER BY id", (run_id,)),
+            "log": await self._fetch(
+                "SELECT id, order_row, cl_ord_id, timestamp, line, text FROM fix_macro_log "
+                "WHERE run_id = ? AND id > ? ORDER BY id", (run_id, after)),
+        }
 
     def live_runs(self, name: str | None = None) -> list[Run]:
         return [r for r in self.runner.runs

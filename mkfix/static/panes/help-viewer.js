@@ -49,8 +49,9 @@ registerPaneType("help-viewer", async (spec, app, host) => {
       <p><button class="mkui-btn" data-loopback>Set up loopback sessions</button>
       <button class="mkui-btn" data-tour>Run the loopback tour</button> <span class="help-loopback"></span></p>
       <p><b>Run the loopback tour</b> does it all in one step: sets up and starts the two sessions, arms
-      <i>loopback-venue</i> on <code>LOOP-MKT</code> and runs <i>loopback-client</i> on <code>LOOP-CLI</code>. Open the
-      four order and trade blotters first.</p>${sections}`,
+      <i>loopback-venue</i> on <code>LOOP-MKT</code> and runs <i>loopback-client</i> on <code>LOOP-CLI</code>; then the
+      IOIs, adverts and allocations the other way — <i>ioi-taker</i> and <i>allocation-check</i> armed on the client side,
+      <i>ioi-desk</i> and <i>allocation-desk</i> run on <code>LOOP-MKT</code>. Open the blotters of both sides first.</p>${sections}`,
       toc: sides.flatMap(([side, title, id]) => [{ level: 2, text: title, id },
         ...examples.filter((e) => e.side === side).map((e) => ({ level: 3, text: e.title ?? e.name, id: e.name }))]) };
   }
@@ -102,7 +103,8 @@ registerPaneType("help-viewer", async (spec, app, host) => {
       const note = page.querySelector(".help-loopback");
       note.textContent = "Starting the sessions…";
       cmd("run_loopback_tour").then((r) => {
-        note.textContent = `Armed loopback-venue (Market run ${r.venue_run}) and ran loopback-client (Client run ${r.client_run}).`;
+        const runs = Object.entries(r.runs ?? {}).map(([name, id]) => `${name} #${id}`).join(", ");
+        note.textContent = `Armed loopback-venue (Market run ${r.venue_run}) and ran loopback-client (Client run ${r.client_run}); runs: ${runs}.`;
       }).catch((err) => { note.textContent = String(err.message ?? err); });
       return;
     }

@@ -335,7 +335,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   ID in tag 23 -- and Received Adverts only shows. An allocation is answered:
   Received Allocations has Accept and Reject (AllocationInstructionAck with
   AllocStatus and a reject code), Sent Allocations shows the answer, and
-  Received Orders' Allocate opens a New Allocation from the order. The
+  Received Orders' Allocate opens a New Allocation from the order, its Fills pick bringing in the order's executions, total and average; Sent Trades' Allocate allocates one fill. The
   allocation's orders, executions and accounts are typed one per line. Each
   blotter carries its side's macro controls, and the macro language speaks
   them: a market macro sends them from `run` blocks (`ioi`, `advert`,
@@ -416,9 +416,38 @@ mkfix -i ''                  # forget the saved code, back to the username defau
 mkfix myconfig.toml          # custom config file
 ```
 
-`mkfix -h` lists the options with their defaults and names the two
-subcommands below; `mkfix archive -h` and `mkfix restore -h` carry their own
-options and examples.
+`mkfix -h` lists the options with their defaults and names the four
+subcommands below; `mkfix archive -h`, `mkfix restore -h`, `mkfix check -h`
+and `mkfix run -h` carry their own options and examples.
+
+### Macros from the command line
+
+```bash
+mkfix check slow-fill.macro                   # problems as FILE:LINE:COL: message; exit 1 on an error
+mkfix check --side client *.macro             # held to one side, as that side's editor would
+mkfix run order-burst.macro --session LOOP-CLI --wait
+mkfix run slow-fill.macro                     # a market macro: armed, and left armed
+mkfix run slow-fill.macro --for 30s           # armed for thirty seconds, then stopped
+mkfix run mine.macro --session S1 --speed 5 --seed 7 --wait -p 9090
+```
+
+`mkfix check` needs no server: it parses and checks the files and answers the
+way a compiler does, a line per problem and a line per file. Templates and
+sessions are not known there, so a `using` name or a `run on SESSION` passes
+and is checked again when the macro runs.
+
+`mkfix run` saves the file on a running server under the file's name
+(`--name` to choose another) and starts it the way **▶** in the editor does:
+a macro that sends is run on `--session`, one that only waits is armed. It
+prints the run's number and exits; `--wait` follows the run to its end,
+printing its log as it comes, and exits 0 when it passed (or gave no
+verdict), 1 when it failed, 2 when the server stopped it, 3 on a usage
+error or no server. `--for DURATION` follows it that long and then stops it,
+which is how a macro that waits for orders is given a turn. A run that sends
+and also waits is stopped once nothing of it is sending. The run shows in
+the Macro Runs window like any other. `--speed` makes the macro's waits
+shorter, not the counterparty's answers: at high speeds a two-second bound
+is a few milliseconds.
 
 ### Archiving old data
 
@@ -456,7 +485,7 @@ mkfix <version>
   Listening: 0.0.0.0:8080 (all interfaces)
   Config:    /path/to/mkfix.toml
   Database:  /path/to/mkfix.db
-  IDs:       RT/OR/EX/TR + MA + 8-digit counter (from username)
+  IDs:       RT/OR/EX/TR/IO/AD/AL + MA + 8-digit counter (from username)
   Sessions:  1 enabled
     acc: MKFIX -> BROKER (FIX.4.2, acceptor on port 9876)
   Press Ctrl+C to stop.
