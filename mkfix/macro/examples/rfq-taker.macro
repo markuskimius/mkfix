@@ -3,8 +3,7 @@
 # Shows:   the client side asking for prices — `rfq` in a `run` block, `quoted`, `requoted`,
 #          `rejected`, `canceled`, `status`, taking a quote with `hit`, `counter`, `pass quote`
 #          — and `on sent rfq` minding an RFQ sent by hand
-# Needs:   FIX 4.4 sessions: run it on LOOP-CLI with rfq-desk armed on LOOP-MKT, both edited
-#          to FIX.4.4
+# Needs:   a FIX 4.4 session: run it on LOOP-CLI with rfq-desk armed on LOOP-MKT
 # Watch:   Sent RFQs (Client menu): Open, then Quoted, Countered and Hit or Passed; Sent Orders
 #          for the orders the hits made
 # Outcome: an RFQ for IBM and one for MSFT; a quote within 15 cents is lifted, anything wider

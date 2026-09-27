@@ -3,8 +3,8 @@
 # Shows:   the client side answering quotes sent unasked — `on quote`, `requoted`, `canceled`,
 #          `expired` and `status` on a received quote, taking it with `new` (an order naming it
 #          in tag 117, any version), and `counter`
-# Needs:   a session receiving quotes: run quote-stream on the other end (FIX 4.4 for the
-#          counter)
+# Needs:   a session receiving quotes, FIX 4.4 for the counter: arm it on LOOP-CLI and run
+#          quote-stream on LOOP-MKT
 # Watch:   Received Quotes (Client menu): the Order column filling when the quote is taken;
 #          Sent Orders for the order, PreviouslyQuoted
 # Outcome: an IBM quote is countered ten cents under its offer; when a requote comes down to

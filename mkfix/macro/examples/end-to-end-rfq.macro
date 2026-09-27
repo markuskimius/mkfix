@@ -2,8 +2,7 @@
 #
 # Shows:   both sides of an RFQ in one run — the client's `rfq`, `hit` and the order it makes,
 #          the market's `on rfq` quoting it and `on order` filling the hit — with one verdict
-# Needs:   two FIX 4.4 sessions facing each other: LOOP-CLI and LOOP-MKT edited to FIX.4.4;
-#          Run… asks for both
+# Needs:   two FIX 4.4 sessions facing each other: LOOP-CLI and LOOP-MKT; Run… asks for both
 # Watch:   Sent RFQs and Received RFQs reaching Hit together; the order on both sides, Filled
 # Outcome: the RFQ is quoted, lifted, and the order filled in full; the run passes when the
 #          fill is heard

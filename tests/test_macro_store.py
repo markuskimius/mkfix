@@ -626,9 +626,14 @@ class TestTour:
     @pytest.mark.asyncio
     async def test_the_loopback_tour_in_one_step(self, kit, monkeypatch):
         db, engine, stub, manager, clock = kit
+        from mkfix.fix.dictionary import FixDictionary
+        from mkfix.fix.message import FixMessageFactory
         from tests.test_macro_sending import LinkedSession
         cli, mkt = LinkedSession(engine, "LOOP-CLI"), LinkedSession(engine, "LOOP-MKT")
         cli.peer, mkt.peer = mkt, cli
+        for session, sender, target in ((cli, "LOOPCLI", "LOOPMKT"), (mkt, "LOOPMKT", "LOOPCLI")):
+            session.dictionary = FixDictionary("FIX.4.4")           # what setup_loopback makes the pair
+            session.factory = FixMessageFactory(session.dictionary, sender, target)
 
         async def setup(port=None, start=True):
             engine.sessions.update({"LOOP-CLI": cli, "LOOP-MKT": mkt})
@@ -636,31 +641,47 @@ class TestTour:
         monkeypatch.setattr(manager, "setup_loopback", setup)
         await manager.save("loopback-client", manager.example("loopback-client")["source"] + "# mine\n", "client")
         first = await _ask(engine)("run_loopback_tour", {})
-        assert (first["venue_run"], first["client_run"]) == (1, 4)
-        assert first["runs"] == {"loopback-venue": 1, "ioi-taker": 2, "allocation-check": 3, "loopback-client": 4,
-                                 "ioi-desk": 5, "allocation-desk": 6}, "what waits is armed first, then what sends"
+        assert (first["venue_run"], first["client_run"]) == (1, 7)
+        assert first["runs"] == {"loopback-venue": 1, "rfq-desk": 2, "ioi-taker": 3, "allocation-check": 4,
+                                 "quote-taker": 5, "rfq-responder": 6, "loopback-client": 7, "rfq-taker": 8,
+                                 "ioi-desk": 9, "allocation-desk": 10, "quote-stream": 11, "rfq-subscriber": 12}, \
+            "what waits is armed first, then what sends"
         saved = {r["name"]: r for r in await _fetch_all(db, "SELECT * FROM fix_macros")}
         assert saved["loopback-venue"]["side"] == "market" and saved["loopback-client"]["source"].endswith("# mine\n")
         assert saved["ioi-desk"]["side"] == "market" and saved["ioi-taker"]["side"] == "client"
+        assert saved["rfq-desk"]["side"] == saved["quote-stream"]["side"] == "market"
+        assert saved["rfq-taker"]["side"] == saved["quote-taker"]["side"] == "client"
         runs = await _fetch_all(db, "SELECT macro, session, side FROM fix_macro_runs ORDER BY id")
         assert [(r["macro"], r["session"], r["side"]) for r in runs] == [
-            ("loopback-venue", "LOOP-MKT", "market"), ("ioi-taker", "", "client"), ("allocation-check", "", "client"),
-            ("loopback-client", "LOOP-CLI", "client"), ("ioi-desk", "LOOP-MKT", "market"),
-            ("allocation-desk", "LOOP-MKT", "market")]
+            ("loopback-venue", "LOOP-MKT", "market"), ("rfq-desk", "LOOP-MKT", "market"),
+            ("ioi-taker", "", "client"), ("allocation-check", "", "client"), ("quote-taker", "", "client"),
+            ("rfq-responder", "", "client"), ("loopback-client", "LOOP-CLI", "client"), ("rfq-taker", "LOOP-CLI", "client"),
+            ("ioi-desk", "LOOP-MKT", "market"), ("allocation-desk", "LOOP-MKT", "market"),
+            ("quote-stream", "LOOP-MKT", "market"), ("rfq-subscriber", "LOOP-MKT", "market")]
         again = await manager.run_tour()
-        assert (again["venue_run"], again["client_run"]) == (1, 7), "what waits is left armed; what sends runs again"
-        assert again["runs"]["ioi-taker"] == 2 and again["runs"]["ioi-desk"] == 8
-        await clock.advance(12)
+        assert (again["venue_run"], again["client_run"]) == (1, 13), "what waits is left armed; what sends runs again"
+        assert again["runs"]["ioi-taker"] == 3 and again["runs"]["rfq-desk"] == 2 and again["runs"]["ioi-desk"] == 15
+        await clock.advance(72)
         await manager.flush()
-        rows = await _fetch_all(db, "SELECT macro, orders, passed, failed FROM fix_macro_runs WHERE side = 'client' "
-                                    "AND macro = 'loopback-client' ORDER BY id")
-        # The first client run stays armed (`on sent order`) and minds the four orders ioi-taker sent
-        # against the desks' IOIs — two per desk run — which complete without a verdict.
-        assert [(r["orders"], r["passed"], r["failed"]) for r in rows] == [(9, 5, 0), (5, 5, 0)]
-        desks = await _fetch_all(db, "SELECT macro, orders, passed, failed FROM fix_macro_runs WHERE side = 'market' "
-                                     "AND macro != 'loopback-venue' ORDER BY id")
-        assert [(r["macro"], r["orders"], r["passed"], r["failed"]) for r in desks] == [
-            ("ioi-desk", 4, 4, 0), ("allocation-desk", 2, 2, 0)] * 2
+        rows = {r["id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_macro_runs ORDER BY id")}
+        assert all(r["failed"] == 0 for r in rows.values()), [(r["macro"], r["failed"]) for r in rows.values()]
+        # The client runs pass every order they send; the first also minds, with its `on sent order`, the orders
+        # sent by macros that own none of them: ioi-taker's against the IOIs, quote-taker's against the quote.
+        assert [(rows[i]["orders"], rows[i]["passed"]) for i in (7, 13)] == [(18, 5), (5, 5)]
+        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (9, 10, 15, 16)] == [
+            ("ioi-desk", 4), ("allocation-desk", 2), ("ioi-desk", 4), ("allocation-desk", 2)]
+        # Each rfq-taker lifts its two RFQs; the first also minds the responder's RFQs, sent by nobody's macro.
+        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (8, 14)] == [("rfq-taker", 2), ("rfq-taker", 2)]
+        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (12, 18)] == [("rfq-subscriber", 1)] * 2
+        assert (rows[6]["macro"], rows[6]["passed"]) == ("rfq-responder", 2), "one pass per subscription ended"
+        # The second stream's quote replaces the first's on IBM: that macro is detached, not failed.
+        assert (rows[11]["passed"], rows[17]["passed"]) == (0, 1)
+        log = await _fetch_all(db, "SELECT text FROM fix_macro_log WHERE run_id = 11")
+        assert any("taken over by quote-stream's `new quote`" in r["text"] for r in log)
+        rfqs = await _fetch_all(db, "SELECT session_id, origin, status FROM fix_rfqs WHERE origin = 'rfq'")
+        assert {r["status"] for r in rfqs} == {"Hit"} and len(rfqs) == 16, "every RFQ lifted, on both sides"
+        requests = await _fetch_all(db, "SELECT status, quote_requests FROM fix_rfq_requests")
+        assert [(r["status"], r["quote_requests"]) for r in requests] == [("Unsubscribed", 2)] * 4
 
     @pytest.mark.asyncio
     async def test_a_session_that_never_logs_on_is_said(self, kit, monkeypatch):
@@ -982,5 +1003,32 @@ class TestSendingRuns:
         assert rows["LOOP-MKT"]["sender_comp_id"] == rows["LOOP-CLI"]["target_comp_id"] == "LOOPMKT"
         assert rows["LOOP-MKT"]["port"] == rows["LOOP-CLI"]["port"] == 19999
         assert {s["session_id"] for s in await _fetch_all(db, "SELECT * FROM fix_session_state")} == {"LOOP-MKT", "LOOP-CLI"}
+        assert rows["LOOP-MKT"]["fix_version"] == rows["LOOP-CLI"]["fix_version"] == "FIX.4.4", \
+            "4.4 speaks every message the examples send"
         again = await manager.setup_loopback(port=12345, start=False)
         assert again["created"] == [] and again["port"] == 19999, "the pair that exists keeps its port"
+        assert again["upgraded"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_pair_made_on_fix42_moves_to_44_while_stopped(self, kit):
+        """Through 0.73 the pair was made at the column's default, FIX 4.2; the
+        RFQ examples need 4.4. A stopped pair is moved on, a running one — or
+        one somebody set to another version — is left as it is."""
+        db, engine, stub, manager, clock = kit
+        await manager.setup_loopback(port=19999, start=False)
+        await (await db.write_conn.execute("UPDATE fix_sessions SET fix_version = 'FIX.4.2'")).close()
+        await (await db.write_conn.execute(
+            "UPDATE fix_sessions SET fix_version = 'FIX.4.3' WHERE session_id = 'LOOP-MKT'")).close()
+        await db.write_conn.commit()
+        running = StubSession("LOOP-CLI")
+        engine.sessions["LOOP-CLI"] = running
+        result = await manager.setup_loopback(start=False)
+        assert result["upgraded"] == [], "LOOP-CLI is running, LOOP-MKT on a version of its own choosing"
+        running.status = "DOWN"
+        result = await manager.setup_loopback(start=False)
+        assert result["upgraded"] == ["LOOP-CLI"]
+        rows = {r["session_id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_sessions")}
+        assert (rows["LOOP-CLI"]["fix_version"], rows["LOOP-MKT"]["fix_version"]) == ("FIX.4.4", "FIX.4.3")
+        history = await _fetch_all(db, "SELECT fix_version FROM fix_sessions__history WHERE session_id = 'LOOP-CLI' "
+                                       "ORDER BY _mkio_version")
+        assert history[-1]["fix_version"] == "FIX.4.4", "a config edit like any other: in the session's history"

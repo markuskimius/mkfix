@@ -198,9 +198,17 @@ class Instance:
                 self.runner._maybe_finished(self.run)      # nothing of it is at work: was it the run's last?
 
     def bind(self, row: dict[str, Any]) -> None:
-        """This macro's subject exists: from here on its events come here."""
+        """This macro's subject exists: from here on its events come here.
+        A row another macro holds is taken from it — a quote sent unasked
+        replaces the one standing on its symbol, so the row is the newer
+        quote's — and that macro is detached, saying by whom."""
+        before = self.runner.owners.get((self.kind, row["id"]))
         self.row, self.key = row, row["id"]
         self.runner.owners[self.owner_key] = self
+        if before is not None and before is not self and before.live:
+            by = self.run.macro.name or "another macro"
+            before.finish(DETACHED, f"its {vocab.SUBJECT_WORDS[self.kind]} was taken over by {by}'s "
+                                    f"`{vocab.CREATORS[self.kind]}`")
         self.runner._changed(self)
 
     async def _run_main(self) -> None:

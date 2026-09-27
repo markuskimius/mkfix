@@ -49,13 +49,22 @@ EXAMPLES = Path(__file__).parent / "examples"
 # itself, so both sides of an order are on the screen.
 LOOPBACK = {"market": "LOOP-MKT", "client": "LOOP-CLI"}
 LOOPBACK_PORT = 9880
+# FIX 4.4, the first version with every message the examples send — the
+# QuoteResponse of an RFQ's Hit, Counter and Pass. Through 0.73 the pair
+# was made at the column's default, FIX 4.2; `setup_loopback` moves such a
+# pair on when it finds it stopped.
+LOOPBACK_VERSION = "FIX.4.4"
+_LOOPBACK_DESCRIPTION = "Loopback for macro examples"
 # The two examples that are one demonstration, and the order to start them in.
-# The loopback tour: what waits is armed, what sends is run. The venue and
-# the two client checkers wait; loopback-client and the two market desks
-# send (the desks keep waiting for hand-sent IOIs and allocations after).
+# The loopback tour: what waits is armed, what sends is run. The venue, the
+# RFQ desk and the client's checkers wait; loopback-client and the RFQ
+# taker, and the market's desks, quote stream and RFQ subscriber, send (the
+# desks keep waiting for hand-sent IOIs and allocations after).
 TOUR = {"market": "loopback-venue", "client": "loopback-client"}
-TOUR_ARMED = {"market": ("loopback-venue",), "client": ("ioi-taker", "allocation-check")}
-TOUR_RUN = {"client": ("loopback-client",), "market": ("ioi-desk", "allocation-desk")}
+TOUR_ARMED = {"market": ("loopback-venue", "rfq-desk"),
+              "client": ("ioi-taker", "allocation-check", "quote-taker", "rfq-responder")}
+TOUR_RUN = {"client": ("loopback-client", "rfq-taker"),
+            "market": ("ioi-desk", "allocation-desk", "quote-stream", "rfq-subscriber")}
 _LIVE_RUNS = ("armed", "paused")
 
 
@@ -433,10 +442,20 @@ class MacroManager:
 
     async def setup_loopback(self, port: Any = None, start: bool = True) -> dict[str, Any]:
         """Create the two loopback sessions if they are not there — an acceptor
-        and an initiator facing it on localhost — and start them."""
+        and an initiator facing it on localhost, on FIX 4.4 — and start them.
+        A pair made before 0.74, on FIX 4.2, is moved to 4.4 while it is
+        stopped (`upgraded`); one running is left as it is."""
         port = int(port or LOOPBACK_PORT)
         existing = {r["session_id"]: r for r in await self._fetch(
             "SELECT * FROM fix_sessions WHERE session_id IN (?, ?)", tuple(LOOPBACK.values()))}
+        upgraded = []
+        for session_id, row in existing.items():
+            session = self.engine.sessions.get(session_id)
+            stopped = session is None or session.status in ("DOWN", "ERROR")
+            if row["fix_version"] == "FIX.4.2" and row["description"] == _LOOPBACK_DESCRIPTION and stopped:
+                await self.engine.writer.submit(self._ops["loopback_version"], ((LOOPBACK_VERSION, None, session_id),),
+                                                {"session_id": session_id})
+                upgraded.append(session_id)
         created = []
         for role, session_id in LOOPBACK.items():
             if session_id in existing:
@@ -445,7 +464,8 @@ class MacroManager:
             host = "" if role == "market" else "127.0.0.1"
             await self.engine.writer.submit(
                 (*self._ops["insert_session"], *self._ops["insert_session_state"]),
-                ((session_id, sender, target, host, port, "Loopback for macro examples", None), (session_id, None)),
+                ((session_id, LOOPBACK_VERSION, sender, target, host, port, _LOOPBACK_DESCRIPTION, None),
+                 (session_id, None)),
                 {"session_id": session_id})
             created.append(session_id)
         if existing and not created:
@@ -458,7 +478,7 @@ class MacroManager:
                 if session.status in ("DOWN", "ERROR"):
                     await self.engine.start_session(session_id)
                     started.append(session_id)
-        return {"sessions": LOOPBACK, "port": port, "created": created, "started": started}
+        return {"sessions": LOOPBACK, "port": port, "created": created, "started": started, "upgraded": upgraded}
 
     async def run_tour(self, port: Any = None, timeout: float = 10.0) -> dict[str, Any]:
         """The loopback tour in one step: the two sessions; the venue armed on
@@ -807,9 +827,12 @@ class MacroManager:
            "_mkio_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
            ("run_id", "order_row", "macro", "side", "cl_ord_id", "timestamp", "line", "text", "_mkio_ref"))
         op("insert_session", "fix_sessions", "insert",
-           "INSERT INTO fix_sessions (session_id, sender_comp_id, target_comp_id, host, port, description, _mkio_ref) "
-           "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
-           ("session_id", "sender_comp_id", "target_comp_id", "host", "port", "description", "_mkio_ref"))
+           "INSERT INTO fix_sessions (session_id, fix_version, sender_comp_id, target_comp_id, host, port, description, "
+           "_mkio_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+           ("session_id", "fix_version", "sender_comp_id", "target_comp_id", "host", "port", "description", "_mkio_ref"))
+        op("loopback_version", "fix_sessions", "update",
+           "UPDATE fix_sessions SET fix_version = ?, _mkio_ref = ? WHERE session_id = ? RETURNING *",
+           ("fix_version", "_mkio_ref", "session_id"))
         op("insert_session_state", "fix_session_state", "insert",
            "INSERT INTO fix_session_state (session_id, _mkio_ref) VALUES (?, ?) RETURNING *",
            ("session_id", "_mkio_ref"))

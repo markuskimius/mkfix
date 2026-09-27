@@ -3,8 +3,8 @@
 # Shows:   the market side answering RFQs — `on rfq`, `quote` with a validity, a `countered` met
 #          with a requote or refused with `reject rfq`, `hit`, `passed` and `response`, a quote
 #          withdrawn with `cancel quote`, and the order a hit makes filled by `on order`
-# Needs:   a FIX 4.4 session (Hit, Counter and Pass are QuoteResponses, new in 4.4); run
-#          rfq-taker on the other end
+# Needs:   a FIX 4.4 session (Hit, Counter and Pass are QuoteResponses, new in 4.4): arm it
+#          on LOOP-MKT and run rfq-taker on LOOP-CLI
 # Watch:   Received RFQs (Market menu): the quote standing on each, a counter in Pending, the
 #          status reaching Hit; Received Orders for the orders the hits made
 # Outcome: every IBM or MSFT RFQ is quoted either side of its mid for 30 seconds; a counter

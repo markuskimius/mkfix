@@ -54,14 +54,17 @@ registerPaneType("help-viewer", async (spec, app, host) => {
     return { html: `<h1 id="macro-examples">Macro Examples</h1>
       <p>Bundled with mkfix and read-only: the button under each makes a copy of your own in that side's editor.</p>
       <p>The client examples are written for the session <code>LOOP-CLI</code>, facing <code>LOOP-MKT</code> — this
-      server talking to itself, so both sides of every order are on your screen. Arm a market example
+      server talking to itself on FIX 4.4, so both sides of every order are on your screen. Arm a market example
       (<i>slow-fill</i>, <i>cancel-replace-desk</i>, <i>dispute-desk</i>), then run a client one on <code>LOOP-CLI</code>.</p>
       <p><button class="mkui-btn" data-loopback>Set up loopback sessions</button>
       <button class="mkui-btn" data-tour>Run the loopback tour</button> <span class="help-loopback"></span></p>
       <p><b>Run the loopback tour</b> does it all in one step: sets up and starts the two sessions, arms
       <i>loopback-venue</i> on <code>LOOP-MKT</code> and runs <i>loopback-client</i> on <code>LOOP-CLI</code>; then the
       IOIs, adverts and allocations the other way — <i>ioi-taker</i> and <i>allocation-check</i> armed on the client side,
-      <i>ioi-desk</i> and <i>allocation-desk</i> run on <code>LOOP-MKT</code>. Open the blotters of both sides first.</p>${sections}`,
+      <i>ioi-desk</i> and <i>allocation-desk</i> run on <code>LOOP-MKT</code>; then RFQs and quotes — <i>rfq-desk</i> armed on
+      <code>LOOP-MKT</code> and <i>rfq-taker</i> run on <code>LOOP-CLI</code>, <i>quote-taker</i> and <i>rfq-responder</i>
+      armed on the client side, <i>quote-stream</i> and <i>rfq-subscriber</i> run on <code>LOOP-MKT</code>. Open the
+      blotters of both sides first.</p>${sections}`,
       toc: sides.flatMap(([side, title, id]) => [{ level: 2, text: title, id },
         ...examples.filter((e) => e.side === side).map((e) => ({ level: 3, text: e.title ?? e.name, id: e.name }))]) };
   }

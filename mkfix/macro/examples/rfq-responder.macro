@@ -3,7 +3,7 @@
 # Shows:   the client side answering an RFQ request — `on rfq request`, `rfq` sending an RFQ
 #          that names the request in tag 644, one per instrument asked for, and
 #          `unsubscribed`
-# Needs:   a FIX 4.3 or later session; run rfq-subscriber on the other end
+# Needs:   a FIX 4.3 or later session: arm it on LOOP-CLI and run rfq-subscriber on LOOP-MKT
 # Watch:   Received RFQ Requests (Client menu): the RFQs column counting; Sent RFQs for the
 #          RFQs, each naming the request
 # Outcome: every instrument a request names is asked for once, 100 to buy; the unsubscribe

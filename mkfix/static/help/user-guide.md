@@ -14,7 +14,7 @@ The quickest way to see mkfix work is to have it talk to itself.
 4. The order arrives on **Received Orders** with **New** in its Pending column. Select it and press **Accept**, then **Fill**.
 5. Watch the other side: Sent Orders shows the order's status change, **Received Trades** shows the fill, and **Messages** shows every message in both directions. Click a message and **Detail** breaks it out tag by tag.
 
-**Run the loopback tour**, beside the set-up button, does all of this with macros and adds IOIs, adverts and allocations.
+**Run the loopback tour**, beside the set-up button, does all of this with macros and adds IOIs, adverts, allocations, RFQs and quotes. The two loopback sessions speak FIX 4.4.
 
 To face a real counterparty instead, create a session of your own: see [Sessions](#sessions).
 

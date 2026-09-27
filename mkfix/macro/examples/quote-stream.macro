@@ -3,8 +3,8 @@
 # Shows:   the market side quoting unasked — `new quote` from a `run` block, `requote` on a
 #          timer to stream prices, `cancel quote` to stop, `hit`, `countered` and `passed` on a
 #          quote sent, and `on sent quote` minding one sent by hand
-# Needs:   a FIX 4.2 or later session: run it on LOOP-MKT with quote-taker armed on LOOP-CLI
-#          (FIX.4.4 on both for its counter)
+# Needs:   a FIX 4.2 or later session (4.4 for the counter): run it on LOOP-MKT with
+#          quote-taker armed on LOOP-CLI
 # Watch:   Sent Quotes (Market menu): one row per symbol whose QuoteID moves with every tick;
 #          its History holds the stream
 # Outcome: IBM is quoted around 150 and requoted every two seconds five times, then withdrawn;

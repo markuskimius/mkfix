@@ -3,8 +3,7 @@
 # Shows:   the market side asking to be sent RFQs — `rfq request` in a `run` block, `answered`
 #          for each RFQ it draws, `unsubscribe`, and `on sent rfq request` minding one
 #          sent by hand
-# Needs:   a FIX 4.3 or later session: run it on LOOP-MKT with rfq-responder armed on LOOP-CLI,
-#          both edited to FIX.4.4
+# Needs:   a FIX 4.3 or later session: run it on LOOP-MKT with rfq-responder armed on LOOP-CLI
 # Watch:   Sent RFQ Requests (Market menu): Active, the RFQs column counting, then
 #          Unsubscribed; Received RFQs for the RFQs themselves
 # Outcome: a subscription for IBM and MSFT for a minute, then an unsubscribe that says how
