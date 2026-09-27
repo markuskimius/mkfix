@@ -2137,6 +2137,11 @@ class TestHelpMenu:
                 for code in ("KeyH", "KeyJ", "KeyK", "KeyL", "ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight"):
                     assert f"{code}:" in wm, code
                 assert 'op: e.shiftKey ? "move" : "point"' in wm
+                if "+Ctrl+" in label:
+                    assert 'op: "resize"' in wm and "_kbResizeStep" in workspace
+            elif label == "Shift while dragging a window":
+                assert "e.shiftKey ? snapMove(" in workspace
+                assert re.search(r"e\.shiftKey \? \{[^}]*\} : snapResize\(", workspace)
             elif label in clicks:
                 assert "state.focus.sloppy" in fact.get("showWhen", ""), label
             else:

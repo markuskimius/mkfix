@@ -363,6 +363,10 @@
           "value": "Submit a dialog from anywhere in it"
         },
         {
+          "label": "Shift while dragging a window",
+          "value": "A move snaps to other windows' edges; a resize, which snaps by itself, goes free"
+        },
+        {
           "label": "Alt/Option+Shift+←/→",
           "value": "Move the active tab left or right in its window",
           "showWhen": "not state.focus.sloppy"
@@ -435,6 +439,11 @@
         {
           "label": "Alt/Option+Shift+H/J/K/L or arrows",
           "value": "Move the focused window",
+          "showWhen": "state.focus.sloppy"
+        },
+        {
+          "label": "Alt/Option+Ctrl+H/J/K/L or arrows",
+          "value": "Size the focused window by its bottom-right corner (L/J grow, H/K shrink); Shift too sizes it freely",
           "showWhen": "state.focus.sloppy"
         }
       ],

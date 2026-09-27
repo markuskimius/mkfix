@@ -46,11 +46,12 @@ A session is not tied to a side. Whatever a session sends shows on the sent blot
 | **Window** | tile, grid or cascade the windows, the list of open ones, and [sloppy focus](#sloppy-focus) |
 | **Help** | this guide, the macro pages, the key lists, About |
 
-A menu item brings its pane to the front, opening it if it was closed. Panes sit as tabs inside windows; drag a tab to move it and a window's edge to size it. The status bar at the bottom shows the connection on the left and, on the right, what the macros are doing and the version.
+A menu item brings its pane to the front, opening it if it was closed. Panes sit as tabs inside windows; drag a tab to move it and a window's edge to size it. A window being sized snaps to the edges of the others and of the workspace; a window being moved doesn't. The status bar at the bottom shows the connection on the left and, on the right, what the macros are doing and the version.
 
 | Key | Does |
 |---|---|
 | Alt/Option+Shift+←/→ | moves the active tab left or right in its window; with [sloppy focus](#sloppy-focus) on, it moves the window |
+| Shift while dragging a window | a move snaps to other windows' edges; a resize goes free |
 
 ## Sessions
 
@@ -333,21 +334,22 @@ Normally a click focuses a window (the highlighted border: the window the keys a
 | Click in a window | focuses it, leaving it where it is |
 | Alt/Option-click | brings the window to the front, when you let go |
 | Shift+Alt/Option-click | sends it to the back |
-| Alt/Option-drag | moves it from anywhere inside, snapping to other windows' edges, without bringing it forward |
+| Alt/Option-drag | moves it from anywhere inside, without bringing it forward; hold Shift too to snap to other windows' edges |
 | Alt/Option+P | brings the focused window to the front |
 | Alt/Option+N | sends it to the back; the focus goes to the window now under the pointer |
 | Alt/Option+H/J/K/L or arrows | moves a stand-in mouse pointer left, down, up or right |
 | Alt/Option+Shift+H/J/K/L or arrows | moves the focused window, which keeps the focus |
+| Alt/Option+Ctrl+H/J/K/L or arrows | sizes the focused window by its bottom-right corner: L/→ and J/↓ grow it, H/← and K/↑ shrink it. It snaps to other windows' edges; hold Shift too to size it freely |
 
 ### The stand-in pointer
 
 A web page cannot move the mouse, so the keys move a stand-in. The mouse pointer disappears and an arrow with a small dot appears in its place. The stand-in focuses the windows it crosses, as the mouse would, but it does not click, and hover highlights stay where the mouse is. Move, click or scroll the mouse and the stand-in goes, the mouse pointer coming back where it was.
 
-A tap moves the pointer or the window 5 pixels. Held, it glides, faster the longer you hold, and two keys together go diagonally. Pressing or letting go of Shift mid-glide switches between moving the pointer and moving the window. A window moved by keys carries the stand-in along and doesn't snap; a tiled window becomes an ordinary one.
+A tap moves the pointer or the window, or sizes the window, 5 pixels. Held, it glides, faster the longer you hold, and two keys together go diagonally. Pressing or letting go of Shift mid-glide switches between moving the pointer and moving the window, or, while sizing, turns snapping off and on; letting go of Ctrl ends a resize. A window moved by keys carries the stand-in along and doesn't snap; a tiled window becomes an ordinary one. A key held while sizing pulls the window free of an edge it caught.
 
 ### When the key or click is someone else's
 
-- **In a text field**, the macro editor included, the arrows, Alt/Option+P and Alt/Option+N are the field's. On a Mac the letters are too, since Option+letter types a character. On Windows and Linux, Alt+H/J/K/L still work from a field.
+- **In a text field**, the macro editor included, the arrows, Alt/Option+P, Alt/Option+N and the Alt/Option+Ctrl sizing keys are the field's (Ctrl+Alt types characters on some Windows keyboards). On a Mac the letters are too, since Option+letter types a character. On Windows and Linux, Alt+H/J/K/L still work from a field.
 - **Alt/Option+Shift+←/→** moves the window, not the tab, while sloppy focus is on. Drag a tab to reorder it.
 - **Alt/Option-clicks** belong to the window while sloppy focus is on. Two Alt-clicks inside windows stop working: on a filter's group icon, which switches every filter off or on, and on a dialog section's heading, which folds every section. Switching to Ctrl+Alt-click (below) gives them back.
 - **Some Linux desktops** (Xfce, KDE before Plasma 6) take Alt-click for themselves, so the page never sees it. There, hold Shift as you open the **Window** menu while sloppy focus is on and tick *Raise with Ctrl+Alt-click*. The clicks become the ones below, and a plain Alt-click is the content's again. The keys stay Alt. A Mac doesn't offer the choice, since Ctrl-click is a right-click there.
