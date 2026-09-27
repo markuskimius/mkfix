@@ -1931,6 +1931,8 @@ class TestHelpMenu:
         menu = app_config["menubar"][-1]
         assert menu["label"] == "Help"
         assert menu["items"] == [
+            {"label": "User Guide", "action": "pane.show", "args": "help-guide"},
+            {"sep": True},
             {"label": "Macro Language", "action": "pane.show", "args": "help-viewer"},
             {"label": "Macro Editor Keys", "action": "dialog.open", "args": "macro_keys"},
             {"label": "Replaying a Log", "action": "pane.show", "args": "help-replay"},

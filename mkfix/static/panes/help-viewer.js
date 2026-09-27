@@ -7,7 +7,8 @@
 // to open a copy in the Macros pane.
 //
 // `app.state.help_target = { page, anchor }` opens a page at a heading — the
-// editor's F1 sets it.
+// editor's F1 sets it. A pane's `page` (app.json) is the page it opens on:
+// the Help menu has a pane for each page it names.
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
 import { escapeHtml, headings, renderMarkdown } from "/static/markdown.js";
@@ -37,8 +38,8 @@ registerPaneType("help-viewer", async (spec, app, host) => {
         <button class="mkui-btn" data-example="${escapeHtml(e.name)}" data-side="${escapeHtml(e.side)}">Open in ${
           e.side === "client" ? "Client" : "Market"} Macros</button>
       </section>`;
-    const sides = [["market", "Market macros", "market-examples", "They act on the orders you receive. <b>Arm…</b> one and it waits for orders to match."],
-      ["client", "Client macros", "client-examples", "They send orders and act on them. <b>Run…</b> one on a session — as many runs at once as you like."]];
+    const sides = [["market", "Market macros", "market-examples", "They act on the orders you receive, and send IOIs, adverts and allocations. <b>Arm…</b> one that waits for orders to match; <b>Run…</b> one that sends."],
+      ["client", "Client macros", "client-examples", "They send orders and act on them, and answer the IOIs, adverts and allocations you receive. <b>Run…</b> one that sends on a session — as many runs at once as you like; <b>Arm…</b> one that waits."]];
     const sections = sides.map(([side, title, id, blurb]) =>
       `<h2 id="${id}">${title}</h2><p>${blurb}</p>${examples.filter((e) => e.side === side).map(card).join("")}`).join("");
     return { html: `<h1 id="macro-examples">Macro Examples</h1>
@@ -116,14 +117,17 @@ registerPaneType("help-viewer", async (spec, app, host) => {
     }
   });
 
-  // F1 in the editor names a heading; an open viewer follows it without
-  // taking the focus, and one opened later starts there.
+  // F1 in the editor names a heading of one page. The viewer opened for
+  // that page follows it without taking the focus, as does one that has
+  // been turned to it, and one opened later starts there; a viewer opened
+  // for another page — the User Guide, Replaying a Log — stays on its own.
+  const home = spec.page ?? pages[0].id;
   let first = true;
   app.state.subscribe("help_target", (target) => {
-    if (first) return;
-    if (target) show(target.page, target.anchor);
+    if (first || !target) return;
+    if (target.page === home || target.page === currentId) show(target.page, target.anchor);
   });
   first = false;
   const start = app.state.get("help_target");
-  await show(start?.page ?? spec.page ?? pages[0].id, start?.anchor);
+  await show(home, start?.page === home ? start.anchor : undefined);
 });

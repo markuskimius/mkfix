@@ -415,9 +415,76 @@ class TestHelpPages:
         for page in self.PAGES:
             assert page.get("builtin") == "examples" or (HELP / page["file"]).is_file(), page
         help_menu = app["menubar"][-1]["items"]
-        assert {"label": "Macro Language", "action": "pane.show", "args": "help-viewer"} in help_menu
-        assert app["panes"]["help-viewer"]["type"] == "help-viewer"
-        assert [p["id"] for p in self.PAGES][0] == "macro-language", "the page the menu item lands on"
+        ids = [p["id"] for p in self.PAGES]
+        assert ids == ["user-guide", "macro-language", "macro-examples", "replaying-a-log"]
+        # The menu has a pane for each page it names, and each pane names its page: a pane
+        # without one opens on the first page, whichever that is this release.
+        for label, pane, page in (("User Guide", "help-guide", "user-guide"),
+                                  ("Macro Language", "help-viewer", "macro-language"),
+                                  ("Replaying a Log", "help-replay", "replaying-a-log")):
+            assert {"label": label, "action": "pane.show", "args": pane} in help_menu
+            assert app["panes"][pane] == {"title": "Help", "type": "help-viewer", "page": page}
+            assert page in ids
+        assert help_menu[0]["label"] == "User Guide", "the guide is where a newcomer starts"
+
+    def test_a_viewer_opens_on_its_own_page_whatever_f1_last_named(self):
+        """F1 in the editor leaves `help_target` set for the session; read
+        first, it turned every Help pane opened afterwards to the macro
+        reference — Replaying a Log and the User Guide included."""
+        viewer = (STATIC / "panes" / "help-viewer.js").read_text(encoding="utf-8")
+        assert "const home = spec.page ?? pages[0].id;" in viewer
+        assert "await show(home, start?.page === home ? start.anchor : undefined);" in viewer
+        assert "if (target.page === home || target.page === currentId) show(target.page, target.anchor);" in viewer
+        assert "start?.page ?? spec.page" not in viewer
+        editor = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
+        assert 'app.fireAction("pane.show", "help-viewer")' in editor, "the editor's ? opens the macro reference"
+        assert 'app.state.set("help_target", { page: "macro-language"' in editor
+
+    def test_the_user_guide_names_what_the_application_has(self):
+        """The guide is prose about the UI, so what it names in bold as a
+        menu, a pane or a button has to be there under that name."""
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        text = (HELP / "user-guide.md").read_text(encoding="utf-8")
+        menus = {m["label"]: m["items"] for m in app["menubar"]}
+        # Menu › Item paths
+        for menu, item in re.findall(r"\*\*(\w+) › ([^*]+)\*\*", text):
+            assert menu in menus, menu
+            assert item in {i.get("label") for i in menus[menu]}, f"{menu} › {item}"
+        # every pane menu's blotters are named, and every menu is in the table of menus
+        for menu in menus:
+            assert f"| **{menu}** |" in text, f"the menus table leaves out {menu}"
+        titles = {p["title"] for p in app["panes"].values()}
+        for title in ("Sessions", "Messages", "Detail", "Sent Orders", "Received Orders", "Sent Trades",
+                      "Received Trades", "Client Macros", "Market Macros", "Templates", "Dictionaries"):
+            assert title in titles and title in text, title
+        # the button tables: every button a table names is on that blotter, and none of the blotter's is left out
+        sections = {"Sent Orders": "order-blotter", "Received Orders": "market-order-blotter",
+                    "Sent Trades": "market-trade-blotter"}
+        for heading, pane in sections.items():
+            section = text.split(f"### {heading}\n", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
+            named = re.findall(r"^\| \*\*([^*]+)\*\* \|", section, re.M)
+            buttons = [b["label"] for b in app["panes"][pane]["buttons"]]
+            assert set(named) <= set(buttons), (heading, set(named) - set(buttons))
+            assert set(buttons) - set(named) <= {"History"}, (heading, set(buttons) - set(named))
+        # session statuses are the engine's
+        engine = (ROOT / "mkfix" / "fix" / "session.py").read_text(encoding="utf-8") \
+            + (ROOT / "mkfix" / "fix" / "engine.py").read_text(encoding="utf-8")
+        statuses = re.findall(r"^\| `([A-Z_]+)` \|", text.split("### Running one\n", 1)[1].split("\n## ", 1)[0], re.M)
+        assert statuses == ["DOWN", "LISTENING", "LOGON_SENT", "ACTIVE", "LOGOUT_SENT", "ERROR"]
+        for status in statuses:
+            assert f'"{status}"' in engine, status
+        # the keys are the Keyboard Shortcuts box's
+        for fact in app["dialogs"]["shortcuts"]["facts"]:
+            assert f"| {fact['label']} |" in text, fact["label"]
+        # what the status bar and the dialogs say
+        assert app["mkio"]["incompatible"]["status.message"] == "Server version mismatch" and "*Server version mismatch*" in text
+        assert app["mkio"]["disconnected"]["status.message"] == "Disconnected" and "*Disconnected*" in text
+        new_order = app["panes"]["order-blotter"]["buttons"][0]["action"]["dialog"]
+        assert new_order["submit"]["label"] == "Send Order" and "**Send Order**" in text
+        # the subcommands are the ones the command line takes
+        main = (ROOT / "mkfix" / "__main__.py").read_text(encoding="utf-8")
+        for sub in ("check", "run", "archive", "restore"):
+            assert f"`mkfix {sub}" in text and f'"{sub}"' in main, sub
 
     def test_every_example_in_the_pages_is_a_script_that_checks(self):
         blocks = 0
@@ -815,6 +882,9 @@ class TestWiring:
         # ▶ follows what the macro does: Run… when it has a `run` block, Arm… when it only waits
         assert 'return checked.sends ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);' in pane
         assert "const context = { row: { name: current, side, ...checked } };" in pane
+        # … and its tooltip says the same: worded by the side it named the dialog the click did not open
+        assert "checked.sends ? `Run… — " in pane and ": `Arm… — " in pane
+        assert "startWord" not in pane and 'side === "client" ? `' not in pane
 
     def test_the_examples_page_can_set_up_the_sessions_its_examples_name(self):
         from mkfix.macro.store import EXAMPLES, LOOPBACK

@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.65",
+    "version": "0.66",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -273,6 +273,14 @@
     {
       "label": "Help",
       "items": [
+        {
+          "label": "User Guide",
+          "action": "pane.show",
+          "args": "help-guide"
+        },
+        {
+          "sep": true
+        },
         {
           "label": "Macro Language",
           "action": "pane.show",
@@ -790,7 +798,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.65"
+        "text": "mkfix v0.66"
       }
     ],
     "bindStyle": {
@@ -11296,9 +11304,15 @@
         }
       }
     },
+    "help-guide": {
+      "title": "Help",
+      "type": "help-viewer",
+      "page": "user-guide"
+    },
     "help-viewer": {
       "title": "Help",
-      "type": "help-viewer"
+      "type": "help-viewer",
+      "page": "macro-language"
     },
     "help-replay": {
       "title": "Help",
@@ -11495,7 +11509,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.65",
+      "version": "0.66",
       "mkio": "1.5",
       "expr": "2"
     },

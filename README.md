@@ -307,7 +307,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   restorable from the Restore Layout submenu, and Reset to Default returns to
   the shipped arrangement. mkfix has no login, so the history is shared by
   everyone using the same server.
-- **Help** -- Help → Keyboard Shortcuts lists the keys the tables and dialogs
+- **Help** -- Help → User Guide is the tour of the whole application, from
+  the first order to the command line, in the application itself (and
+  [here](mkfix/static/help/user-guide.md)); Help → Macro Language and
+  Replaying a Log go into those two subjects. Help → Keyboard Shortcuts lists the keys the tables and dialogs
   answer; Help → About mkfix shows the client's version beside the server's
   and the mkui and mkio versions, the GPL-2.0 no-warranty notice, and links to
   the repository, the issue tracker, the license and the FIX dictionary
@@ -497,6 +500,9 @@ Open the Web UI URL in your browser. If the port is already taken, mkfix exits
 with an error instead of starting.
 
 ## Quick Start
+
+The [User Guide](mkfix/static/help/user-guide.md) (Help menu) starts with
+the same steps over two loopback sessions it sets up for you.
 
 1. **Create two sessions** with the New button on the Sessions blotter -- one
    initiator pointing at the other as acceptor on the same port.

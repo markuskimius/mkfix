@@ -116,7 +116,6 @@ registerPaneType("macros", async (spec, app, host) => {
   const cmd = (command, data = {}) => client.send("fix_cmd", { command, ...data }, { op: command });
   const side = spec.side === "client" ? "client" : "market";
   const Side = side === "client" ? "Client" : "Market";
-  const startWord = side === "client" ? "Run" : "Arm";
 
   host.innerHTML = `
     <div class="macro-pane">
@@ -241,8 +240,10 @@ registerPaneType("macros", async (spec, app, host) => {
     play.title = !current ? "Open a macro to play it" : viewing ? "Back to the macro first" : dirty() ? "Save first"
       : problems ? "Fix the problems first"
         : (playing.length ? `Playing: ${count(playing.length)}. ` : "")
-          + (side === "client" ? `${startWord}… — send this macro's orders${live.length ? ", another run beside the " + count(live.length) + " live" : ""}`
-            : `${startWord}… — let this macro take matching orders`);
+          // What the click opens, in the words of what the macro does: it
+          // sends (a `run` block) or it waits, whichever side it is for.
+          + (checked.sends ? `Run… — send what this macro sends${live.length ? ", another run beside the " + count(live.length) + " live" : ""}`
+            : `Arm… — let this macro take what matches`);
     pause.disabled = !live.length;
     pause.classList.toggle("macro-paused", paused > 0);
     pause.title = !live.length ? (current ? "No run of this macro is live" : "") : playing.length
