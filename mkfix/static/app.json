@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.71",
+    "version": "0.72",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -165,6 +165,11 @@
           "label": "Received Quotes",
           "action": "pane.show",
           "args": "quote-blotter"
+        },
+        {
+          "label": "Received RFQ Requests",
+          "action": "pane.show",
+          "args": "rfq-request-blotter"
         }
       ]
     },
@@ -211,6 +216,11 @@
           "label": "Sent Quotes",
           "action": "pane.show",
           "args": "market-quote-blotter"
+        },
+        {
+          "label": "Sent RFQ Requests",
+          "action": "pane.show",
+          "args": "market-rfq-request-blotter"
         }
       ]
     },
@@ -1018,7 +1028,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.71"
+        "text": "mkfix v0.72"
       }
     ],
     "bindStyle": {
@@ -6324,6 +6334,7 @@
         "asOf": "received_rfqs_as_of",
         "columns": [
           "quote_req_id",
+          "rfq_req_id",
           "quote_id",
           "quote_ref_id",
           "symbol",
@@ -6351,6 +6362,7 @@
       },
       "columns": [
         "quote_req_id",
+        "rfq_req_id",
         "session_id",
         "client",
         "symbol",
@@ -6473,7 +6485,8 @@
         "timestamp": "Opened",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "rfq_req_id": "RFQ Request"
       },
       "filters": {
         "updated_at": {
@@ -7053,6 +7066,7 @@
         "id",
         "origin",
         "quote_req_id",
+        "rfq_req_id",
         "side_code",
         "quote_request_type",
         "quote_request_type_code",
@@ -7149,7 +7163,8 @@
         "timestamp": "Opened",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "rfq_req_id": "RFQ Request"
       },
       "filters": {
         "updated_at": {
@@ -7991,6 +8006,532 @@
             "name": "table.history",
             "args": {
               "pane": "market-quote-blotter"
+            }
+          }
+        }
+      ]
+    },
+    "market-rfq-request-blotter": {
+      "title": "Sent RFQ Requests",
+      "type": "mkio-table",
+      "service": "rfq_requests_query",
+      "protocol": "query",
+      "filter": "direction == 'TX'",
+      "history": {
+        "table": "fix_rfq_requests",
+        "key": [
+          "id"
+        ],
+        "versions": "rfq_requests_versions",
+        "state": "rfq_requests_state",
+        "feed": "rfq_requests_history",
+        "asOf": "sent_rfq_requests_as_of",
+        "columns": [
+          "rfq_req_id",
+          "symbols",
+          "num_symbols",
+          "subscription_type",
+          "status",
+          "quote_requests",
+          "last_quote_req_id",
+          "quote_request_type",
+          "quote_type",
+          "extra_tags"
+        ]
+      },
+      "columns": [
+        "rfq_req_id",
+        "session_id",
+        "client",
+        "symbols",
+        "num_symbols",
+        "subscription_type",
+        "status",
+        "quote_requests",
+        "last_quote_req_id",
+        "quote_request_type",
+        "quote_type",
+        "extra_tags",
+        "macro",
+        "updated_at",
+        "id",
+        "quote_request_type_code",
+        "quote_type_code",
+        "subscription_type_code",
+        "timestamp",
+        "direction",
+        "raw_message",
+        "session_status"
+      ],
+      "visible": [
+        "rfq_req_id",
+        "session_id",
+        "client",
+        "symbols",
+        "num_symbols",
+        "subscription_type",
+        "status",
+        "quote_requests",
+        "last_quote_req_id",
+        "quote_request_type",
+        "quote_type",
+        "extra_tags",
+        "macro",
+        "updated_at"
+      ],
+      "labels": {
+        "rfq_req_id": "RFQReqID",
+        "session_id": "Session",
+        "client": "Client",
+        "symbols": "Instruments",
+        "num_symbols": "Count",
+        "subscription_type": "Subscription",
+        "status": "Status",
+        "quote_requests": "RFQs",
+        "last_quote_req_id": "Last QuoteReqID",
+        "quote_request_type": "Request Type",
+        "quote_type": "Quote Type",
+        "extra_tags": "Extra Tags",
+        "macro": "Macro",
+        "updated_at": "Updated",
+        "id": "Row",
+        "quote_request_type_code": "Request Type (303)",
+        "quote_type_code": "Quote Type (537)",
+        "subscription_type_code": "Subscription (263)",
+        "timestamp": "Opened",
+        "direction": "Dir",
+        "raw_message": "Message",
+        "session_status": "Session Status"
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "types": {
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "status": [
+          {
+            "when": "value == 'Active'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'Snapshot'",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "when": "value == 'Unsubscribed'",
+            "color": "#858585",
+            "strike": true
+          },
+          {
+            "when": "value == 'Failed'",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "buttons": [
+        {
+          "label": "New",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New RFQ Request",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "rfq_request"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "session_id": "session_id",
+                    "symbols": "symbols",
+                    "subscription_type": "subscription_type",
+                    "quote_request_type": "quote_request_type",
+                    "quote_type": "quote_type",
+                    "extra_tags": "extra_tags",
+                    "client": "client"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_rfq_request",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "symbols",
+                  "label": "Instruments (146: symbols, one per line)",
+                  "type": "textarea",
+                  "rows": 3,
+                  "placeholder": "AAPL\nIBM",
+                  "required": true
+                },
+                {
+                  "name": "subscription_type",
+                  "label": "Subscription (263)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Subscribe: snapshot and updates (FIX 4.2+)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - Snapshot (FIX 4.2+)"
+                    }
+                  ],
+                  "value": "1"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "quote_request_type",
+                      "label": "Request Type (303)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 303)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Manual (FIX 4.2+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automatic (FIX 4.2+)"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "An RFQRequest (35=AH): FIX 4.3 and later."
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('146=(one per instrument)|55=', REPLACE(COALESCE(symbols, ''), '\\n', ','), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), '|263=', subscription_type, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send RFQ Request",
+                "service": "fix_cmd",
+                "op": "send_rfq_request"
+              }
+            }
+          }
+        },
+        {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone ${row.rfq_req_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "name": "symbols",
+                  "label": "Instruments (146: symbols, one per line)",
+                  "type": "textarea",
+                  "rows": 3,
+                  "placeholder": "AAPL\nIBM",
+                  "required": true,
+                  "value": "${REPLACE(row.symbols, '; ', '\\n')}"
+                },
+                {
+                  "name": "subscription_type",
+                  "label": "Subscription (263)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Subscribe: snapshot and updates (FIX 4.2+)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - Snapshot (FIX 4.2+)"
+                    }
+                  ],
+                  "value": "${IF(row.subscription_type_code == '0', '0', '1')}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "quote_request_type",
+                      "label": "Request Type (303)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 303)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Manual (FIX 4.2+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automatic (FIX 4.2+)"
+                        }
+                      ],
+                      "value": "${row.quote_request_type_code}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "An RFQRequest (35=AH): FIX 4.3 and later."
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('146=(one per instrument)|55=', REPLACE(COALESCE(symbols, ''), '\\n', ','), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), '|263=', subscription_type, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send RFQ Request",
+                "service": "fix_cmd",
+                "op": "send_rfq_request"
+              }
+            }
+          }
+        },
+        {
+          "label": "Unsubscribe",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.status == 'Active' && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Unsubscribe ${row.rfq_req_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "rfq_req_id": "${row.rfq_req_id}"
+              },
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "unsubscribe"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.unsubscribe_rfq_request",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('644=', row.rfq_req_id, '|55=', row.symbols, '|263=2', IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Unsubscribe",
+                "service": "fix_cmd",
+                "op": "unsubscribe_rfq_request"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-rfq-request-blotter"
             }
           }
         }
@@ -11272,6 +11813,7 @@
         "asOf": "sent_rfqs_as_of",
         "columns": [
           "quote_req_id",
+          "rfq_req_id",
           "quote_id",
           "quote_ref_id",
           "symbol",
@@ -11299,6 +11841,7 @@
       },
       "columns": [
         "quote_req_id",
+        "rfq_req_id",
         "session_id",
         "client",
         "symbol",
@@ -11419,7 +11962,8 @@
         "timestamp": "Opened",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "rfq_req_id": "RFQ Request"
       },
       "filters": {
         "updated_at": {
@@ -12495,6 +13039,7 @@
         "id",
         "origin",
         "quote_req_id",
+        "rfq_req_id",
         "side_code",
         "quote_request_type",
         "quote_request_type_code",
@@ -12591,7 +13136,8 @@
         "timestamp": "Opened",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "rfq_req_id": "RFQ Request"
       },
       "filters": {
         "updated_at": {
@@ -13227,6 +13773,338 @@
         }
       ]
     },
+    "rfq-request-blotter": {
+      "title": "Received RFQ Requests",
+      "type": "mkio-table",
+      "service": "rfq_requests_query",
+      "protocol": "query",
+      "filter": "direction == 'RX'",
+      "history": {
+        "table": "fix_rfq_requests",
+        "key": [
+          "id"
+        ],
+        "versions": "rfq_requests_versions",
+        "state": "rfq_requests_state",
+        "feed": "rfq_requests_history",
+        "asOf": "received_rfq_requests_as_of",
+        "columns": [
+          "rfq_req_id",
+          "symbols",
+          "num_symbols",
+          "subscription_type",
+          "status",
+          "quote_requests",
+          "last_quote_req_id",
+          "quote_request_type",
+          "quote_type",
+          "extra_tags"
+        ]
+      },
+      "columns": [
+        "rfq_req_id",
+        "session_id",
+        "client",
+        "symbols",
+        "num_symbols",
+        "subscription_type",
+        "status",
+        "quote_requests",
+        "last_quote_req_id",
+        "quote_request_type",
+        "quote_type",
+        "extra_tags",
+        "macro",
+        "updated_at",
+        "id",
+        "quote_request_type_code",
+        "quote_type_code",
+        "subscription_type_code",
+        "timestamp",
+        "direction",
+        "raw_message",
+        "session_status"
+      ],
+      "visible": [
+        "rfq_req_id",
+        "session_id",
+        "client",
+        "symbols",
+        "num_symbols",
+        "subscription_type",
+        "status",
+        "quote_requests",
+        "last_quote_req_id",
+        "quote_request_type",
+        "quote_type",
+        "extra_tags",
+        "macro",
+        "updated_at"
+      ],
+      "labels": {
+        "rfq_req_id": "RFQReqID",
+        "session_id": "Session",
+        "client": "Client",
+        "symbols": "Instruments",
+        "num_symbols": "Count",
+        "subscription_type": "Subscription",
+        "status": "Status",
+        "quote_requests": "RFQs",
+        "last_quote_req_id": "Last QuoteReqID",
+        "quote_request_type": "Request Type",
+        "quote_type": "Quote Type",
+        "extra_tags": "Extra Tags",
+        "macro": "Macro",
+        "updated_at": "Updated",
+        "id": "Row",
+        "quote_request_type_code": "Request Type (303)",
+        "quote_type_code": "Quote Type (537)",
+        "subscription_type_code": "Subscription (263)",
+        "timestamp": "Opened",
+        "direction": "Dir",
+        "raw_message": "Message",
+        "session_status": "Session Status"
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "types": {
+        "timestamp": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "status": [
+          {
+            "when": "value == 'Active'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'Snapshot'",
+            "color": "#dcdcaa",
+            "italic": true
+          },
+          {
+            "when": "value == 'Unsubscribed'",
+            "color": "#858585",
+            "strike": true
+          },
+          {
+            "when": "value == 'Failed'",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "buttons": [
+        {
+          "label": "RFQ…",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> r.status != 'Unsubscribed' && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "RFQ for ${row.rfq_req_id}",
+              "pin": "keep",
+              "width": 420,
+              "fields": [
+                {
+                  "type": "readonly",
+                  "value": "Instruments asked for: ${row.symbols}"
+                },
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "required": true,
+                  "value": "${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "required": true,
+                      "value": "${IF(row.num_symbols == 1, row.symbols, '')}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (two-way: withhold 54)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "value": "",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "optional",
+                      "min": 0,
+                      "width": 0.5
+                    },
+                    {
+                      "name": "currency",
+                      "label": "Currency (15)",
+                      "type": "text",
+                      "placeholder": "optional",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "quote_request_type",
+                      "label": "Request Type (303)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 303)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Manual (FIX 4.2+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automatic (FIX 4.2+)"
+                        }
+                      ],
+                      "value": "${row.quote_request_type_code}",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "quote_type",
+                      "label": "Quote Type (537)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": " - (none: withhold 537)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Indicative (FIX 4.3+)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Restricted tradeable (FIX 4.3+)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Counter (FIX 4.4+)"
+                        }
+                      ],
+                      "value": "${row.quote_type_code}",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "644=${row.rfq_req_id}"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(CONCAT('55=', COALESCE(symbol, '')), IF(COALESCE(side, '') != '', CONCAT('|54=', side), ''), IF(qty != NULL, CONCAT('|38=', STR(qty)), ''), IF(COALESCE(currency, '') != '', CONCAT('|15=', currency), ''), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send RFQ",
+                "service": "fix_cmd",
+                "op": "send_rfq"
+              },
+              "submitPerRow": true
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "rfq-request-blotter"
+            }
+          }
+        }
+      ]
+    },
     "replay-control": {
       "title": "Replay",
       "type": "mkio-table",
@@ -13695,6 +14573,8 @@
         "offer_size",
         "valid_for",
         "quote_rej_reason",
+        "symbols",
+        "subscription_type",
         "text",
         "extra_tags",
         "id",
@@ -13753,7 +14633,9 @@
         "bid_size": "Bid Size (134)",
         "offer_size": "Offer Size (135)",
         "valid_for": "Valid For (s)",
-        "quote_rej_reason": "Reject Reason (658)"
+        "quote_rej_reason": "Reject Reason (658)",
+        "symbols": "Instruments (146)",
+        "subscription_type": "Subscription (263)"
       },
       "sort": [
         "scope",
@@ -13762,7 +14644,7 @@
       "styles": {
         "scope": [
           {
-            "when": "CONTAINS(['order', 'cancel', 'ioi', 'advert', 'allocation', 'rfq', 'quote', 'new_quote'], value)",
+            "when": "CONTAINS(['order', 'cancel', 'ioi', 'advert', 'allocation', 'rfq', 'quote', 'new_quote', 'rfq_request'], value)",
             "color": "#569cd6"
           },
           {
@@ -13770,7 +14652,7 @@
             "color": "#4ec9b0"
           },
           {
-            "when": "CONTAINS(['reject', 'unsolicited', 'bust', 'alloc_reject', 'quote_reject', 'pass'], value)",
+            "when": "CONTAINS(['reject', 'unsolicited', 'bust', 'alloc_reject', 'quote_reject', 'pass', 'unsubscribe'], value)",
             "color": "#f44747"
           },
           {
@@ -13814,14 +14696,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
                 },
                 {
                   "row": [
@@ -14365,7 +15247,7 @@
                         }
                       ],
                       "value": "${row.quote_request_type}",
-                      "showWhen": "row.scope == 'rfq'",
+                      "showWhen": "CONTAINS(['rfq', 'rfq_request'], row.scope)",
                       "width": 0.5
                     },
                     {
@@ -14395,7 +15277,7 @@
                         }
                       ],
                       "value": "${row.quote_type}",
-                      "showWhen": "CONTAINS(['rfq', 'quote', 'new_quote'], row.scope)",
+                      "showWhen": "CONTAINS(['rfq', 'quote', 'new_quote', 'rfq_request'], row.scope)",
                       "width": 0.5
                     }
                   ]
@@ -14501,10 +15383,36 @@
                   "showWhen": "row.scope == 'quote_reject'"
                 },
                 {
+                  "name": "symbols",
+                  "label": "Instruments (146: symbols, one per line)",
+                  "type": "textarea",
+                  "rows": 3,
+                  "value": "${row.symbols}",
+                  "showWhen": "row.scope == 'rfq_request'"
+                },
+                {
+                  "name": "subscription_type",
+                  "label": "Subscription (263)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Subscribe: snapshot and updates (FIX 4.2+)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - Snapshot (FIX 4.2+)"
+                    }
+                  ],
+                  "value": "${row.subscription_type}",
+                  "showWhen": "row.scope == 'rfq_request'"
+                },
+                {
                   "name": "text",
                   "label": "${IF(row.scope == 'reject', 'Reason (58)', 'Text (58)')}",
                   "type": "text",
-                  "value": "${row.text}"
+                  "value": "${row.text}",
+                  "showWhen": "not CONTAINS(['rfq_request', 'unsubscribe'], row.scope)"
                 },
                 {
                   "name": "extra_tags",
@@ -14560,14 +15468,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
                 },
                 {
                   "row": [
@@ -15111,7 +16019,7 @@
                         }
                       ],
                       "value": "${row.quote_request_type}",
-                      "showWhen": "row.scope == 'rfq'",
+                      "showWhen": "CONTAINS(['rfq', 'rfq_request'], row.scope)",
                       "width": 0.5
                     },
                     {
@@ -15141,7 +16049,7 @@
                         }
                       ],
                       "value": "${row.quote_type}",
-                      "showWhen": "CONTAINS(['rfq', 'quote', 'new_quote'], row.scope)",
+                      "showWhen": "CONTAINS(['rfq', 'quote', 'new_quote', 'rfq_request'], row.scope)",
                       "width": 0.5
                     }
                   ]
@@ -15247,10 +16155,36 @@
                   "showWhen": "row.scope == 'quote_reject'"
                 },
                 {
+                  "name": "symbols",
+                  "label": "Instruments (146: symbols, one per line)",
+                  "type": "textarea",
+                  "rows": 3,
+                  "value": "${row.symbols}",
+                  "showWhen": "row.scope == 'rfq_request'"
+                },
+                {
+                  "name": "subscription_type",
+                  "label": "Subscription (263)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Subscribe: snapshot and updates (FIX 4.2+)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - Snapshot (FIX 4.2+)"
+                    }
+                  ],
+                  "value": "${row.subscription_type}",
+                  "showWhen": "row.scope == 'rfq_request'"
+                },
+                {
                   "name": "text",
                   "label": "${IF(row.scope == 'reject', 'Reason (58)', 'Text (58)')}",
                   "type": "text",
-                  "value": "${row.text}"
+                  "value": "${row.text}",
+                  "showWhen": "not CONTAINS(['rfq_request', 'unsubscribe'], row.scope)"
                 },
                 {
                   "name": "extra_tags",
@@ -16565,7 +17499,8 @@
               "advert-blotter",
               "allocation-blotter",
               "rfq-blotter",
-              "quote-blotter"
+              "quote-blotter",
+              "rfq-request-blotter"
             ]
           },
           {
@@ -16602,7 +17537,8 @@
               "market-advert-blotter",
               "market-allocation-blotter",
               "market-rfq-blotter",
-              "market-quote-blotter"
+              "market-quote-blotter",
+              "market-rfq-request-blotter"
             ]
           },
           {
@@ -16719,7 +17655,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.71",
+      "version": "0.72",
       "mkio": "1.5",
       "expr": "2"
     },

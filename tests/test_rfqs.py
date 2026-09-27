@@ -563,3 +563,121 @@ class TestAcrossTheEngine:
             {"scope": "quote_reject", "name": "no inventory", "valid_for": "", "quote_type": "",
              "quote_rej_reason": "9"},
         ]
+
+
+# ── RFQ requests (35=AH) ───────────────────────────────────────────────
+
+AH_44 = "8=FIX.4.4|35=AH|644=RR1|146=2|55=AAPL|303=2|55=IBM|303=2|263=1|5007=h"
+
+
+class TestRfqRequests:
+    @pytest.mark.parametrize("version", ["FIX.4.3", "FIX.4.4", "FIX.5.0SP2"])
+    def test_the_wire(self, version):
+        f = FixMessageFactory(FixDictionary(version), "A", "B")
+        msg = f.rfq_request("RR1", ["AAPL", "IBM"], subscription_type="1", quote_request_type="2", quote_type="1")
+        msg.sendprep(f.dictionary, "A", "B", 1)
+        assert "|35=AH|" in msg.to_pipe_string()
+        assert "|644=RR1|146=2|55=AAPL|303=2|537=1|55=IBM|303=2|537=1|263=1|" in msg.to_pipe_string()
+
+    def test_columns(self):
+        from mkfix.fix.families import parse_symbols, rfq_request_columns
+        cols = rfq_request_columns(parse_fix(AH_44), FixDictionary("FIX.4.4"))
+        assert (cols["rfq_req_id"], cols["symbols"], cols["num_symbols"]) == ("RR1", "AAPL; IBM", 2)
+        assert (cols["quote_request_type"], cols["subscription_type"]) == ("Automatic", "SnapshotAndUpdates")
+        assert parse_symbols("AAPL\nIBM, MSFT;  X") == ["AAPL", "IBM", "MSFT", "X"]
+
+    @pytest.mark.asyncio
+    async def test_send_and_unsubscribe(self, stack):
+        db, writer, engine = stack
+        stub = _stub(engine)
+        rr = await engine.send_rfq_request("S1", "AAPL\nIBM", quote_request_type="2", client="ACME",
+                                           extra_tags="5007=h")
+        assert rr.startswith("RR")
+        (row,) = await _fetch_all(db, "SELECT * FROM fix_rfq_requests")
+        assert (row["direction"], row["status"], row["symbols"], row["num_symbols"]) == ("TX", "Active", "AAPL; IBM", 2)
+        assert row["client"] == "ACME" and row["extra_tags"] == "5007=h" and row["quote_requests"] == 0
+        assert f"|644={rr}|" in stub.sent[-1].to_pipe_string() and "|263=1|" in stub.sent[-1].to_pipe_string()
+        await engine.unsubscribe_rfq_request("S1", rr)
+        (row,) = await _fetch_all(db, "SELECT * FROM fix_rfq_requests")
+        assert (row["status"], row["subscription_type_code"]) == ("Unsubscribed", "2")
+        wire = stub.sent[-1].to_pipe_string()
+        assert f"|644={rr}|453=1|448=ACME|447=D|452=3|146=2|55=AAPL|303=2|55=IBM|303=2|263=2|" in wire, \
+            "the same instruments and client"
+        with pytest.raises(ValueError, match="nothing to unsubscribe"):
+            await engine.unsubscribe_rfq_request("S1", rr)
+        snap = await engine.send_rfq_request("S1", "MSFT", subscription_type="0")
+        assert (await _fetch_all(db, f"SELECT status FROM fix_rfq_requests WHERE rfq_req_id = '{snap}'"))[0][
+            "status"] == "Snapshot"
+
+    @pytest.mark.asyncio
+    async def test_refusals(self, stack):
+        db, writer, engine = stack
+        _stub(engine, "FIX.4.2")
+        with pytest.raises(ValueError, match="RFQRequest .35=AH. is not a FIX.4.2 message"):
+            await engine.send_rfq_request("S1", "AAPL")
+        _stub(engine)
+        with pytest.raises(ValueError, match="at least one instrument"):
+            await engine.send_rfq_request("S1", " ; ")
+        with pytest.raises(ValueError, match="Unsubscribe ends one"):
+            await engine.send_rfq_request("S1", "AAPL", subscription_type="2")
+        with pytest.raises(ValueError, match="Unknown RFQ request"):
+            await engine.unsubscribe_rfq_request("S1", "NOPE")
+
+    @pytest.mark.asyncio
+    async def test_received_and_unsubscribed(self, stack):
+        db, writer, engine = stack
+        stub = _stub(engine)
+        seen = []
+        engine.events.subscribe(seen.append)
+        await stub.receive(AH_44)
+        (row,) = await _fetch_all(db, "SELECT * FROM fix_rfq_requests")
+        assert (row["direction"], row["status"], row["symbols"], row["extra_tags"]) == ("RX", "Active", "AAPL; IBM", "5007=h")
+        assert seen[-1].kinds == ("rfq request", "message") and seen[-1].table == "fix_rfq_requests"
+        await stub.receive("8=FIX.4.4|35=AH|644=RR1|146=1|55=AAPL|263=2")
+        (row,) = await _fetch_all(db, "SELECT * FROM fix_rfq_requests")
+        assert row["status"] == "Unsubscribed" and row["symbols"] == "AAPL; IBM", "the subscription's instruments stay"
+        assert seen[-1].kinds == ("rfq request unsubscribed", "message")
+
+    @pytest.mark.asyncio
+    async def test_quote_requests_naming_it_are_counted_on_both_sides(self, linked):
+        db, engine, cli, mkt = linked
+        rr = await engine.send_rfq_request("Server", "AAPL IBM")
+        received = (await _fetch_all(db, "SELECT * FROM fix_rfq_requests WHERE session_id = 'Client'"))[0]
+        assert (received["direction"], received["rfq_req_id"]) == ("RX", rr)
+        first = await engine.send_rfq("Client", "AAPL", side="1", qty=100, extra_tags=f"644={rr}")
+        second = await engine.send_rfq("Client", "IBM", extra_tags=f"644={rr}")
+        rows = {r["session_id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_rfq_requests")}
+        for side in ("Client", "Server"):
+            assert (rows[side]["quote_requests"], rows[side]["last_quote_req_id"]) == (2, second), side
+        rfqs = {(r["session_id"], r["quote_req_id"]): r for r in await _rows(db)}
+        assert rfqs[("Server", first)]["rfq_req_id"] == rr and rfqs[("Client", first)]["rfq_req_id"] == rr
+        assert rfqs[("Server", first)]["extra_tags"] == "", "644 is consumed, not an extra tag"
+        await engine.unsubscribe_rfq_request("Server", rr)
+        rows = {r["session_id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_rfq_requests")}
+        assert rows["Client"]["status"] == rows["Server"]["status"] == "Unsubscribed"
+
+    @pytest.mark.asyncio
+    async def test_perform_and_the_write_before_the_send(self, stack):
+        db, writer, engine = stack
+        stub = _stub(engine)
+        seen = []
+        engine.events.subscribe(seen.append)
+        trace = []
+        real_send, real_submit = stub.send_message, writer.submit
+
+        async def send(msg):
+            trace.append("sent")
+            return await real_send(msg)
+
+        async def spy(ops, params_list, data, *a, **kw):
+            trace.append("wrote")
+            return await real_submit(ops, params_list, data, *a, **kw)
+        stub.send_message, writer.submit = send, spy
+        result = await engine.perform("send_rfq_request", {"session_id": "S1", "symbols": "AAPL", "subscription_type": ""})
+        assert trace.index("wrote") < trace.index("sent")
+        assert [e.kinds for e in seen] == [("sent rfq request",), ("action",)]
+        trace.clear()
+        await engine.perform("unsubscribe_rfq_request", {"session_id": "S1", "rfq_req_id": result["rfq_req_id"]})
+        writer.submit = real_submit
+        assert trace.index("wrote") < trace.index("sent")
+        assert seen[-1].row["status"] == "Unsubscribed" and seen[-1].detail["prev_row"]["status"] == "Active"

@@ -29,6 +29,7 @@ Every blotter belongs to one of two sides, and the menus are split the same way.
 | Trades | receives them: **Received Trades** | sends them: **Sent Trades** |
 | IOIs, adverts, allocations | receives them | sends them |
 | RFQs and quotes | asks: **Sent RFQs**, and takes quotes: **Received Quotes** | quotes: **Received RFQs**, **Sent Quotes** |
+| RFQ requests | receives them: **Received RFQ Requests** | sends them: **Sent RFQ Requests** |
 | Macros, under the **Macro** menu | **Client Macros**, **Client Macro Runs** | **Market Macros**, **Market Macro Runs** |
 
 A session is not tied to a side. Whatever a session sends shows on the sent blotters and whatever it receives on the received ones, so one mkfix can be the client on one session and the market on another.
@@ -255,6 +256,14 @@ The client side asks for a price and the market side quotes it. Each negotiation
 - **Reject** needs FIX 4.3 or later, and **Cancel Quote** needs FIX 4.2 or later.
 - **Valid For** is how many seconds a quote stands. When it runs out the row shows **Expired** on both sides. Nothing is sent for that.
 - A quote sent without a request replaces the one standing on its symbol, so a stream of quotes is one row.
+
+### RFQ requests
+
+A market side that wants to quote can ask to be sent the RFQs for a list of instruments (an RFQRequest, FIX 4.3 and later).
+
+- **Sent RFQ Requests** (Market): **New** takes the instruments one per line and subscribes, or asks for a single snapshot. **Clone** copies a request. **Unsubscribe** ends a subscription.
+- **Received RFQ Requests** (Client): **RFQ…** opens a new RFQ that names the request in tag 644.
+- Each RFQ that names a request is counted on the request's row on both sides, in the **RFQs** column, with the latest one beside it.
 
 ## Templates
 

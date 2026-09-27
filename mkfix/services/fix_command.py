@@ -70,6 +70,9 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "hit_quote": ("hit", ("qty", "price", "text", "extra_tags")),
     "counter_quote": ("counter", ("bid_px", "offer_px", "bid_size", "offer_size", "text", "extra_tags")),
     "pass_quote": ("pass", ("text", "extra_tags")),
+    "send_rfq_request": ("rfq_request", ("session_id", "symbols", "subscription_type", "quote_request_type",
+                                         "quote_type", "extra_tags", "client")),
+    "unsubscribe_rfq_request": ("unsubscribe", ("extra_tags",)),
 }
 
 

@@ -233,7 +233,7 @@ def ack_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
 # TX a request (or unsolicited quote) this engine sent, RX one it received.
 
 RFQ_TABLE = "fix_rfqs"
-CONSUMED_RFQ_TAGS = frozenset({"131", "146", "55", "54", "38", "303", "537", "15", "60", "58"})
+CONSUMED_RFQ_TAGS = frozenset({"131", "644", "146", "55", "54", "38", "303", "537", "15", "60", "58"})
 CONSUMED_QUOTE_TAGS = frozenset({
     "131", "117", "537", "55", "54", "38", "132", "133", "134", "135", "62", "15", "60", "58",
 })
@@ -275,6 +275,7 @@ def rfq_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
     qty = instance.get("38", "")
     return {
         "quote_req_id": msg.get("131", ""),
+        "rfq_req_id": msg.get("644", ""),
         "symbol": instance.get("55", ""),
         "side": dictionary.enum_name("54", side) if side else "",
         "side_code": side,
@@ -343,3 +344,42 @@ def parse_stamp(value: str) -> datetime | None:
         return None
     digits = "".join(c for c in fraction if c.isdigit())[:6]
     return stamp.replace(microsecond=int(digits.ljust(6, "0"))) if digits else stamp
+
+
+# ── RFQ requests ──────────────────────────────────────────────────────
+# An RFQRequest (35=AH, FIX 4.3+) is a quoting party asking to be sent the
+# quote requests for a list of instruments: RFQReqID(644), the instruments
+# in NoRelatedSym(146), SubscriptionRequestType(263) — 0 a snapshot, 1
+# snapshot and updates, 2 the unsubscribe of the RFQReqID named. Nothing
+# answers it: the QuoteRequests that follow, carrying the 644, are the
+# answer. One row per RFQReqID on fix_rfq_requests, the market side
+# sending and the client side receiving.
+
+CONSUMED_RFQ_REQUEST_TAGS = frozenset({"644", "263", "146", "55", "303", "537"})
+RFQ_REQUEST_STATUS_OF = {"0": "Snapshot", "1": "Active", "2": "Unsubscribed"}
+
+
+def rfq_request_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
+    """The columns of an RFQ request row: its instruments as `; `-joined
+    symbols, the request and quote types of the first instrument (the
+    dialog gives one to every instrument), the subscription type."""
+    instances = group_instances(msg, "146", ("55", "303", "537"), dictionary)
+    first = instances[0] if instances else {}
+    rtype, qtype, sub = first.get("303", ""), first.get("537", ""), msg.get("263", "")
+    return {
+        "rfq_req_id": msg.get("644", ""),
+        "symbols": "; ".join(i["55"] for i in instances if i.get("55")),
+        "num_symbols": len(instances),
+        "quote_request_type": dictionary.enum_name("303", rtype) if rtype else "",
+        "quote_request_type_code": rtype,
+        "quote_type": dictionary.enum_name("537", qtype) if qtype else "",
+        "quote_type_code": qtype,
+        "subscription_type": dictionary.enum_name("263", sub) if sub else "",
+        "subscription_type_code": sub,
+    }
+
+
+def parse_symbols(text: str) -> list[str]:
+    """Instruments as a dialog types them: one per line, or split by `;`,
+    commas or spaces."""
+    return [s for s in re.split(r"[\s,;]+", text or "") if s]

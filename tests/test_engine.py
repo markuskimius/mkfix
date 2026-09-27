@@ -3226,7 +3226,7 @@ class TestVersioning:
     async def test_tables_are_versioned(self):
         assert set(versioned_tables(CONFIG)) == {
             "fix_sessions", "fix_orders", "fix_executions", "fix_macros",
-            "fix_iois", "fix_adverts", "fix_allocations", "fix_rfqs"}
+            "fix_iois", "fix_adverts", "fix_allocations", "fix_rfqs", "fix_rfq_requests"}
 
     @pytest.mark.asyncio
     async def test_order_lifecycle_is_one_chain(self, stack):

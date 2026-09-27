@@ -92,6 +92,12 @@ Every handler but R's holds the order lock.
 
 **Events** are `<origin> <what>`: `rfq`, `rfq quoted`, `rfq requoted`, `rfq countered`, `rfq hit`, `rfq passed`, `rfq rejected`, `rfq canceled`, `rfq expired`, `rfq status`, `rfq response`, the same with `quote`, plus `sent rfq` and `sent quote`.
 
+**RFQ requests** (35=AH, FIX 4.3+) are kept on `fix_rfq_requests` (`RFQ_REQUEST_COLS`), one row per RFQReqID(644):
+- The market side sends them (`send_rfq_request`: instruments by `parse_symbols`, 263 = 0 snapshot or 1 subscribe; `unsubscribe_rfq_request`: the same 644 and instruments with 263=2), and the client side receives them (`_handle_rfq_request`: an unsubscribe closes the row its 644 names).
+- The factory's `rfq_request` sends one 146 instance per instrument (303/537 in each) and then 263. `rfq_request_columns` keeps the instruments as `symbols` (`; `-joined).
+- Nothing answers a request. A QuoteRequest carrying 644 (consumed, `fix_rfqs.rfq_req_id`) is counted on the request's row by `_link_rfq_request` — the row we sent for a received RFQ, the row we received for a sent one — in `quote_requests` and `last_quote_req_id`.
+- Events: `rfq request`, `rfq request unsubscribed`, `sent rfq request`. IDs `RR`; template scopes `rfq_request` and `unsubscribe`.
+
 **IDs** are `RQ`/`QT`/`QR`.
 
 **Templates:** the scopes are `rfq`, `quote`, `new_quote`, `quote_reject`, `hit`, `counter` and `pass`; `cancel_quote` shares `cancel`.

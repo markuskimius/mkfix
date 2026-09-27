@@ -45,16 +45,19 @@ SUBJECT_KEY = {
     "pass_quote": ("fix_rfqs", "quote_id", "client"),
     "quote_rfq": ("fix_rfqs", "quote_req_id", "market"), "reject_rfq": ("fix_rfqs", "quote_req_id", "market"),
     "requote": ("fix_rfqs", "quote_id", "market"), "cancel_quote": ("fix_rfqs", "quote_id", "market"),
+    "unsubscribe_rfq_request": ("fix_rfq_requests", "rfq_req_id", "TX"),
 }
 CREATES = {"send_ioi": ("fix_iois", "ioi_id"), "send_advert": ("fix_adverts", "adv_id"),
            "send_allocation": ("fix_allocations", "alloc_id"),
-           "send_rfq": ("fix_rfqs", "quote_req_id"), "send_quote": ("fix_rfqs", "quote_id")}
+           "send_rfq": ("fix_rfqs", "quote_req_id"), "send_quote": ("fix_rfqs", "quote_id"),
+           "send_rfq_request": ("fix_rfq_requests", "rfq_req_id")}
 # The actions the macro language has no verb for: the RFQ and quote ops,
 # which ship ahead of theirs (0.73). The recorder and vocabulary tests key
 # off it.
 UNSCRIPTED: frozenset[str] = frozenset({
     "send_rfq", "hit_quote", "counter_quote", "pass_quote",
     "quote_rfq", "send_quote", "requote", "reject_rfq", "cancel_quote",
+    "send_rfq_request", "unsubscribe_rfq_request",
 })
 
 
@@ -313,3 +316,18 @@ async def _reject_rfq(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
 async def _cancel_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     await e.cancel_quote(session_id=d["session_id"], quote_id=d["quote_id"], **_common(d))
     return {}
+
+
+@_action("send_rfq_request")
+async def _send_rfq_request(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"rfq_req_id": await e.send_rfq_request(
+        session_id=d["session_id"], symbols=d["symbols"], subscription_type=d.get("subscription_type") or "1",
+        quote_request_type=d.get("quote_request_type", ""), quote_type=d.get("quote_type", ""),
+        client=d.get("client", ""), extra_tags=d.get("extra_tags", ""), source=d.get("_source", "manual"),
+        tag=d.get("_tag", ""))}
+
+
+@_action("unsubscribe_rfq_request")
+async def _unsubscribe_rfq_request(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"rfq_req_id": await e.unsubscribe_rfq_request(
+        session_id=d["session_id"], rfq_req_id=d["rfq_req_id"], extra_tags=d.get("extra_tags", ""))}

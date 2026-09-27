@@ -232,7 +232,8 @@ class TestPerform:
         assert set(ACTIONS) == set(ORDER_KEY) | set(TRADE_KEY) | {"send_new_order"} | set(SUBJECT_KEY) | set(CREATES)
         assert not set(ORDER_KEY) & set(TRADE_KEY)
         assert UNSCRIPTED == {"send_rfq", "hit_quote", "counter_quote", "pass_quote", "quote_rfq", "send_quote",
-                              "requote", "reject_rfq", "cancel_quote"}, \
+                              "requote", "reject_rfq", "cancel_quote", "send_rfq_request",
+                              "unsubscribe_rfq_request"}, \
             "every op has a verb but the RFQ ones, which get theirs in 0.73"
 
     @pytest.mark.asyncio

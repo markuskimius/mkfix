@@ -381,7 +381,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   (Sent Quotes: New, Clone, Requote, Cancel), which the client sees in
   Received Quotes with the same Hit, Order..., Counter and Pass. One row per
   negotiation, the standing quote on it, every requote and answer in its
-  History; a quote whose Valid For runs out is Expired on both sides.
+  History; a quote whose Valid For runs out is Expired on both sides. The
+  market can ask for the RFQs on a list of instruments (Sent RFQ Requests:
+  New, Clone, Unsubscribe; an RFQRequest, FIX 4.3+); the client answers from
+  Received RFQ Requests with RFQ..., which names the request in tag 644, and
+  both sides count the RFQs each request has drawn.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages
@@ -507,7 +511,7 @@ change it): a `manifest.json`, a CSV per table with every column, the version
 history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
 `--tables` takes the short names `messages`, `orders`, `trades`, `iois`, `adverts`,
-`allocations`, `rfqs` (or `quotes`), `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
+`allocations`, `rfqs` (or `quotes`), `rfq_requests`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
 `settings`, `ids`, `replay_jobs`, `templates`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
 `--host` as the server: when a server answers on that port the archive runs
@@ -527,7 +531,7 @@ mkfix <version>
   Listening: 0.0.0.0:8080 (all interfaces)
   Config:    /path/to/mkfix.toml
   Database:  /path/to/mkfix.db
-  IDs:       RT/OR/EX/TR/IO/AD/AL/RQ/QT/QR + MA + 8-digit counter (from username)
+  IDs:       RT/OR/EX/TR/IO/AD/AL/RQ/QT/QR/RR + MA + 8-digit counter (from username)
   Sessions:  1 enabled
     acc: MKFIX -> BROKER (FIX.4.2, acceptor on port 9876)
   Press Ctrl+C to stop.

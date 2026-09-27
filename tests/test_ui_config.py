@@ -21,7 +21,8 @@ from mkfix import __version__
 STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
 TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct", "bust",
                    "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
-                   "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass"}
+                   "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
+                   "unsubscribe"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -626,6 +627,7 @@ class TestServiceReferences:
             "rfq-blotter": ["Hit", "Order…", "Counter", "Pass"], "quote-blotter": ["Hit", "Order…", "Counter", "Pass"],
             "market-rfq-blotter": ["Quote", "Reject", "Cancel Quote"],
             "market-quote-blotter": ["Requote", "Cancel"],
+            "rfq-request-blotter": ["RFQ…"], "market-rfq-request-blotter": ["Unsubscribe"],
         }
         for pane_id, labels in gated.items():
             by = {b["label"]: b for b in app_config["panes"][pane_id]["buttons"]}
@@ -655,7 +657,8 @@ class TestServiceReferences:
         send_panes = ["order-blotter", "market-order-blotter", "market-trade-blotter",
                       "trade-blotter", "ioi-blotter", "market-ioi-blotter", "advert-blotter",
                       "allocation-blotter", "market-allocation-blotter",
-                      "rfq-blotter", "quote-blotter", "market-rfq-blotter", "market-quote-blotter"]
+                      "rfq-blotter", "quote-blotter", "market-rfq-blotter", "market-quote-blotter",
+                      "rfq-request-blotter", "market-rfq-request-blotter"]
         checked = 0
         for pane_id in send_panes:
             for button in app_config["panes"][pane_id]["buttons"]:
@@ -996,7 +999,8 @@ class TestServiceReferences:
                         "market-order-blotter", "market-trade-blotter",
                         "ioi-blotter", "advert-blotter", "allocation-blotter",
                         "market-ioi-blotter", "market-advert-blotter", "market-allocation-blotter",
-                        "rfq-blotter", "quote-blotter", "market-rfq-blotter", "market-quote-blotter"):
+                        "rfq-blotter", "quote-blotter", "market-rfq-blotter", "market-quote-blotter",
+                        "rfq-request-blotter", "market-rfq-request-blotter"):
             spec = panes[pane_id]
             word = "Sent" if "'TX'" in spec["filter"] else "Received"
             assert spec["title"].startswith(word), \
@@ -1008,7 +1012,7 @@ class TestServiceReferences:
         hosts = _pane_frame_ids(app_config)
         assert hosts["order-blotter"] != hosts["market-order-blotter"]
         assert hosts["trade-blotter"] != hosts["market-trade-blotter"]
-        for family in ("ioi", "advert", "allocation", "rfq", "quote"):
+        for family in ("ioi", "advert", "allocation", "rfq", "quote", "rfq-request"):
             assert hosts[f"{family}-blotter"] == hosts["order-blotter"]
             assert hosts[f"market-{family}-blotter"] == hosts["market-order-blotter"]
 
@@ -1456,6 +1460,9 @@ class TestStyleAndGateValues:
             ("fix_rfqs", "status"): self.RFQ_STATUSES,
             ("fix_rfqs", "pending_action"): {"Counter"},
             ("fix_rfqs", "session_status"): self.ENGINE_STATUSES,
+            ("fix_rfq_requests", "status"): {"Active", "Snapshot", "Unsubscribed", "Failed"},
+            ("fix_rfq_requests", "direction"): {"TX", "RX"},
+            ("fix_rfq_requests", "session_status"): self.ENGINE_STATUSES,
             ("fix_replay_jobs", "status"): self.REPLAY_STATUSES,
             ("fix_replay_jobs", "session_status"): self.ENGINE_STATUSES,
         }
@@ -1708,9 +1715,10 @@ class TestMenubar:
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail", None, "replay-control"],
         "Client": ["order-blotter", "trade-blotter", None, "ioi-blotter", "advert-blotter", "allocation-blotter",
-                   None, "rfq-blotter", "quote-blotter"],
+                   None, "rfq-blotter", "quote-blotter", "rfq-request-blotter"],
         "Market": ["market-order-blotter", "market-trade-blotter", None, "market-ioi-blotter", "market-advert-blotter",
-                   "market-allocation-blotter", None, "market-rfq-blotter", "market-quote-blotter"],
+                   "market-allocation-blotter", None, "market-rfq-blotter", "market-quote-blotter",
+                   "market-rfq-request-blotter"],
         "Macro": ["client-macros", "client-runs", None, "market-macros", "market-runs", None,
                   "end-to-end-macros", "end-to-end-runs"],
         "Config": ["templates", "dictionaries"],
@@ -2661,7 +2669,8 @@ class TestRecordHistory:
                      "market-order-blotter", "market-trade-blotter",
                      "ioi-blotter", "market-ioi-blotter", "advert-blotter", "market-advert-blotter",
                      "allocation-blotter", "market-allocation-blotter",
-                     "rfq-blotter", "quote-blotter", "market-rfq-blotter", "market-quote-blotter")
+                     "rfq-blotter", "quote-blotter", "market-rfq-blotter", "market-quote-blotter",
+                     "rfq-request-blotter", "market-rfq-request-blotter")
 
     @pytest.fixture(scope="class")
     def history_panes(self, app_config):
@@ -3003,7 +3012,7 @@ class TestTemplates:
         "accept_allocation": "alloc_accept", "reject_allocation": "alloc_reject",
         "send_rfq": "rfq", "quote_rfq": "quote", "requote": "quote", "send_quote": "new_quote",
         "reject_rfq": "quote_reject", "cancel_quote": "cancel", "hit_quote": "hit", "counter_quote": "counter",
-        "pass_quote": "pass",
+        "pass_quote": "pass", "send_rfq_request": "rfq_request", "unsubscribe_rfq_request": "unsubscribe",
     }
 
     @staticmethod
@@ -3037,7 +3046,8 @@ class TestTemplates:
             fill = first["fill"]
             assert set(fill.values()) <= columns, op
             keys = set(TEMPLATE_TERMS[op][1])
-            assert ("session_id" in keys) == (scope in ("order", "ioi", "advert", "allocation", "rfq", "new_quote")), op
+            assert ("session_id" in keys) == (scope in ("order", "ioi", "advert", "allocation", "rfq", "new_quote",
+                                                         "rfq_request")), op
             assert set(fill) == keys & names, op
             assert keys - names <= set(dialog.get("rowData", {})), op
             assert all(fill[k] == k for k in fill), f"{op}: template columns are named as the fields"
@@ -3633,3 +3643,66 @@ class TestRfqBlotters:
             assert set(h["columns"]) <= columns, pane_id
             assert {"quote_req_id", "quote_id", "status", "bid_px", "offer_px", "text"} <= set(h["columns"])
             assert "session_id" not in h["columns"] and "raw_message" not in h["columns"], pane_id
+
+
+class TestRfqRequestBlotters:
+    """RFQ requests (0.72): the market asks to be sent the RFQs for a list
+    of instruments (Sent RFQ Requests: New, Clone, Unsubscribe); the client
+    receives the request and answers it with RFQs naming it (Received RFQ
+    Requests: RFQ…, the New RFQ form with 644 in its extras)."""
+
+    @staticmethod
+    def _fields(dialog):
+        return {f["name"]: f for item in dialog["fields"] for f in _leaves(item) if f.get("name")}
+
+    def test_the_two_blotters(self, app_config, toml_config):
+        panes = app_config["panes"]
+        sent, received = panes["market-rfq-request-blotter"], panes["rfq-request-blotter"]
+        assert (sent["title"], sent["filter"]) == ("Sent RFQ Requests", "direction == 'TX'")
+        assert (received["title"], received["filter"]) == ("Received RFQ Requests", "direction == 'RX'")
+        assert sent["service"] == received["service"] == "rfq_requests_query"
+        assert [b["label"] for b in sent["buttons"]] == ["New", "Clone", "Unsubscribe", "History"]
+        assert [b["label"] for b in received["buttons"]] == ["RFQ…", "History"]
+        for spec in (sent, received):
+            assert spec["visible"][0] == "rfq_req_id" and {"symbols", "status", "quote_requests"} <= set(spec["visible"])
+            assert set(spec["history"]["columns"]) <= set(toml_config["tables"]["fix_rfq_requests"]["columns"])
+        for pid in ("rfq-blotter", "market-rfq-blotter", "quote-blotter", "market-quote-blotter"):
+            assert "rfq_req_id" in panes[pid]["columns"] and "rfq_req_id" not in panes[pid]["visible"]
+
+    def test_new_clone_and_unsubscribe(self, app_config):
+        by = {b["label"]: b for b in app_config["panes"]["market-rfq-request-blotter"]["buttons"]}
+        new, clone = by["New"]["action"]["dialog"], by["Clone"]["action"]["dialog"]
+        assert new["submit"]["op"] == clone["submit"]["op"] == "send_rfq_request"
+        assert _dialog_field_names(clone) == _dialog_field_names(new) - {"_template"}
+        fields = self._fields(new)
+        assert fields["symbols"]["type"] == "textarea" and fields["symbols"]["required"] is True
+        assert [o["value"] for o in fields["subscription_type"]["options"]] == ["1", "0"], "Unsubscribe ends one"
+        assert "text" not in fields, "an RFQRequest carries no Text"
+        assert any("35=AH" in f.get("value", "") and "4.3" in f.get("value", "") for f in new["fields"])
+        for name, f in self._fields(clone).items():
+            if name != "save_as":
+                assert "row." in str(f.get("value", "")), f"Clone does not prefill {name}"
+        unsub = by["Unsubscribe"]
+        assert unsub["action"]["dialog"]["rowData"] == {"session_id": "${row.session_id}", "rfq_req_id": "${row.rfq_req_id}"}
+        assert _conditions(unsub["enable"]["when"]) == {"status": ["Active"], "session_status": ["ACTIVE"]}
+
+    def test_rfq_names_the_request(self, app_config):
+        button = app_config["panes"]["rfq-request-blotter"]["buttons"][0]
+        dialog = button["action"]["dialog"]
+        assert dialog["submit"]["op"] == "send_rfq" and dialog["fields"][0].get("name") != "_template"
+        fields = self._fields(dialog)
+        assert fields["extra_tags"]["value"] == "644=${row.rfq_req_id}"
+        assert fields["session_id"]["value"] == "${row.session_id}"
+        assert _dialog_field_names(dialog) == _dialog_field_names(_find_dialog(app_config, "send_rfq")) - {"_template"}
+
+    def test_dropdown_codes_are_dictionary_values(self, app_config):
+        from mkfix.fix.dictionary import FixDictionary, STANDARD_VERSIONS
+        dictionaries = [FixDictionary(v) for v in STANDARD_VERSIONS]
+        for name, tag in (("subscription_type", "263"), ("quote_request_type", "303"), ("quote_type", "537")):
+            for option in self._fields(_find_dialog(app_config, "send_rfq_request"))[name]["options"]:
+                if option["value"] == "":
+                    continue
+                defining = [d for d in dictionaries if d.has_enum(tag, option["value"])]
+                assert defining and option["label"].startswith(option["value"] + " - "), (name, option)
+                if len(defining) < len(dictionaries):
+                    assert "FIX" in option["label"], (name, option)

@@ -26,7 +26,9 @@ from mkfix.fix.families import (ALLOC_GROUPS, ALLOC_STATUS_OF, ALLOC_ACCEPTING,
                                  group_instances, parse_lines, parse_qualifiers,
                                  CONSUMED_RFQ_TAGS, CONSUMED_QUOTE_TAGS, CONSUMED_RESPONSE_TAGS, FINAL_RFQ,
                                  LIVE_QUOTE, QUOTE_STATUS_ENDS, parse_stamp, quote_columns, quote_side,
-                                 response_columns, rfq_columns, status_of_response)
+                                 response_columns, rfq_columns, status_of_response,
+                                 CONSUMED_RFQ_REQUEST_TAGS, RFQ_REQUEST_STATUS_OF, parse_symbols,
+                                 rfq_request_columns)
 from mkfix.fix import replay
 from mkfix.fix.replay import ReplayTask
 from mkfix.fix.session import FixSession
@@ -116,14 +118,15 @@ EXEC_UPDATE_COLS = [
 # dialog's Save-as overwrites the template it names.
 TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct",
                    "bust", "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
-                   "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass")
+                   "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
+                   "unsubscribe")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
     "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt",
     "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code",
     "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for",
-    "quote_rej_reason",
+    "quote_rej_reason", "symbols", "subscription_type",
 ]
 
 # The IOI, advert and allocation rows (families.py): one row per chain,
@@ -157,7 +160,7 @@ _ALLOC_TERM_COLS = frozenset({
 # RFQs and quotes (families.py): one row per negotiation, the quote standing
 # on it in the quote columns and a counter-offer parked in the slot.
 RFQ_COLS = [
-    "session_id", "origin", "quote_req_id", "symbol", "side", "side_code", "order_qty",
+    "session_id", "origin", "quote_req_id", "rfq_req_id", "symbol", "side", "side_code", "order_qty",
     "quote_request_type", "quote_request_type_code", "quote_type", "quote_type_code", "currency",
     "quote_id", "quote_ref_id", "bid_px", "offer_px", "bid_size", "offer_size", "valid_until",
     "status", "quote_status", "quote_status_code", "rej_reason", "rej_reason_code",
@@ -174,12 +177,20 @@ _CLEAR_QUOTE_SLOT = {"pending_action": "", "pending_resp_id": "", "pending_bid_p
                      "pending_bid_size": None, "pending_offer_size": None, "pending_extra_tags": ""}
 _QUOTE_TERMS = ("quote_id", "bid_px", "offer_px", "bid_size", "offer_size", "valid_until", "quote_type",
                 "quote_type_code")
+# RFQ requests (35=AH): one row per RFQReqID, its instruments as symbols.
+RFQ_REQUEST_COLS = [
+    "session_id", "rfq_req_id", "symbols", "num_symbols", "quote_request_type", "quote_request_type_code",
+    "quote_type", "quote_type_code", "subscription_type", "subscription_type_code", "status",
+    "last_quote_req_id", "quote_requests", "client", "extra_tags", "timestamp", "updated_at", "direction",
+    "raw_message",
+]
 _FAMILY_COLS = {"fix_iois": IOI_COLS, "fix_adverts": ADVERT_COLS, "fix_allocations": ALLOC_COLS,
-                "fix_rfqs": RFQ_COLS}
+                "fix_rfqs": RFQ_COLS, "fix_rfq_requests": RFQ_REQUEST_COLS}
 _FAMILY_IDENTITY = frozenset({"session_id", "direction", "timestamp", "order_cl_ord_id"})
 _FAMILY_UPDATE_COLS = {t: [c for c in cols if c not in ("session_id", "direction", "timestamp")]
                        for t, cols in _FAMILY_COLS.items()}
-_FAMILY_NAMES = {"fix_iois": "IOI", "fix_adverts": "advert", "fix_allocations": "allocation", "fix_rfqs": "quote"}
+_FAMILY_NAMES = {"fix_iois": "IOI", "fix_adverts": "advert", "fix_allocations": "allocation", "fix_rfqs": "quote",
+                 "fix_rfq_requests": "RFQ request"}
 _CLEAR_ALLOC_SLOT = {"pending_action": "", "pending_alloc_id": "", "pending_terms": "", "pending_extra_tags": ""}
 # AllocStatus(87) to the event an Ack is for the allocation it answers.
 _ALLOC_ACK_KINDS = {"0": "allocation accepted", "1": "allocation rejected", "2": "allocation rejected",
@@ -617,14 +628,16 @@ class FixEngine:
         )).close()
         # orders_query/executions_query join fix_session_state by session_id
         # and re-run on every state write.
-        for table in ("fix_orders", "fix_executions", "fix_iois", "fix_adverts", "fix_allocations", "fix_rfqs"):
+        for table in ("fix_orders", "fix_executions", "fix_iois", "fix_adverts", "fix_allocations", "fix_rfqs",
+                      "fix_rfq_requests"):
             await (await conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table}(session_id)"
             )).close()
         # A chain is found by its current ID; an Ack by the request the slot holds.
         for table, id_col in (("fix_iois", "ioi_id"), ("fix_adverts", "adv_id"), ("fix_allocations", "alloc_id"),
                               ("fix_allocations", "pending_alloc_id"), ("fix_rfqs", "quote_req_id"),
-                              ("fix_rfqs", "quote_id"), ("fix_rfqs", "symbol")):
+                              ("fix_rfqs", "quote_id"), ("fix_rfqs", "symbol"),
+                              ("fix_rfq_requests", "rfq_req_id")):
             await (await conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_{id_col} ON {table}(session_id, {id_col})"
             )).close()
@@ -1089,6 +1102,8 @@ class FixEngine:
             await self._handle_quote_status_report(session, msg)
         elif msg_type == "AJ":
             await self._handle_quote_response(session, msg)
+        elif msg_type == "AH":
+            await self._handle_rfq_request(session, msg)
 
     async def _handle_execution_report(self, session: FixSession, msg: FixMessage) -> None:
         """Process an ExecutionReport (35=8): update order state and record fills."""
@@ -3233,7 +3248,8 @@ class FixEngine:
         QuoteResponse before 4.4), the way Restate refuses 150=D."""
         dictionary = session.dictionary
         if msg_type not in dictionary.messages:
-            name = {"Z": "QuoteCancel", "AG": "QuoteRequestReject", "AJ": "QuoteResponse"}.get(msg_type, msg_type)
+            name = {"Z": "QuoteCancel", "AG": "QuoteRequestReject", "AJ": "QuoteResponse",
+                    "AH": "RFQRequest"}.get(msg_type, msg_type)
             raise ValueError(f"{name} (35={msg_type}) is not a {dictionary.version} message")
 
     async def _load_rfq_row(self, session_id: str, id_col: str, value: str, side: str) -> dict[str, Any]:
@@ -3276,6 +3292,7 @@ class FixEngine:
         row = {**_RFQ_BLANKS, **self._received_family_row(session, msg, columns, CONSUMED_RFQ_TAGS, now),
                "origin": "rfq", "status": "Open"}
         await self._insert_family_row("fix_rfqs", row)
+        await self._link_rfq_request(session_id, columns["rfq_req_id"], columns["quote_req_id"], "TX")
         self._emit_rfq("", await self._find_family_row("fix_rfqs", "quote_req_id", session_id,
                                                          columns["quote_req_id"], "market"), session_id, msg)
 
@@ -3495,6 +3512,7 @@ class FixEngine:
         row = {**_RFQ_BLANKS, **self._sent_family_row(session, msg, rfq_columns, extra_tags, _fix_timestamp())}
         row.update(origin="rfq", status="Open", sent_text=row["text"], text="")
         await self._insert_family_row("fix_rfqs", row)
+        await self._link_rfq_request(session_id, row["rfq_req_id"], quote_req_id, "RX")
         row = await self._find_family_row("fix_rfqs", "quote_req_id", session_id, quote_req_id, "client") or row
         self._emit_row(("sent rfq",), session_id, "fix_rfqs", row, msg=msg, source=source, request=quote_req_id,
                        tag=tag)
@@ -3762,6 +3780,99 @@ class FixEngine:
         await self._update_family_row("fix_rfqs", row, **_CLEAR_QUOTE_SLOT, status="Canceled",
                                       sent_text=sent.get("58", ""))
         return msg, quote_id
+
+    # ── RFQ requests ─────────────────────────────────────────────────
+    # The market side asks to be sent the RFQs for a list of instruments
+    # (35=AH, FIX 4.3+); nothing answers it but the QuoteRequests that
+    # follow, carrying its RFQReqID(644), which each side counts onto the
+    # request's row (`_link_rfq_request`).
+
+    async def _link_rfq_request(self, session_id: str, rfq_req_id: str, quote_req_id: str, direction: str) -> None:
+        """A QuoteRequest naming an RFQ request is its answer: the request's
+        row — the one we sent for a received QuoteRequest, the one we
+        received for a sent one — counts it and names the latest."""
+        if not rfq_req_id:
+            return
+        row = await self._find_family_row("fix_rfq_requests", "rfq_req_id", session_id, rfq_req_id, direction)
+        if row is not None:
+            await self._update_family_row("fix_rfq_requests", row, last_quote_req_id=quote_req_id,
+                                          quote_requests=(row["quote_requests"] or 0) + 1)
+
+    async def _handle_rfq_request(self, session: FixSession, msg: FixMessage) -> None:
+        """A received RFQRequest (35=AH): a subscription (or snapshot)
+        opens a row; an unsubscribe (263=2) closes the row its 644 names,
+        or opens one of its own when it names none."""
+        session_id, now = session.session_id, _fix_timestamp()
+        columns = rfq_request_columns(msg, session.dictionary)
+        code = columns["subscription_type_code"]
+        row = await self._find_family_row("fix_rfq_requests", "rfq_req_id", session_id, columns["rfq_req_id"], "RX") \
+            if code == "2" else None
+        if row is not None:
+            await self._update_family_row("fix_rfq_requests", row, status="Unsubscribed",
+                                          subscription_type=columns["subscription_type"],
+                                          subscription_type_code=code, raw_message=msg.to_wire_string())
+            what = "rfq request unsubscribed"
+        else:
+            fresh = self._received_family_row(session, msg, columns, CONSUMED_RFQ_REQUEST_TAGS, now)
+            fresh.pop("text", None)
+            fresh.update(status=RFQ_REQUEST_STATUS_OF.get(code, "Active"), last_quote_req_id="", quote_requests=0)
+            await self._insert_family_row("fix_rfq_requests", fresh)
+            what = "rfq request"
+        self._emit_row((what, "message"), session_id, "fix_rfq_requests",
+                       await self._find_family_row("fix_rfq_requests", "rfq_req_id", session_id,
+                                                   columns["rfq_req_id"], "RX"),
+                       msg=msg, request=columns["rfq_req_id"])
+
+    def _rfq_request_message(self, session: FixSession, rfq_req_id: str, symbols: list[str], subscription_type: str,
+                             quote_request_type: str, quote_type: str, extra_tags: str,
+                             client: str) -> FixMessage:
+        self._require_message(session, "AH")
+        if not symbols:
+            raise ValueError("An RFQ request names at least one instrument")
+        msg = session.factory.rfq_request(rfq_req_id, symbols, subscription_type=subscription_type,
+                                          quote_request_type=quote_request_type, quote_type=quote_type)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, client)
+        return msg
+
+    async def send_rfq_request(self, session_id: str, symbols: str, subscription_type: str = "1",
+                               quote_request_type: str = "", quote_type: str = "", client: str = "",
+                               extra_tags: str = "", source: str = "manual", tag: str = "") -> str:
+        """Ask to be sent the RFQs for `symbols` (one per line, or split by
+        `;`, commas or spaces) and return the RFQReqID; the row is written
+        and announced (`sent rfq request`) before the send."""
+        session = self._active_session(session_id)
+        if subscription_type not in ("0", "1"):
+            raise ValueError("An RFQ request subscribes (1) or asks a snapshot (0); Unsubscribe ends one")
+        rfq_req_id = await self.ids.next_id("RR")
+        msg = self._rfq_request_message(session, rfq_req_id, parse_symbols(symbols), subscription_type,
+                                        quote_request_type, quote_type, extra_tags, client)
+        row = self._sent_family_row(session, msg, rfq_request_columns, extra_tags, _fix_timestamp())
+        row.update(status=RFQ_REQUEST_STATUS_OF[subscription_type], last_quote_req_id="", quote_requests=0)
+        await self._insert_family_row("fix_rfq_requests", row)
+        row = await self._find_family_row("fix_rfq_requests", "rfq_req_id", session_id, rfq_req_id, "TX") or row
+        self._emit_row(("sent rfq request",), session_id, "fix_rfq_requests", row, msg=msg, source=source,
+                       request=rfq_req_id, tag=tag)
+        await self._send_family_message(session, "fix_rfq_requests", row, msg)
+        return rfq_req_id
+
+    async def unsubscribe_rfq_request(self, session_id: str, rfq_req_id: str, extra_tags: str = "") -> str:
+        """End a subscription we sent: the same RFQReqID and instruments with
+        SubscriptionRequestType(263)=2."""
+        session = self._active_session(session_id)
+        row = await self._load_family_row("fix_rfq_requests", "rfq_req_id", session_id, rfq_req_id, "TX")
+        if row["status"] != "Active":
+            raise ValueError(f"RFQ request {rfq_req_id} is {row['status']}: nothing to unsubscribe")
+        msg = self._rfq_request_message(session, rfq_req_id, parse_symbols(row["symbols"]), "2",
+                                        row["quote_request_type_code"], row["quote_type_code"], extra_tags,
+                                        row["client"])
+        sent = self._as_sent(session, msg)
+        code = sent.get("263", "2")
+        await self._update_family_row("fix_rfq_requests", row, status="Unsubscribed", subscription_type_code=code,
+                                      subscription_type=session.dictionary.enum_name("263", code),
+                                      raw_message=sent.to_wire_string())
+        await self._send_family_message(session, "fix_rfq_requests", row, msg, revert=row)
+        return rfq_req_id
 
     # ── Expiry ───────────────────────────────────────────────────────
 
