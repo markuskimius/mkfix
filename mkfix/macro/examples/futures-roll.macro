@@ -1,0 +1,31 @@
+# Futures roll
+#
+# Shows:   instruments declared at the top and named with `instrument:`; a roll
+#          as two orders, the second started by a signal once the first fills
+# Needs:   the loopback sessions with derivatives-desk armed in Market Macros.
+#          Run it on LOOP-CLI
+# Watch:   Sent Orders' Instrument column, and Received Trades
+# Outcome: five December contracts are sold to close; once they fill, five
+#          March ones are bought to open; both macros pass
+
+# Declared here, so the macro runs on any server; one saved under the same
+# name in Config › Instruments would be used only if this line were gone.
+instrument 'ESZ6' symbol: 'ES', sec_type: future, maturity: '202612', multiplier: 50, exchange: 'XCME'
+instrument 'ESH7' symbol: 'ES', sec_type: future, maturity: '202703', multiplier: 50, exchange: 'XCME'
+
+run
+    new instrument: 'ESZ6', side: sell, qty: 5, type: limit, price: 5200, open_close: close
+    expect ack within 2s else fail 'the close was not acknowledged'
+    wait filled or timeout 10s
+    if order.leaves_qty > 0
+        cancel
+        fail 'the front month did not fill: nothing rolled'
+    signal 'rolled out' with order.cum_qty
+    pass 'closed ${order.cum_qty} ${order.instrument}'
+
+# Started by the signal: the new contract, for what the old one closed.
+on signal 'rolled out'
+    new instrument: 'ESH7', side: buy, qty: event.value, type: limit, price: 5230, open_close: open
+    expect ack within 2s else fail 'the open was not acknowledged'
+    expect filled within 10s else fail 'the back month did not fill'
+    pass 'opened ${order.cum_qty} ${order.instrument}'

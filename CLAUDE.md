@@ -31,6 +31,7 @@ mkfix/
     engine.py           # FixEngine — session lifecycle, WriteBatcher bridge, replay
     actions.py, events.py  # perform(), event bus, order lock — see fix/CLAUDE.md
     families.py         # IOIs, adverts, allocations — see fix/CLAUDE.md
+    instrument.py       # options, futures: SecurityType and its tags per version — see fix/CLAUDE.md
     replay.py           # Message Replay — see fix/CLAUDE.md
   macro/               # macros, the scripting language — see macro/CLAUDE.md
   archive.py           # mkfix archive / restore over mkio's row archiving

@@ -7,6 +7,7 @@ import pytest
 
 from mkfix.fix.engine import FixEngine
 from mkfix.fix.events import EventBus
+from mkfix.fix.instrument import INSTRUMENT_COLS, POSITION_COLS
 from mkfix.services.fix_command import FixCommandService
 
 
@@ -168,7 +169,7 @@ class TestDispatch:
             session_id="S1", symbol="AAPL", side="1", qty=100.0,
             ord_type="2", price=150.25, tif="0", extra_tags="",
             expire_time="", expire_date="", expire_precision="", client="",
-            handl_inst="1", text="", source="manual", tag="",
+            handl_inst="1", text="", source="manual", tag="", instrument={},
         )
         resp = _sent(ws)
         assert resp["ok"] is True
@@ -552,6 +553,9 @@ class TestDispatch:
             9, target_session="Client", speed="2", msg_filter="D,G", time_from="09:00", time_to="", max_gap="5")
 
 
+NO_INSTRUMENT = {c: "" for c in (*INSTRUMENT_COLS, *POSITION_COLS)}
+
+
 class TestSaveAsTemplate:
     """A dialog's `save_as` keeps the op's terms as a template of the op's
     scope, written before the send (the engine's write-before-send rule
@@ -582,12 +586,12 @@ class TestSaveAsTemplate:
           "price": "150.25", "tif": "0", "handl_inst": "3", "text": "work it"},
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "100",
           "price": "150.25", "tif": "0", "extra_tags": "", "client": "",
-          "handl_inst": "3", "text": "work it"}),
+          "handl_inst": "3", "text": "work it", **NO_INSTRUMENT}),
         ("send_cancel_replace", "order",
          {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "120",
           "ord_type": "2", "price": "151", "tif": "0"},
          {"session_id": "S1", "symbol": "AAPL", "side": "1", "ord_type": "2", "qty": "120",
-          "price": "151", "tif": "0", "extra_tags": "", "client": "", "handl_inst": "", "text": ""}),
+          "price": "151", "tif": "0", "extra_tags": "", "client": "", "handl_inst": "", "text": "", **NO_INSTRUMENT}),
         ("send_cancel", "cancel",
          {"session_id": "S1", "orig_cl_ord_id": "C1", "symbol": "AAPL", "side": "1", "qty": "100",
           "text": "bye", "extra_tags": "5001=X"},
@@ -759,3 +763,40 @@ class TestHandlingAndTextDispatch:
         assert _sent(ws).get("ok") is True
         assert getattr(engine, op).await_args.kwargs["text"] == "note"
         assert "handl_inst" not in getattr(engine, op).await_args.kwargs
+
+
+class TestInstruments:
+    """Config › Instruments saves and deletes through fix_cmd; the New
+    dialog's "Save instrument as" saves the order's instrument before the
+    send, and the send carries the terms whatever was saved."""
+
+    @pytest.mark.asyncio
+    async def test_save_and_delete(self):
+        engine = _make_engine()
+        engine.save_instrument = AsyncMock(return_value="ESZ6")
+        engine.delete_instrument = AsyncMock()
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r", "op": "save_instrument", "data": {
+            "name": "ESZ6", "symbol": "ES", "security_type": "FUT", "maturity": "202612", "description": "front"}})
+        engine.save_instrument.assert_awaited_once_with(
+            "ESZ6", symbol="ES", description="front", security_type="FUT", maturity="202612")
+        assert _sent(ws) == {**_sent(ws), "ok": True, "name": "ESZ6"}
+        await svc.on_message(ws, {"ref": "r", "op": "delete_instrument", "data": {"name": "ESZ6"}})
+        engine.delete_instrument.assert_awaited_once_with("ESZ6")
+
+    @pytest.mark.asyncio
+    async def test_save_instrument_as_goes_before_the_send(self):
+        engine = _make_engine()
+        order = []
+        engine.save_instrument = AsyncMock(side_effect=lambda *a, **k: order.append(("save", a, k)))
+        engine.send_new_order.side_effect = lambda **k: order.append(("send", k["instrument"])) or "RT1"
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r", "op": "send_new_order", "data": {
+            "session_id": "S1", "symbol": "ES", "side": "1", "qty": "2", "security_type": "FUT",
+            "maturity": "202612", "open_close": "O", "save_instrument_as": "ESZ6", "_instrument": ""}})
+        assert order == [
+            ("save", ("ESZ6",), {"symbol": "ES", "security_type": "FUT", "maturity": "202612"}),
+            ("send", {"security_type": "FUT", "maturity": "202612", "open_close": "O"}),
+        ], "an order's Open/Close is not the instrument's"

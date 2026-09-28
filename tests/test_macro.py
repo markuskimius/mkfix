@@ -174,7 +174,7 @@ class TestParser:
         ("macro b\non order\n    accept\n", 1, 0, "`macro` is no longer a word: a macro is named where it is saved. Delete this line"),
         ("seed x\non order\n    accept\n", 1, 5, "Expected a whole number"),
         ("on error maybe\non order\n    accept\n", 1, 9, "Expected `continue` or `fail`"),
-        ("banana\n", 1, 0, "Expected `seed`, `on error`, `share`, or a block"),
+        ("banana\n", 1, 0, "Expected `seed`, `on error`, `instrument`, `share`, or a block"),
         ("    accept\n", 1, 0, "Unexpected indent: this line belongs to no block"),
         ("on order\naccept\n", 1, 0, "Expected an indented block under this line"),
         ("run on\n    cancel\n", 1, 6, "Expected a session name"),
@@ -432,6 +432,7 @@ class TestVocabulary:
     def test_every_verb_is_an_engine_action_with_its_terms(self):
         # terms that are the message's own, never a template's
         own = {"expire_time", "valid_until", "orders", "execs"}
+        own |= {"_instrument"}          # `instrument: 'NAME'`, resolved by the macro into the terms beside it
         for verb in vocab.VERBS.values():
             assert verb.op in ACTIONS, verb.name
             scope, terms = TEMPLATE_TERMS[verb.op]
@@ -480,7 +481,10 @@ class TestVocabulary:
                  "alloc reject reason": ("reject_allocation", "alloc_rej_code"),
                  "hit side": ("hit_quote", "side"), "request type": ("send_rfq", "quote_request_type"),
                  "quote type": ("send_rfq", "quote_type"), "quote reject reason": ("reject_rfq", "quote_rej_reason"),
-                 "subscription": ("send_rfq_request", "subscription_type")}
+                 "subscription": ("send_rfq_request", "subscription_type"),
+                 "sec type": ("send_new_order", "security_type"), "put call": ("send_new_order", "put_or_call"),
+                 "open close": ("send_new_order", "open_close"), "covered": ("send_new_order", "covered_uncovered"),
+                 "id source": ("send_new_order", "security_id_source")}
         for enum, (op, field) in exact.items():
             assert set(vocab.ENUMS[enum].values()) == set(options(op, field)), enum
         assert set(vocab.ENUMS["restate reason"].values()) <= set(options("restate_order", "restate_reason"))
@@ -489,8 +493,9 @@ class TestVocabulary:
         assert set(exact) | {"restate reason", "alloc status"} == set(vocab.ENUMS), "every list is held to a dialog"
         # every term with words names its list, and the words are what the verb's op takes
         for verb, terms in vocab._ENUM_OF.items():
+            known = vocab.DECLARED_TERMS if verb == "instrument" else vocab.VERBS[verb].terms   # the declaration
             for term, enum in terms.items():
-                assert term in vocab.VERBS[verb].terms and enum in vocab.ENUMS, (verb, term)
+                assert term in known and enum in vocab.ENUMS, (verb, term)
 
     def test_enum_code(self):
         assert vocab.enum_code("dk reason", "Price exceeds limit") == "E"

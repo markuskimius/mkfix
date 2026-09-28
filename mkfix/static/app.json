@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.74",
+    "version": "0.75",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -272,6 +272,11 @@
           "label": "Templates",
           "action": "pane.show",
           "args": "templates"
+        },
+        {
+          "label": "Instruments",
+          "action": "pane.show",
+          "args": "instruments"
         },
         {
           "label": "Dictionaries",
@@ -1028,7 +1033,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.74"
+        "text": "mkfix v0.75"
       }
     ],
     "bindStyle": {
@@ -1899,6 +1904,21 @@
         "session_id",
         "client",
         "symbol",
+        "instrument",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "underlying_symbol",
+        "underlying_security_type",
+        "underlying_maturity",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "open_close",
+        "covered_uncovered",
         "side",
         "ord_type",
         "handl_inst",
@@ -1947,7 +1967,7 @@
         "cl_ord_id",
         "session_id",
         "client",
-        "symbol",
+        "instrument",
         "side",
         "ord_type",
         "handl_inst",
@@ -2025,7 +2045,22 @@
         "pending_entered": "Pending Entered",
         "session_status": "Session Status",
         "ioi_id": "IOI ID",
-        "quote_id": "Quote ID"
+        "quote_id": "Quote ID",
+        "instrument": "Instrument",
+        "security_type": "Sec Type (167)",
+        "maturity": "Maturity (200)",
+        "strike_price": "Strike (202)",
+        "put_or_call": "Put/Call (201)",
+        "cfi_code": "CFI Code (461)",
+        "underlying_symbol": "Underlying (311)",
+        "underlying_security_type": "Underlying Type (310)",
+        "underlying_maturity": "Underlying Maturity (313)",
+        "multiplier": "Multiplier (231)",
+        "security_exchange": "Exchange (207)",
+        "security_id": "Security ID (48)",
+        "security_id_source": "ID Source (22)",
+        "open_close": "Open/Close (77)",
+        "covered_uncovered": "Covered (203)"
       },
       "types": {
         "updated_at": {
@@ -2143,7 +2178,21 @@
                     "handl_inst": "handl_inst",
                     "text": "text",
                     "extra_tags": "extra_tags",
-                    "client": "client"
+                    "client": "client",
+                    "security_type": "security_type",
+                    "maturity": "maturity",
+                    "strike_price": "strike_price",
+                    "put_or_call": "put_or_call",
+                    "cfi_code": "cfi_code",
+                    "underlying_symbol": "underlying_symbol",
+                    "underlying_security_type": "underlying_security_type",
+                    "underlying_maturity": "underlying_maturity",
+                    "multiplier": "multiplier",
+                    "security_exchange": "security_exchange",
+                    "security_id": "security_id",
+                    "security_id_source": "security_id_source",
+                    "open_close": "open_close",
+                    "covered_uncovered": "covered_uncovered"
                   },
                   "remember": {
                     "key": "mkfix.template.send_new_order",
@@ -2200,6 +2249,294 @@
                           "label": "6 - Sell Short Exempt"
                         }
                       ]
+                    }
+                  ]
+                },
+                {
+                  "group": "Instrument",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "_instrument",
+                      "label": "Saved instrument (Config › Instruments)",
+                      "type": "select",
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "label",
+                        "empty": "(none: enter it below)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "underlying_symbol": "underlying_symbol",
+                        "underlying_security_type": "underlying_security_type",
+                        "underlying_maturity": "underlying_maturity",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_type",
+                          "label": "Security Type (167)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": "(none: a stock)"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            },
+                            {
+                              "value": "OPT",
+                              "label": "OPT - Option"
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "OOF",
+                              "label": "OOF - Option on Future (>= FIX 5.0)"
+                            }
+                          ]
+                        },
+                        {
+                          "name": "maturity",
+                          "label": "Maturity (200)",
+                          "type": "text",
+                          "placeholder": "YYYYMM or YYYYMMDD",
+                          "width": 0.5
+                        }
+                      ]
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "security_type == 'OOF'",
+                      "value": "Defined from FIX 5.0. On FIX 4.x an option on a future is OPT with Underlying Type FUT; mkfix refuses OOF there."
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "CONTAINS(['FUT', 'OPT'], COALESCE(security_type, ''))",
+                      "value": "FIX 4.3 names futures and options by CFICode (461) alone: mkfix sends one, derived from these terms unless given, and no SecurityType there."
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "strike_price",
+                          "label": "Strike (202)",
+                          "type": "number",
+                          "step": "0.01",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "put_or_call",
+                          "label": "Put/Call (201)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Call"
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Put"
+                            }
+                          ]
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_symbol",
+                          "label": "Underlying (311)",
+                          "type": "text",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "underlying_security_type",
+                          "label": "Underlying Type (310)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            }
+                          ]
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_maturity",
+                          "label": "Underlying Maturity (313)",
+                          "type": "text",
+                          "placeholder": "YYYYMM",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "cfi_code",
+                          "label": "CFI Code (461)",
+                          "type": "text",
+                          "placeholder": "blank: derived on FIX 4.3",
+                          "width": 0.5
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "multiplier",
+                          "label": "Multiplier (231)",
+                          "type": "number",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "security_exchange",
+                          "label": "Exchange (207)",
+                          "type": "text",
+                          "placeholder": "e.g. XCME",
+                          "width": 0.5
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_id",
+                          "label": "Security ID (48)",
+                          "type": "text",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "security_id_source",
+                          "label": "ID Source (22)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - CUSIP"
+                            },
+                            {
+                              "value": "2",
+                              "label": "2 - SEDOL"
+                            },
+                            {
+                              "value": "4",
+                              "label": "4 - ISIN"
+                            },
+                            {
+                              "value": "5",
+                              "label": "5 - RIC"
+                            },
+                            {
+                              "value": "8",
+                              "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                            },
+                            {
+                              "value": "A",
+                              "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "open_close",
+                          "label": "Open/Close (77)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "O",
+                              "label": "O - Open"
+                            },
+                            {
+                              "value": "C",
+                              "label": "C - Close"
+                            },
+                            {
+                              "value": "R",
+                              "label": "R - Rolled (>= FIX 4.3)"
+                            },
+                            {
+                              "value": "F",
+                              "label": "F - FIFO (>= FIX 4.3)"
+                            }
+                          ]
+                        },
+                        {
+                          "name": "covered_uncovered",
+                          "label": "Covered (203)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Covered"
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Uncovered"
+                            }
+                          ]
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "name": "save_instrument_as",
+                      "pin": "reset",
+                      "label": "Save instrument as",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps this instrument in Config › Instruments"
                     }
                   ]
                 },
@@ -2366,7 +2703,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(security_type, '') != '', CONCAT('|167=', security_type), ''), IF(COALESCE(maturity, '') != '', CONCAT('|200=', maturity), ''), IF(strike_price != NULL, CONCAT('|202=', STR(strike_price)), ''), IF(COALESCE(put_or_call, '') != '', CONCAT('|201=', put_or_call), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2444,6 +2781,308 @@
                         }
                       ],
                       "value": "${row.side_code}"
+                    }
+                  ]
+                },
+                {
+                  "group": "Instrument",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "_instrument",
+                      "label": "Saved instrument (Config › Instruments)",
+                      "type": "select",
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "label",
+                        "empty": "(none: enter it below)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "underlying_symbol": "underlying_symbol",
+                        "underlying_security_type": "underlying_security_type",
+                        "underlying_maturity": "underlying_maturity",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_type",
+                          "label": "Security Type (167)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": "(none: a stock)"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            },
+                            {
+                              "value": "OPT",
+                              "label": "OPT - Option"
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "OOF",
+                              "label": "OOF - Option on Future (>= FIX 5.0)"
+                            }
+                          ],
+                          "value": "${row.security_type}"
+                        },
+                        {
+                          "name": "maturity",
+                          "label": "Maturity (200)",
+                          "type": "text",
+                          "placeholder": "YYYYMM or YYYYMMDD",
+                          "width": 0.5,
+                          "value": "${row.maturity}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "security_type == 'OOF'",
+                      "value": "Defined from FIX 5.0. On FIX 4.x an option on a future is OPT with Underlying Type FUT; mkfix refuses OOF there."
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "CONTAINS(['FUT', 'OPT'], COALESCE(security_type, ''))",
+                      "value": "FIX 4.3 names futures and options by CFICode (461) alone: mkfix sends one, derived from these terms unless given, and no SecurityType there."
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "strike_price",
+                          "label": "Strike (202)",
+                          "type": "number",
+                          "step": "0.01",
+                          "width": 0.5,
+                          "value": "${row.strike_price}"
+                        },
+                        {
+                          "name": "put_or_call",
+                          "label": "Put/Call (201)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Call"
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Put"
+                            }
+                          ],
+                          "value": "${IF(row.put_or_call == 'Call', '1', IF(row.put_or_call == 'Put', '0', row.put_or_call))}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_symbol",
+                          "label": "Underlying (311)",
+                          "type": "text",
+                          "width": 0.5,
+                          "value": "${row.underlying_symbol}"
+                        },
+                        {
+                          "name": "underlying_security_type",
+                          "label": "Underlying Type (310)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            }
+                          ],
+                          "value": "${row.underlying_security_type}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_maturity",
+                          "label": "Underlying Maturity (313)",
+                          "type": "text",
+                          "placeholder": "YYYYMM",
+                          "width": 0.5,
+                          "value": "${row.underlying_maturity}"
+                        },
+                        {
+                          "name": "cfi_code",
+                          "label": "CFI Code (461)",
+                          "type": "text",
+                          "placeholder": "blank: derived on FIX 4.3",
+                          "width": 0.5,
+                          "value": "${row.cfi_code}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "multiplier",
+                          "label": "Multiplier (231)",
+                          "type": "number",
+                          "width": 0.5,
+                          "value": "${row.multiplier}"
+                        },
+                        {
+                          "name": "security_exchange",
+                          "label": "Exchange (207)",
+                          "type": "text",
+                          "placeholder": "e.g. XCME",
+                          "width": 0.5,
+                          "value": "${row.security_exchange}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_id",
+                          "label": "Security ID (48)",
+                          "type": "text",
+                          "width": 0.5,
+                          "value": "${row.security_id}"
+                        },
+                        {
+                          "name": "security_id_source",
+                          "label": "ID Source (22)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - CUSIP"
+                            },
+                            {
+                              "value": "2",
+                              "label": "2 - SEDOL"
+                            },
+                            {
+                              "value": "4",
+                              "label": "4 - ISIN"
+                            },
+                            {
+                              "value": "5",
+                              "label": "5 - RIC"
+                            },
+                            {
+                              "value": "8",
+                              "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                            },
+                            {
+                              "value": "A",
+                              "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                            }
+                          ],
+                          "value": "${row.security_id_source}"
+                        }
+                      ]
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "open_close",
+                          "label": "Open/Close (77)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "O",
+                              "label": "O - Open"
+                            },
+                            {
+                              "value": "C",
+                              "label": "C - Close"
+                            },
+                            {
+                              "value": "R",
+                              "label": "R - Rolled (>= FIX 4.3)"
+                            },
+                            {
+                              "value": "F",
+                              "label": "F - FIFO (>= FIX 4.3)"
+                            }
+                          ],
+                          "value": "${IF(row.open_close == 'Open', 'O', IF(row.open_close == 'Close', 'C', IF(row.open_close == 'Rolled', 'R', IF(row.open_close == 'FIFO', 'F', row.open_close))))}"
+                        },
+                        {
+                          "name": "covered_uncovered",
+                          "label": "Covered (203)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Covered"
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Uncovered"
+                            }
+                          ],
+                          "value": "${IF(row.covered_uncovered == 'Covered', '0', IF(row.covered_uncovered == 'Uncovered', '1', row.covered_uncovered))}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "name": "save_instrument_as",
+                      "pin": "reset",
+                      "label": "Save instrument as",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps this instrument in Config › Instruments"
                     }
                   ]
                 },
@@ -2622,7 +3261,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(security_type, '') != '', CONCAT('|167=', security_type), ''), IF(COALESCE(maturity, '') != '', CONCAT('|200=', maturity), ''), IF(strike_price != NULL, CONCAT('|202=', STR(strike_price)), ''), IF(COALESCE(put_or_call, '') != '', CONCAT('|201=', put_or_call), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -2649,7 +3288,21 @@
               "submitPerRow": true,
               "rowData": {
                 "session_id": "${row.session_id}",
-                "orig_cl_ord_id": "${row.cl_ord_id}"
+                "orig_cl_ord_id": "${row.cl_ord_id}",
+                "security_type": "${row.security_type}",
+                "maturity": "${row.maturity}",
+                "strike_price": "${row.strike_price}",
+                "put_or_call": "${IF(row.put_or_call == 'Call', '1', IF(row.put_or_call == 'Put', '0', row.put_or_call))}",
+                "cfi_code": "${row.cfi_code}",
+                "underlying_symbol": "${row.underlying_symbol}",
+                "underlying_security_type": "${row.underlying_security_type}",
+                "underlying_maturity": "${row.underlying_maturity}",
+                "multiplier": "${row.multiplier}",
+                "security_exchange": "${row.security_exchange}",
+                "security_id": "${row.security_id}",
+                "security_id_source": "${row.security_id_source}",
+                "open_close": "${IF(row.open_close == 'Open', 'O', IF(row.open_close == 'Close', 'C', IF(row.open_close == 'Rolled', 'R', IF(row.open_close == 'FIFO', 'F', row.open_close))))}",
+                "covered_uncovered": "${IF(row.covered_uncovered == 'Covered', '0', IF(row.covered_uncovered == 'Uncovered', '1', row.covered_uncovered))}"
               },
               "fields": [
                 {
@@ -2729,6 +3382,12 @@
                       ]
                     }
                   ]
+                },
+                {
+                  "label": "Instrument (the order's; a replace keeps it)",
+                  "type": "readonly",
+                  "value": "${row.instrument}",
+                  "showWhen": "row.security_type != ''"
                 },
                 {
                   "row": [
@@ -3102,6 +3761,21 @@
         "session_id",
         "client",
         "symbol",
+        "instrument",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "underlying_symbol",
+        "underlying_security_type",
+        "underlying_maturity",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "open_close",
+        "covered_uncovered",
         "side",
         "last_qty",
         "last_price",
@@ -3130,7 +3804,7 @@
         "market_order_id",
         "session_id",
         "client",
-        "symbol",
+        "instrument",
         "side",
         "last_qty",
         "last_price",
@@ -3199,7 +3873,22 @@
         "leaves_qty": "Leaves",
         "timestamp": "Recorded",
         "direction": "Dir",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "instrument": "Instrument",
+        "security_type": "Sec Type (167)",
+        "maturity": "Maturity (200)",
+        "strike_price": "Strike (202)",
+        "put_or_call": "Put/Call (201)",
+        "cfi_code": "CFI Code (461)",
+        "underlying_symbol": "Underlying (311)",
+        "underlying_security_type": "Underlying Type (310)",
+        "underlying_maturity": "Underlying Maturity (313)",
+        "multiplier": "Multiplier (231)",
+        "security_exchange": "Exchange (207)",
+        "security_id": "Security ID (48)",
+        "security_id_source": "ID Source (22)",
+        "open_close": "Open/Close (77)",
+        "covered_uncovered": "Covered (203)"
       },
       "types": {
         "transact_time": {
@@ -8789,6 +9478,21 @@
         "session_id",
         "client",
         "symbol",
+        "instrument",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "underlying_symbol",
+        "underlying_security_type",
+        "underlying_maturity",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "open_close",
+        "covered_uncovered",
         "side",
         "ord_type",
         "handl_inst",
@@ -8837,7 +9541,7 @@
         "cl_ord_id",
         "session_id",
         "client",
-        "symbol",
+        "instrument",
         "side",
         "ord_type",
         "handl_inst",
@@ -8914,7 +9618,22 @@
         "market_order_id": "Market Order ID",
         "session_status": "Session Status",
         "ioi_id": "IOI ID",
-        "quote_id": "Quote ID"
+        "quote_id": "Quote ID",
+        "instrument": "Instrument",
+        "security_type": "Sec Type (167)",
+        "maturity": "Maturity (200)",
+        "strike_price": "Strike (202)",
+        "put_or_call": "Put/Call (201)",
+        "cfi_code": "CFI Code (461)",
+        "underlying_symbol": "Underlying (311)",
+        "underlying_security_type": "Underlying Type (310)",
+        "underlying_maturity": "Underlying Maturity (313)",
+        "multiplier": "Multiplier (231)",
+        "security_exchange": "Exchange (207)",
+        "security_id": "Security ID (48)",
+        "security_id_source": "ID Source (22)",
+        "open_close": "Open/Close (77)",
+        "covered_uncovered": "Covered (203)"
       },
       "types": {
         "updated_at": {
@@ -9582,6 +10301,308 @@
                   ]
                 },
                 {
+                  "group": "Instrument",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "_instrument",
+                      "label": "Saved instrument (Config › Instruments)",
+                      "type": "select",
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "label",
+                        "empty": "(none: enter it below)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "underlying_symbol": "underlying_symbol",
+                        "underlying_security_type": "underlying_security_type",
+                        "underlying_maturity": "underlying_maturity",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_type",
+                          "label": "Security Type (167)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": "(none: a stock)"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            },
+                            {
+                              "value": "OPT",
+                              "label": "OPT - Option"
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "OOF",
+                              "label": "OOF - Option on Future (>= FIX 5.0)"
+                            }
+                          ],
+                          "value": "${row.security_type}"
+                        },
+                        {
+                          "name": "maturity",
+                          "label": "Maturity (200)",
+                          "type": "text",
+                          "placeholder": "YYYYMM or YYYYMMDD",
+                          "width": 0.5,
+                          "value": "${row.maturity}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "security_type == 'OOF'",
+                      "value": "Defined from FIX 5.0. On FIX 4.x an option on a future is OPT with Underlying Type FUT; mkfix refuses OOF there."
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "CONTAINS(['FUT', 'OPT'], COALESCE(security_type, ''))",
+                      "value": "FIX 4.3 names futures and options by CFICode (461) alone: mkfix sends one, derived from these terms unless given, and no SecurityType there."
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "strike_price",
+                          "label": "Strike (202)",
+                          "type": "number",
+                          "step": "0.01",
+                          "width": 0.5,
+                          "value": "${row.strike_price}"
+                        },
+                        {
+                          "name": "put_or_call",
+                          "label": "Put/Call (201)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Call"
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Put"
+                            }
+                          ],
+                          "value": "${IF(row.put_or_call == 'Call', '1', IF(row.put_or_call == 'Put', '0', row.put_or_call))}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_symbol",
+                          "label": "Underlying (311)",
+                          "type": "text",
+                          "width": 0.5,
+                          "value": "${row.underlying_symbol}"
+                        },
+                        {
+                          "name": "underlying_security_type",
+                          "label": "Underlying Type (310)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            }
+                          ],
+                          "value": "${row.underlying_security_type}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_maturity",
+                          "label": "Underlying Maturity (313)",
+                          "type": "text",
+                          "placeholder": "YYYYMM",
+                          "width": 0.5,
+                          "value": "${row.underlying_maturity}"
+                        },
+                        {
+                          "name": "cfi_code",
+                          "label": "CFI Code (461)",
+                          "type": "text",
+                          "placeholder": "blank: derived on FIX 4.3",
+                          "width": 0.5,
+                          "value": "${row.cfi_code}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "multiplier",
+                          "label": "Multiplier (231)",
+                          "type": "number",
+                          "width": 0.5,
+                          "value": "${row.multiplier}"
+                        },
+                        {
+                          "name": "security_exchange",
+                          "label": "Exchange (207)",
+                          "type": "text",
+                          "placeholder": "e.g. XCME",
+                          "width": 0.5,
+                          "value": "${row.security_exchange}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_id",
+                          "label": "Security ID (48)",
+                          "type": "text",
+                          "width": 0.5,
+                          "value": "${row.security_id}"
+                        },
+                        {
+                          "name": "security_id_source",
+                          "label": "ID Source (22)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - CUSIP"
+                            },
+                            {
+                              "value": "2",
+                              "label": "2 - SEDOL"
+                            },
+                            {
+                              "value": "4",
+                              "label": "4 - ISIN"
+                            },
+                            {
+                              "value": "5",
+                              "label": "5 - RIC"
+                            },
+                            {
+                              "value": "8",
+                              "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                            },
+                            {
+                              "value": "A",
+                              "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                            }
+                          ],
+                          "value": "${row.security_id_source}"
+                        }
+                      ]
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "open_close",
+                          "label": "Open/Close (77)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "O",
+                              "label": "O - Open"
+                            },
+                            {
+                              "value": "C",
+                              "label": "C - Close"
+                            },
+                            {
+                              "value": "R",
+                              "label": "R - Rolled (>= FIX 4.3)"
+                            },
+                            {
+                              "value": "F",
+                              "label": "F - FIFO (>= FIX 4.3)"
+                            }
+                          ],
+                          "value": "${IF(row.open_close == 'Open', 'O', IF(row.open_close == 'Close', 'C', IF(row.open_close == 'Rolled', 'R', IF(row.open_close == 'FIFO', 'F', row.open_close))))}"
+                        },
+                        {
+                          "name": "covered_uncovered",
+                          "label": "Covered (203)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Covered"
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Uncovered"
+                            }
+                          ],
+                          "value": "${IF(row.covered_uncovered == 'Covered', '0', IF(row.covered_uncovered == 'Uncovered', '1', row.covered_uncovered))}"
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "name": "save_instrument_as",
+                      "pin": "reset",
+                      "label": "Save instrument as",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps this instrument in Config › Instruments"
+                    }
+                  ]
+                },
+                {
                   "row": [
                     {
                       "name": "qty",
@@ -9756,7 +10777,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(security_type, '') != '', CONCAT('|167=', security_type), ''), IF(COALESCE(maturity, '') != '', CONCAT('|200=', maturity), ''), IF(strike_price != NULL, CONCAT('|202=', STR(strike_price)), ''), IF(COALESCE(put_or_call, '') != '', CONCAT('|201=', put_or_call), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -10094,6 +11115,21 @@
         "session_id",
         "client",
         "symbol",
+        "instrument",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "underlying_symbol",
+        "underlying_security_type",
+        "underlying_maturity",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "open_close",
+        "covered_uncovered",
         "side",
         "last_qty",
         "last_price",
@@ -10122,7 +11158,7 @@
         "cl_ord_id",
         "session_id",
         "client",
-        "symbol",
+        "instrument",
         "side",
         "last_qty",
         "last_price",
@@ -10190,7 +11226,22 @@
         "leaves_qty": "Leaves",
         "timestamp": "Recorded",
         "direction": "Dir",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "instrument": "Instrument",
+        "security_type": "Sec Type (167)",
+        "maturity": "Maturity (200)",
+        "strike_price": "Strike (202)",
+        "put_or_call": "Put/Call (201)",
+        "cfi_code": "CFI Code (461)",
+        "underlying_symbol": "Underlying (311)",
+        "underlying_security_type": "Underlying Type (310)",
+        "underlying_maturity": "Underlying Maturity (313)",
+        "multiplier": "Multiplier (231)",
+        "security_exchange": "Exchange (207)",
+        "security_id": "Security ID (48)",
+        "security_id_source": "ID Source (22)",
+        "open_close": "Open/Close (77)",
+        "covered_uncovered": "Covered (203)"
       },
       "types": {
         "transact_time": {
@@ -15034,6 +16085,20 @@
         "price",
         "tif",
         "handl_inst",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "underlying_symbol",
+        "underlying_security_type",
+        "underlying_maturity",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "open_close",
+        "covered_uncovered",
         "dk_reason",
         "restate_reason",
         "currency",
@@ -15117,7 +16182,21 @@
         "valid_for": "Valid For (s)",
         "quote_rej_reason": "Reject Reason (658)",
         "symbols": "Instruments (146)",
-        "subscription_type": "Subscription (263)"
+        "subscription_type": "Subscription (263)",
+        "security_type": "Sec Type (167)",
+        "maturity": "Maturity (200)",
+        "strike_price": "Strike (202)",
+        "put_or_call": "Put/Call (201)",
+        "cfi_code": "CFI Code (461)",
+        "underlying_symbol": "Underlying (311)",
+        "underlying_security_type": "Underlying Type (310)",
+        "underlying_maturity": "Underlying Maturity (313)",
+        "multiplier": "Multiplier (231)",
+        "security_exchange": "Exchange (207)",
+        "security_id": "Security ID (48)",
+        "security_id_source": "ID Source (22)",
+        "open_close": "Open/Close (77)",
+        "covered_uncovered": "Covered (203)"
       },
       "sort": [
         "scope",
@@ -15890,6 +16969,267 @@
                   "showWhen": "row.scope == 'rfq_request'"
                 },
                 {
+                  "row": [
+                    {
+                      "name": "security_type",
+                      "label": "Security Type (167)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF - Option on Future (>= FIX 5.0)"
+                        }
+                      ],
+                      "value": "${row.security_type}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (200)",
+                      "type": "text",
+                      "placeholder": "YYYYMM or YYYYMMDD",
+                      "width": 0.5,
+                      "value": "${row.maturity}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (202)",
+                      "type": "number",
+                      "step": "0.01",
+                      "width": 0.5,
+                      "value": "${row.strike_price}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call (201)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "value": "${row.put_or_call}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_symbol",
+                      "label": "Underlying (311)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.underlying_symbol}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "underlying_security_type",
+                      "label": "Underlying Type (310)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        }
+                      ],
+                      "value": "${row.underlying_security_type}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_maturity",
+                      "label": "Underlying Maturity (313)",
+                      "type": "text",
+                      "placeholder": "YYYYMM",
+                      "width": 0.5,
+                      "value": "${row.underlying_maturity}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "cfi_code",
+                      "label": "CFI Code (461)",
+                      "type": "text",
+                      "placeholder": "blank: derived on FIX 4.3",
+                      "width": 0.5,
+                      "value": "${row.cfi_code}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "multiplier",
+                      "label": "Multiplier (231)",
+                      "type": "number",
+                      "width": 0.5,
+                      "value": "${row.multiplier}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "security_exchange",
+                      "label": "Exchange (207)",
+                      "type": "text",
+                      "placeholder": "e.g. XCME",
+                      "width": 0.5,
+                      "value": "${row.security_exchange}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_id",
+                      "label": "Security ID (48)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.security_id}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "security_id_source",
+                      "label": "ID Source (22)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - CUSIP"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - SEDOL"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - ISIN"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - RIC"
+                        },
+                        {
+                          "value": "8",
+                          "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                        },
+                        {
+                          "value": "A",
+                          "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.security_id_source}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "open_close",
+                      "label": "Open/Close (77)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "O",
+                          "label": "O - Open"
+                        },
+                        {
+                          "value": "C",
+                          "label": "C - Close"
+                        },
+                        {
+                          "value": "R",
+                          "label": "R - Rolled (>= FIX 4.3)"
+                        },
+                        {
+                          "value": "F",
+                          "label": "F - FIFO (>= FIX 4.3)"
+                        }
+                      ],
+                      "value": "${row.open_close}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "covered_uncovered",
+                      "label": "Covered (203)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Covered"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Uncovered"
+                        }
+                      ],
+                      "value": "${row.covered_uncovered}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
                   "name": "text",
                   "label": "${IF(row.scope == 'reject', 'Reason (58)', 'Text (58)')}",
                   "type": "text",
@@ -16660,6 +18000,267 @@
                   ],
                   "value": "${row.subscription_type}",
                   "showWhen": "row.scope == 'rfq_request'"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_type",
+                      "label": "Security Type (167)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF - Option on Future (>= FIX 5.0)"
+                        }
+                      ],
+                      "value": "${row.security_type}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (200)",
+                      "type": "text",
+                      "placeholder": "YYYYMM or YYYYMMDD",
+                      "width": 0.5,
+                      "value": "${row.maturity}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (202)",
+                      "type": "number",
+                      "step": "0.01",
+                      "width": 0.5,
+                      "value": "${row.strike_price}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call (201)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "value": "${row.put_or_call}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_symbol",
+                      "label": "Underlying (311)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.underlying_symbol}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "underlying_security_type",
+                      "label": "Underlying Type (310)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        }
+                      ],
+                      "value": "${row.underlying_security_type}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_maturity",
+                      "label": "Underlying Maturity (313)",
+                      "type": "text",
+                      "placeholder": "YYYYMM",
+                      "width": 0.5,
+                      "value": "${row.underlying_maturity}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "cfi_code",
+                      "label": "CFI Code (461)",
+                      "type": "text",
+                      "placeholder": "blank: derived on FIX 4.3",
+                      "width": 0.5,
+                      "value": "${row.cfi_code}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "multiplier",
+                      "label": "Multiplier (231)",
+                      "type": "number",
+                      "width": 0.5,
+                      "value": "${row.multiplier}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "security_exchange",
+                      "label": "Exchange (207)",
+                      "type": "text",
+                      "placeholder": "e.g. XCME",
+                      "width": 0.5,
+                      "value": "${row.security_exchange}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_id",
+                      "label": "Security ID (48)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.security_id}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "security_id_source",
+                      "label": "ID Source (22)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - CUSIP"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - SEDOL"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - ISIN"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - RIC"
+                        },
+                        {
+                          "value": "8",
+                          "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                        },
+                        {
+                          "value": "A",
+                          "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.security_id_source}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "open_close",
+                      "label": "Open/Close (77)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "O",
+                          "label": "O - Open"
+                        },
+                        {
+                          "value": "C",
+                          "label": "C - Close"
+                        },
+                        {
+                          "value": "R",
+                          "label": "R - Rolled (>= FIX 4.3)"
+                        },
+                        {
+                          "value": "F",
+                          "label": "F - FIFO (>= FIX 4.3)"
+                        }
+                      ],
+                      "value": "${row.open_close}",
+                      "showWhen": "row.scope == 'order'"
+                    },
+                    {
+                      "name": "covered_uncovered",
+                      "label": "Covered (203)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Covered"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Uncovered"
+                        }
+                      ],
+                      "value": "${row.covered_uncovered}",
+                      "showWhen": "row.scope == 'order'"
+                    }
+                  ]
                 },
                 {
                   "name": "text",
@@ -17907,6 +19508,832 @@
       "title": "Help",
       "type": "help-viewer",
       "page": "replaying-a-log"
+    },
+    "instruments": {
+      "title": "Instruments",
+      "type": "mkio-table",
+      "service": "instruments_query",
+      "protocol": "query",
+      "columns": [
+        "name",
+        "instrument",
+        "symbol",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "underlying_symbol",
+        "underlying_security_type",
+        "underlying_maturity",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "description",
+        "created_at",
+        "updated_at"
+      ],
+      "visible": [
+        "name",
+        "instrument",
+        "symbol",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "underlying_symbol",
+        "multiplier",
+        "security_exchange",
+        "description"
+      ],
+      "labels": {
+        "name": "Name",
+        "symbol": "Symbol (55)",
+        "description": "Description",
+        "created_at": "Created",
+        "updated_at": "Updated",
+        "instrument": "Instrument",
+        "security_type": "Sec Type (167)",
+        "maturity": "Maturity (200)",
+        "strike_price": "Strike (202)",
+        "put_or_call": "Put/Call (201)",
+        "cfi_code": "CFI Code (461)",
+        "underlying_symbol": "Underlying (311)",
+        "underlying_security_type": "Underlying Type (310)",
+        "underlying_maturity": "Underlying Maturity (313)",
+        "multiplier": "Multiplier (231)",
+        "security_exchange": "Exchange (207)",
+        "security_id": "Security ID (48)",
+        "security_id_source": "ID Source (22)"
+      },
+      "types": {
+        "created_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "sort": [
+        "name"
+      ],
+      "buttons": [
+        {
+          "label": "New",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New Instrument",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "name",
+                  "label": "Name",
+                  "type": "text",
+                  "required": true,
+                  "placeholder": "e.g. ESZ6"
+                },
+                {
+                  "name": "symbol",
+                  "label": "Symbol (55)",
+                  "type": "text",
+                  "required": true,
+                  "placeholder": "ES"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_type",
+                      "label": "Security Type (167)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF - Option on Future (>= FIX 5.0)"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (200)",
+                      "type": "text",
+                      "placeholder": "YYYYMM or YYYYMMDD",
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "security_type == 'OOF'",
+                  "value": "Defined from FIX 5.0. On FIX 4.x an option on a future is OPT with Underlying Type FUT; mkfix refuses OOF there."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['FUT', 'OPT'], COALESCE(security_type, ''))",
+                  "value": "FIX 4.3 names futures and options by CFICode (461) alone: mkfix sends one, derived from these terms unless given, and no SecurityType there."
+                },
+                {
+                  "row": [
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (202)",
+                      "type": "number",
+                      "step": "0.01",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call (201)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ]
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_symbol",
+                      "label": "Underlying (311)",
+                      "type": "text",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "underlying_security_type",
+                      "label": "Underlying Type (310)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        }
+                      ]
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_maturity",
+                      "label": "Underlying Maturity (313)",
+                      "type": "text",
+                      "placeholder": "YYYYMM",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "cfi_code",
+                      "label": "CFI Code (461)",
+                      "type": "text",
+                      "placeholder": "blank: derived on FIX 4.3",
+                      "width": 0.5
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "multiplier",
+                      "label": "Multiplier (231)",
+                      "type": "number",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "security_exchange",
+                      "label": "Exchange (207)",
+                      "type": "text",
+                      "placeholder": "e.g. XCME",
+                      "width": 0.5
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_id",
+                      "label": "Security ID (48)",
+                      "type": "text",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "security_id_source",
+                      "label": "ID Source (22)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - CUSIP"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - SEDOL"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - ISIN"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - RIC"
+                        },
+                        {
+                          "value": "8",
+                          "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                        },
+                        {
+                          "value": "A",
+                          "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "description",
+                  "label": "Description",
+                  "type": "text",
+                  "placeholder": "optional"
+                }
+              ],
+              "submit": {
+                "label": "Save Instrument",
+                "service": "fix_cmd",
+                "op": "save_instrument"
+              }
+            }
+          }
+        },
+        {
+          "label": "Edit",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Edit Instrument ${row.name}",
+              "width": 420,
+              "fields": [
+                {
+                  "label": "Name",
+                  "type": "readonly",
+                  "value": "${row.name}"
+                },
+                {
+                  "name": "symbol",
+                  "label": "Symbol (55)",
+                  "type": "text",
+                  "required": true,
+                  "value": "${row.symbol}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_type",
+                      "label": "Security Type (167)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF - Option on Future (>= FIX 5.0)"
+                        }
+                      ],
+                      "value": "${row.security_type}"
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (200)",
+                      "type": "text",
+                      "placeholder": "YYYYMM or YYYYMMDD",
+                      "width": 0.5,
+                      "value": "${row.maturity}"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "security_type == 'OOF'",
+                  "value": "Defined from FIX 5.0. On FIX 4.x an option on a future is OPT with Underlying Type FUT; mkfix refuses OOF there."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['FUT', 'OPT'], COALESCE(security_type, ''))",
+                  "value": "FIX 4.3 names futures and options by CFICode (461) alone: mkfix sends one, derived from these terms unless given, and no SecurityType there."
+                },
+                {
+                  "row": [
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (202)",
+                      "type": "number",
+                      "step": "0.01",
+                      "width": 0.5,
+                      "value": "${row.strike_price}"
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call (201)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "value": "${IF(row.put_or_call == 'Call', '1', IF(row.put_or_call == 'Put', '0', row.put_or_call))}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_symbol",
+                      "label": "Underlying (311)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.underlying_symbol}"
+                    },
+                    {
+                      "name": "underlying_security_type",
+                      "label": "Underlying Type (310)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        }
+                      ],
+                      "value": "${row.underlying_security_type}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_maturity",
+                      "label": "Underlying Maturity (313)",
+                      "type": "text",
+                      "placeholder": "YYYYMM",
+                      "width": 0.5,
+                      "value": "${row.underlying_maturity}"
+                    },
+                    {
+                      "name": "cfi_code",
+                      "label": "CFI Code (461)",
+                      "type": "text",
+                      "placeholder": "blank: derived on FIX 4.3",
+                      "width": 0.5,
+                      "value": "${row.cfi_code}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "multiplier",
+                      "label": "Multiplier (231)",
+                      "type": "number",
+                      "width": 0.5,
+                      "value": "${row.multiplier}"
+                    },
+                    {
+                      "name": "security_exchange",
+                      "label": "Exchange (207)",
+                      "type": "text",
+                      "placeholder": "e.g. XCME",
+                      "width": 0.5,
+                      "value": "${row.security_exchange}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_id",
+                      "label": "Security ID (48)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.security_id}"
+                    },
+                    {
+                      "name": "security_id_source",
+                      "label": "ID Source (22)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - CUSIP"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - SEDOL"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - ISIN"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - RIC"
+                        },
+                        {
+                          "value": "8",
+                          "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                        },
+                        {
+                          "value": "A",
+                          "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.security_id_source}"
+                    }
+                  ]
+                },
+                {
+                  "name": "description",
+                  "label": "Description",
+                  "type": "text",
+                  "value": "${row.description}"
+                }
+              ],
+              "submit": {
+                "label": "Save Instrument",
+                "service": "fix_cmd",
+                "op": "save_instrument"
+              },
+              "submitPerRow": true,
+              "rowData": {
+                "name": "${row.name}"
+              }
+            }
+          }
+        },
+        {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone Instrument ${row.name}",
+              "width": 420,
+              "fields": [
+                {
+                  "name": "name",
+                  "label": "Name",
+                  "type": "text",
+                  "required": true,
+                  "value": "${row.name} copy"
+                },
+                {
+                  "name": "symbol",
+                  "label": "Symbol (55)",
+                  "type": "text",
+                  "required": true,
+                  "value": "${row.symbol}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_type",
+                      "label": "Security Type (167)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF - Option on Future (>= FIX 5.0)"
+                        }
+                      ],
+                      "value": "${row.security_type}"
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (200)",
+                      "type": "text",
+                      "placeholder": "YYYYMM or YYYYMMDD",
+                      "width": 0.5,
+                      "value": "${row.maturity}"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "security_type == 'OOF'",
+                  "value": "Defined from FIX 5.0. On FIX 4.x an option on a future is OPT with Underlying Type FUT; mkfix refuses OOF there."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['FUT', 'OPT'], COALESCE(security_type, ''))",
+                  "value": "FIX 4.3 names futures and options by CFICode (461) alone: mkfix sends one, derived from these terms unless given, and no SecurityType there."
+                },
+                {
+                  "row": [
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (202)",
+                      "type": "number",
+                      "step": "0.01",
+                      "width": 0.5,
+                      "value": "${row.strike_price}"
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call (201)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "value": "${IF(row.put_or_call == 'Call', '1', IF(row.put_or_call == 'Put', '0', row.put_or_call))}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_symbol",
+                      "label": "Underlying (311)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.underlying_symbol}"
+                    },
+                    {
+                      "name": "underlying_security_type",
+                      "label": "Underlying Type (310)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        }
+                      ],
+                      "value": "${row.underlying_security_type}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "underlying_maturity",
+                      "label": "Underlying Maturity (313)",
+                      "type": "text",
+                      "placeholder": "YYYYMM",
+                      "width": 0.5,
+                      "value": "${row.underlying_maturity}"
+                    },
+                    {
+                      "name": "cfi_code",
+                      "label": "CFI Code (461)",
+                      "type": "text",
+                      "placeholder": "blank: derived on FIX 4.3",
+                      "width": 0.5,
+                      "value": "${row.cfi_code}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "multiplier",
+                      "label": "Multiplier (231)",
+                      "type": "number",
+                      "width": 0.5,
+                      "value": "${row.multiplier}"
+                    },
+                    {
+                      "name": "security_exchange",
+                      "label": "Exchange (207)",
+                      "type": "text",
+                      "placeholder": "e.g. XCME",
+                      "width": 0.5,
+                      "value": "${row.security_exchange}"
+                    }
+                  ],
+                  "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "security_id",
+                      "label": "Security ID (48)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.security_id}"
+                    },
+                    {
+                      "name": "security_id_source",
+                      "label": "ID Source (22)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - CUSIP"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - SEDOL"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - ISIN"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - RIC"
+                        },
+                        {
+                          "value": "8",
+                          "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                        },
+                        {
+                          "value": "A",
+                          "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "${row.security_id_source}"
+                    }
+                  ]
+                },
+                {
+                  "name": "description",
+                  "label": "Description",
+                  "type": "text",
+                  "value": "${row.description}"
+                }
+              ],
+              "submit": {
+                "label": "Save Instrument",
+                "service": "fix_cmd",
+                "op": "save_instrument"
+              }
+            }
+          }
+        },
+        {
+          "label": "Delete",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "transaction",
+            "service": "fix_cmd",
+            "op": "delete_instrument",
+            "data": {
+              "name": "${row.name}"
+            }
+          }
+        }
+      ]
     }
   },
   "frames": [
@@ -18137,7 +20564,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.74",
+      "version": "0.75",
       "mkio": "1.5",
       "expr": "2"
     },

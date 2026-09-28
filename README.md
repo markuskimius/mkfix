@@ -393,6 +393,20 @@ A FIX protocol testing engine for capital markets connectivity, built on
   `cancel quote`) and streams quotes (`new quote`) or asks for RFQs
   (`rfq request`, `unsubscribe`) from `run` blocks. The recorder and Macro...
   on every RFQ, quote and RFQ request blotter write them too.
+- **Options, Futures and Futures Options** -- An order's instrument is more
+  than its symbol: the New dialog's Instrument section takes Security Type
+  (167), Maturity, Strike, Put/Call, the underlying, Multiplier, Exchange,
+  Security ID, CFI Code and Open/Close, filled from an instrument saved in
+  Config > Instruments or saved there from the dialog. Each FIX version gets
+  its own spelling: FIX 4.1/4.2 split a maturity date into month and day,
+  FIX 4.3 names futures and options by CFICode (461) instead of
+  SecurityType, and Option on Future (OOF) is refused before FIX 5.0 (send
+  an Option on a Future underlying there). Both sides record the instrument
+  on the order and its trades, answers echo it, and the blotters show it
+  short (`ES Dec26`, `AAPL 18Dec26 250 C`). Macros take the same terms on
+  `new`, or `instrument: 'NAME'` naming a saved instrument or one declared
+  at the top of the macro (`instrument 'ESZ6' symbol: 'ES', sec_type:
+  future, ...`); the recorder and Macro... write them back.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages
@@ -519,7 +533,7 @@ history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
 `--tables` takes the short names `messages`, `orders`, `trades`, `iois`, `adverts`,
 `allocations`, `rfqs` (or `quotes`), `rfq_requests`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
-`settings`, `ids`, `replay_jobs`, `templates`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
+`settings`, `ids`, `replay_jobs`, `templates`, `instruments`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
 `--host` as the server: when a server answers on that port the archive runs
 through it, the engine refuses to archive a running session, a dictionary a

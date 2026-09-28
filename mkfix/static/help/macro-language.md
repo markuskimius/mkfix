@@ -99,6 +99,23 @@ run
 - A run that only sends ends by itself when its last macro does.
 - `on sent order` is the other client block: it waits, like a market macro, for orders sent some other way — by hand from Sent Orders, or by Message Replay — and minds them. An order a `run` macro sent belongs to that macro and is never offered. The session chosen at Run…, if any, is the only one it watches; such a run stays live until stopped, and has a Priority among the client runs that wait.
 
+## Options and futures
+
+```macro
+instrument 'ESZ6' symbol: 'ES', sec_type: future, maturity: '202612', multiplier: 50, exchange: 'XCME'
+
+run
+    new instrument: 'ESZ6', side: buy, qty: 2, price: 5200, open_close: open
+    expect ack within 2s
+    wait filled or timeout 10s
+    pass
+```
+
+- An order's instrument is its terms on `new`: `sec_type` (`stock`, `option`, `future`, `option_on_future`), `maturity` (`YYYYMM` or `YYYYMMDD`), `strike`, `put_call` (`call`, `put`), `cfi`, the underlying's `underlying`, `underlying_type` and `underlying_maturity`, `multiplier`, `exchange`, `security_id` and `id_source` (`isin`, `cusip`, …). `open_close` (`open`, `close`, `rolled`, `fifo`) and `covered` (`covered`, `uncovered`) are the order's own. A `replace` keeps the order's instrument; it cannot change it.
+- `instrument: 'NAME'` gives them all at once: an instrument declared at the top of the macro with `instrument 'NAME' …`, else the one saved under that name in **Config › Instruments**. Terms written beside it add to it or override it. A declaration is written out — no expressions — and wins over a saved instrument of the same name (the checker warns when they differ), so a macro that declares what it uses runs on any server.
+- Each FIX version spells an instrument its own way and the engine does the spelling: FIX 4.3 names futures and options by CFICode, FIX 4.1 and 4.2 split a maturity date in two, and `option_on_future` (OOF) is FIX 5.0's — on FIX 4.x an option on a future is `sec_type: option` with `underlying_type: future`, and a `new` with `option_on_future` fails there.
+- An expression reads them from the row: `order.security_type == 'OPT'`, `order.strike_price`, `order.put_or_call == 'Call'`, `order.maturity`, and `order.instrument`, the text the blotters show (`ES Dec26`). An `on order where` narrows by them like any column.
+
 ## IOIs, adverts and allocations
 
 The market side sends them and the client side receives them, so their blocks sit the other way round from an order's: a market macro sends an IOI from a `run` block, a client macro answers one in an `on ioi` block.
@@ -167,7 +184,7 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 
 | Action | Does | Terms |
 |---|---|---|
-| `new` | Sends a new order; in an `on ioi` block, one answering the IOI (tag 23) that no macro owns | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
+| `new` | Sends a new order; in an `on ioi` block, one answering the IOI (tag 23) that no macro owns | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source`, `open_close`, `covered` |
 | `replace` | Asks to replace the order; terms left out keep their last accepted value | `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
 | `cancel` | Asks to cancel the order | `text`, `extra` |
 | `dk` | Disputes a received trade (DontKnowTrade) | `reason`, `text`, `extra` |

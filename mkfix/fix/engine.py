@@ -31,6 +31,8 @@ from mkfix.fix.families import (ALLOC_GROUPS, ALLOC_STATUS_OF, ALLOC_ACCEPTING,
                                  rfq_request_columns)
 from mkfix.fix import replay
 from mkfix.fix.replay import ReplayTask
+from mkfix.fix.instrument import (INSTRUMENT_COLS, ORDER_INSTRUMENT_COLS, POSITION_COLS, blank_instrument, carries_instrument,
+                                  instrument_of, instrument_pairs, instrument_text, normalize_instrument)
 from mkfix.fix.session import FixSession
 
 if TYPE_CHECKING:
@@ -50,6 +52,7 @@ ORDER_COLS = [
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date", "client",
     "handl_inst", "handl_inst_code", "sent_text", "market_order_id", "ioi_id", "quote_id",
+    *ORDER_INSTRUMENT_COLS,
 ]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
@@ -95,6 +98,7 @@ EXEC_COLS = [
     "symbol", "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
     "transact_time", "text", "timestamp", "direction", "client", "extra_tags",
+    *ORDER_INSTRUMENT_COLS,
 ]
 
 # exec_type display names a bust records (ExecTransType Cancel through FIX
@@ -127,6 +131,7 @@ TEMPLATE_TERM_COLS = [
     "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code",
     "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for",
     "quote_rej_reason", "symbols", "subscription_type",
+    *INSTRUMENT_COLS, *POSITION_COLS,
 ]
 
 # The IOI, advert and allocation rows (families.py): one row per chain,
@@ -206,20 +211,39 @@ REPLAY_JOB_COLS = ["name", "file_path", "status", "total_messages", "sent_messag
                    ] + REPLAY_CONFIG_COLS
 
 
+# The instrument columns are written when a row is made and never after
+# (they sit outside ORDER_UPDATE_COLS and EXEC_UPDATE_COLS): an order's
+# instrument is what it was sent or received with, a trade's what it was
+# filled in. A row built without them gets them blank.
+_NO_INSTRUMENT = blank_instrument()
+
+
+def _instrument_value(row: dict[str, Any], col: str) -> Any:
+    if col == "instrument":
+        return row.get("instrument") or instrument_text(row)
+    return row.get(col, _NO_INSTRUMENT[col])
+
+
+def _instrument_cols(row: dict[str, Any]) -> dict[str, Any]:
+    """A row's instrument columns, blank where it has none."""
+    return {c: _instrument_value(row, c) for c in _NO_INSTRUMENT}
+
+
 def _order_params(row: dict[str, Any], keep_sent_text: bool = False,
                   keep_pending: bool = False) -> tuple[Any, ...]:
     """Upsert parameters. sent_text is ours alone: an inbound ExecutionReport
     passes `keep_sent_text` so the update leaves the column as it stands, and
     `keep_pending` likewise — on a sent order pending_* is the request still
     outstanding, which only its answer clears (rename_order, resolve_request)."""
-    insert = tuple(row[c] for c in ORDER_COLS)
+    insert = tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row[c] for c in ORDER_COLS)
     update = tuple(None if keep_pending and c in PENDING_COLS else row[c]
                    for c in ORDER_UPDATE_COLS)
     return insert + (None,) + update + (None if keep_sent_text else row["sent_text"],)
 
 
 def _exec_params(row: dict[str, Any]) -> tuple[Any, ...]:
-    return tuple(row[c] for c in EXEC_COLS) + (None,)
+    return tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row[c]
+                 for c in EXEC_COLS) + (None,)
 
 
 def _exec_update_params(row: dict[str, Any], row_id: int) -> tuple[Any, ...]:
@@ -304,6 +328,7 @@ class FixEngine:
         await self._backfill_client()
         await self._backfill_handling_and_trade_tags()
         await self._backfill_trade_order_ids()
+        await self._backfill_instrument()
         await self._backfill_families()
         await self.ids.start()
         await self._load_custom_dictionaries()
@@ -574,6 +599,26 @@ class FixEngine:
             param_names=tuple(tmpl_cols + ["_mkio_ref"]),
         ),)
 
+        inst_cols = ["name", "symbol", *INSTRUMENT_COLS, "instrument", "description", "created_at", "updated_at"]
+        inst_set = ", ".join(f"{c} = excluded.{c}" for c in inst_cols if c not in ("name", "created_at"))
+        self._compiled_ops["upsert_instrument"] = (CompiledOp(
+            table="fix_instruments",
+            op_type="upsert",
+            sql=(
+                f"INSERT INTO fix_instruments ({', '.join(inst_cols)}, _mkio_ref) "
+                f"VALUES ({', '.join(['?'] * (len(inst_cols) + 1))}) "
+                f"ON CONFLICT(name) DO UPDATE SET {inst_set}, _mkio_ref = excluded._mkio_ref "
+                f"RETURNING *"
+            ),
+            param_names=tuple(inst_cols + ["_mkio_ref"]),
+        ),)
+        self._compiled_ops["delete_instrument"] = (CompiledOp(
+            table="fix_instruments",
+            op_type="delete",
+            sql="DELETE FROM fix_instruments WHERE name = ? RETURNING *",
+            param_names=("name",),
+        ),)
+
         replay_cols = ["id", "status", "sent_messages", "error_text"]
         replay_set = ", ".join(f"{c} = ?" for c in replay_cols[1:])
         self._compiled_ops["update_replay"] = (CompiledOp(
@@ -778,6 +823,23 @@ class FixEngine:
         )).close()
         await conn.commit()
 
+    async def _backfill_instrument(self) -> None:
+        """Seed, once (fix_settings `instrument_backfill`), the display text
+        0.75 added: every older order and trade is in a stock, shown by its
+        symbol. Raw-connection writes, like the other backfills."""
+        conn = self.db.write_conn
+        cur = await conn.execute("SELECT value FROM fix_settings WHERE key = 'instrument_backfill'")
+        done = await cur.fetchone()
+        await cur.close()
+        if done:
+            return
+        for table in ("fix_orders", "fix_executions"):
+            await (await conn.execute(
+                f"UPDATE {table} SET instrument = symbol WHERE instrument = '' AND security_type = ''")).close()
+        await (await conn.execute(
+            "INSERT OR REPLACE INTO fix_settings (key, value) VALUES ('instrument_backfill', '1')")).close()
+        await conn.commit()
+
     async def _backfill_trade_order_ids(self) -> None:
         """Seed, once (fix_settings `trade_order_id_backfill`), the column
         0.61 added: a received trade's order_id used to be the ER's
@@ -898,6 +960,13 @@ class FixEngine:
         if client_of(FixMessage(dict(msg.extra), pairs=msg.extra), specs):
             return
         session.factory.stamp_client(msg, client or "", specs)
+
+    def _stamp_order(self, session: FixSession, msg: FixMessage, row: dict[str, Any]) -> None:
+        """An answer's client and instrument, from the order or trade row it
+        is about: the instrument as the row holds it, in this session's
+        spelling, a security type the version lacks echoed as it stands."""
+        self._stamp_client(session, msg, row.get("client"))
+        session.factory.stamp_instrument(msg, row, originating=False)
 
     def _client_as_sent(self, session: FixSession, msg: FixMessage) -> str:
         """The client a message will carry once sent — extras applied, as
@@ -1190,6 +1259,9 @@ class FixEngine:
             "market_order_id": msg.get("37", ""),
             "ioi_id": "",
             "quote_id": "",
+            # Used only when the report creates the row: the upsert never
+            # rewrites an order's instrument.
+            **instrument_of(msg),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(
@@ -1201,8 +1273,11 @@ class FixEngine:
         # goes to market_order_id — as on Sent Orders. An ER creating the row
         # itself (a replayed log) gives both the same value, like the row.
         own_order_id = (order["order_id"] if order else "") or msg.get("37", "")
+        # A report naming its instrument is the trade's word on it; one that
+        # names only the symbol trades the order's.
+        instrument = instrument_of(msg) if carries_instrument(msg) or not order else _instrument_cols(order)
         trade = await self._record_report_trade(session, msg, cl_ord_id, order_row["client"],
-                                                own_order_id)
+                                                own_order_id, instrument)
 
         if not self.events.active:
             return
@@ -1219,7 +1294,8 @@ class FixEngine:
             order=after, prev=order, trade=trade))
 
     async def _record_report_trade(self, session: FixSession, msg: FixMessage, cl_ord_id: str,
-                                   client: str, order_id: str) -> dict[str, Any] | None:
+                                   client: str, order_id: str,
+                                   instrument: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """The trade an ExecutionReport reports — a fill, or a correction or
         bust of one — written as a row or a new version of one; None for a
         report that is about the order alone."""
@@ -1276,6 +1352,7 @@ class FixEngine:
             "dk_text": "",
             "client": client or await self._client_of_order(session_id, cl_ord_id),
             "extra_tags": format_extra_tags(extra_pairs_of(msg, dictionary, CONSUMED_EXEC_TAGS)),
+            **(instrument if instrument is not None else instrument_of(msg)),
         }
         await self._submit_execution(exec_row, referenced["id"] if referenced else None)
         return exec_row
@@ -1406,6 +1483,7 @@ class FixEngine:
             "market_order_id": "",
             "ioi_id": msg.get("23", ""),
             "quote_id": msg.get("117", ""),
+            **instrument_of(msg),
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
@@ -1466,7 +1544,7 @@ class FixEngine:
                               expire_time: str = "", expire_date: str = "", quote_id: str = "") -> dict[str, Any]:
         """A sent order's row as it stands before the send: PendingNew, its
         terms as entered, and what the message carries once sent (client,
-        HandlInst, Text, the IOI or quote it answers)."""
+        HandlInst, Text, the IOI or quote it answers, the instrument)."""
         session_id = session.session_id
         dictionary = session.dictionary
         now = _fix_timestamp()
@@ -1512,6 +1590,7 @@ class FixEngine:
             "market_order_id": "",
             "ioi_id": sent.get("23", ""),
             "quote_id": sent.get("117", "") or quote_id,
+            **instrument_of(sent),
         }
 
     async def send_new_order(
@@ -1532,10 +1611,13 @@ class FixEngine:
         text: str = "",
         source: str = "manual",
         tag: str = "",
+        instrument: dict[str, Any] | None = None,
         **extra: str,
     ) -> str:
         """Send a NewOrderSingle and return the ClOrdID. `client` goes out on
         the session's client tag; an extra tag naming that tag overrides it.
+        `instrument` holds the instrument columns as typed (instrument.py);
+        the row records the instrument as it went out.
 
         The order is announced (`sent order`) once its row is written and
         *before* the message goes out: the counterparty may acknowledge inside
@@ -1547,6 +1629,9 @@ class FixEngine:
             raise ValueError(f"Session {session_id} is not active")
 
         extra_pairs = parse_extra_tags(extra_tags)
+        terms = normalize_instrument(instrument or {})
+        # Refused before a ClOrdID is spent on it.
+        instrument_pairs(session.dictionary, terms)
         cl_ord_id = await self.ids.next_id("RT")
         msg = session.factory.new_order_single(
             cl_ord_id=cl_ord_id,
@@ -1565,6 +1650,7 @@ class FixEngine:
         )
         msg.extra = extra_pairs
         self._stamp_client(session, msg, client)
+        session.factory.stamp_instrument(msg, terms)
         expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
 
         # Pre-populate the order row as PendingNew *before* the message goes on
@@ -1622,6 +1708,7 @@ class FixEngine:
         )
         msg.extra = extra_pairs
         self._stamp_client(session, msg, client)
+        await self._stamp_order_instrument(session, msg, orig_cl_ord_id)
         await self._record_entered(session_id, orig_cl_ord_id,
                                    {"sent_text": self._text_as_sent(session, msg)},
                                    request=("Cancel", cl_ord_id, 0.0, 0.0))
@@ -1676,6 +1763,7 @@ class FixEngine:
         )
         msg.extra = extra_pairs
         self._stamp_client(session, msg, client)
+        await self._stamp_order_instrument(session, msg, orig_cl_ord_id)
         expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
 
         dictionary = session.dictionary
@@ -1703,6 +1791,15 @@ class FixEngine:
                                    request=("Replace", cl_ord_id, qty, price or 0.0))
         await self._send_request(session, msg, cl_ord_id)
         return cl_ord_id
+
+    async def _stamp_order_instrument(self, session: FixSession, msg: FixMessage, cl_ord_id: str) -> None:
+        """A cancel or replace request names the order's instrument, which
+        the request cannot change; an unknown order's request goes without."""
+        try:
+            order = await self._load_order(session.session_id, cl_ord_id)
+        except ValueError:
+            return
+        session.factory.stamp_instrument(msg, order, originating=False)
 
     async def _record_entered(self, session_id: str, cl_ord_id: str, entered: dict[str, Any],
                               request: tuple[str, str, float, float] | None = None) -> None:
@@ -2064,6 +2161,7 @@ class FixEngine:
             "dk_text": "",
             "client": order.get("client") or "",
             "extra_tags": extra_tags,
+            **_instrument_cols(order),
         }
         await self._submit_execution(exec_row, row_id)
 
@@ -2090,7 +2188,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         await self._write_order(order, order_id=order_id, status="New",
                                 sent_text=self._text_as_sent(session, msg),
@@ -2120,7 +2218,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         await self._write_order(order, status="Rejected", leaves_qty=0.0,
                                 sent_text=self._text_as_sent(session, msg),
@@ -2166,7 +2264,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
         sent_text = self._text_as_sent(session, msg)
 
         # A fill on a not-yet-accepted order implicitly acknowledges it, so the
@@ -2215,7 +2313,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         # As with a fill, the report implicitly acknowledges a not-yet-accepted
         # order, so the pending New is consumed; a pending Cancel/Replace stays
@@ -2276,7 +2374,7 @@ class FixEngine:
             **terms,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         # As with a fill, the report implicitly acknowledges a not-yet-accepted
         # order; a pending Cancel/Replace stays parked on the restated order.
@@ -2348,7 +2446,7 @@ class FixEngine:
             **{"41": cl_ord_id},
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
         await self._write_order(
@@ -2405,7 +2503,7 @@ class FixEngine:
             **{"41": cl_ord_id, "44": str(new_price)},
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
         sent_text = self._text_as_sent(session, msg)
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
@@ -2500,7 +2598,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         await self._write_order(
             order, status=dictionary.enum_name("39", status_code),
@@ -2554,7 +2652,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         await self._write_order(
             order, status=dictionary.enum_name("39", status_code),
@@ -2624,7 +2722,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, order.get("client"))
+        self._stamp_order(session, msg, order)
 
         sent = self._as_sent(session, msg)
         await self._write_sent_execution(
@@ -2670,7 +2768,7 @@ class FixEngine:
             text=text or None,
         )
         msg.extra = extra_pairs
-        self._stamp_client(session, msg, execution.get("client"))
+        self._stamp_order(session, msg, execution)
         if execution["direction"] != "RX":
             await session.send_message(msg)
             return
@@ -4226,6 +4324,27 @@ class FixEngine:
             self._compiled_ops["upsert_template"], ((scope, name) + values + (None,),),
             {"scope": scope, "name": name})
         return name
+
+    async def save_instrument(self, name: str, symbol: str = "", description: str = "", **terms: Any) -> str:
+        """Keep an instrument's terms under a name, replacing the one of the
+        same name. Saved as given, whatever the version: the send checks a
+        security type against the session it goes out on."""
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("An instrument needs a name")
+        unknown = set(terms) - set(INSTRUMENT_COLS)
+        if unknown:
+            raise ValueError(f"Not instrument terms: {', '.join(sorted(unknown))}")
+        row = {**normalize_instrument(terms), "symbol": (symbol or "").strip()}
+        now = _fix_timestamp()
+        values = ((name, row["symbol"]) + tuple(row[c] for c in INSTRUMENT_COLS)
+                  + (instrument_text(row), description or "", now, now, None))
+        await self.writer.submit(self._compiled_ops["upsert_instrument"], (values,), {"name": name})
+        return name
+
+    async def delete_instrument(self, name: str) -> None:
+        """Forget a saved instrument. Orders and templates keep their fields."""
+        await self.writer.submit(self._compiled_ops["delete_instrument"], ((name,),), {"name": name})
 
     async def delete_dictionary(self, name: str) -> None:
         conn = self.db.read_conn

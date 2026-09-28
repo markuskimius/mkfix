@@ -805,7 +805,7 @@ class TestServiceReferences:
             labels = {}
             notes = []
             for item in _find_dialog(app_config, op)["fields"]:
-                if item.get("type") == "readonly" and "showWhen" in item:
+                if item.get("type") == "readonly" and "showWhen" in item and "label" not in item:
                     notes.append(item["showWhen"])
                 for f in _leaves(item):
                     if f.get("name") in ("ord_type", "tif"):
@@ -827,7 +827,10 @@ class TestServiceReferences:
         """The Replace dialog shows every New-dialog field (session aside —
         a replace stays on its order's session) prefilled from the row's
         as-submitted terms, so the last entered values can be edited."""
-        new_fields = _dialog_field_names(_find_dialog(app_config, "send_new_order")) - {"session_id"}
+        from mkfix.fix.instrument import INSTRUMENT_COLS, POSITION_COLS
+        instrument = {*INSTRUMENT_COLS, *POSITION_COLS}
+        new_fields = _dialog_field_names(_find_dialog(app_config, "send_new_order")) - {"session_id"} \
+            - instrument - {"_instrument", "save_instrument_as"}
         replace = _find_dialog(app_config, "send_cancel_replace")
         replace_fields = _dialog_field_names(replace)
         assert new_fields <= replace_fields, \
@@ -847,8 +850,9 @@ class TestServiceReferences:
             assert prefills.get(name) == "${row.%s}" % column, \
                 f"Replace field {name!r} must prefill from row.{column}"
             assert column in columns
-        assert set(replace["rowData"]) == {"session_id", "orig_cl_ord_id"}, \
-            "only the identity rides as rowData — everything else is an editable field"
+        assert set(replace["rowData"]) == {"session_id", "orig_cl_ord_id"} | instrument, \
+            "the identity and the instrument, which a replace cannot change, ride as rowData — " \
+            "everything else is an editable field"
 
     def test_expiry_fields_are_native_pickers(self, app_config):
         """The order dialogs take ExpireTime/ExpireDate through one mkui
@@ -884,8 +888,8 @@ class TestServiceReferences:
         under it, and a folded head counts the fields edited beneath it."""
         for op in ("send_new_order", "send_cancel_replace"):
             fields = _find_dialog(app_config, op)["fields"]
-            heads = [f for f in fields if "group" in f]
-            assert len(heads) == 1, f"{op}: one section"
+            heads = [f for f in fields if f.get("group") == "Advanced"]
+            assert len(heads) == 1, f"{op}: one Advanced section"
             head = heads[0]
             assert {k: v for k, v in head.items() if k != "fields"} == \
                 {"group": "Advanced", "collapsible": True, "collapsed": True}, op
@@ -1721,7 +1725,7 @@ class TestMenubar:
                    "market-rfq-request-blotter"],
         "Macro": ["client-macros", "client-runs", None, "market-macros", "market-runs", None,
                   "end-to-end-macros", "end-to-end-runs"],
-        "Config": ["templates", "dictionaries"],
+        "Config": ["templates", "instruments", "dictionaries"],
     }
     BUILTIN_ACTIONS = {
         "pane.show", "frame.show", "edit.copy", "edit.selectAll", "edit.undo", "edit.redo",
@@ -2957,8 +2961,10 @@ class TestTagPreviews:
         cases = {
             "send_new_order": (
                 {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "2", "price": 150.25, "tif": "0",
-                 "handl_inst": "3", "text": "work it", "extra_tags": "5001=X"},
-                "55=AAPL|54=1|38=100|40=2|44=150.25|59=0|21=3|58=work it|5001=X"),
+                 "handl_inst": "3", "text": "work it", "extra_tags": "5001=X", "security_type": "OPT",
+                 "maturity": "20261218", "strike_price": 250.0, "put_or_call": "1"},
+                "55=AAPL|54=1|38=100|40=2|44=150.25|59=0|21=3|167=OPT|200=20261218|202=250|201=1"
+                "|58=work it|5001=X"),
             "send_cancel_replace": (
                 {"symbol": "AAPL", "side": "1", "qty": 100.0, "ord_type": "1", "price": None, "tif": "7",
                  "handl_inst": "1", "text": "", "extra_tags": ""},
@@ -2989,7 +2995,8 @@ class TestTagPreviews:
         assert expr.evaluate(source, {**bare, "row": row}) == "11=C2|150=D|38=80", \
             "a blank price and reason are withheld"
         blank = {"symbol": None, "side": "1", "qty": None, "ord_type": "2", "price": None, "tif": "0",
-                 "handl_inst": "1", "text": None, "extra_tags": None}
+                 "handl_inst": "1", "text": None, "extra_tags": None, "security_type": None, "maturity": None,
+                 "strike_price": None, "put_or_call": None}
         source = self._preview(_find_dialog(app_config, "send_new_order"))
         assert expr.evaluate(source, {**blank, "row": row}) == "55=|54=1|38=|40=2|59=0|21=1", "an empty form must not error"
 
@@ -3098,7 +3105,7 @@ class TestTemplates:
             dialog = _find_dialog(app_config, op)
             assert dialog.get("pin") == "keep", op
             for field in self._fields(dialog):
-                expected = "reset" if field.get("name") == "save_as" else None
+                expected = "reset" if field.get("name") in ("save_as", "save_instrument_as") else None
                 assert field.get("pin") == expected, f"{op}: {field.get('name')!r} pin={field.get('pin')!r}"
 
     def test_templates_list_serves_every_term_of_one_scope(self, toml_config):
@@ -3710,3 +3717,92 @@ class TestRfqRequestBlotters:
                 assert defining and option["label"].startswith(option["value"] + " - "), (name, option)
                 if len(defining) < len(dictionaries):
                     assert "FIX" in option["label"], (name, option)
+
+
+class TestInstrumentFields:
+    """The order dialogs' Instrument section (instrument.py): New and Clone
+    carry the same one, Clone prefilled from the row; Replace shows the
+    order's and sends it along unchanged; the dropdowns are hand-listed
+    codes whose version notes hold against the dictionaries; a saved pick
+    fills the fields from `instruments_list`; Config › Instruments saves
+    what `save_instrument` takes."""
+
+    @staticmethod
+    def _section(dialog):
+        (section,) = [f for f in dialog["fields"] if f.get("group") == "Instrument"]
+        return section
+
+    @staticmethod
+    def _options(dialog):
+        return {f["name"]: {o["value"]: o["label"] for o in f["options"]}
+                for item in dialog["fields"] for f in _leaves(item) if "options" in f}
+
+    def test_new_and_clone_carry_one_section(self, app_config):
+        from mkfix.fix.instrument import INSTRUMENT_COLS, POSITION_COLS
+        new = _find_dialog(app_config, "send_new_order")
+        names = {f["name"] for f in _leaves(self._section(new)) if "name" in f}
+        assert names == {"_instrument", "save_instrument_as", *INSTRUMENT_COLS, *POSITION_COLS}
+        for pane_id in ("order-blotter", "market-order-blotter"):
+            clone = self._section(_clone_button(app_config, pane_id)["action"]["dialog"])
+            fields = {f["name"]: f for f in _leaves(clone) if "name" in f}
+            assert set(fields) == names, pane_id
+            assert fields["maturity"]["value"] == "${row.maturity}"
+            assert "row.put_or_call == 'Call', '1'" in fields["put_or_call"]["value"], \
+                "the row's word goes back to the dropdown's code"
+            assert "value" not in fields["save_instrument_as"]
+
+    def test_replace_keeps_the_orders_instrument(self, app_config):
+        from mkfix.fix.instrument import INSTRUMENT_COLS
+        replace = _find_dialog(app_config, "send_cancel_replace")
+        assert not [f for f in replace["fields"] if f.get("group") == "Instrument"], "not editable"
+        assert any(f.get("type") == "readonly" and f.get("value") == "${row.instrument}" for f in replace["fields"])
+        assert all(c in replace["rowData"] for c in INSTRUMENT_COLS)
+
+    def test_codes_and_version_notes_follow_the_dictionaries(self, app_config):
+        from mkfix.fix.dictionary import FixDictionary, STANDARD_VERSIONS
+        options = self._options(_find_dialog(app_config, "send_new_order"))
+        tags = {"security_type": "167", "put_or_call": "201", "open_close": "77", "covered_uncovered": "203",
+                "security_id_source": "22"}
+        for name, tag in tags.items():
+            for code, label in options[name].items():
+                if not code:
+                    continue
+                defined = [v for v in STANDARD_VERSIONS if FixDictionary(v).has_enum(tag, code)]
+                assert defined, f"{name} {code} is in no dictionary"
+                if "(>= FIX 5.0)" in label:
+                    assert defined[0] == "FIX.5.0", (name, code)
+                elif "(>= FIX 4.3)" in label:
+                    assert defined[0] == "FIX.4.3", (name, code)
+                elif "(>= FIX 4.2)" in label:
+                    assert defined[0] == "FIX.4.2", (name, code)
+                elif tag == "167" and code in ("FUT", "OPT"):
+                    assert "FIX.4.3" not in defined, "4.3 has them by CFICode; the section's note says so"
+                else:
+                    assert defined[0] == "FIX.4.1" or tag == "22", (name, code)
+        assert set(options["underlying_security_type"]) <= {"", *options["security_type"]}
+
+    def test_a_saved_pick_fills_the_fields(self, app_config, toml_config):
+        from mkfix.fix.instrument import INSTRUMENT_COLS
+        sql = toml_config["services"]["instruments_list"]["sql"]
+        pick = self._section(_find_dialog(app_config, "send_new_order"))["fields"][0]
+        assert pick["name"] == "_instrument" and pick["optionsFrom"]["service"] == "instruments_list"
+        assert pick["fill"] == {"symbol": "symbol", **{c: c for c in INSTRUMENT_COLS}}
+        for column in ("name", "label", *pick["fill"].values()):
+            assert column in sql, column
+
+    def test_config_instruments_saves_what_save_instrument_takes(self, app_config):
+        from mkfix.fix.instrument import INSTRUMENT_COLS
+        spec = app_config["panes"]["instruments"]
+        assert ["Instruments", "pane.show", "instruments"] in [
+            [i["label"], i["action"], i["args"]] for m in app_config["menubar"] if m["label"] == "Config"
+            for i in m["items"]]
+        takes = {"name", "symbol", "description", *INSTRUMENT_COLS}
+        for button in spec["buttons"]:
+            action = button["action"]
+            if action["type"] == "dialog":
+                dialog = action["dialog"]
+                assert dialog["submit"]["op"] == "save_instrument", button["label"]
+                sent = _dialog_field_names(dialog) | set(dialog.get("rowData", {}))
+                assert sent == takes, button["label"]
+            else:
+                assert (action["service"], action["op"]) == ("fix_cmd", "delete_instrument")

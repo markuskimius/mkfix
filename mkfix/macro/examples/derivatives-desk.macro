@@ -1,0 +1,18 @@
+# Derivatives desk
+#
+# Shows:   `on order where` narrowing by the instrument's columns; options and
+#          futures accepted and filled, uncovered puts rejected
+# Needs:   Arm it on LOOP-MKT. Send options or futures from Sent Orders (the New
+#          dialog's Instrument section) or run futures-roll on LOOP-CLI
+# Watch:   Received Orders' Instrument column; the Macro Runs log
+# Outcome: each option or future is filled at its limit price after a moment;
+#          an uncovered put is rejected; stocks are left to other macros
+
+on order where security_type in ['OPT', 'OOF', 'FUT']
+    if order.put_or_call == 'Put' and order.covered_uncovered == 'Uncovered'
+        reject text: 'this desk writes no uncovered puts'
+        pass 'rejected ${order.instrument}: uncovered put'
+    accept
+    after 200ms
+    fill qty: order.order_qty, price: order.price
+    pass 'filled ${order.cum_qty} ${order.instrument}'

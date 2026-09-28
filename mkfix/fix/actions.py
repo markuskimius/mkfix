@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
+from mkfix.fix.instrument import INSTRUMENT_COLS, POSITION_COLS
+
 if TYPE_CHECKING:
     from mkfix.fix.engine import FixEngine
 
@@ -72,6 +74,11 @@ def _common(d: dict[str, Any]) -> dict[str, Any]:
     return {"extra_tags": d.get("extra_tags", ""), "text": d.get("text", "")}
 
 
+def _instrument(d: dict[str, Any]) -> dict[str, Any]:
+    """The instrument terms a payload gives (instrument.py's columns)."""
+    return {c: d[c] for c in INSTRUMENT_COLS + POSITION_COLS if d.get(c) not in (None, "")}
+
+
 @_action("send_new_order")
 async def _send_new_order(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"cl_ord_id": await e.send_new_order(
@@ -80,7 +87,7 @@ async def _send_new_order(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
         expire_time=d.get("expire_time", ""), expire_date=d.get("expire_date", ""),
         expire_precision=d.get("expire_precision", ""), client=d.get("client", ""),
         handl_inst=d.get("handl_inst") or "1", source=d.get("_source", "manual"), tag=d.get("_tag", ""),
-        **_common(d))}
+        instrument=_instrument(d), **_common(d))}
 
 
 @_action("send_cancel")

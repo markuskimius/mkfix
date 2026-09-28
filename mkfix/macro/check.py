@@ -13,9 +13,12 @@ from typing import Any, Iterable, Mapping
 
 from mkio import expr
 
+from mkfix.fix.instrument import INSTRUMENT_COLS, normalize_instrument
+
 from . import vocab
 from .functions import ENV
 from .nodes import (
+    Instrument, Term,
     Action, Block, Diagnostic, Expect, Expr, If, Let, Repeat, Macro, Share, Signal, Statement, Wait, When,
     expressions, walk,
 )
@@ -38,10 +41,39 @@ def _close(word: str, known: Iterable[str]) -> str:
     return f" — did you mean {match[0]!r}?" if match else ""
 
 
+def instrument_payload(values: Mapping[str, Any]) -> dict[str, Any]:
+    """An instrument as `send_new_order` takes it — its symbol and the
+    columns it gives, spelled as the rows keep them — from a saved row or a
+    declaration's values. Blank columns are left out, so what a `new` says
+    inline is added to it."""
+    row = normalize_instrument(values)
+    return {**({"symbol": values["symbol"]} if values.get("symbol") else {}),
+            **{c: row[c] for c in INSTRUMENT_COLS if row[c] not in (None, "")}}
+
+
+def declared_payload(decl: Instrument) -> dict[str, Any]:
+    """The instrument an `instrument 'NAME' …` line declares. Its terms are
+    literals (the checker holds them to it), so this needs no scope."""
+    values: dict[str, Any] = {}
+    for term in decl.terms:
+        if not term.key:
+            continue
+        if term.word is not None:
+            values[term.key] = vocab.enum_code(vocab.enum_of("instrument", term.name), term.word)
+        else:
+            value = getattr(term.value.node, "value", None)
+            enum = vocab.enum_of("instrument", term.name)
+            values[term.key] = vocab.enum_code(enum, value) if enum and isinstance(value, str) else value
+    return instrument_payload(values)
+
+
 class _Checker:
     def __init__(self, templates: Mapping[str, Iterable[str]] | None, sessions: Iterable[str] | None,
-                 side: str | None = None) -> None:
+                 side: str | None = None, instruments: Mapping[str, Mapping[str, Any]] | None = None) -> None:
         self.side = side
+        # Saved instruments by name, as `instrument_payload` gives them; None when unknown.
+        self.instruments = dict(instruments) if instruments is not None else None
+        self.declared: dict[str, dict[str, Any]] = {}
         self.templates = {scope: set(names) for scope, names in templates.items()} if templates is not None else None
         self.sessions = set(sessions) if sessions is not None else None
         self.out: list[Diagnostic] = []
@@ -105,8 +137,67 @@ class _Checker:
         for st in macro.shares:
             # Before any macro of the run exists: only what is shared already can be read.
             self.expression(st.value, {"shared": {name: None for name in self.shared}})
+        for decl in macro.instruments:
+            self.declaration(decl)
         for block in macro.blocks:
             self.block(block)
+
+    def declaration(self, decl: Instrument) -> None:
+        """`instrument 'NAME' …`: its own terms, written out."""
+        end = decl.col + len("instrument") + len(decl.name) + 3
+        if decl.name in self.declared:
+            self.report(decl.line, decl.col, end, f"Instrument {decl.name!r} is declared twice")
+        seen: set[str] = set()
+        for term in decl.terms:
+            if term.name not in vocab.DECLARED_TERMS:
+                self.report(term.line, term.col, term.col + len(term.name),
+                            f"An instrument has no term {term.name!r}. It takes: {', '.join(vocab.DECLARED_TERMS)}"
+                            f"{_close(term.name, vocab.DECLARED_TERMS)}")
+                continue
+            if term.name in seen:
+                self.report(term.line, term.col, term.col + len(term.name), f"{term.name!r} is given twice")
+            seen.add(term.name)
+            if term.value is not None and type(term.value.node).__name__ != "Literal":
+                self.report(term.value.line, term.value.col, term.value.col + len(term.value.source),
+                            "An instrument's terms are written out — 'ES', 50, future — not computed")
+            else:
+                self.enum_words("instrument", term)
+        if "symbol" not in seen:
+            self.report(decl.line, decl.col, end, f"Instrument {decl.name!r} needs its symbol: symbol: 'ES'")
+        payload = declared_payload(decl)
+        saved = (self.instruments or {}).get(decl.name)
+        if saved is not None and saved != payload:
+            self.report(decl.line, decl.col, end,
+                        f"Config › Instruments saves a different {decl.name!r}; this macro uses its own",
+                        severity="warning")
+        self.declared.setdefault(decl.name, payload)
+
+    def instrument_named(self, term: Term) -> None:
+        """`instrument: 'NAME'` names one declared above or saved."""
+        value = getattr(term.value.node, "value", None) if term.value is not None else term.word
+        if term.value is not None and type(term.value.node).__name__ != "Literal":
+            return                                   # computed: resolved when it runs
+        at = (term.value.line, term.value.col, term.value.col + len(term.value.source)) if term.value else \
+            (term.line, term.col, term.col + len(term.name))
+        if not isinstance(value, str):
+            self.report(*at, "An instrument is named in quotes: instrument: 'ESZ6'")
+        elif value not in self.declared and self.instruments is not None and value not in self.instruments:
+            known = [*self.declared, *self.instruments]
+            self.report(*at, f"No instrument named {value!r}: declare it at the top "
+                             f"(instrument {value!r} symbol: …) or save it in Config › Instruments"
+                             f"{_close(value, known)}")
+
+    def enum_words(self, verb: str, term: Term) -> None:
+        """A quoted value where the term takes words: a code passes, anything else is warned about."""
+        enum = vocab.enum_of(verb, term.name)
+        literal = getattr(term.value.node, "value", None) if term.value is not None else None
+        if enum and isinstance(literal, str) and not term.value.template:
+            code = vocab.enum_code(enum, literal)
+            if code == literal and literal not in vocab.ENUMS[enum].values() and len(literal) > 2:
+                self.report(term.value.line, term.value.col, term.value.col + len(term.value.source),
+                            f"{literal!r} is no {term.name} this macro knows. Words: {', '.join(vocab.ENUMS[enum])}; "
+                            f"or give the FIX code{_close('_'.join(literal.lower().split()), vocab.ENUMS[enum])}",
+                            severity="warning")
 
     def heard(self, name: str, line: int, col: int, end: int) -> None:
         """A signal waited for by name that nothing in the macro sends never
@@ -240,17 +331,13 @@ class _Checker:
             if term.name in seen:
                 self.report(term.line, term.col, term.col + len(term.name), f"{term.name!r} is given twice")
             seen.add(term.name)
-            enum = vocab.enum_of(st.verb, term.name)
-            literal = getattr(term.value.node, "value", None) if term.value is not None else None
-            if enum and isinstance(literal, str) and not term.value.template:
-                code = vocab.enum_code(enum, literal)
-                if code == literal and literal not in vocab.ENUMS[enum].values() and len(literal) > 2:
-                    self.report(term.value.line, term.value.col, term.value.col + len(term.value.source),
-                                f"{literal!r} is no {term.name} this macro knows. Words: {', '.join(vocab.ENUMS[enum])}; "
-                                f"or give the FIX code{_close('_'.join(literal.lower().split()), vocab.ENUMS[enum])}",
-                                severity="warning")
+            self.enum_words(st.verb, term)
+            if term.name == "instrument":
+                self.instrument_named(term)
         if st.template is None:
-            missing = [name for name in verb.required if name not in seen]
+            # A named instrument brings its symbol.
+            missing = [name for name in verb.required if name not in seen
+                       and not (name == "symbol" and "instrument" in seen)]
             if missing:
                 self.report(st.line, st.col, end, f"`{st.verb}` needs {', '.join(missing)}")
         elif self.templates is not None:
@@ -261,9 +348,10 @@ class _Checker:
 
 
 def check(text: str, *, templates: Mapping[str, Iterable[str]] | None = None,
-          sessions: Iterable[str] | None = None, side: str | None = None) -> tuple[Macro, list[Diagnostic]]:
-    """Parse and check ``text``. ``templates`` (scope -> names) and ``sessions``
-    are checked against when given; a caller that does not know them says
+          sessions: Iterable[str] | None = None, side: str | None = None,
+          instruments: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[Macro, list[Diagnostic]]:
+    """Parse and check ``text``. ``templates`` (scope -> names), ``sessions``
+    and ``instruments`` (name -> `instrument_payload`) are checked against when given; a caller that does not know them says
     None and those references pass. ``side`` (client | market |
     end-to-end) is what the macro must be — the pane it is being edited in;
     without it the blocks decide: of one side it is that side's, of both
@@ -272,7 +360,7 @@ def check(text: str, *, templates: Mapping[str, Iterable[str]] | None = None,
     if side and side not in vocab.MACRO_KINDS:
         raise ValueError(f"A macro is a client, a market or an end-to-end macro, not {side!r}")
     macro.declared = side or ""
-    checker = _Checker(templates, sessions, side)
+    checker = _Checker(templates, sessions, side, instruments)
     checker.macro(macro)
     every = sorted({*diagnostics, *checker.out}, key=lambda d: (d.line, d.col, d.message))
     return macro, every

@@ -54,6 +54,7 @@ ALIASES: dict[str, str] = {
     "ids": "fix_id_state",
     "replay_jobs": "fix_replay_jobs",
     "templates": "fix_templates",
+    "instruments": "fix_instruments",
     "macros": "fix_macros",
     "macro_runs": "fix_macro_runs",
     "macro_orders": "fix_macro_orders",

@@ -149,6 +149,23 @@ _ORDER_TERMS = {
     "tif": "tif", "expire": "expire_time", "client": "client", "handl_inst": "handl_inst", **_TEXT,
 }
 
+# An order's instrument (mkfix/fix/instrument.py): `instrument` names one
+# saved in Config › Instruments or declared at the top of the macro, the
+# rest are its columns, given inline to add to or override it. A replace
+# cannot change them. Open/Close and Covered are the order's, not the
+# instrument's.
+_INSTRUMENT_TERMS = {
+    "instrument": "_instrument", "sec_type": "security_type", "maturity": "maturity", "strike": "strike_price",
+    "put_call": "put_or_call", "cfi": "cfi_code", "underlying": "underlying_symbol",
+    "underlying_type": "underlying_security_type", "underlying_maturity": "underlying_maturity",
+    "multiplier": "multiplier", "exchange": "security_exchange", "security_id": "security_id",
+    "id_source": "security_id_source",
+}
+_POSITION_TERMS = {"open_close": "open_close", "covered": "covered_uncovered"}
+# What `instrument 'NAME' …` at the top of a macro may give: a saved
+# instrument's terms, its symbol among them.
+DECLARED_TERMS = {"symbol": "symbol", **{k: v for k, v in _INSTRUMENT_TERMS.items() if k != "instrument"}}
+
 _IOI_TERMS = {
     "symbol": "symbol", "side": "side", "qty": "qty", "price": "price", "valid": "valid_until",
     "quality": "qlty_ind", "natural": "natural_flag", "qualifiers": "qualifiers", "currency": "currency",
@@ -175,7 +192,8 @@ _ALLOC_TERMS = {
 }
 
 VERBS: dict[str, Verb] = {v.name: v for v in (
-    Verb("new", "send_new_order", (CLIENT,), _ORDER_TERMS, ("symbol", "side", "qty"), scope="order",
+    Verb("new", "send_new_order", (CLIENT,), {**_ORDER_TERMS, **_INSTRUMENT_TERMS, **_POSITION_TERMS},
+         ("symbol", "side", "qty"), scope="order",
          # From an `on ioi` block it answers the IOI: an order nobody's macro owns, carrying the IOI's ID in
          # tag 23; from a quote's (or an RFQ's) it takes the quote, naming it in tag 117.
          also=_places((IOI, QUOTE), (MARKET,)) | _places((RFQ,), _SENDING),
@@ -367,6 +385,10 @@ STATEMENTS: dict[str, tuple[str, str]] = {
     "log": ("log EXPR", "Write a value to the run's log."),
     "signal": ("signal 'NAME' [with EXPR]", "Tell every other macro of this run: each hears the event `signal 'NAME'`, "
                                            "with the value as event.value and this macro's row as event.sender."),
+    "instrument": ("instrument 'NAME' symbol: …, sec_type: …, maturity: …",
+                   "Name an instrument for `new … instrument: 'NAME'`, at the top of the macro, before its blocks. "
+                   "It wins over one saved under the same name in Config › Instruments, so the macro runs on "
+                   "any server."),
     "share": ("share NAME = EXPR", "Set a value every macro of this run reads as shared.NAME. At the top of the "
                                    "macro, before its blocks, it is the value the run starts with."),
     "on signal": ("on signal 'NAME' [where EXPR]", "A block that sends something of its own, like `run`, started once "
@@ -418,13 +440,23 @@ ENUMS: dict[str, dict[str, str]] = {
                             "pass": "10", "other": "99"},
     "subscription": {"subscribe": "1", "snapshot": "0"},
     "hit side": {"buy": "1", "sell": "2"},
+    "sec type": {"stock": "CS", "option": "OPT", "future": "FUT", "option_on_future": "OOF"},
+    "put call": {"call": "1", "put": "0"},
+    "open close": {"open": "O", "close": "C", "rolled": "R", "fifo": "F"},
+    "covered": {"covered": "0", "uncovered": "1"},
+    "id source": {"cusip": "1", "sedol": "2", "isin": "4", "ric": "5", "exchange_symbol": "8", "bloomberg_symbol": "A"},
 }
+_INSTRUMENT_ENUMS = {"sec_type": "sec type", "underlying_type": "sec type", "put_call": "put call",
+                     "id_source": "id source"}
 
 # A term's words depend on the verb: `side` is an order's on `new`, an
 # IOI's on `ioi`, AdvSide's on `advert`; `reason` is a DK's, a restatement's
 # or an allocation reject's.
 _ENUM_OF: dict[str, dict[str, str]] = {
-    "new": {"side": "side", "type": "type", "tif": "tif", "handl_inst": "handl_inst"},
+    "new": {"side": "side", "type": "type", "tif": "tif", "handl_inst": "handl_inst", **_INSTRUMENT_ENUMS,
+            "open_close": "open close", "covered": "covered"},
+    # `instrument 'NAME' …`, the declaration at the top of a macro.
+    "instrument": _INSTRUMENT_ENUMS,
     "replace": {"type": "type", "tif": "tif", "handl_inst": "handl_inst"},
     "dk": {"reason": "dk reason"},
     "restate": {"reason": "restate reason"},

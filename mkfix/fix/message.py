@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, NamedTuple
+from typing import Any, Mapping, NamedTuple
 
 from mkfix.fix.dictionary import FixDictionary
+from mkfix.fix.instrument import INSTRUMENT_TAGS, POSITION_TAGS, instrument_pairs
 
 SOH = chr(1)
 
@@ -318,6 +319,13 @@ class FixMessageFactory:
         """Put `client` on an outgoing message. Applied before `extra`, so an
         extra tag naming the same tag overrides it at sendprep."""
         for tag, value in self.client_fields(client, specs).items():
+            msg[tag] = value
+
+    def stamp_instrument(self, msg: FixMessage, row: Mapping[str, Any], originating: bool = True) -> None:
+        """Put an instrument (row values, see instrument.py) on an outgoing
+        message in this version's spelling. Applied before `extra`, so an
+        extra tag naming one of its tags overrides it at sendprep."""
+        for tag, value in instrument_pairs(self.dictionary, row, originating):
             msg[tag] = value
 
     def heartbeat(self, test_req_id: str | None = None) -> FixMessage:
@@ -1022,10 +1030,11 @@ def parse_fix(data: bytes | str) -> FixMessage:
 # Tags of an inbound order or cancel/replace request the engine consumes into
 # order columns (and regenerates itself on the answering message) — everything
 # else on the message is a custom tag worth echoing back. 23 and 117 name the
-# IOI or quote an order answers (fix_orders.ioi_id / quote_id).
+# IOI or quote an order answers (fix_orders.ioi_id / quote_id); the
+# instrument's tags go to its columns (instrument.py).
 CONSUMED_ORDER_TAGS = frozenset({
     "11", "21", "23", "37", "38", "40", "41", "44", "54", "55", "58", "59", "60", "99", "117",
-})
+}) | INSTRUMENT_TAGS | POSITION_TAGS
 
 
 # The same for an ExecutionReport: what the engine maps into order and trade
@@ -1033,7 +1042,7 @@ CONSUMED_ORDER_TAGS = frozenset({
 CONSUMED_EXEC_TAGS = frozenset({
     "6", "11", "14", "17", "19", "20", "31", "32", "37", "38", "39", "40", "41",
     "44", "54", "55", "58", "59", "60", "99", "126", "150", "151", "432",
-})
+}) | INSTRUMENT_TAGS | POSITION_TAGS
 
 
 def extra_pairs_of(msg: FixMessage, dictionary: FixDictionary,

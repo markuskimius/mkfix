@@ -461,12 +461,19 @@ class Instance:
         payload: dict[str, Any] = {}
         if st.template is not None:
             payload.update(await self.runner._template(st, self))
+        given: dict[str, Any] = {}
         for term in st.terms:
             value = term.word if term.value is None else await self.value(flow, term.value)
             enum = vocab.enum_of(st.verb, term.name)
             if enum and value is not None:
                 value = vocab.enum_code(enum, value)
-            payload[term.key] = "" if value is None else value
+            given[term.key] = "" if value is None else value
+        # A named instrument sits between the template and the terms written
+        # out, which add to it or override it.
+        named = given.pop("_instrument", "")
+        if named != "":
+            payload.update(await self.runner._instrument(str(named), self, st.line))
+        payload.update(given)
         creator = vocab.CREATORS[self.kind]
         creates = st.verb == creator and self.block.kind == vocab.CLIENT
         word = vocab.SUBJECT_WORDS[self.kind]

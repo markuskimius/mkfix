@@ -22,7 +22,7 @@ from mkio import expr
 
 from . import vocab
 from .nodes import (
-    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Let, Log, Repeat, Macro, Share, Signal,
+    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Instrument, Let, Log, Repeat, Macro, Share, Signal,
     Statement, Stop, Term, TradeTarget, Wait, When, While, walk,
 )
 
@@ -212,6 +212,15 @@ class _Parser:
                         raise _Problem("Expected `continue` or `fail`", line.pos)
                     line.end()
                     macro.on_error = choice
+                elif line.take_phrase("instrument"):
+                    if macro.blocks:
+                        raise _Problem("`instrument` names an instrument the macro's orders use: it belongs "
+                                       "before the first block", line.indent, len(line.text))
+                    at = (line.no, line.indent)
+                    name = self.quoted(line, "An instrument", "instrument 'ESZ6' symbol: 'ES', sec_type: future")
+                    line.take_char(",")
+                    macro.instruments.append(
+                        Instrument(*at, name=name, terms=self.terms(line, "instrument", vocab.DECLARED_TERMS)))
                 elif line.take_phrase("share"):
                     # What the run starts with: before any block, so before any macro of it.
                     if macro.blocks:
@@ -223,7 +232,7 @@ class _Parser:
                 else:
                     word = (line.words_ahead(1) or [line.text.split()[0]])[0]
                     raise _Problem(
-                        f"Expected `seed`, `on error`, `share`, or a block (`on order`, `on sent order`, `run`, "
+                        f"Expected `seed`, `on error`, `instrument`, `share`, or a block (`on order`, `on sent order`, `run`, "
                         f"`on ioi`, `on advert`, `on allocation`, `on sent ioi`, `on signal`…), got {word!r}",
                         line.indent, len(line.text))
             except _Problem as p:
@@ -512,7 +521,13 @@ class _Parser:
                 raise _Problem("A template is named in quotes: using 'half-fill'", name.col, line.pos)
             act.template = name.node.value
             line.take_char(",")
-        spec = vocab.VERBS[verb]
+        act.terms = self.terms(line, verb, vocab.VERBS[verb].terms)
+        return act
+
+    def terms(self, line: _Line, verb: str, known: dict[str, str]) -> list[Term]:
+        """`name: value, …` to the end of the line: a verb's terms, or an
+        instrument declaration's (`verb` names whose words they take)."""
+        terms: list[Term] = []
         while not line.done:
             m = line.take_re(_WORD)
             if not m:
@@ -520,7 +535,7 @@ class _Parser:
             if not line.take_char(":"):
                 raise _Problem(f"Expected `:` after {m.group()!r}", line.pos)
             name = m.group().lower()
-            term = Term(name, spec.terms.get(name, ""), None, None, line.no, m.start())
+            term = Term(name, known.get(name, ""), None, None, line.no, m.start())
             enum = vocab.enum_of(verb, name)
             ahead = line.words_ahead(1)
             if enum and ahead and ahead[0] in vocab.ENUMS[enum] and self._word_alone(line):
@@ -528,11 +543,11 @@ class _Parser:
                 term.word = ahead[0]
             else:
                 term.value = line.expr("a value")
-            act.terms.append(term)
+            terms.append(term)
             if not line.take_char(","):
                 break
         line.end()
-        return act
+        return terms
 
     @staticmethod
     def _word_alone(line: _Line) -> bool:

@@ -35,6 +35,7 @@ from mkfix.fix.families import (ALLOC_ACCEPTING, CONSUMED_ADVERT_TAGS, CONSUMED_
                                 CONSUMED_IOI_TAGS, CONSUMED_QUOTE_TAGS, CONSUMED_RESPONSE_TAGS,
                                 CONSUMED_RFQ_REQUEST_TAGS, CONSUMED_RFQ_TAGS, advert_columns, allocation_columns,
                                 ioi_columns, quote_columns, rfq_columns, rfq_request_columns)
+from mkfix.fix.instrument import INSTRUMENT_TAGS, POSITION_TAGS, instrument_of
 from mkfix.fix.message import (CONSUMED_EXEC_TAGS, CONSUMED_ORDER_TAGS, FixMessage, client_of, extra_pairs_of,
                                format_extra_tags, parse_fix)
 
@@ -52,7 +53,7 @@ _OURS = {
     "F": CONSUMED_ORDER_TAGS | {"125"},
     "8": CONSUMED_EXEC_TAGS | {"378", "103"},
     "9": frozenset({"11", "37", "39", "41", "58", "60", "102", "434"}),
-    "Q": frozenset({"11", "17", "31", "32", "37", "38", "54", "55", "58", "127"}),
+    "Q": frozenset({"11", "17", "31", "32", "37", "38", "54", "55", "58", "127"}) | INSTRUMENT_TAGS | POSITION_TAGS,
     "6": CONSUMED_IOI_TAGS,
     "7": CONSUMED_ADVERT_TAGS,
     "J": CONSUMED_ALLOC_TAGS,
@@ -223,7 +224,8 @@ class FromHistory(Recorder):
                 "entered_qty": msg.get("38", ""), "ord_type_code": msg.get("40", ""),
                 "price": msg.get("44") or None, "entered_price": msg.get("44") or None, "tif_code": msg.get("59", ""),
                 "expire_time": msg.get("126", ""), "expire_date": msg.get("432", ""), "client": client,
-                "handl_inst_code": msg.get("21", ""), "sent_text": msg.get("58", ""), "extra_tags": extra}
+                "handl_inst_code": msg.get("21", ""), "sent_text": msg.get("58", ""), "extra_tags": extra,
+                **instrument_of(msg)}
 
     async def _order(self, row: dict[str, Any]) -> _Timeline | None:
         session_id, sent = row["session_id"], row["direction"] == "TX"

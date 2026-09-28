@@ -1,6 +1,8 @@
 """Tests for FIX data dictionary."""
 
-from mkfix.fix.dictionary import (FixDictionary, custom_names, merge_dictionary,
+import pytest
+
+from mkfix.fix.dictionary import (STANDARD_VERSIONS, FixDictionary, custom_names, merge_dictionary,
                                   register_custom, unregister_custom)
 
 
@@ -128,6 +130,77 @@ class TestStandardVersions:
         g = d.group("453")
         assert g["delim"] == "448"
         assert set(g["members"]) >= {"448", "447", "452", "802"}
+
+
+def _from(version: str) -> set[str]:
+    return set(STANDARD_VERSIONS[STANDARD_VERSIONS.index(version):])
+
+
+# Which versions define the instrument, list and multileg tags. What the
+# engine may emit for options, futures, lists and multileg orders on each
+# version follows from this, so a regenerated dictionary or an overlay that
+# moves an entry has to be a deliberate change. FIX 4.3 lacking FUT/OPT and
+# PutOrCall(201) is the spec's own doing (CFICode(461) replaced them; 4.4
+# brought them back), not a gap in the QuickFIX data.
+INSTRUMENT_TAGS = {
+    "167": _from("FIX.4.1"),            # SecurityType
+    "200": _from("FIX.4.1"),            # MaturityMonthYear
+    "205": {"FIX.4.1", "FIX.4.2"},      # MaturityDay
+    "541": _from("FIX.4.3"),            # MaturityDate
+    "202": _from("FIX.4.1"),            # StrikePrice
+    "201": _from("FIX.4.1") - {"FIX.4.3"},  # PutOrCall
+    "461": _from("FIX.4.3"),            # CFICode
+    "310": _from("FIX.4.2"),            # UnderlyingSecurityType
+    "311": _from("FIX.4.2"),            # UnderlyingSymbol
+    "313": _from("FIX.4.2"),            # UnderlyingMaturityMonthYear
+    "231": _from("FIX.4.2"),            # ContractMultiplier
+    "207": _from("FIX.4.1"),            # SecurityExchange
+    "48": set(STANDARD_VERSIONS),       # SecurityID
+    "22": set(STANDARD_VERSIONS),       # IDSource
+    "77": set(STANDARD_VERSIONS),       # OpenClose / PositionEffect
+    "203": _from("FIX.4.1"),            # CoveredOrUncovered
+}
+LIST_TAGS = {
+    **{tag: set(STANDARD_VERSIONS) for tag in ("66", "67", "68", "73")},
+    **{tag: _from("FIX.4.2") for tag in ("394", "433", "429", "431", "444")},
+}
+MULTILEG_TAGS = {
+    **{tag: _from("FIX.4.3") for tag in (
+        "555", "600", "602", "603", "608", "609", "610", "611", "612", "614", "616",
+        "623", "624", "564", "565", "654", "566", "637", "563")},
+    "442": _from("FIX.4.2"),            # MultiLegReportingType
+    "1358": _from("FIX.5.0SP1"),        # LegPutOrCall
+}
+SECURITY_TYPES = {
+    "CS": _from("FIX.4.1"),
+    "OPT": _from("FIX.4.1") - {"FIX.4.3"},
+    "FUT": _from("FIX.4.1") - {"FIX.4.3"},
+    "OOF": _from("FIX.5.0"),
+    "OOP": _from("FIX.5.0"),
+    "OOC": _from("FIX.5.0SP1"),
+    "MLEG": _from("FIX.4.3"),
+}
+MESSAGE_TYPES = {
+    **{msg_type: set(STANDARD_VERSIONS) for msg_type in ("E", "N", "L", "K", "M")},
+    "AB": _from("FIX.4.3"),
+    "AC": _from("FIX.4.3"),
+}
+
+
+class TestInstrumentListAndLegTags:
+    @pytest.mark.parametrize("tag, versions", [*INSTRUMENT_TAGS.items(), *LIST_TAGS.items(),
+                                               *MULTILEG_TAGS.items()])
+    def test_tag_defined_by(self, tag, versions):
+        assert {v for v in STANDARD_VERSIONS if FixDictionary(v).defines(tag)} == versions
+
+    @pytest.mark.parametrize("code, versions", SECURITY_TYPES.items())
+    def test_security_type_defined_by(self, code, versions):
+        assert {v for v in STANDARD_VERSIONS if FixDictionary(v).has_enum("167", code)} == versions
+
+    @pytest.mark.parametrize("msg_type, versions", MESSAGE_TYPES.items())
+    def test_message_defined_by(self, msg_type, versions):
+        assert {v for v in STANDARD_VERSIONS
+                if FixDictionary(v).msg_type_name(msg_type) != msg_type} == versions
 
 
 class TestCustomDictionaries:

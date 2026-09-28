@@ -34,6 +34,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
+from mkfix.fix.instrument import COVERED, OPEN_CLOSE, PUT_OR_CALL
 from mkfix.fix.message import _fix_timestamp
 
 from . import vocab
@@ -215,16 +216,21 @@ class Recorder:
         if not lines:
             head += [nothing, ""]
             return {"source": "\n".join(head), "orders": 0, "actions": 0, "blocks": [], "counts": counts,
-                    "sessions": sessions}
+                    "sessions": sessions,
+                    "declarations": []}
         blocks: list[str] = []
+        self._declared = {}
         for subject in vocab.SUBJECTS:
             mine = [line for line in lines if line.subject == subject]
             if not mine:
                 continue
             blocks += await self._sent_blocks(mine, subject) if self._sends(subject) \
                 else await self._received_blocks(mine, subject)
-        return {"source": "\n".join(head) + "\n" + "\n\n".join(blocks) + "\n", "orders": len(lines),
-                "actions": actions, "blocks": blocks, "counts": counts, "sessions": sessions}
+        declarations = list(self._declared.values())
+        top = "\n".join(declarations) + "\n\n" if declarations else ""
+        return {"source": "\n".join(head) + "\n" + top + "\n\n".join(blocks) + "\n", "orders": len(lines),
+                "actions": actions, "blocks": blocks, "counts": counts, "sessions": sessions,
+                "declarations": declarations}
 
     async def _body(self, line: _Timeline, since: float) -> list[str]:
         """One order's statements. What happened decides when the next thing
@@ -396,6 +402,7 @@ class Recorder:
                     "type": o["ord_type_code"], "price": o["entered_price"], "tif": o["tif_code"],
                     "expire": o.get("expire_time") or o.get("expire_date"), "client": o.get("client"),
                     "handl_inst": o.get("handl_inst_code") if o.get("handl_inst_code") != "1" else "",
+                    **_instrument_terms(o),
                     "text": o.get("sent_text"), "extra": o.get("extra_tags")}
         if subject == vocab.IOI:
             return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["ioi_qty"], "price": o["price"] or None,
@@ -429,14 +436,40 @@ class Recorder:
                 "execs": o["execs"], "accounts": o["allocs"], "client": o.get("client"), "text": o["sent_text"],
                 "extra": o["extra_tags"]}
 
+    async def _saved_instruments(self) -> dict[str, dict[str, Any]]:
+        from .check import instrument_payload
+        cursor = await self.engine.db.read_conn.execute("SELECT * FROM fix_instruments ORDER BY name")
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return {r["name"]: instrument_payload(dict(r)) for r in rows}
+
+    def _named(self, terms: dict[str, Any], order: dict[str, Any], saved: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """An order in an instrument saved in Config › Instruments names it,
+        `instrument: 'NAME'`, and the macro declares it at the top, so the
+        text still runs on a server that has no such instrument."""
+        from .check import instrument_payload
+        mine = instrument_payload(order)
+        name = next((n for n, payload in saved.items() if payload == mine and len(payload) > 1), None)
+        if name is None:
+            return terms
+        self._declared[name] = "instrument " + _quote(name) + " " + ", ".join(
+            f"{k}: {_value('instrument', k, v)}" for k, v in _instrument_terms({**mine, "symbol": order["symbol"]},
+                                                                               symbol=True).items()
+            if v not in (None, ""))
+        dropped = set(_instrument_terms(mine, symbol=True))       # Open/Close and Covered are the order's
+        return {"instrument": name, **{k: v for k, v in terms.items() if k not in dropped}}
+
     async def _sent_blocks(self, lines: list[_Timeline], subject: str = vocab.ORDER) -> list[str]:
         """One `run` block per thing sent, led by its sending verb and the
         terms it went out with, then what was heard and done."""
         first = min(line.started for line in lines)
         verb = vocab.CREATORS[subject]
+        saved = await self._saved_instruments() if subject == vocab.ORDER else {}
         blocks = []
         for line in sorted(lines, key=lambda t: t.started):
             terms = self._creator_terms(subject, line.order)
+            if saved:
+                terms = self._named(terms, line.order, saved)
             new = f"{verb} " + ", ".join(f"{k}: {_value(verb, k, v)}" for k, v in terms.items() if v not in (None, ""))
             lead = [f"after {_duration(line.started - first)}"] if line.started - first >= _QUIET else []
             body = await self._body(line, line.started)
@@ -499,7 +532,9 @@ class EndToEndRecorder:
         if not blocks:
             head += ["# Nothing was recorded: nothing was sent by hand, and nothing that arrived was worked.", ""]
             return {"source": "\n".join(head), "orders": 0, "actions": 0}
-        return {"source": "\n".join(head) + "\n" + "\n\n".join(blocks) + "\n",
+        declarations = list(dict.fromkeys([*client["declarations"], *market["declarations"]]))
+        top = "\n".join(declarations) + "\n\n" if declarations else ""
+        return {"source": "\n".join(head) + "\n" + top + "\n\n".join(blocks) + "\n",
                 "orders": client["orders"] + market["orders"], "actions": actions}
 
 
@@ -534,12 +569,28 @@ def _value(verb: str, term: str, value: Any) -> str:
         return word or _quote(value)
     if term == "valid":
         return _seconds_term(value)
-    if term in ("qty", "price", "avg_price", "bid", "offer", "bid_size", "offer_size"):
+    if term in ("qty", "price", "avg_price", "bid", "offer", "bid_size", "offer_size", "strike", "multiplier"):
         try:
             return _number(value)
         except (TypeError, ValueError):
             return _quote(value)
     return _quote(value)
+
+
+def _instrument_terms(row: dict[str, Any], symbol: bool = False) -> dict[str, Any]:
+    """An order row's instrument as `new` terms (a declaration's, with its
+    symbol), the words it keeps turned back into the codes the terms'
+    words stand for."""
+    code = lambda words, col: words.get(row.get(col) or "", row.get(col))  # noqa: E731
+    terms = {"sec_type": row.get("security_type"), "maturity": row.get("maturity"), "strike": row.get("strike_price"),
+             "put_call": code(PUT_OR_CALL, "put_or_call"), "cfi": row.get("cfi_code"),
+             "underlying": row.get("underlying_symbol"), "underlying_type": row.get("underlying_security_type"),
+             "underlying_maturity": row.get("underlying_maturity"), "multiplier": row.get("multiplier"),
+             "exchange": row.get("security_exchange"), "security_id": row.get("security_id"),
+             "id_source": row.get("security_id_source")}
+    if symbol:
+        return {"symbol": row.get("symbol"), **terms}
+    return {**terms, "open_close": code(OPEN_CLOSE, "open_close"), "covered": code(COVERED, "covered_uncovered")}
 
 
 def _seconds_term(value: Any) -> str:

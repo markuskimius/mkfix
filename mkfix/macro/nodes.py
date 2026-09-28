@@ -147,6 +147,12 @@ class Share(Statement):
 
 
 @dataclass(slots=True)
+class Instrument(Statement):
+    name: str = ""                    # instrument 'NAME' symbol: …, sec_type: …
+    terms: list[Term] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class Block:
     kind: str                         # vocab.MARKET | CLIENT | ATTACHED
     line: int
@@ -165,6 +171,7 @@ class Macro:
     on_error: str = "fail"            # fail | continue
     blocks: list[Block] = field(default_factory=list)
     shares: list[Share] = field(default_factory=list)   # `share NAME = EXPR` before the blocks: what a run starts with
+    instruments: list[Instrument] = field(default_factory=list)   # `instrument 'NAME' …` before the blocks
     declared: str = ""                # the side it was checked for — the editor it is kept in — when one was given
 
     @property

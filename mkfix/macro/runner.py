@@ -554,6 +554,21 @@ class MacroRunner:
         return await self.engine._find_family_row(vocab.SUBJECT_TABLES[kind], vocab.SUBJECT_IDS[kind],
                                                   session_id, subject_id, "TX")
 
+    async def _instrument(self, name: str, instance: Instance, line: int) -> dict[str, Any]:
+        """The instrument `instrument: 'NAME'` names, as the payload takes it:
+        the macro's own declaration, else the one saved in Config › Instruments."""
+        from .check import declared_payload, instrument_payload
+        from .instance import ScriptError
+        decl = next((d for d in instance.run.macro.instruments if d.name == name), None)
+        if decl is not None:
+            return declared_payload(decl)
+        cursor = await self.engine.db.read_conn.execute("SELECT * FROM fix_instruments WHERE name = ?", (name,))
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            raise ScriptError(line, f"no instrument named {name!r}")
+        return instrument_payload(dict(row))
+
     async def _template(self, st: Action, instance: Instance) -> dict[str, Any]:
         """A saved template's terms as the payload takes them: every term
         column is named as the payload key (`TEMPLATE_TERM_COLS`, less the

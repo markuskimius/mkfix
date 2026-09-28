@@ -199,7 +199,9 @@ class MacroManager:
             templates.setdefault(row["scope"], set()).add(row["name"])
         sessions = {r["session_id"] for r in await self._fetch("SELECT session_id FROM fix_sessions")}
         sessions |= set(self.engine.sessions)
-        return {"templates": templates, "sessions": sessions}
+        from .check import instrument_payload
+        instruments = {r["name"]: instrument_payload(r) for r in await self._fetch("SELECT * FROM fix_instruments")}
+        return {"templates": templates, "sessions": sessions, "instruments": instruments}
 
     async def check(self, source: str, side: str = "") -> dict[str, Any]:
         """``side`` is the pane the macro is edited in: a block of the other

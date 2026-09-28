@@ -71,7 +71,7 @@ class TestDeclarations:
         config = {n: s for n, s in specs.items() if s.group == "config"}
         assert set(config) == {
             "fix_sessions", "fix_dictionaries", "fix_settings", "fix_id_state",
-            "fix_replay_jobs", "fix_templates", "fix_macros", "mkui_layouts",
+            "fix_replay_jobs", "fix_templates", "fix_instruments", "fix_macros", "mkui_layouts",
         }
         assert config["fix_sessions"].companions == ("fix_session_state",)
         # Whole tables except the layouts, whose `saved` is a real timestamp.

@@ -43,7 +43,7 @@ A session is not tied to a side. Whatever a session sends shows on the sent blot
 | **Client** | the client side's blotters |
 | **Market** | the market side's blotters |
 | **Macro** | the macros of each side and the end-to-end ones, each with its runs |
-| **Config** | Templates, Dictionaries |
+| **Config** | Templates, Instruments, Dictionaries |
 | **Layout** | Save Layout, Restore Layout, Reset to Default |
 | **Window** | tile, grid or cascade the windows, the list of open ones, and [sloppy focus](#sloppy-focus) |
 | **Help** | this guide, the macro pages, the key lists, About |
@@ -266,6 +266,15 @@ A market side that wants to quote can ask to be sent the RFQs for a list of inst
 - Each RFQ that names a request is counted on the request's row on both sides, in the **RFQs** column, with the latest one beside it.
 
 Macros work RFQs, quotes and RFQ requests on both sides too: see RFQs and quotes in the [Macro Language](macro-language.md) page, and the bundled examples `rfq-desk`, `rfq-taker`, `quote-stream`, `quote-taker`, `rfq-subscriber`, `rfq-responder` and `end-to-end-rfq`. **Macro…** on each of these blotters writes the macro that would have done what a row has been through.
+
+## Options and futures
+
+An order can be in an option, a future or an option on a future as well as a stock. The New dialog's **Instrument** section, under Symbol and Side, holds what says which one: Security Type (167), Maturity (200), and for options Strike (202), Put/Call (201) and the underlying, with Multiplier, Exchange, CFI Code, Security ID and Open/Close. Left alone, the order is a stock.
+
+- **Saved instrument** fills the section from **Config › Instruments**, where instruments are kept by name (New, Edit, Clone, Delete). Everything it fills can still be changed for this order. **Save instrument as** keeps what you entered under a name.
+- The order keeps its instrument for good: a Replace shows it and cannot change it, a Clone starts from it, and the trades carry it. The blotters' **Instrument** column shows it short — `ES Dec26`, `AAPL 18Dec26 250 C` — and the column picker has each field.
+- Each FIX version says it differently, and mkfix says it the session's way: FIX 4.1 and 4.2 split a maturity date into month and day, FIX 4.3 names futures and options by CFI Code instead of Security Type, and Option on Future (OOF) exists only from FIX 5.0 — on 4.x send an Option whose Underlying Type is Future. A FIX 4.0 session sends no instrument at all.
+- An order template keeps the instrument too. Macros name one the same way; see the Macro Language page.
 
 ## Templates
 

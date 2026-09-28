@@ -8,6 +8,7 @@ from mkio.services.base import Service
 from mkio.ws_protocol import make_result, make_error
 
 from mkfix.fix.actions import ACTIONS
+from mkfix.fix.instrument import INSTRUMENT_COLS, POSITION_COLS
 
 if TYPE_CHECKING:
     from aiohttp.web import WebSocketResponse
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 # order template records a session: the New dialog's own field, which a
 # pick fills; every other dialog acts on its row's session.
 ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "extra_tags", "client",
-               "handl_inst", "text")
+               "handl_inst", "text", *INSTRUMENT_COLS, *POSITION_COLS)
 # The IOI, advert and allocation sends keep a session like an order; a
 # valid-until time, and an allocation's orders and executions, are the
 # message's own and never a template's.
@@ -117,6 +118,13 @@ class FixCommandService(Service):
             scope, keys = TEMPLATE_TERMS[command]
             await engine.save_template(
                 scope, data["save_as"], **{k: data.get(k, "") for k in keys})
+
+        # The New dialog's "Save instrument as": the order's instrument kept
+        # by name, before the send, so a failed save sends nothing.
+        if data.get("save_instrument_as") and command == "send_new_order":
+            await engine.save_instrument(
+                data["save_instrument_as"], symbol=data.get("symbol", ""),
+                **{c: data[c] for c in INSTRUMENT_COLS if c in data})
 
         if command in ACTIONS:
             return {"ok": True, **await engine.perform(command, data)}
@@ -263,6 +271,16 @@ class FixCommandService(Service):
                 doc=data.get("doc", "{}"),
             )
             return {"ok": True, "name": name}
+
+        elif command == "save_instrument":
+            name = await engine.save_instrument(
+                data.get("name", ""), symbol=data.get("symbol", ""), description=data.get("description", ""),
+                **{c: data[c] for c in INSTRUMENT_COLS if c in data})
+            return {"ok": True, "name": name}
+
+        elif command == "delete_instrument":
+            await engine.delete_instrument(data["name"])
+            return {"ok": True}
 
         elif command == "delete_dictionary":
             await engine.delete_dictionary(data["name"])
