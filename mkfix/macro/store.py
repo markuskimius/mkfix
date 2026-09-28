@@ -56,15 +56,19 @@ LOOPBACK_PORT = 9880
 LOOPBACK_VERSION = "FIX.4.4"
 _LOOPBACK_DESCRIPTION = "Loopback for macro examples"
 # The two examples that are one demonstration, and the order to start them in.
-# The loopback tour: what waits is armed, what sends is run. The venue, the
-# RFQ desk and the client's checkers wait; loopback-client and the RFQ
-# taker, and the market's desks, quote stream and RFQ subscriber, send (the
-# desks keep waiting for hand-sent IOIs and allocations after).
+# The loopback tour: what waits is armed, what sends is run. The
+# derivatives desk, the venue, the RFQ desk and the client's checkers wait;
+# loopback-client, the RFQ taker and the futures roll, and the market's
+# desks, quote stream and RFQ subscriber, send (the desks keep waiting for
+# hand-sent IOIs and allocations after). The derivatives desk is offered
+# orders before the venue, which takes every order on its session.
 TOUR = {"market": "loopback-venue", "client": "loopback-client"}
-TOUR_ARMED = {"market": ("loopback-venue", "rfq-desk"),
+TOUR_ARMED = {"market": ("derivatives-desk", "loopback-venue", "rfq-desk"),
               "client": ("ioi-taker", "allocation-check", "quote-taker", "rfq-responder")}
-TOUR_RUN = {"client": ("loopback-client", "rfq-taker"),
+TOUR_RUN = {"client": ("loopback-client", "rfq-taker", "futures-roll"),
             "market": ("ioi-desk", "allocation-desk", "quote-stream", "rfq-subscriber")}
+# (ahead, behind): a run the tour keeps offered orders before another.
+TOUR_AHEAD = ("derivatives-desk", "loopback-venue")
 _LIVE_RUNS = ("armed", "paused")
 
 
@@ -486,7 +490,8 @@ class MacroManager:
         """The loopback tour in one step: the two sessions; the venue armed on
         one and the client run on the other; since 0.65 the families too —
         ioi-taker and allocation-check armed on the client side, ioi-desk and
-        allocation-desk run on the venue. The examples are saved under their
+        allocation-desk run on the venue; since 0.75.1 futures-roll run
+        against derivatives-desk, which is offered orders before the venue. The examples are saved under their
         own names unless macros of those names are there already — yours are
         left as they are — and whatever is already armed is left armed."""
         sessions = await self.setup_loopback(port)
@@ -508,11 +513,25 @@ class MacroManager:
                 armed = [r for r in self.live_runs(name) if r.session == (session or None)]
                 runs[name] = self._run_rows[armed[0]] if armed \
                     else (await self.arm(name, side=side, session=session))["run_id"]
+        ahead, behind = (self._runs_by_row.get(int(runs[name])) for name in TOUR_AHEAD)
+        if ahead is not None and behind is not None:
+            await self._put_ahead(ahead, behind)
         for side, names in TOUR_RUN.items():
             for name in names:
                 runs[name] = (await self.arm(name, side=side, session=LOOPBACK[side]))["run_id"]
         return {"sessions": sessions["sessions"], "venue_run": runs[TOUR["market"]],
                 "client_run": runs[TOUR["client"]], "runs": runs}
+
+    async def _put_ahead(self, ahead: Run, behind: Run) -> None:
+        """Offer orders to ``ahead`` before ``behind``: a venue armed by an
+        earlier tour would otherwise take what the desk is for."""
+        line = self.runner.offered(ahead.side)
+        moved = False
+        while ahead in line and behind in line and line.index(ahead) > line.index(behind):
+            self.runner.move(ahead, True)
+            line, moved = self.runner.offered(ahead.side), True
+        if moved:
+            await self._renumber()
 
     # -- a side's runs together: the order blotters' Play, Pause and Stop ----------------------
 

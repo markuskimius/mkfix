@@ -641,47 +641,83 @@ class TestTour:
         monkeypatch.setattr(manager, "setup_loopback", setup)
         await manager.save("loopback-client", manager.example("loopback-client")["source"] + "# mine\n", "client")
         first = await _ask(engine)("run_loopback_tour", {})
-        assert (first["venue_run"], first["client_run"]) == (1, 7)
-        assert first["runs"] == {"loopback-venue": 1, "rfq-desk": 2, "ioi-taker": 3, "allocation-check": 4,
-                                 "quote-taker": 5, "rfq-responder": 6, "loopback-client": 7, "rfq-taker": 8,
-                                 "ioi-desk": 9, "allocation-desk": 10, "quote-stream": 11, "rfq-subscriber": 12}, \
+        assert (first["venue_run"], first["client_run"]) == (2, 8)
+        assert first["runs"] == {"derivatives-desk": 1, "loopback-venue": 2, "rfq-desk": 3, "ioi-taker": 4,
+                                 "allocation-check": 5, "quote-taker": 6, "rfq-responder": 7, "loopback-client": 8,
+                                 "rfq-taker": 9, "futures-roll": 10, "ioi-desk": 11, "allocation-desk": 12,
+                                 "quote-stream": 13, "rfq-subscriber": 14}, \
             "what waits is armed first, then what sends"
+        assert [manager._run_rows[r] for r in manager.runner.offered("market")][:2] == [1, 2], \
+            "the derivatives desk is offered orders before the venue"
         saved = {r["name"]: r for r in await _fetch_all(db, "SELECT * FROM fix_macros")}
         assert saved["loopback-venue"]["side"] == "market" and saved["loopback-client"]["source"].endswith("# mine\n")
         assert saved["ioi-desk"]["side"] == "market" and saved["ioi-taker"]["side"] == "client"
         assert saved["rfq-desk"]["side"] == saved["quote-stream"]["side"] == "market"
         assert saved["rfq-taker"]["side"] == saved["quote-taker"]["side"] == "client"
+        assert saved["derivatives-desk"]["side"] == "market" and saved["futures-roll"]["side"] == "client"
         runs = await _fetch_all(db, "SELECT macro, session, side FROM fix_macro_runs ORDER BY id")
         assert [(r["macro"], r["session"], r["side"]) for r in runs] == [
-            ("loopback-venue", "LOOP-MKT", "market"), ("rfq-desk", "LOOP-MKT", "market"),
+            ("derivatives-desk", "LOOP-MKT", "market"), ("loopback-venue", "LOOP-MKT", "market"),
+            ("rfq-desk", "LOOP-MKT", "market"),
             ("ioi-taker", "", "client"), ("allocation-check", "", "client"), ("quote-taker", "", "client"),
             ("rfq-responder", "", "client"), ("loopback-client", "LOOP-CLI", "client"), ("rfq-taker", "LOOP-CLI", "client"),
+            ("futures-roll", "LOOP-CLI", "client"),
             ("ioi-desk", "LOOP-MKT", "market"), ("allocation-desk", "LOOP-MKT", "market"),
             ("quote-stream", "LOOP-MKT", "market"), ("rfq-subscriber", "LOOP-MKT", "market")]
         again = await manager.run_tour()
-        assert (again["venue_run"], again["client_run"]) == (1, 13), "what waits is left armed; what sends runs again"
-        assert again["runs"]["ioi-taker"] == 3 and again["runs"]["rfq-desk"] == 2 and again["runs"]["ioi-desk"] == 15
+        assert (again["venue_run"], again["client_run"]) == (2, 15), "what waits is left armed; what sends runs again"
+        assert again["runs"]["ioi-taker"] == 4 and again["runs"]["rfq-desk"] == 3 and again["runs"]["ioi-desk"] == 18
+        assert again["runs"]["derivatives-desk"] == 1 and again["runs"]["futures-roll"] == 17
         await clock.advance(72)
         await manager.flush()
         rows = {r["id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_macro_runs ORDER BY id")}
         assert all(r["failed"] == 0 for r in rows.values()), [(r["macro"], r["failed"]) for r in rows.values()]
         # The client runs pass every order they send; the first also minds, with its `on sent order`, the orders
         # sent by macros that own none of them: ioi-taker's against the IOIs, quote-taker's against the quote.
-        assert [(rows[i]["orders"], rows[i]["passed"]) for i in (7, 13)] == [(18, 5), (5, 5)]
-        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (9, 10, 15, 16)] == [
+        assert [(rows[i]["orders"], rows[i]["passed"]) for i in (8, 15)] == [(18, 5), (5, 5)]
+        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (11, 12, 18, 19)] == [
             ("ioi-desk", 4), ("allocation-desk", 2), ("ioi-desk", 4), ("allocation-desk", 2)]
+        # Each roll closes December and opens March; the desk fills all four, the venue none of them.
+        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (10, 17)] == [("futures-roll", 2)] * 2
+        assert (rows[1]["macro"], rows[1]["orders"], rows[1]["passed"]) == ("derivatives-desk", 4, 4)
+        futures = await _fetch_all(db, "SELECT macro, status FROM fix_orders WHERE direction = 'RX' "
+                                       "AND security_type = 'FUT'")
+        assert [(f["macro"], f["status"]) for f in futures] == [("derivatives-desk #1", "Filled")] * 4
         # Each rfq-taker lifts its two RFQs; the first also minds the responder's RFQs, sent by nobody's macro.
-        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (8, 14)] == [("rfq-taker", 2), ("rfq-taker", 2)]
-        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (12, 18)] == [("rfq-subscriber", 1)] * 2
-        assert (rows[6]["macro"], rows[6]["passed"]) == ("rfq-responder", 2), "one pass per subscription ended"
+        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (9, 16)] == [("rfq-taker", 2), ("rfq-taker", 2)]
+        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (14, 21)] == [("rfq-subscriber", 1)] * 2
+        assert (rows[7]["macro"], rows[7]["passed"]) == ("rfq-responder", 2), "one pass per subscription ended"
         # The second stream's quote replaces the first's on IBM: that macro is detached, not failed.
-        assert (rows[11]["passed"], rows[17]["passed"]) == (0, 1)
-        log = await _fetch_all(db, "SELECT text FROM fix_macro_log WHERE run_id = 11")
+        assert (rows[13]["passed"], rows[20]["passed"]) == (0, 1)
+        log = await _fetch_all(db, "SELECT text FROM fix_macro_log WHERE run_id = 13")
         assert any("taken over by quote-stream's `new quote`" in r["text"] for r in log)
         rfqs = await _fetch_all(db, "SELECT session_id, origin, status FROM fix_rfqs WHERE origin = 'rfq'")
         assert {r["status"] for r in rfqs} == {"Hit"} and len(rfqs) == 16, "every RFQ lifted, on both sides"
         requests = await _fetch_all(db, "SELECT status, quote_requests FROM fix_rfq_requests")
         assert [(r["status"], r["quote_requests"]) for r in requests] == [("Unsubscribed", 2)] * 4
+
+    @pytest.mark.asyncio
+    async def test_a_venue_armed_before_the_tour_goes_behind_the_desk(self, kit, monkeypatch):
+        """An earlier tour (or a hand) left the venue armed; the desk armed
+        now would queue behind it, and the venue would take the futures."""
+        db, engine, stub, manager, clock = kit
+        from tests.test_macro_sending import LinkedSession
+        cli, mkt = LinkedSession(engine, "LOOP-CLI"), LinkedSession(engine, "LOOP-MKT")
+        cli.peer, mkt.peer = mkt, cli
+        engine.sessions.update({"LOOP-CLI": cli, "LOOP-MKT": mkt})
+
+        async def setup(port=None, start=True):
+            return {"sessions": LOOPBACK, "port": 9880, "created": [], "started": []}
+        monkeypatch.setattr(manager, "setup_loopback", setup)
+        await manager.save("loopback-venue", manager.example("loopback-venue")["source"], "market")
+        venue = (await manager.arm("loopback-venue", side="market", session="LOOP-MKT"))["run_id"]
+        result = await manager.run_tour()
+        assert result["venue_run"] == venue
+        line = [manager._run_rows[r] for r in manager.runner.offered("market")]
+        assert line.index(result["runs"]["derivatives-desk"]) < line.index(venue)
+        rows = {r["macro"]: r["priority"] for r in await _fetch_all(
+            db, "SELECT macro, priority FROM fix_macro_runs WHERE side = 'market' AND priority > 0")}
+        assert rows["derivatives-desk"] < rows["loopback-venue"], "and the Priority column says so"
 
     @pytest.mark.asyncio
     async def test_a_session_that_never_logs_on_is_said(self, kit, monkeypatch):

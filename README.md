@@ -278,7 +278,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   examples run over two loopback sessions, this server talking to itself:
   **Help › Macro Language › Macro Examples › Set up loopback sessions**
   creates and starts them, and **Run the loopback tour** also arms the venue
-  and runs the client, so the tour is one click on a fresh install. Sent Orders and Received Orders carry their side's macro
+  and runs the client -- with the families, RFQs and a futures roll against
+  a derivatives desk -- so the tour is one click on a fresh install. Sent Orders and Received Orders carry their side's macro
   controls as four symbols -- **●** record, red while it records, **▶** play (macros ticked from a list, and paused runs to
   resume), **⏸** pause and **■** stop (runs ticked from a list: one, several
   or all) -- and the status bar says what the macros are doing:

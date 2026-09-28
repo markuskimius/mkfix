@@ -63,7 +63,9 @@ registerPaneType("help-viewer", async (spec, app, host) => {
       IOIs, adverts and allocations the other way — <i>ioi-taker</i> and <i>allocation-check</i> armed on the client side,
       <i>ioi-desk</i> and <i>allocation-desk</i> run on <code>LOOP-MKT</code>; then RFQs and quotes — <i>rfq-desk</i> armed on
       <code>LOOP-MKT</code> and <i>rfq-taker</i> run on <code>LOOP-CLI</code>, <i>quote-taker</i> and <i>rfq-responder</i>
-      armed on the client side, <i>quote-stream</i> and <i>rfq-subscriber</i> run on <code>LOOP-MKT</code>. Open the
+      armed on the client side, <i>quote-stream</i> and <i>rfq-subscriber</i> run on <code>LOOP-MKT</code>; then futures —
+      <i>derivatives-desk</i> armed on <code>LOOP-MKT</code>, ahead of the venue, and <i>futures-roll</i> run on
+      <code>LOOP-CLI</code>. Open the
       blotters of both sides first.</p>${sections}`,
       toc: sides.flatMap(([side, title, id]) => [{ level: 2, text: title, id },
         ...examples.filter((e) => e.side === side).map((e) => ({ level: 3, text: e.title ?? e.name, id: e.name }))]) };
