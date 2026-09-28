@@ -408,21 +408,21 @@ class Recorder:
             return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["ioi_qty"], "price": o["price"] or None,
                     "valid": o["valid_until"], "quality": o["qlty_ind_code"], "natural": o["natural_flag"],
                     "qualifiers": o["qualifiers"], "currency": o["currency"], "client": o.get("client"),
-                    "text": o["text"], "extra": o["extra_tags"]}
+                    "text": o["text"], "extra": o["extra_tags"], **_instrument_terms(o, position=False)}
         if subject == vocab.ADVERT:
             return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["quantity"], "price": o["price"] or None,
                     "currency": o["currency"], "trade_date": o["trade_date"], "last_mkt": o["last_mkt"],
-                    "client": o.get("client"), "text": o["text"], "extra": o["extra_tags"]}
+                    "client": o.get("client"), "text": o["text"], "extra": o["extra_tags"], **_instrument_terms(o, position=False)}
         if subject == vocab.RFQ:
             return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["order_qty"] or None,
                     "request_type": o["quote_request_type_code"], "quote_type": o["quote_type_code"],
                     "currency": o["currency"], "client": o.get("client"), "text": o.get("sent_text"),
-                    "extra": o["extra_tags"]}
+                    "extra": o["extra_tags"], **_instrument_terms(o, position=False)}
         if subject == vocab.QUOTE:
             return {"symbol": o["symbol"], "side": o["side_code"], "qty": o["order_qty"] or None,
                     "currency": o["currency"], "client": o.get("client"), "bid": o["bid_px"], "offer": o["offer_px"],
                     "bid_size": o["bid_size"], "offer_size": o["offer_size"], "quote_type": o["quote_type_code"],
-                    "text": o.get("sent_text"), "extra": o["quote_extra_tags"]}
+                    "text": o.get("sent_text"), "extra": o["quote_extra_tags"], **_instrument_terms(o, position=False)}
         if subject == vocab.RFQ_REQUEST:
             return {"symbols": o["symbols"], "subscription": o["subscription_type_code"],
                     "request_type": o["quote_request_type_code"], "quote_type": o["quote_type_code"],
@@ -434,7 +434,7 @@ class Recorder:
                 "trade_date": o["trade_date"] if o["trade_date"] != sent_on else "",
                 "alloc_type": o["alloc_type_code"], "orders": o["orders"],
                 "execs": o["execs"], "accounts": o["allocs"], "client": o.get("client"), "text": o["sent_text"],
-                "extra": o["extra_tags"]}
+                "extra": o["extra_tags"], **_instrument_terms(o, position=False)}
 
     async def _saved_instruments(self) -> dict[str, dict[str, Any]]:
         from .check import instrument_payload
@@ -464,7 +464,7 @@ class Recorder:
         terms it went out with, then what was heard and done."""
         first = min(line.started for line in lines)
         verb = vocab.CREATORS[subject]
-        saved = await self._saved_instruments() if subject == vocab.ORDER else {}
+        saved = await self._saved_instruments() if subject != vocab.RFQ_REQUEST else {}
         blocks = []
         for line in sorted(lines, key=lambda t: t.started):
             terms = self._creator_terms(subject, line.order)
@@ -577,10 +577,10 @@ def _value(verb: str, term: str, value: Any) -> str:
     return _quote(value)
 
 
-def _instrument_terms(row: dict[str, Any], symbol: bool = False) -> dict[str, Any]:
-    """An order row's instrument as `new` terms (a declaration's, with its
-    symbol), the words it keeps turned back into the codes the terms'
-    words stand for."""
+def _instrument_terms(row: dict[str, Any], symbol: bool = False, position: bool = True) -> dict[str, Any]:
+    """A row's instrument as a sending verb's terms (a declaration's, with
+    its symbol; a family's, without an order's Open/Close and Covered), the
+    words it keeps turned back into the codes the terms' words stand for."""
     code = lambda words, col: words.get(row.get(col) or "", row.get(col))  # noqa: E731
     terms = {"sec_type": row.get("security_type"), "maturity": row.get("maturity"), "strike": row.get("strike_price"),
              "put_call": code(PUT_OR_CALL, "put_or_call"), "cfi": row.get("cfi_code"),
@@ -590,6 +590,8 @@ def _instrument_terms(row: dict[str, Any], symbol: bool = False) -> dict[str, An
              "id_source": row.get("security_id_source")}
     if symbol:
         return {"symbol": row.get("symbol"), **terms}
+    if not position:
+        return terms
     return {**terms, "open_close": code(OPEN_CLOSE, "open_close"), "covered": code(COVERED, "covered_uncovered")}
 
 

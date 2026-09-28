@@ -26,18 +26,18 @@ ORDER_TERMS = ("session_id", "symbol", "side", "ord_type", "qty", "price", "tif"
 # valid-until time, and an allocation's orders and executions, are the
 # message's own and never a template's.
 IOI_TERMS = ("session_id", "symbol", "side", "qty", "price", "currency", "qlty_ind", "natural_flag", "qualifiers",
-             "text", "extra_tags", "client")
+             "text", "extra_tags", "client", *INSTRUMENT_COLS)
 ADVERT_TERMS = ("session_id", "symbol", "side", "qty", "price", "currency", "trade_date", "last_mkt", "text",
-                "extra_tags", "client")
+                "extra_tags", "client", *INSTRUMENT_COLS)
 ALLOCATION_TERMS = ("session_id", "symbol", "side", "qty", "avg_price", "trade_date", "alloc_type", "allocs",
-                    "text", "extra_tags", "client")
+                    "text", "extra_tags", "client", *INSTRUMENT_COLS)
 # An RFQ keeps a session like an order, and so does an unsolicited quote
 # (`new_quote`); a quote answering an RFQ keeps only its prices, sizes and
 # how long it stands — the row supplies the rest.
 RFQ_TERMS = ("session_id", "symbol", "side", "qty", "quote_request_type", "quote_type", "currency", "text",
-             "extra_tags", "client")
+             "extra_tags", "client", *INSTRUMENT_COLS)
 QUOTE_TERMS = ("bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_type", "text", "extra_tags")
-NEW_QUOTE_TERMS = ("session_id", "symbol", "side", "qty", "currency", "client") + QUOTE_TERMS
+NEW_QUOTE_TERMS = ("session_id", "symbol", "side", "qty", "currency", "client", *INSTRUMENT_COLS) + QUOTE_TERMS
 TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_new_order": ("order", ORDER_TERMS),
     "send_cancel_replace": ("order", ORDER_TERMS),
@@ -75,6 +75,11 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
                                          "quote_type", "extra_tags", "client")),
     "unsubscribe_rfq_request": ("unsubscribe", ("extra_tags",)),
 }
+
+
+# The sends whose dialog carries the Instrument section's Save instrument as.
+INSTRUMENT_SENDS = frozenset({"send_new_order", "send_ioi", "send_advert", "send_allocation", "send_rfq",
+                              "send_quote"})
 
 
 class FixCommandService(Service):
@@ -121,7 +126,7 @@ class FixCommandService(Service):
 
         # The New dialog's "Save instrument as": the order's instrument kept
         # by name, before the send, so a failed save sends nothing.
-        if data.get("save_instrument_as") and command == "send_new_order":
+        if data.get("save_instrument_as") and command in INSTRUMENT_SENDS:
             await engine.save_instrument(
                 data["save_instrument_as"], symbol=data.get("symbol", ""),
                 **{c: data[c] for c in INSTRUMENT_COLS if c in data})

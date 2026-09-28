@@ -227,19 +227,19 @@ VERBS: dict[str, Verb] = {v.name: v for v in (
     # block (or minds ones sent by hand, `on sent …`), the client side
     # receives them (`on …`). Nothing answers an IOI or an advert; an
     # allocation is accepted or rejected.
-    Verb("ioi", "send_ioi", (CLIENT,), _IOI_TERMS, ("symbol", "side", "qty"), subject=IOI, scope="ioi",
+    Verb("ioi", "send_ioi", (CLIENT,), {**_IOI_TERMS, **_INSTRUMENT_TERMS}, ("symbol", "side", "qty"), subject=IOI, scope="ioi",
          doc="Send a new IOI (Indication of Interest). The IOI it creates is this block's IOI."),
     Verb("replace ioi", "replace_ioi", _SENDING, _IOI_TERMS, subject=IOI, scope="ioi",
          doc="Replace the IOI under a new IOIID naming the old one. Terms left out keep the IOI's values."),
     Verb("cancel ioi", "cancel_ioi", _SENDING, _TEXT, subject=IOI, scope="cancel",
          doc="Cancel the IOI under a new IOIID naming the old one."),
-    Verb("advert", "send_advert", (CLIENT,), _ADVERT_TERMS, ("symbol", "side", "qty"), subject=ADVERT, scope="advert",
+    Verb("advert", "send_advert", (CLIENT,), {**_ADVERT_TERMS, **_INSTRUMENT_TERMS}, ("symbol", "side", "qty"), subject=ADVERT, scope="advert",
          doc="Send a new Advertisement. The advert it creates is this block's advert."),
     Verb("replace advert", "replace_advert", _SENDING, _ADVERT_TERMS, subject=ADVERT, scope="advert",
          doc="Replace the advert under a new AdvId naming the old one. Terms left out keep the advert's values."),
     Verb("cancel advert", "cancel_advert", _SENDING, _TEXT, subject=ADVERT, scope="cancel",
          doc="Cancel the advert under a new AdvId naming the old one."),
-    Verb("allocate", "send_allocation", (CLIENT,), _ALLOC_TERMS, ("symbol", "side", "qty", "accounts"),
+    Verb("allocate", "send_allocation", (CLIENT,), {**_ALLOC_TERMS, **_INSTRUMENT_TERMS}, ("symbol", "side", "qty", "accounts"),
          subject=ALLOCATION, scope="allocation",
          doc="Send a new AllocationInstruction. The allocation it creates is this block's allocation; "
              "`accounts`, `orders` and `execs` are lines, one instance each: 'ACC1 60 10.5; ACC2 40'."),
@@ -259,7 +259,7 @@ VERBS: dict[str, Verb] = {v.name: v for v in (
     # counters or passes the quote that answers it — or a quote sent
     # unasked, in an `on quote` block; the market answers an RFQ in an
     # `on rfq` block and sends quotes unasked from a `run` block.
-    Verb("rfq", "send_rfq", (CLIENT,), _RFQ_TERMS, ("symbol",), subject=RFQ, scope="rfq",
+    Verb("rfq", "send_rfq", (CLIENT,), {**_RFQ_TERMS, **_INSTRUMENT_TERMS}, ("symbol",), subject=RFQ, scope="rfq",
          also=_places((RFQ_REQUEST,), (MARKET,)),
          doc="Send a QuoteRequest. In a `run` block the RFQ it creates is the block's RFQ; in an `on rfq request` "
              "block it answers the request (tag 644) and belongs to no macro."),
@@ -277,7 +277,7 @@ VERBS: dict[str, Verb] = {v.name: v for v in (
              "`valid` is how long it stands; terms left out keep the standing quote's."),
     Verb("reject rfq", "reject_rfq", (MARKET,), {"reason": "quote_rej_reason", **_TEXT}, ("reason",), subject=RFQ,
          scope="quote_reject", key="quote_req_id", doc="Refuse the RFQ with a QuoteRequestReject (FIX 4.3+)."),
-    Verb("new quote", "send_quote", (CLIENT,), _NEW_QUOTE_TERMS, ("symbol",), subject=QUOTE, scope="new_quote",
+    Verb("new quote", "send_quote", (CLIENT,), {**_NEW_QUOTE_TERMS, **_INSTRUMENT_TERMS}, ("symbol",), subject=QUOTE, scope="new_quote",
          doc="Send a quote nobody asked for. The quote it creates is this block's quote; one already standing "
              "on the symbol is replaced by it."),
     Verb("requote", "requote", _SENDING, _QUOTE_TERMS, subject=QUOTE, scope="quote", key="quote_id",
@@ -460,19 +460,19 @@ _ENUM_OF: dict[str, dict[str, str]] = {
     "replace": {"type": "type", "tif": "tif", "handl_inst": "handl_inst"},
     "dk": {"reason": "dk reason"},
     "restate": {"reason": "restate reason"},
-    "ioi": {"side": "ioi side", "quality": "quality", "natural": "natural"},
+    "ioi": {"side": "ioi side", "quality": "quality", "natural": "natural", **_INSTRUMENT_ENUMS},
     "replace ioi": {"side": "ioi side", "quality": "quality", "natural": "natural"},
-    "advert": {"side": "adv side"},
+    "advert": {"side": "adv side", **_INSTRUMENT_ENUMS},
     "replace advert": {"side": "adv side"},
-    "allocate": {"side": "side", "alloc_type": "alloc type"},
+    "allocate": {"side": "side", "alloc_type": "alloc type", **_INSTRUMENT_ENUMS},
     "replace allocation": {"side": "side", "alloc_type": "alloc type"},
     "accept allocation": {"status": "alloc status"},
     "reject allocation": {"status": "alloc status", "reason": "alloc reject reason"},
-    "rfq": {"side": "hit side", "request_type": "request type", "quote_type": "quote type"},
+    "rfq": {"side": "hit side", "request_type": "request type", "quote_type": "quote type", **_INSTRUMENT_ENUMS},
     "hit": {"side": "hit side"},
     "quote": {"quote_type": "quote type"},
     "requote": {"quote_type": "quote type"},
-    "new quote": {"side": "hit side", "quote_type": "quote type"},
+    "new quote": {"side": "hit side", "quote_type": "quote type", **_INSTRUMENT_ENUMS},
     "reject rfq": {"reason": "quote reject reason"},
     "rfq request": {"subscription": "subscription", "request_type": "request type", "quote_type": "quote type"},
 }

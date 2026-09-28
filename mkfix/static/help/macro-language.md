@@ -111,7 +111,7 @@ run
     pass
 ```
 
-- An order's instrument is its terms on `new`: `sec_type` (`stock`, `option`, `future`, `option_on_future`), `maturity` (`YYYYMM` or `YYYYMMDD`), `strike`, `put_call` (`call`, `put`), `cfi`, the underlying's `underlying`, `underlying_type` and `underlying_maturity`, `multiplier`, `exchange`, `security_id` and `id_source` (`isin`, `cusip`, …). `open_close` (`open`, `close`, `rolled`, `fifo`) and `covered` (`covered`, `uncovered`) are the order's own. A `replace` keeps the order's instrument; it cannot change it.
+- An order's instrument is its terms on `new` — and an IOI's, advert's, allocation's, RFQ's or quote's on `ioi`, `advert`, `allocate`, `rfq` and `new quote`, less the order's own `open_close` and `covered`: `sec_type` (`stock`, `option`, `future`, `option_on_future`), `maturity` (`YYYYMM` or `YYYYMMDD`), `strike`, `put_call` (`call`, `put`), `cfi`, the underlying's `underlying`, `underlying_type` and `underlying_maturity`, `multiplier`, `exchange`, `security_id` and `id_source` (`isin`, `cusip`, …). `open_close` (`open`, `close`, `rolled`, `fifo`) and `covered` (`covered`, `uncovered`) are the order's own. A `replace` keeps the order's instrument; it cannot change it.
 - `instrument: 'NAME'` gives them all at once: an instrument declared at the top of the macro with `instrument 'NAME' …`, else the one saved under that name in **Config › Instruments**. Terms written beside it add to it or override it. A declaration is written out — no expressions — and wins over a saved instrument of the same name (the checker warns when they differ), so a macro that declares what it uses runs on any server.
 - Each FIX version spells an instrument its own way and the engine does the spelling: FIX 4.3 names futures and options by CFICode, FIX 4.1 and 4.2 split a maturity date in two, and `option_on_future` (OOF) is FIX 5.0's — on FIX 4.x an option on a future is `sec_type: option` with `underlying_type: future`, and a `new` with `option_on_future` fails there.
 - An expression reads them from the row: `order.security_type == 'OPT'`, `order.strike_price`, `order.put_or_call == 'Call'`, `order.maturity`, and `order.instrument`, the text the blotters show (`ES Dec26`). An `on order where` narrows by them like any column.
@@ -196,24 +196,24 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 | `correct` | Corrects a trade you sent | `qty`, `price`, `text`, `extra` |
 | `bust` | Busts a trade you sent | `text`, `extra` |
 | `renotify` | Sends a disputed trade's report again under a new ExecID | `text`, `extra` |
-| `ioi` | Sends a new IOI; `qty` is a number or `'S'`, `'M'`, `'L'`, `valid` a time | `symbol`, `side`, `qty`, `price`, `valid`, `quality`, `natural`, `qualifiers`, `currency`, `client`, `text`, `extra` |
+| `ioi` | Sends a new IOI; `qty` is a number or `'S'`, `'M'`, `'L'`, `valid` a time | `symbol`, `side`, `qty`, `price`, `valid`, `quality`, `natural`, `qualifiers`, `currency`, `client`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source` |
 | `replace ioi` | Replaces the IOI under a new IOIID naming the old; terms left out keep the IOI's values | `symbol`, `side`, `qty`, `price`, `valid`, `quality`, `natural`, `qualifiers`, `currency`, `client`, `text`, `extra` |
 | `cancel ioi` | Cancels the IOI under a new IOIID naming the old | `text`, `extra` |
-| `advert` | Sends a new Advertisement; `side` is AdvSide (`buy`, `sell`, `cross`, `trade`) | `symbol`, `side`, `qty`, `price`, `currency`, `trade_date`, `last_mkt`, `client`, `text`, `extra` |
+| `advert` | Sends a new Advertisement; `side` is AdvSide (`buy`, `sell`, `cross`, `trade`) | `symbol`, `side`, `qty`, `price`, `currency`, `trade_date`, `last_mkt`, `client`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source` |
 | `replace advert` | Replaces the advert under a new AdvId naming the old | `symbol`, `side`, `qty`, `price`, `currency`, `trade_date`, `last_mkt`, `client`, `text`, `extra` |
 | `cancel advert` | Cancels the advert under a new AdvId naming the old | `text`, `extra` |
-| `allocate` | Sends a new AllocationInstruction; `accounts`, `orders` and `execs` are lines: `'ACC1 60 10.5; ACC2 40'` | `symbol`, `side`, `qty`, `avg_price`, `trade_date`, `alloc_type`, `orders`, `execs`, `accounts`, `client`, `text`, `extra` |
+| `allocate` | Sends a new AllocationInstruction; `accounts`, `orders` and `execs` are lines: `'ACC1 60 10.5; ACC2 40'` | `symbol`, `side`, `qty`, `avg_price`, `trade_date`, `alloc_type`, `orders`, `execs`, `accounts`, `client`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source` |
 | `replace allocation` | Asks to replace the allocation; the row moves to the new AllocID when the Ack accepts it | `symbol`, `side`, `qty`, `avg_price`, `trade_date`, `alloc_type`, `orders`, `execs`, `accounts`, `client`, `text`, `extra` |
 | `cancel allocation` | Asks to cancel the allocation | `text`, `extra` |
 | `accept allocation` | Accepts what is pending on a received allocation with `status` accepted, received or incomplete | `status`, `text`, `extra` |
 | `reject allocation` | Refuses what is pending with `status` block or account level reject and a `reason` | `status`, `reason`, `text`, `extra` |
-| `rfq` | Sends a QuoteRequest; in an `on rfq request` block, one answering the request (tag 644) | `symbol`, `side`, `qty`, `request_type`, `quote_type`, `currency`, `client`, `text`, `extra` |
+| `rfq` | Sends a QuoteRequest; in an `on rfq request` block, one answering the request (tag 644) | `symbol`, `side`, `qty`, `request_type`, `quote_type`, `currency`, `client`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source` |
 | `hit` | Takes the quote (QuoteResponse Hit, 4.4+): the offer for a buy, the bid for a sell | `side`, `qty`, `price`, `text`, `extra` |
 | `counter` | Counters the quote (QuoteResponse Counter, 4.4+); terms left out keep the quote's | `bid`, `offer`, `bid_size`, `offer_size`, `text`, `extra` |
 | `pass quote` | Declines the quote (QuoteResponse Pass, 4.4+) | `text`, `extra` |
 | `quote` | Quotes the RFQ, or requotes it; `valid` is a duration | `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra` |
 | `reject rfq` | Refuses the RFQ (QuoteRequestReject, 4.3+) | `reason`, `text`, `extra` |
-| `new quote` | Sends a quote nobody asked for | `symbol`, `side`, `qty`, `currency`, `client`, `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra` |
+| `new quote` | Sends a quote nobody asked for | `symbol`, `side`, `qty`, `currency`, `client`, `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source` |
 | `requote` | Replaces the quote under a new QuoteID; answers a pending counter | `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra` |
 | `cancel quote` | Withdraws the quote (QuoteCancel, 4.2+) | `text`, `extra` |
 | `rfq request` | Asks to be sent the RFQs for `symbols` (RFQRequest, 4.3+) | `symbols`, `subscription`, `request_type`, `quote_type`, `client`, `extra` |

@@ -20,21 +20,33 @@ from datetime import datetime, timezone
 from typing import Any
 
 from mkfix.fix.dictionary import FixDictionary
+from mkfix.fix.instrument import INSTRUMENT_COLS, INSTRUMENT_TAGS, instrument_of
 from mkfix.fix.message import FixMessage
+
+# The instrument columns a family row carries (instrument.py): an order's
+# less Open/Close and Covered, which are an order's own.
+FAMILY_INSTRUMENT_COLS = (*INSTRUMENT_COLS, "instrument")
+
+
+def family_instrument(msg: Any) -> dict[str, Any]:
+    """The instrument a message (or a group instance's tags) names, as a
+    family row's columns."""
+    row = instrument_of(msg)
+    return {c: row[c] for c in FAMILY_INSTRUMENT_COLS}
 
 # The tags each family's engine handler maps into columns (and puts back on
 # the wire itself): everything else on a received message is a custom tag
 # kept as the row's extra_tags, the way CONSUMED_ORDER_TAGS works.
 CONSUMED_IOI_TAGS = frozenset({
     "23", "26", "28", "55", "54", "27", "44", "15", "62", "25", "130", "199", "104", "58", "60",
-})
+}) | INSTRUMENT_TAGS
 CONSUMED_ADVERT_TAGS = frozenset({
     "2", "3", "5", "55", "4", "53", "44", "15", "75", "30", "58", "60",
-})
+}) | INSTRUMENT_TAGS
 CONSUMED_ALLOC_TAGS = frozenset({
     "70", "72", "71", "626", "55", "54", "53", "6", "75", "58", "60",
     "73", "11", "37", "124", "17", "32", "31", "78", "79", "80", "366",
-})
+}) | INSTRUMENT_TAGS
 CONSUMED_ALLOC_ACK_TAGS = frozenset({"70", "75", "60", "87", "88", "58"})
 
 # AllocStatus(87) to the row status a sent allocation takes from its Ack —
@@ -160,6 +172,7 @@ def ioi_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
         "qualifiers": qualifiers_of(msg),
         "text": msg.get("58", ""),
         "transact_time": msg.get("60", ""),
+        **family_instrument(msg),
     }
 
 
@@ -180,6 +193,7 @@ def advert_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]
         "last_mkt": msg.get("30", ""),
         "text": msg.get("58", ""),
         "transact_time": msg.get("60", ""),
+        **family_instrument(msg),
     }
 
 
@@ -202,6 +216,7 @@ def allocation_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, 
         "trade_date": msg.get("75", ""),
         "text": msg.get("58", ""),
         "transact_time": msg.get("60", ""),
+        **family_instrument(msg),
     }
     for column, (counter, members) in ALLOC_GROUPS.items():
         instances = group_instances(msg, counter, members, dictionary)
@@ -233,13 +248,13 @@ def ack_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
 # TX a request (or unsolicited quote) this engine sent, RX one it received.
 
 RFQ_TABLE = "fix_rfqs"
-CONSUMED_RFQ_TAGS = frozenset({"131", "644", "146", "55", "54", "38", "303", "537", "15", "60", "58"})
+CONSUMED_RFQ_TAGS = frozenset({"131", "644", "146", "55", "54", "38", "303", "537", "15", "60", "58"}) | INSTRUMENT_TAGS
 CONSUMED_QUOTE_TAGS = frozenset({
     "131", "117", "537", "55", "54", "38", "132", "133", "134", "135", "62", "15", "60", "58",
-})
+}) | INSTRUMENT_TAGS
 CONSUMED_RESPONSE_TAGS = frozenset({
     "693", "117", "694", "11", "131", "55", "54", "38", "40", "44", "132", "133", "134", "135", "60", "58",
-})
+}) | INSTRUMENT_TAGS
 
 # QuoteRespType(694) to the status it leaves a quote in; others by name.
 RESP_STATUS_OF = {"1": "Hit", "2": "Countered", "3": "Expired", "4": "Covered", "5": "DoneAway",
@@ -268,7 +283,7 @@ def rfq_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
     the recorded message)."""
     instance = msg.fields
     if "146" in msg.fields:
-        members = ("55", "54", "38", "303", "537", "15", "60")
+        members = ("55", "54", "38", "303", "537", "15", "60", *sorted(INSTRUMENT_TAGS))
         found = group_instances(msg, "146", members, dictionary)
         instance = found[0] if found else {}
     side, rtype, qtype = instance.get("54", ""), instance.get("303", ""), instance.get("537", "")
@@ -287,6 +302,7 @@ def rfq_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str, Any]:
         "currency": instance.get("15", ""),
         "text": msg.get("58", ""),
         "transact_time": instance.get("60", "") or msg.get("60", ""),
+        **family_instrument(instance),
     }
 
 

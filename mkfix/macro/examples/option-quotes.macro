@@ -1,0 +1,32 @@
+# Option quotes
+#
+# Shows:   instruments declared once and used by both sides of an end-to-end
+#          macro; quotes on two option series of one symbol, each a row of
+#          its own; `new` in an `on quote` block taking the quote in its
+#          instrument
+# Needs:   the loopback sessions: run it with LOOP-CLI as the client session
+#          and LOOP-MKT as the market one
+# Watch:   Sent Quotes and Received Quotes: two AAPL rows, told apart by the
+#          Instrument column; Sent Orders for the order that takes the call
+# Outcome: the call and the put are quoted; the client takes the call with an
+#          order in the call's instrument; the put is withdrawn; all pass
+
+instrument 'AAPL-C250' symbol: 'AAPL', sec_type: option, maturity: '20261218', strike: 250, put_call: call
+instrument 'AAPL-P240' symbol: 'AAPL', sec_type: option, maturity: '20261218', strike: 240, put_call: put
+
+# The market: one stream a series.
+run
+    new quote instrument: 'AAPL-C250', side: sell, qty: 10, bid: 4.10, offer: 4.30, valid: 30s
+    expect hit within 10s else fail 'nobody took the call'
+    pass 'the call was taken: ${quote.order_cl_ord_id}'
+
+run
+    new quote instrument: 'AAPL-P240', side: sell, qty: 10, bid: 3.00, offer: 3.20, valid: 30s
+    after 3s
+    cancel quote text: 'withdrawn'
+    pass 'the put was withdrawn'
+
+# The client: calls only. The order names the quote in tag 117, and so is in its instrument.
+on quote where security_type == 'OPT' and put_or_call == 'Call'
+    new symbol: quote.symbol, side: buy, qty: 10, type: previously_quoted, price: quote.offer_px
+    pass 'took ${quote.instrument} at ${quote.offer_px}'

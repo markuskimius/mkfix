@@ -800,3 +800,18 @@ class TestInstruments:
             ("save", ("ESZ6",), {"symbol": "ES", "security_type": "FUT", "maturity": "202612"}),
             ("send", {"security_type": "FUT", "maturity": "202612", "open_close": "O"}),
         ], "an order's Open/Close is not the instrument's"
+
+    @pytest.mark.asyncio
+    async def test_the_family_sends_save_their_instrument_and_send_it(self):
+        engine = _make_engine()
+        order = []
+        engine.save_instrument = AsyncMock(side_effect=lambda *a, **k: order.append(("save", a, k)))
+        engine.send_ioi = AsyncMock(side_effect=lambda **k: order.append(("send", k["instrument"])) or "IO1")
+        svc = _make_service(engine)
+        ws = _make_ws()
+        await svc.on_message(ws, {"ref": "r", "op": "send_ioi", "data": {
+            "session_id": "S1", "symbol": "ES", "side": "1", "qty": "L", "security_type": "FUT",
+            "maturity": "202612", "save_instrument_as": "ESZ6"}})
+        assert order == [("save", ("ESZ6",), {"symbol": "ES", "security_type": "FUT", "maturity": "202612"}),
+                         ("send", {"security_type": "FUT", "maturity": "202612"})]
+        assert _sent(ws)["ok"] is True

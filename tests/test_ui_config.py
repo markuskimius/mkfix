@@ -3328,10 +3328,14 @@ class TestFamilyBlotters:
             ops = {label: b["action"]["dialog"]["submit"]["op"] for label, b in buttons.items()
                    if label not in ("History", "Macro…")}
             assert ops == {"New": send, "Clone": send, "Replace": replace, "Cancel": cancel}, family
+            from mkfix.fix.instrument import INSTRUMENT_COLS
             for label in ("Replace", "Cancel"):
                 dialog = buttons[label]["action"]["dialog"]
-                assert dialog["rowData"] == {"session_id": "${row.session_id}", id_col: "${row.%s}" % id_col}, \
-                    f"{family} {label}: the chain's current ID rides as rowData"
+                identity = {"session_id": "${row.session_id}", id_col: "${row.%s}" % id_col}
+                if label == "Replace":      # and the instrument, which a replace keeps
+                    assert set(dialog["rowData"]) == {*identity, *INSTRUMENT_COLS}, family
+                    dialog = {**dialog, "rowData": {k: v for k, v in dialog["rowData"].items() if k in identity}}
+                assert dialog["rowData"] == identity, f"{family} {label}: the chain's current ID rides as rowData"
                 assert dialog.get("submitPerRow") is True
             assert "when" not in buttons["New"].get("enable", {}) and "minSelected" not in buttons["New"]["enable"]
             assert buttons["Replace"]["unit"] == "row" and buttons["Cancel"]["enable"]["minSelected"] == 1
@@ -3348,7 +3352,9 @@ class TestFamilyBlotters:
             assert _dialog_field_names(clone) == new_fields, family
             assert clone["fields"][0].get("name") != "_template", family
             rep = _find_dialog(app_config, replace)
-            assert _dialog_field_names(rep) - {"_template"} == new_fields - {"session_id"}, family
+            from mkfix.fix.instrument import INSTRUMENT_COLS
+            instrument = {*INSTRUMENT_COLS, "_instrument", "save_instrument_as"}    # Replace keeps the row's
+            assert _dialog_field_names(rep) - {"_template"} == new_fields - {"session_id"} - instrument, family
             assert rep["fields"][0]["name"] == "_template"
             assert {"label": "Session", "type": "readonly", "value": "${row.session_id}"} in rep["fields"]
             for name, f in self._fields(rep).items():
@@ -3356,8 +3362,8 @@ class TestFamilyBlotters:
                     assert "${row." in str(f.get("value", "")), f"{family} Replace does not prefill {name}"
             assert "value" not in self._fields(rep)["text"], f"{family} Replace: Text belongs to one message"
             for name, f in self._fields(clone).items():
-                if name != "save_as":
-                    assert "${row." in str(f.get("value", "")), f"{family} Clone does not prefill {name}"
+                if name not in ("save_as", "save_instrument_as", "_instrument"):
+                    assert "row." in str(f.get("value", "")), f"{family} Clone does not prefill {name}"
             assert self._fields(clone)["text"]["value"] == (
                 "${row.sent_text}" if family == "allocation" else "${row.text}"), f"{family} Clone: the row's own Text"
 
@@ -3558,7 +3564,7 @@ class TestRfqBlotters:
                     assert dialog["submitPerRow"] is True
                     assert SUBJECT_KEY[op][1] == key
             assert spec["visible"][0] == id_col and spec["filters"] == {"updated_at": {"preset": "today"}}
-            assert {"status", "client", "symbol", "updated_at"} <= set(spec["visible"]), pane_id
+            assert {"status", "client", "instrument", "updated_at"} <= set(spec["visible"]), pane_id
             assert "raw_message" not in spec["visible"] and "session_status" not in spec["visible"]
             assert "rfqs_query" in toml_config["services"]
         for pane_id in ("order-blotter", "market-order-blotter"):
@@ -3589,7 +3595,7 @@ class TestRfqBlotters:
             assert _dialog_field_names(clone) == _dialog_field_names(new) - {"_template"}, pane_id
             assert clone["fields"][0].get("name") != "_template" and by["Clone"]["unit"] == "row"
             for name, f in self._fields(clone).items():
-                if name not in ("save_as", "valid_until", "valid_for"):
+                if name not in ("save_as", "valid_until", "valid_for", "save_instrument_as", "_instrument"):
                     assert "row." in str(f.get("value", "")), f"{pane_id} Clone does not prefill {name}"
             assert self._fields(clone)["text"]["value"] == "${row.sent_text}", "our own Text"
 
@@ -3806,3 +3812,54 @@ class TestInstrumentFields:
                 assert sent == takes, button["label"]
             else:
                 assert (action["service"], action["op"]) == ("fix_cmd", "delete_instrument")
+
+
+class TestFamilyInstrumentFields:
+    """0.76: the IOI, advert, allocation, RFQ and quote dialogs carry the
+    Instrument section too — the instrument alone, an order's Open/Close
+    and Covered left out — New's filled by a pick, Clone's and Allocate's
+    from the row; Replace keeps the row's; an order answering an IOI or
+    taking a quote opens in its instrument."""
+
+    SENDS = {"send_ioi": "market-ioi-blotter", "send_advert": "market-advert-blotter",
+             "send_allocation": "market-allocation-blotter", "send_rfq": "rfq-blotter",
+             "send_quote": "market-quote-blotter"}
+
+    @staticmethod
+    def _section(dialog):
+        (section,) = [f for f in dialog["fields"] if f.get("group") == "Instrument"]
+        return {f["name"]: f for f in _leaves(section) if "name" in f}
+
+    def test_new_and_clone(self, app_config):
+        from mkfix.fix.instrument import INSTRUMENT_COLS
+        names = {"_instrument", "save_instrument_as", *INSTRUMENT_COLS}
+        for op, pane_id in self.SENDS.items():
+            new = self._section(_find_dialog(app_config, op))
+            assert set(new) == names, op
+            assert _find_dialog(app_config, op)["fields"][0]["fill"]["maturity"] == "maturity", op
+            clone = self._section(_clone_button(app_config, pane_id)["action"]["dialog"])
+            assert set(clone) == names and clone["strike_price"]["value"] == "${row.strike_price}", op
+
+    def test_replace_keeps_the_rows_instrument(self, app_config):
+        from mkfix.fix.instrument import INSTRUMENT_COLS
+        for op in ("replace_ioi", "replace_advert", "replace_allocation"):
+            dialog = _find_dialog(app_config, op)
+            assert not [f for f in dialog["fields"] if f.get("group") == "Instrument"], op
+            assert all(c in dialog["rowData"] for c in INSTRUMENT_COLS), op
+
+    def test_answers_open_in_the_instrument_they_answer(self, app_config):
+        panes = app_config["panes"]
+        for pane_id, label in (("ioi-blotter", "Order"), ("rfq-blotter", "Order…"), ("quote-blotter", "Order…"),
+                               ("market-order-blotter", "Allocate"), ("market-trade-blotter", "Allocate")):
+            button = next(b for b in panes[pane_id]["buttons"] if b["label"] == label)
+            section = self._section(button["action"]["dialog"])
+            assert section["security_type"]["value"] == "${row.security_type}", (pane_id, label)
+            assert ("open_close" in section) == (label != "Allocate"), "an order's own terms on an order only"
+
+    def test_the_blotters_show_the_instrument(self, app_config):
+        for pane_id in ("ioi-blotter", "market-ioi-blotter", "advert-blotter", "market-advert-blotter",
+                        "allocation-blotter", "market-allocation-blotter", "rfq-blotter", "quote-blotter",
+                        "market-rfq-blotter", "market-quote-blotter"):
+            spec = app_config["panes"][pane_id]
+            assert "instrument" in spec["visible"] and "symbol" not in spec["visible"], pane_id
+            assert "security_type" in spec["columns"] and "security_type" not in spec["visible"], pane_id

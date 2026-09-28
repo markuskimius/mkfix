@@ -407,7 +407,11 @@ A FIX protocol testing engine for capital markets connectivity, built on
   short (`ES Dec26`, `AAPL 18Dec26 250 C`). Macros take the same terms on
   `new`, or `instrument: 'NAME'` naming a saved instrument or one declared
   at the top of the macro (`instrument 'ESZ6' symbol: 'ES', sec_type:
-  future, ...`); the recorder and Macro... write them back.
+  future, ...`); the recorder and Macro... write them back. IOIs, adverts,
+  allocations, RFQs and quotes carry an instrument the same way (an RFQ's
+  in its NoRelatedSym group); an order answering an IOI or taking a quote
+  is in its instrument, and quote streams on two option series of one
+  symbol stay two rows.
 - **Session Protocol** -- Logon, Logout, Heartbeat, TestRequest, SequenceReset,
   GapFill, PossDupFlag handling, and heartbeat timeout detection. A
   ResendRequest is answered from the recorded messages: application messages

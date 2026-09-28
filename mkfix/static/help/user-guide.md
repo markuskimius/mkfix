@@ -274,7 +274,8 @@ An order can be in an option, a future or an option on a future as well as a sto
 - **Saved instrument** fills the section from **Config › Instruments**, where instruments are kept by name (New, Edit, Clone, Delete). Everything it fills can still be changed for this order. **Save instrument as** keeps what you entered under a name.
 - The order keeps its instrument for good: a Replace shows it and cannot change it, a Clone starts from it, and the trades carry it. The blotters' **Instrument** column shows it short — `ES Dec26`, `AAPL 18Dec26 250 C` — and the column picker has each field.
 - Each FIX version says it differently, and mkfix says it the session's way: FIX 4.1 and 4.2 split a maturity date into month and day, FIX 4.3 names futures and options by CFI Code instead of Security Type, and Option on Future (OOF) exists only from FIX 5.0 — on 4.x send an Option whose Underlying Type is Future. A FIX 4.0 session sends no instrument at all.
-- An order template keeps the instrument too. Macros name one the same way; see the Macro Language page.
+- IOIs, adverts, allocations, RFQs and quotes have the same section (without Open/Close and Covered, which are an order's). An order sent from Received IOIs or Received Quotes opens in that IOI's or quote's instrument, a Hit's order is in the quote's, and Allocate opens in the order's. Quotes streamed on two series of one symbol are two rows.
+- A template keeps the instrument too. Macros name one the same way; see the Macro Language page.
 
 ## Templates
 

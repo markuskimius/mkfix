@@ -79,6 +79,11 @@ def _instrument(d: dict[str, Any]) -> dict[str, Any]:
     return {c: d[c] for c in INSTRUMENT_COLS + POSITION_COLS if d.get(c) not in (None, "")}
 
 
+def _family_instrument(d: dict[str, Any]) -> dict[str, Any]:
+    """An IOI's, advert's, allocation's, RFQ's or quote's: the instrument alone."""
+    return {c: d[c] for c in INSTRUMENT_COLS if d.get(c) not in (None, "")}
+
+
 @_action("send_new_order")
 async def _send_new_order(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"cl_ord_id": await e.send_new_order(
@@ -175,7 +180,7 @@ def _ioi_terms(d: dict[str, Any]) -> dict[str, Any]:
 @_action("send_ioi")
 async def _send_ioi(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"ioi_id": await e.send_ioi(session_id=d["session_id"], source=d.get("_source", "manual"),
-                                   tag=d.get("_tag", ""), **_ioi_terms(d))}
+                                   tag=d.get("_tag", ""), instrument=_family_instrument(d), **_ioi_terms(d))}
 
 
 @_action("replace_ioi")
@@ -197,7 +202,7 @@ def _advert_terms(d: dict[str, Any]) -> dict[str, Any]:
 @_action("send_advert")
 async def _send_advert(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"adv_id": await e.send_advert(session_id=d["session_id"], source=d.get("_source", "manual"),
-                                   tag=d.get("_tag", ""), **_advert_terms(d))}
+                                   tag=d.get("_tag", ""), instrument=_family_instrument(d), **_advert_terms(d))}
 
 
 @_action("replace_advert")
@@ -220,7 +225,7 @@ def _allocation_terms(d: dict[str, Any]) -> dict[str, Any]:
 @_action("send_allocation")
 async def _send_allocation(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"alloc_id": await e.send_allocation(session_id=d["session_id"], source=d.get("_source", "manual"),
-                                   tag=d.get("_tag", ""), **_allocation_terms(d))}
+                                   tag=d.get("_tag", ""), instrument=_family_instrument(d), **_allocation_terms(d))}
 
 
 @_action("replace_allocation")
@@ -266,7 +271,7 @@ async def _send_rfq(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
         session_id=d["session_id"], symbol=d["symbol"], side=d.get("side", ""), qty=_opt(d, "qty") or 0.0,
         quote_request_type=d.get("quote_request_type", ""), quote_type=d.get("quote_type", ""),
         currency=d.get("currency", ""), client=d.get("client", ""), source=d.get("_source", "manual"),
-        tag=d.get("_tag", ""), **_common(d))}
+        tag=d.get("_tag", ""), instrument=_family_instrument(d), **_common(d))}
 
 
 @_action("hit_quote")
@@ -300,7 +305,7 @@ async def _send_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"quote_id": await e.send_quote(
         session_id=d["session_id"], symbol=d["symbol"], side=d.get("side", ""), qty=_opt(d, "qty"),
         currency=d.get("currency", ""), client=d.get("client", ""), source=d.get("_source", "manual"),
-        tag=d.get("_tag", ""), **_quote_terms(d))}
+        tag=d.get("_tag", ""), instrument=_family_instrument(d), **_quote_terms(d))}
 
 
 @_action("requote")

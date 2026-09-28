@@ -20,7 +20,8 @@ from mkfix.fix.message import (FixMessage, _fix_timestamp, parse_extra_tags,
                                extra_pairs_of, format_extra_tags, parse_fix,
                                CONSUMED_EXEC_TAGS, CONSUMED_ORDER_TAGS,
                                ClientTag, client_of, parse_client_tags)
-from mkfix.fix.families import (ALLOC_GROUPS, ALLOC_STATUS_OF, ALLOC_ACCEPTING,
+from mkfix.fix.families import (ALLOC_GROUPS, ALLOC_STATUS_OF, ALLOC_ACCEPTING, FAMILY_INSTRUMENT_COLS,
+                                 family_instrument,
                                  CONSUMED_IOI_TAGS, CONSUMED_ADVERT_TAGS, CONSUMED_ALLOC_TAGS,
                                  ioi_columns, advert_columns, allocation_columns, ack_columns,
                                  group_instances, parse_lines, parse_qualifiers,
@@ -31,7 +32,8 @@ from mkfix.fix.families import (ALLOC_GROUPS, ALLOC_STATUS_OF, ALLOC_ACCEPTING,
                                  rfq_request_columns)
 from mkfix.fix import replay
 from mkfix.fix.replay import ReplayTask
-from mkfix.fix.instrument import (INSTRUMENT_COLS, ORDER_INSTRUMENT_COLS, POSITION_COLS, blank_instrument, carries_instrument,
+from mkfix.fix.instrument import (INSTRUMENT_COLS, ORDER_INSTRUMENT_COLS, POSITION_COLS, blank_instrument,
+                                  carries_instrument,
                                   instrument_of, instrument_pairs, instrument_text, normalize_instrument)
 from mkfix.fix.session import FixSession
 
@@ -141,12 +143,13 @@ IOI_COLS = [
     "session_id", "ioi_id", "ioi_ref_id", "ioi_trans_type", "ioi_trans_type_code", "symbol", "side",
     "side_code", "ioi_qty", "price", "currency", "valid_until", "qlty_ind", "qlty_ind_code",
     "natural_flag", "qualifiers", "status", "order_cl_ord_id", "text", "client", "extra_tags",
-    "transact_time", "timestamp", "updated_at", "direction", "raw_message",
+    "transact_time", "timestamp", "updated_at", "direction", "raw_message", *FAMILY_INSTRUMENT_COLS,
 ]
 ADVERT_COLS = [
     "session_id", "adv_id", "adv_ref_id", "adv_trans_type", "adv_trans_type_code", "symbol", "side",
     "side_code", "quantity", "price", "currency", "trade_date", "last_mkt", "status", "text", "client",
     "extra_tags", "transact_time", "timestamp", "updated_at", "direction", "raw_message",
+    *FAMILY_INSTRUMENT_COLS,
 ]
 ALLOC_COLS = [
     "session_id", "alloc_id", "ref_alloc_id", "alloc_trans_type", "alloc_trans_type_code", "alloc_type",
@@ -154,13 +157,14 @@ ALLOC_COLS = [
     "execs", "allocs", "num_allocs", "status", "alloc_status", "alloc_status_code", "alloc_rej_reason",
     "alloc_rej_code", "pending_action", "pending_alloc_id", "pending_terms", "pending_extra_tags", "text",
     "sent_text", "client", "extra_tags", "transact_time", "timestamp", "updated_at", "direction",
-    "raw_message",
+    "raw_message", *FAMILY_INSTRUMENT_COLS,
 ]
 # The terms a Replace request carries into the slot and an accepted one
 # moves onto the row (the identity columns and the answer's stay).
 _ALLOC_TERM_COLS = frozenset({
     "alloc_type", "alloc_type_code", "symbol", "side", "side_code", "quantity", "avg_price", "trade_date",
     "orders", "execs", "allocs", "num_allocs", "extra_tags", "transact_time", "raw_message",
+    *FAMILY_INSTRUMENT_COLS,
 })
 # RFQs and quotes (families.py): one row per negotiation, the quote standing
 # on it in the quote columns and a counter-offer parked in the slot.
@@ -173,9 +177,9 @@ RFQ_COLS = [
     "pending_action", "pending_resp_id", "pending_bid_px", "pending_offer_px", "pending_bid_size",
     "pending_offer_size", "pending_extra_tags",
     "order_cl_ord_id", "text", "sent_text", "client", "extra_tags", "quote_extra_tags",
-    "transact_time", "timestamp", "updated_at", "direction", "raw_message",
+    "transact_time", "timestamp", "updated_at", "direction", "raw_message", *FAMILY_INSTRUMENT_COLS,
 ]
-_RFQ_BLANKS = {c: "" for c in RFQ_COLS} | {
+_RFQ_BLANKS = {c: "" for c in RFQ_COLS} | {"strike_price": None, "multiplier": None} | {
     "order_qty": 0.0, "bid_px": None, "offer_px": None, "bid_size": None, "offer_size": None,
     "pending_bid_px": None, "pending_offer_px": None, "pending_bid_size": None, "pending_offer_size": None}
 _CLEAR_QUOTE_SLOT = {"pending_action": "", "pending_resp_id": "", "pending_bid_px": None, "pending_offer_px": None,
@@ -329,6 +333,7 @@ class FixEngine:
         await self._backfill_handling_and_trade_tags()
         await self._backfill_trade_order_ids()
         await self._backfill_instrument()
+        await self._backfill_family_instrument()
         await self._backfill_families()
         await self.ids.start()
         await self._load_custom_dictionaries()
@@ -838,6 +843,23 @@ class FixEngine:
                 f"UPDATE {table} SET instrument = symbol WHERE instrument = '' AND security_type = ''")).close()
         await (await conn.execute(
             "INSERT OR REPLACE INTO fix_settings (key, value) VALUES ('instrument_backfill', '1')")).close()
+        await conn.commit()
+
+    async def _backfill_family_instrument(self) -> None:
+        """The same, once (fix_settings `family_instrument_backfill`), for the
+        IOI, advert, allocation and RFQ rows 0.76 gave an instrument —
+        which an unsolicited quote stream is matched by, too."""
+        conn = self.db.write_conn
+        cur = await conn.execute("SELECT value FROM fix_settings WHERE key = 'family_instrument_backfill'")
+        done = await cur.fetchone()
+        await cur.close()
+        if done:
+            return
+        for table in ("fix_iois", "fix_adverts", "fix_allocations", "fix_rfqs"):
+            await (await conn.execute(
+                f"UPDATE {table} SET instrument = symbol WHERE instrument = '' AND security_type = ''")).close()
+        await (await conn.execute(
+            "INSERT OR REPLACE INTO fix_settings (key, value) VALUES ('family_instrument_backfill', '1')")).close()
         await conn.commit()
 
     async def _backfill_trade_order_ids(self) -> None:
@@ -1630,6 +1652,8 @@ class FixEngine:
 
         extra_pairs = parse_extra_tags(extra_tags)
         terms = normalize_instrument(instrument or {})
+        if not any(v not in (None, "") for v in terms.values()):
+            terms = await self._answered_instrument(session_id, dict(extra_pairs)) or terms
         # Refused before a ClOrdID is spent on it.
         instrument_pairs(session.dictionary, terms)
         cl_ord_id = await self.ids.next_id("RT")
@@ -1791,6 +1815,29 @@ class FixEngine:
                                    request=("Replace", cl_ord_id, qty, price or 0.0))
         await self._send_request(session, msg, cl_ord_id)
         return cl_ord_id
+
+    @staticmethod
+    def _stamp_group_instrument(session: FixSession, msg: FixMessage, row: dict[str, Any],
+                                originating: bool = False) -> None:
+        """An instrument that rides in a message's instrument group — a
+        QuoteRequest's or QuoteRequestReject's NoRelatedSym(146) from 4.2 —
+        goes in after the instance's Symbol; a message without the group
+        carries it in the body."""
+        if msg.extra and msg.extra[0][0] == "146":
+            at = next(i for i, (tag, _) in enumerate(msg.extra) if tag == "55") + 1
+            msg.extra[at:at] = instrument_pairs(session.dictionary, row, originating)
+        else:
+            session.factory.stamp_instrument(msg, row, originating)
+
+    async def _answered_instrument(self, session_id: str, extras: dict[str, str]) -> dict[str, Any] | None:
+        """An order naming no instrument of its own answers an IOI (23) or
+        takes a quote (117): it is in theirs."""
+        row = None
+        if extras.get("23"):
+            row = await self._find_family_row("fix_iois", "ioi_id", session_id, extras["23"], "RX")
+        elif extras.get("117"):
+            row = await self._find_family_row("fix_rfqs", "quote_id", session_id, extras["117"], "client")
+        return normalize_instrument(row) if row else None
 
     async def _stamp_order_instrument(self, session: FixSession, msg: FixMessage, cl_ord_id: str) -> None:
         """A cancel or replace request names the order's instrument, which
@@ -2841,7 +2888,7 @@ class FixEngine:
 
     async def _insert_family_row(self, table: str, row: dict[str, Any]) -> None:
         cols = _FAMILY_COLS[table]
-        params = tuple(row[c] for c in cols) + (None,)
+        params = tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row[c] for c in cols) + (None,)
         await self.writer.submit(self._compiled_ops[f"insert_{table}"], (params,),
                                  {"id": None, "session_id": row["session_id"]})
 
@@ -2849,7 +2896,8 @@ class FixEngine:
         """A new version of a family row: the snapshot with ``updates`` on
         top. Callers submit this before their message goes out."""
         row = {**row, **updates, "updated_at": _fix_timestamp()}
-        params = tuple(row[c] for c in _FAMILY_UPDATE_COLS[table]) + (None, row["id"])
+        params = tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row[c]
+                       for c in _FAMILY_UPDATE_COLS[table]) + (None, row["id"])
         await self.writer.submit(self._compiled_ops[f"update_{table}"], (params,), {"id": row["id"]})
 
     def _emit_row(self, kinds: tuple[str, ...], session_id: str, table: str,
@@ -2945,7 +2993,8 @@ class FixEngine:
                        msg=msg, request=columns["ioi_id"])
 
     def _ioi_message(self, session: FixSession, ioi_id: str, trans_type: str, terms: dict[str, Any],
-                     ref_id: str = "", text: str = "", extra_tags: str = "", client: str = "") -> FixMessage:
+                     ref_id: str = "", text: str = "", extra_tags: str = "", client: str = "",
+                     instrument: dict[str, Any] | None = None, originating: bool = False) -> FixMessage:
         factory = session.factory
         msg = factory.ioi(
             ioi_id, trans_type, terms["symbol"], terms["side"], str(terms["qty"]),
@@ -2956,20 +3005,27 @@ class FixEngine:
             currency=str(terms.get("currency") or ""), text=text or None)
         msg.extra += parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, client)
+        if instrument:
+            # The instrument's own terms: Open/Close and Covered are an order's.
+            session.factory.stamp_instrument(msg, {c: instrument.get(c) for c in INSTRUMENT_COLS}, originating)
         return msg
 
     async def send_ioi(self, session_id: str, symbol: str, side: str, qty: str, price: float | None = None,
                        valid_until: str = "", qlty_ind: str = "", natural_flag: str = "", qualifiers: str = "",
                        currency: str = "", client: str = "", text: str = "", extra_tags: str = "",
-                       source: str = "manual", tag: str = "") -> str:
+                       source: str = "manual", tag: str = "",
+                       instrument: dict[str, Any] | None = None) -> str:
         """Send a new IOI and return its IOIID. The row is written first and
         announced (`sent ioi`, with `source` and the macro's `tag`) before
         the send, as `send_new_order` does."""
         session = self._active_session(session_id)
+        inst = normalize_instrument(instrument or {})
+        instrument_pairs(session.dictionary, inst)          # refused before an ID is spent on it
         ioi_id = await self.ids.next_id("IO")
         terms = dict(symbol=symbol, side=side, qty=qty, price=price, valid_until=valid_until, qlty_ind=qlty_ind,
                      natural_flag=natural_flag, qualifiers=qualifiers, currency=currency)
-        msg = self._ioi_message(session, ioi_id, "N", terms, text=text, extra_tags=extra_tags, client=client)
+        msg = self._ioi_message(session, ioi_id, "N", terms, text=text, extra_tags=extra_tags, client=client,
+                                instrument=inst, originating=True)
         row = self._sent_family_row(session, msg, ioi_columns, extra_tags, _fix_timestamp())
         row.update(status="Active", order_cl_ord_id="")
         await self._insert_family_row("fix_iois", row)
@@ -2990,7 +3046,7 @@ class FixEngine:
         terms = dict(symbol=symbol, side=side, qty=qty, price=price, valid_until=valid_until, qlty_ind=qlty_ind,
                      natural_flag=natural_flag, qualifiers=qualifiers, currency=currency)
         msg = self._ioi_message(session, new_id, "R", terms, ref_id=ioi_id, text=text,
-                                extra_tags=extra_tags, client=client or row["client"])
+                                extra_tags=extra_tags, client=client or row["client"], instrument=row)
         fresh = self._sent_family_row(session, msg, ioi_columns, extra_tags, _fix_timestamp())
         await self._update_family_row("fix_iois", row, status="Active",
                                       **{k: v for k, v in fresh.items() if k not in _FAMILY_IDENTITY})
@@ -3007,7 +3063,7 @@ class FixEngine:
                      valid_until=row["valid_until"], qlty_ind=row["qlty_ind_code"], natural_flag=row["natural_flag"],
                      qualifiers=row["qualifiers"], currency=row["currency"])
         msg = self._ioi_message(session, new_id, "C", terms, ref_id=ioi_id, text=text,
-                                extra_tags=extra_tags, client=row["client"])
+                                extra_tags=extra_tags, client=row["client"], instrument=row)
         sent = self._as_sent(session, msg)
         await self._update_family_row(
             "fix_iois", row, status="Canceled", ioi_id=new_id, ioi_ref_id=ioi_id,
@@ -3044,7 +3100,8 @@ class FixEngine:
                        msg=msg, request=columns["adv_id"])
 
     def _advert_message(self, session: FixSession, adv_id: str, trans_type: str, terms: dict[str, Any],
-                        ref_id: str = "", text: str = "", extra_tags: str = "", client: str = "") -> FixMessage:
+                        ref_id: str = "", text: str = "", extra_tags: str = "", client: str = "",
+                        instrument: dict[str, Any] | None = None, originating: bool = False) -> FixMessage:
         msg = session.factory.advertisement(
             adv_id, trans_type, terms["symbol"], terms["side"], float(terms["qty"]),
             price=float(terms["price"]) if terms.get("price") not in (None, "", 0, 0.0) else None,
@@ -3052,17 +3109,24 @@ class FixEngine:
             last_mkt=str(terms.get("last_mkt") or ""), text=text or None)
         msg.extra += parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, client)
+        if instrument:
+            # The instrument's own terms: Open/Close and Covered are an order's.
+            session.factory.stamp_instrument(msg, {c: instrument.get(c) for c in INSTRUMENT_COLS}, originating)
         return msg
 
     async def send_advert(self, session_id: str, symbol: str, side: str, qty: float, price: float | None = None,
                           currency: str = "", trade_date: str = "", last_mkt: str = "", client: str = "",
-                          text: str = "", extra_tags: str = "", source: str = "manual", tag: str = "") -> str:
+                          text: str = "", extra_tags: str = "", source: str = "manual", tag: str = "",
+                          instrument: dict[str, Any] | None = None) -> str:
         """Send a new Advertisement and return its AdvId."""
         session = self._active_session(session_id)
+        inst = normalize_instrument(instrument or {})
+        instrument_pairs(session.dictionary, inst)          # refused before an ID is spent on it
         adv_id = await self.ids.next_id("AD")
         terms = dict(symbol=symbol, side=side, qty=qty, price=price, currency=currency, trade_date=trade_date,
                      last_mkt=last_mkt)
-        msg = self._advert_message(session, adv_id, "N", terms, text=text, extra_tags=extra_tags, client=client)
+        msg = self._advert_message(session, adv_id, "N", terms, text=text, extra_tags=extra_tags, client=client,
+                                   instrument=inst, originating=True)
         row = self._sent_family_row(session, msg, advert_columns, extra_tags, _fix_timestamp())
         row["status"] = "Active"
         await self._insert_family_row("fix_adverts", row)
@@ -3081,7 +3145,7 @@ class FixEngine:
         terms = dict(symbol=symbol, side=side, qty=qty, price=price, currency=currency, trade_date=trade_date,
                      last_mkt=last_mkt)
         msg = self._advert_message(session, new_id, "R", terms, ref_id=adv_id, text=text,
-                                   extra_tags=extra_tags, client=client or row["client"])
+                                   extra_tags=extra_tags, client=client or row["client"], instrument=row)
         fresh = self._sent_family_row(session, msg, advert_columns, extra_tags, _fix_timestamp())
         await self._update_family_row("fix_adverts", row, status="Active",
                                       **{k: v for k, v in fresh.items() if k not in _FAMILY_IDENTITY})
@@ -3095,7 +3159,7 @@ class FixEngine:
         terms = dict(symbol=row["symbol"], side=row["side_code"], qty=row["quantity"], price=row["price"],
                      currency=row["currency"], trade_date=row["trade_date"], last_mkt=row["last_mkt"])
         msg = self._advert_message(session, new_id, "C", terms, ref_id=adv_id, text=text,
-                                   extra_tags=extra_tags, client=row["client"])
+                                   extra_tags=extra_tags, client=row["client"], instrument=row)
         sent = self._as_sent(session, msg)
         await self._update_family_row(
             "fix_adverts", row, status="Canceled", adv_id=new_id, adv_ref_id=adv_id,
@@ -3192,7 +3256,8 @@ class FixEngine:
 
     def _allocation_message(self, session: FixSession, alloc_id: str, trans_type: str, terms: dict[str, Any],
                             ref_alloc_id: str = "", text: str = "", extra_tags: str = "",
-                            client: str = "") -> FixMessage:
+                            client: str = "",
+                            instrument: dict[str, Any] | None = None, originating: bool = False) -> FixMessage:
         msg = session.factory.allocation_instruction(
             alloc_id, trans_type, terms["symbol"], terms["side"], float(terms["qty"]), float(terms["avg_price"] or 0),
             trade_date=str(terms.get("trade_date") or ""), alloc_type=str(terms.get("alloc_type") or ""),
@@ -3203,6 +3268,9 @@ class FixEngine:
             text=text or None)
         msg.extra += parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, client)
+        if instrument:
+            # The instrument's own terms: Open/Close and Covered are an order's.
+            session.factory.stamp_instrument(msg, {c: instrument.get(c) for c in INSTRUMENT_COLS}, originating)
         return msg
 
     def _sent_allocation_row(self, session: FixSession, msg: FixMessage, extra_tags: str) -> dict[str, Any]:
@@ -3215,14 +3283,23 @@ class FixEngine:
     async def send_allocation(self, session_id: str, symbol: str, side: str, qty: float, avg_price: float,
                               trade_date: str = "", alloc_type: str = "", orders: str = "", execs: str = "",
                               allocs: str = "", client: str = "", text: str = "", extra_tags: str = "",
-                              source: str = "manual", tag: str = "") -> str:
+                              source: str = "manual", tag: str = "",
+                              instrument: dict[str, Any] | None = None) -> str:
         """Send a new AllocationInstruction and return its AllocID; the row
         is Sent until the Ack arrives."""
         session = self._active_session(session_id)
+        inst = normalize_instrument(instrument or {})
+        if not any(v not in (None, "") for v in inst.values()):
+            # An allocation naming no instrument is in its orders': the first's.
+            named = parse_lines(orders or "", ALLOC_GROUPS["orders"][1])
+            order = await self._find_order(session_id, named[0].get("11", "")) if named else None
+            inst = normalize_instrument(order) if order else inst
+        instrument_pairs(session.dictionary, inst)          # refused before an ID is spent on it
         alloc_id = await self.ids.next_id("AL")
         terms = dict(symbol=symbol, side=side, qty=qty, avg_price=avg_price, trade_date=trade_date,
                      alloc_type=alloc_type, orders=orders, execs=execs, allocs=allocs)
-        msg = self._allocation_message(session, alloc_id, "0", terms, text=text, extra_tags=extra_tags, client=client)
+        msg = self._allocation_message(session, alloc_id, "0", terms, text=text, extra_tags=extra_tags, client=client,
+                                       instrument=inst, originating=True)
         row = self._sent_allocation_row(session, msg, extra_tags)
         row["status"] = "Sent"
         await self._insert_family_row("fix_allocations", row)
@@ -3244,7 +3321,7 @@ class FixEngine:
         terms = dict(symbol=symbol, side=side, qty=qty, avg_price=avg_price, trade_date=trade_date,
                      alloc_type=alloc_type, orders=orders, execs=execs, allocs=allocs)
         msg = self._allocation_message(session, new_id, "1", terms, ref_alloc_id=alloc_id, text=text,
-                                       extra_tags=extra_tags, client=client or row["client"])
+                                       extra_tags=extra_tags, client=client or row["client"], instrument=row)
         fresh = self._sent_allocation_row(session, msg, extra_tags)
         pending = {k: v for k, v in fresh.items() if k in _ALLOC_TERM_COLS}
         await self._update_family_row("fix_allocations", row, pending_action="Replace", pending_alloc_id=new_id,
@@ -3262,7 +3339,7 @@ class FixEngine:
                      trade_date=row["trade_date"], alloc_type=row["alloc_type_code"], orders=row["orders"],
                      execs=row["execs"], allocs=row["allocs"])
         msg = self._allocation_message(session, new_id, "2", terms, ref_alloc_id=alloc_id, text=text,
-                                       extra_tags=extra_tags, client=row["client"])
+                                       extra_tags=extra_tags, client=row["client"], instrument=row)
         sent = self._as_sent(session, msg)
         pending = {"raw_message": sent.to_wire_string(), "transact_time": sent.get("60", "")}
         await self._update_family_row("fix_allocations", row, pending_action="Cancel", pending_alloc_id=new_id,
@@ -3357,15 +3434,18 @@ class FixEngine:
             raise ValueError(f"Unknown {what}: {value} on {session_id}")
         return row
 
-    async def _live_quote_chain(self, session_id: str, symbol: str, side: str) -> dict[str, Any] | None:
+    async def _live_quote_chain(self, session_id: str, symbol: str, side: str,
+                                instrument: str = "") -> dict[str, Any] | None:
         """The unsolicited quote standing on an instrument: a new one with no
-        request replaces it, so a stream of quotes is one row's versions."""
+        request replaces it, so a stream of quotes is one row's versions.
+        Two option series share a symbol, so the instrument's text decides."""
         if not symbol:
             return None
         asked = "TX" if side == "client" else "RX"
         return await self._fetch_one(
             "SELECT * FROM fix_rfqs WHERE session_id = ? AND origin = 'quote' AND direction != ? AND symbol = ? "
-            "AND status IN ('Quoted', 'Countered') ORDER BY id DESC LIMIT 1", (session_id, asked, symbol))
+            "AND instrument = ? AND status IN ('Quoted', 'Countered') ORDER BY id DESC LIMIT 1",
+            (session_id, asked, symbol, instrument or symbol))
 
     def _emit_rfq(self, what: str, row: dict[str, Any] | None, session_id: str, msg: FixMessage | None = None,
                   source: str = "wire", **detail: Any) -> None:
@@ -3407,7 +3487,8 @@ class FixEngine:
         async with self._order_lock(session_id):
             row = await self._find_family_row("fix_rfqs", "quote_req_id", session_id, req_id, "client")
             if row is None:
-                row = await self._live_quote_chain(session_id, msg.get("55", ""), "client")
+                row = await self._live_quote_chain(session_id, msg.get("55", ""), "client",
+                                                   instrument_of(msg)["instrument"])
             if row is not None:
                 what = "requoted" if row["quote_id"] else "quoted"
                 updates = {k: quote[k] for k in _QUOTE_TERMS}
@@ -3428,7 +3509,7 @@ class FixEngine:
                 fresh.update(origin="quote", quote_req_id=req_id, symbol=msg.get("55", ""),
                              side=dictionary.enum_name("54", side) if side else "", side_code=side,
                              order_qty=msg.get_float("38", 0.0), status="Quoted", currency=msg.get("15", ""),
-                             quote_extra_tags=fresh["extra_tags"], extra_tags="")
+                             quote_extra_tags=fresh["extra_tags"], extra_tags="", **family_instrument(msg))
                 await self._insert_family_row("fix_rfqs", fresh)
                 row_id = None
         if row_id is None:
@@ -3536,7 +3617,7 @@ class FixEngine:
                     updates["order_cl_ord_id"] = cl_ord_id
                 await self._update_family_row("fix_rfqs", row, **updates)
                 if cl_ord_id:
-                    await self._handle_new_order(session, self._order_from_response(msg, row), link_quote=False,
+                    await self._handle_new_order(session, self._order_from_response(msg, row, session.dictionary), link_quote=False,
                                                  consumed=CONSUMED_RESPONSE_TAGS | CONSUMED_ORDER_TAGS)
         if row is None:
             self._emit_row(("message",), session_id, "fix_rfqs", None, msg=msg, request=msg.get("117", ""),
@@ -3548,11 +3629,11 @@ class FixEngine:
                        response=resp["quote_resp_type"], cl_ord_id=cl_ord_id)
 
     @staticmethod
-    def _order_from_response(msg: FixMessage, row: dict[str, Any]) -> FixMessage:
+    def _order_from_response(msg: FixMessage, row: dict[str, Any], dictionary: FixDictionary) -> FixMessage:
         """The order a Hit makes, as a NewOrderSingle would carry it: the
         response's own terms, the quote's where it leaves them out — the
-        side, the quoted quantity, the price of the side taken — and
-        PreviouslyQuoted as the type."""
+        side, the quoted quantity, the price of the side taken, the
+        instrument — and PreviouslyQuoted as the type."""
         order = FixMessage(dict(msg.fields), pairs=list(msg._items()))
         side = msg.get("54") or row["side_code"]
         order["54"] = side
@@ -3567,6 +3648,9 @@ class FixEngine:
             order["40"] = "D"
         order["117"] = row["quote_id"]
         order["55"] = msg.get("55") or row["symbol"]
+        if not carries_instrument(msg):
+            for tag, value in instrument_pairs(dictionary, row, originating=False):
+                order[tag] = value
         return order
 
     async def _link_quote_order(self, session: FixSession, quote_id: str, cl_ord_id: str, side: str,
@@ -3596,15 +3680,19 @@ class FixEngine:
 
     async def send_rfq(self, session_id: str, symbol: str, side: str = "", qty: float = 0.0,
                        quote_request_type: str = "", quote_type: str = "", currency: str = "", client: str = "",
-                       text: str = "", extra_tags: str = "", source: str = "manual", tag: str = "") -> str:
+                       text: str = "", extra_tags: str = "", source: str = "manual", tag: str = "",
+                       instrument: dict[str, Any] | None = None) -> str:
         """Send a QuoteRequest and return its QuoteReqID; the row is Open
         until a quote arrives. Written and announced (`sent rfq`) before
         the send, as `send_new_order` does."""
         session = self._active_session(session_id)
+        inst = normalize_instrument(instrument or {})
+        instrument_pairs(session.dictionary, inst)          # refused before an ID is spent on it
         quote_req_id = await self.ids.next_id("RQ")
         msg = session.factory.quote_request(quote_req_id, symbol, side=side, qty=qty or None,
                                             quote_request_type=quote_request_type, quote_type=quote_type,
                                             currency=currency, text=text or None)
+        self._stamp_group_instrument(session, msg, inst, originating=True)
         msg.extra += parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, client)
         row = {**_RFQ_BLANKS, **self._sent_family_row(session, msg, rfq_columns, extra_tags, _fix_timestamp())}
@@ -3628,6 +3716,7 @@ class FixEngine:
                                              text=text or None, **terms)
         msg.extra = parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, row["client"])
+        session.factory.stamp_instrument(msg, row, originating=False)
         return msg, resp_id
 
     async def hit_quote(self, session_id: str, quote_id: str, side: str = "", qty: float | None = None,
@@ -3715,7 +3804,8 @@ class FixEngine:
     # ── Market side: received RFQs, sent quotes ──────────────────────
 
     def _quote_message(self, session: FixSession, quote_id: str, terms: dict[str, Any], quote_req_id: str = "",
-                       text: str = "", extra_tags: str = "", client: str = "") -> FixMessage:
+                       text: str = "", extra_tags: str = "", client: str = "",
+                       instrument: dict[str, Any] | None = None, originating: bool = False) -> FixMessage:
         factory = session.factory
         valid_until = str(terms.get("valid_until") or "")
         if not valid_until and terms.get("valid_for"):
@@ -3731,6 +3821,9 @@ class FixEngine:
             currency=str(terms.get("currency") or ""), text=text or None)
         msg.extra += parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, client)
+        if instrument:
+            # The instrument's own terms: Open/Close and Covered are an order's.
+            session.factory.stamp_instrument(msg, {c: instrument.get(c) for c in INSTRUMENT_COLS}, originating)
         return msg
 
     def _quote_updates(self, session: FixSession, msg: FixMessage, row: dict[str, Any] | None,
@@ -3765,7 +3858,7 @@ class FixEngine:
                      offer_px=offer_px, bid_size=bid_size, offer_size=offer_size, valid_for=valid_for,
                      valid_until=valid_until, quote_type=quote_type, currency=currency or row["currency"])
         msg = self._quote_message(session, quote_id, terms, quote_req_id=quote_req_id, text=text,
-                                  extra_tags=extra_tags, client=row["client"])
+                                  extra_tags=extra_tags, client=row["client"], instrument=row)
         await self._update_family_row("fix_rfqs", row, **self._quote_updates(session, msg, row, extra_tags))
         self._wake_expiry()
         return msg, quote_id
@@ -3775,21 +3868,26 @@ class FixEngine:
                          offer_size: float | None = None, side: str = "", qty: float | None = None,
                          valid_for: float | None = None, valid_until: str = "", quote_type: str = "",
                          currency: str = "", client: str = "", text: str = "", extra_tags: str = "",
-                         source: str = "manual", tag: str = "") -> str:
+                         source: str = "manual", tag: str = "",
+                         instrument: dict[str, Any] | None = None) -> str:
         """Send an unsolicited quote and return its QuoteID. It replaces the
         quote standing on the instrument — the counterparty's rule, so a
         stream of quotes is one row — or opens a row of its own."""
         session = self._active_session(session_id)
         if bid_px is None and offer_px is None:
             raise ValueError("A quote names a bid, an offer or both")
+        inst = normalize_instrument(instrument or {})
+        instrument_pairs(session.dictionary, inst)          # refused before an ID is spent on it
         quote_id = await self.ids.next_id("QT")
         terms = dict(symbol=symbol, side=side, qty=qty, bid_px=bid_px, offer_px=offer_px, bid_size=bid_size,
                      offer_size=offer_size, valid_for=valid_for, valid_until=valid_until, quote_type=quote_type,
                      currency=currency)
         async with self._order_lock(session_id):
-            row = await self._live_quote_chain(session_id, symbol, "market")
+            row = await self._live_quote_chain(session_id, symbol, "market",
+                                               instrument_text({**inst, "symbol": symbol}))
             msg = self._quote_message(session, quote_id, terms, text=text, extra_tags=extra_tags,
-                                      client=client or (row["client"] if row else ""))
+                                      client=client or (row["client"] if row else ""), instrument=inst,
+                                      originating=True)
             updates = self._quote_updates(session, msg, row, extra_tags)
             sent = self._as_sent(session, msg)
             identity = {"side": session.dictionary.enum_name("54", side) if side else "", "side_code": side,
@@ -3800,7 +3898,8 @@ class FixEngine:
             else:
                 now = _fix_timestamp()
                 fresh = {**_RFQ_BLANKS, **updates, **identity, "session_id": session_id, "origin": "quote",
-                         "symbol": symbol, "timestamp": now, "updated_at": now, "direction": "TX"}
+                         "symbol": symbol, "timestamp": now, "updated_at": now, "direction": "TX",
+                         **family_instrument(sent)}
                 await self._insert_family_row("fix_rfqs", fresh)
         created = await self._find_family_row("fix_rfqs", "quote_id", session_id, quote_id, "market")
         self._wake_expiry()
@@ -3835,7 +3934,7 @@ class FixEngine:
                      offer_px=offer_px, bid_size=bid_size, offer_size=offer_size, valid_for=valid_for,
                      valid_until=valid_until, quote_type=quote_type, currency=row["currency"])
         msg = self._quote_message(session, new_id, terms, quote_req_id=row["quote_req_id"], text=text,
-                                  extra_tags=extra_tags, client=row["client"])
+                                  extra_tags=extra_tags, client=row["client"], instrument=row)
         await self._update_family_row("fix_rfqs", row, **self._quote_updates(session, msg, row, extra_tags))
         self._wake_expiry()
         return msg, new_id
@@ -3853,6 +3952,7 @@ class FixEngine:
         if not reason:
             raise ValueError("A rejection names its reason (658)")
         msg = session.factory.quote_request_reject(quote_req_id, row["symbol"], reason, text=text or None)
+        self._stamp_group_instrument(session, msg, row)
         msg.extra += parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, row["client"])
         sent = self._as_sent(session, msg)
