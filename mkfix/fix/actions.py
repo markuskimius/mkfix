@@ -48,15 +48,21 @@ SUBJECT_KEY = {
     "quote_rfq": ("fix_rfqs", "quote_req_id", "market"), "reject_rfq": ("fix_rfqs", "quote_req_id", "market"),
     "requote": ("fix_rfqs", "quote_id", "market"), "cancel_quote": ("fix_rfqs", "quote_id", "market"),
     "unsubscribe_rfq_request": ("fix_rfq_requests", "rfq_req_id", "TX"),
+    "execute_list": ("fix_lists", "list_id", "TX"), "cancel_list": ("fix_lists", "list_id", "TX"),
+    "request_list_status": ("fix_lists", "list_id", "TX"),
+    "accept_list": ("fix_lists", "list_id", "RX"), "reject_list": ("fix_lists", "list_id", "RX"),
+    "send_list_status": ("fix_lists", "list_id", "RX"), "fill_list": ("fix_lists", "list_id", "RX"),
+    "cancel_list_orders": ("fix_lists", "list_id", "RX"), "add_list_order": ("fix_lists", "list_id", "TX"),
 }
 CREATES = {"send_ioi": ("fix_iois", "ioi_id"), "send_advert": ("fix_adverts", "adv_id"),
            "send_allocation": ("fix_allocations", "alloc_id"),
            "send_rfq": ("fix_rfqs", "quote_req_id"), "send_quote": ("fix_rfqs", "quote_id"),
-           "send_rfq_request": ("fix_rfq_requests", "rfq_req_id")}
-# The actions the macro language has no verb for: none since 0.73 gave the
-# RFQ ones theirs. Kept so a future op can ship ahead of its verb; the
-# recorder and vocabulary tests key off it.
-UNSCRIPTED: frozenset[str] = frozenset()
+           "send_rfq_request": ("fix_rfq_requests", "rfq_req_id"), "send_new_list": ("fix_lists", "list_id")}
+# The actions the macro language has no verb for yet: the list ones (0.77),
+# whose verbs come in 0.78. The recorder and vocabulary tests key off it.
+UNSCRIPTED: frozenset[str] = frozenset({
+    "send_new_list", "add_list_order", "execute_list", "cancel_list", "request_list_status", "accept_list",
+    "reject_list", "send_list_status", "fill_list", "cancel_list_orders"})
 
 
 def _action(name: str) -> Callable[[Action], Action]:
@@ -339,3 +345,49 @@ async def _send_rfq_request(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
 async def _unsubscribe_rfq_request(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"rfq_req_id": await e.unsubscribe_rfq_request(
         session_id=d["session_id"], rfq_req_id=d["rfq_req_id"], extra_tags=d.get("extra_tags", ""))}
+
+
+def _yes(value: Any) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+@_action("send_new_list")
+async def _send_new_list(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"list_id": await e.send_new_list(
+        session_id=d["session_id"], orders=d.get("list_orders") or "", mode=d.get("mode") or "E",
+        bid_type=d.get("bid_type", ""), exec_inst_type=d.get("exec_inst_type", ""),
+        tot_orders=_yes(d.get("tot_orders")), client=d.get("client", ""), source=d.get("_source", "manual"),
+        tag=d.get("_tag", ""), **_common(d))}
+
+
+@_action("add_list_order")
+async def _add_list_order(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"cl_ord_id": await e.send_new_order(
+        session_id=d["session_id"], symbol=d["symbol"], side=d["side"], qty=float(d["qty"]),
+        ord_type=d.get("ord_type", "2"), price=_price(d), tif=d.get("tif", "0"), client=d.get("client", ""),
+        handl_inst=d.get("handl_inst") or "1", source=d.get("_source", "manual"), tag=d.get("_tag", ""),
+        instrument=_instrument(d), list_id=d["list_id"], **_common(d))}
+
+
+def _on_list(name: str, **defaults: str) -> None:
+    """A list action naming the list, with text and extra tags and its own keys."""
+    @_action(name)
+    async def run(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+        more = {k: d.get(k, v) for k, v in defaults.items()}
+        result = await getattr(e, name)(session_id=d["session_id"], list_id=d["list_id"], **more, **_common(d))
+        return {"list_id": d["list_id"], "result": result}
+
+
+_on_list("execute_list")
+_on_list("cancel_list", as_orders="")
+_on_list("accept_list")
+_on_list("reject_list")
+_on_list("send_list_status", status_type="6", list_status="")
+_on_list("fill_list", price="")
+_on_list("cancel_list_orders")
+
+
+@_action("request_list_status")
+async def _request_list_status(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"list_id": await e.request_list_status(session_id=d["session_id"], list_id=d["list_id"],
+                                                   extra_tags=d.get("extra_tags", ""))}

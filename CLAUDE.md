@@ -32,6 +32,7 @@ mkfix/
     actions.py, events.py  # perform(), event bus, order lock — see fix/CLAUDE.md
     families.py         # IOIs, adverts, allocations — see fix/CLAUDE.md
     instrument.py       # options, futures: SecurityType and its tags per version — see fix/CLAUDE.md
+    lists.py            # lists: NewOrderList, orders carrying ListID, ListStatus — see fix/CLAUDE.md
     replay.py           # Message Replay — see fix/CLAUDE.md
   macro/               # macros, the scripting language — see macro/CLAUDE.md
   archive.py           # mkfix archive / restore over mkio's row archiving
@@ -88,7 +89,7 @@ The Details pane (`message-detail`) translates through the owning session's dict
 
 ## IOIs, adverts, allocations, RFQs
 
-The market sends these: Sent IOIs/Adverts/Allocations under Market (`market-ioi-blotter`…), Received ones under Client (`ioi-blotter`…), tabs beside the order blotters, each pair one query (`iois_query`… , the orders_query join) split by `direction`, with history and the side's macro deck. Sent: New, Clone, Replace, Cancel, History, Macro… (a macro from a row's messages, on the order blotters too); Received IOIs: Order (the New Order form with `23=<IOIID>` in Extra Tags); Received Adverts: History only; Received Allocations: Accept/Reject over the request slot, Received Orders' way, whose Allocate opens New Allocation from the received order. Template scopes `ioi`, `advert`, `allocation`, `alloc_accept`, `alloc_reject`; cancels share `cancel`. Macros speak them (macro/CLAUDE.md). Rows and engine: fix/CLAUDE.md; guards: `TestFamilyBlotters`, `test_families.py`. RFQs (`fix_rfqs`, `rfqs_query` split by `origin`+`direction`): Sent RFQs/Received Quotes (Client), Received RFQs/Sent Quotes (Market); RFQ requests (`fix_rfq_requests`) sent by Market (`TestRfq*Blotters`, `test_rfqs.py`).
+The market sends these: Sent IOIs/Adverts/Allocations under Market (`market-ioi-blotter`…), Received ones under Client (`ioi-blotter`…), tabs beside the order blotters, each pair one query (`iois_query`… , the orders_query join) split by `direction`, with history and the side's macro deck. Sent: New, Clone, Replace, Cancel, History, Macro… (a macro from a row's messages, on the order blotters too); Received IOIs: Order (the New Order form with `23=<IOIID>` in Extra Tags); Received Adverts: History only; Received Allocations: Accept/Reject over the request slot, Received Orders' way, whose Allocate opens New Allocation from the received order. Template scopes `ioi`, `advert`, `allocation`, `alloc_accept`, `alloc_reject`; cancels share `cancel`. Macros speak them (macro/CLAUDE.md). Rows and engine: fix/CLAUDE.md; guards: `TestFamilyBlotters`, `test_families.py`. RFQs (`fix_rfqs`, `rfqs_query` split by `origin`+`direction`): Sent RFQs/Received Quotes (Client), Received RFQs/Sent Quotes (Market); RFQ requests (`fix_rfq_requests`) sent by Market (`TestRfq*Blotters`, `test_rfqs.py`). Lists (`fix_lists`, `lists_query` split by `direction`): Sent Lists (Client) and Received Lists (Market), each linked to its side's order blotter by `list_id` (`link.broadcast`/`listen`, chips off), so a selected list narrows it to its orders (`TestListBlotters`, `test_lists.py`; fix/CLAUDE.md).
 
 ## Templates
 
@@ -130,7 +131,7 @@ Every engine action submits its database writes *before* `session.send_message`.
 
 ## ID scheme
 
-All generated business IDs come from `fix/idgen.py`: `<2-char type code><2-char instance code><8-digit counter>`, e.g. `RTMA00000001`. Type codes: `RT` ClOrdIDs mkfix sends, `OR` Order IDs (received orders' also go out as OrderID tag 37), `EX` ExecIDs, `TR` Trade IDs, `IO`/`AD`/`AL` IOI, advert and allocation IDs, `RQ`/`QT`/`QR`/`RR` QuoteReqID/QuoteID/QuoteRespID/RFQReqID. The instance code is the username's first two characters, uppercased and X-padded; `-i/--instance-code` overrides it, saved in `fix_settings` (see idgen.py). Counters live per type prefix in `fix_id_state`, start at 1 and persist through the WriteBatcher, serialized with engine writes — no reissued IDs across restarts.
+All generated business IDs come from `fix/idgen.py`: `<2-char type code><2-char instance code><8-digit counter>`, e.g. `RTMA00000001`. Type codes: `RT` ClOrdIDs mkfix sends, `OR` Order IDs (received orders' also go out as OrderID tag 37), `EX` ExecIDs, `TR` Trade IDs, `IO`/`AD`/`AL` IOI, advert and allocation IDs, `RQ`/`QT`/`QR`/`RR` QuoteReqID/QuoteID/QuoteRespID/RFQReqID, `LI` ListIDs. The instance code is the username's first two characters, uppercased and X-padded; `-i/--instance-code` overrides it, saved in `fix_settings` (see idgen.py). Counters live per type prefix in `fix_id_state`, start at 1 and persist through the WriteBatcher, serialized with engine writes — no reissued IDs across restarts.
 
 The identity rules the engine enforces (write-once `order_id`, ClOrdID chains advancing on accept, the request slot, `trade_id`, trades resolving their order by `order_id`) are in `mkfix/fix/CLAUDE.md` (Identity rules).
 

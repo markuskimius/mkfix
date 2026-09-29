@@ -834,6 +834,84 @@ class FixMessageFactory:
         msg.extra = pairs
         return msg
 
+    def new_order_list(self, list_id: str, members: list[list[tuple[str, str]]], bid_type: str = "",
+                       exec_inst_type: str = "") -> FixMessage:
+        """NewOrderList (35=E) of several orders, FIX 4.2 on: ListID(66),
+        BidType(394) — required, NoBiddingProcess(3) unless given —
+        ListExecInstType(433) when given, TotNoOrders(68), and NoOrders(73)
+        holding each order's pairs (lists.member_pairs), in the order the
+        dictionary lists the group's members, ClOrdID first. Before 4.2 a
+        NewOrderList holds one order, and the engine sends one a member."""
+        fields: dict[str, str] = {"35": "E", "66": list_id}
+        if self.dictionary.defines("394"):
+            fields["394"] = bid_type or "3"
+        if exec_inst_type and self.dictionary.defines("433"):
+            fields["433"] = exec_inst_type
+        fields["68"] = str(len(members))
+        msg = self.create(fields)
+        group = self.dictionary.group("73") or {}
+        rank = {tag: n for n, tag in enumerate(group.get("members", []))}
+        pairs: list[tuple[str, str]] = [("73", str(len(members)))]
+        for member in members:
+            ordered = sorted(enumerate(member), key=lambda p: (p[1][0] != "11", rank.get(p[1][0], len(rank)), p[0]))
+            pairs += [pair for _, pair in ordered]
+        msg.extra = pairs
+        return msg
+
+    def list_status(self, list_id: str, status_type: str, order_status: str,
+                    members: list[dict[str, Any]], text: str | None = None) -> FixMessage:
+        """ListStatus (35=N): ListID(66), ListStatusType(429) and
+        ListOrderStatus(431) where the version has them (4.2 on), one report
+        (82/83), ListStatusText(444), TotNoOrders(68) and each order in
+        NoOrders(73): ClOrdID, CumQty, OrdStatus, LeavesQty, CxlQty, AvgPx,
+        each where defined."""
+        d = self.dictionary
+        fields: dict[str, str] = {"35": "N", "66": list_id}
+        if status_type and d.defines("429"):
+            fields["429"] = status_type
+        fields.update({"82": "1", "83": "1"})
+        if order_status and d.defines("431"):
+            fields["431"] = order_status
+        if text and d.defines("444"):
+            fields["444"] = text
+        if d.defines("60") and d.defines("429"):
+            fields["60"] = self._now()
+        fields["68"] = str(len(members))
+        msg = self.create(fields)
+        pairs: list[tuple[str, str]] = [("73", str(len(members)))] if members else []
+        for m in members:
+            for tag in ("11", "14", "39", "151", "84", "6"):
+                value = m.get(tag)
+                if value not in (None, "") and d.defines(tag):
+                    pairs.append((tag, str(value)))
+        msg.extra = pairs
+        return msg
+
+    def list_execute(self, list_id: str, text: str | None = None) -> FixMessage:
+        """ListExecute (35=L): ListID(66), TransactTime where defined."""
+        fields: dict[str, str] = {"35": "L", "66": list_id}
+        if self.dictionary.defines("60"):
+            fields["60"] = self._now()
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
+    def list_cancel_request(self, list_id: str, text: str | None = None) -> FixMessage:
+        """ListCancelRequest (35=K): ListID(66), TransactTime where defined."""
+        fields: dict[str, str] = {"35": "K", "66": list_id}
+        if self.dictionary.defines("60"):
+            fields["60"] = self._now()
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
+    def list_status_request(self, list_id: str, text: str | None = None) -> FixMessage:
+        """ListStatusRequest (35=M): ListID(66)."""
+        fields: dict[str, str] = {"35": "M", "66": list_id}
+        if text:
+            fields["58"] = text
+        return self.create(fields)
+
     def quote_response(
         self,
         quote_resp_id: str,

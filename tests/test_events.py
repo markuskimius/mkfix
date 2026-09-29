@@ -231,7 +231,8 @@ class TestPerform:
         assert set(TEMPLATE_TERMS) <= set(ACTIONS), "every op a dialog submits is an action"
         assert set(ACTIONS) == set(ORDER_KEY) | set(TRADE_KEY) | {"send_new_order"} | set(SUBJECT_KEY) | set(CREATES)
         assert not set(ORDER_KEY) & set(TRADE_KEY)
-        assert UNSCRIPTED == set(), "every op has a verb since 0.73"
+        assert all(op.endswith(("_list", "_list_status", "_list_order", "_list_orders")) for op in UNSCRIPTED), \
+            "only the list ops wait for their verbs (0.78)"
 
     @pytest.mark.asyncio
     async def test_unknown_action(self, stack):

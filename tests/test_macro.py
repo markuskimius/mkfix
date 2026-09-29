@@ -444,7 +444,7 @@ class TestVocabulary:
         from mkfix.fix.actions import UNSCRIPTED
         assert {v.op for v in vocab.VERBS.values()} == set(TEMPLATE_TERMS) - UNSCRIPTED, \
             "one verb per dialog, bar the ops the language has no verb for yet"
-        assert UNSCRIPTED == set(), "every op has its verb"
+        assert all("list" in op for op in UNSCRIPTED), "only the list ops wait for their verbs (0.78)"
 
     def test_every_report_the_engine_names_is_an_event(self):
         named = set(_REPORT_KINDS.values()) | set(_TRANS_KINDS.values()) | {"filled", "er", "cancel rejected", "message"}

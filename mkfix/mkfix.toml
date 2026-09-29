@@ -36,7 +36,7 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # orders_query/executions_query join the owning session's live status onto
 # these rows as session_status, which the blotters' action buttons gate on.
 [tables.fix_orders]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", handl_inst_code = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", cxl_rej_reason = "TEXT DEFAULT ''", pending_entered = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''", market_order_id = "TEXT DEFAULT ''", ioi_id = "TEXT DEFAULT ''", quote_id = "TEXT DEFAULT ''", security_type = "TEXT DEFAULT ''", maturity = "TEXT DEFAULT ''", strike_price = "REAL", put_or_call = "TEXT DEFAULT ''", cfi_code = "TEXT DEFAULT ''", underlying_symbol = "TEXT DEFAULT ''", underlying_security_type = "TEXT DEFAULT ''", underlying_maturity = "TEXT DEFAULT ''", multiplier = "REAL", security_exchange = "TEXT DEFAULT ''", security_id = "TEXT DEFAULT ''", security_id_source = "TEXT DEFAULT ''", open_close = "TEXT DEFAULT ''", covered_uncovered = "TEXT DEFAULT ''", instrument = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", cl_ord_id = "TEXT NOT NULL", session_id = "TEXT NOT NULL", order_id = "TEXT DEFAULT ''", orig_cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", ord_type_code = "TEXT DEFAULT ''", price = "REAL DEFAULT 0", stop_price = "REAL DEFAULT 0", order_qty = "REAL DEFAULT 0", time_in_force = "TEXT DEFAULT ''", status = "TEXT DEFAULT 'PendingNew'", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", leaves_qty = "REAL DEFAULT 0", last_qty = "REAL DEFAULT 0", last_price = "REAL DEFAULT 0", text = "TEXT DEFAULT ''", transact_time = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'TX'", pending_action = "TEXT DEFAULT ''", pending_cl_ord_id = "TEXT DEFAULT ''", pending_qty = "REAL DEFAULT 0", pending_price = "REAL DEFAULT 0", pending_extra_tags = "TEXT DEFAULT ''", tif_code = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", entered_qty = "REAL DEFAULT 0", entered_price = "REAL", expire_time = "TEXT DEFAULT ''", expire_date = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", handl_inst_code = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", cxl_rej_reason = "TEXT DEFAULT ''", pending_entered = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''", market_order_id = "TEXT DEFAULT ''", ioi_id = "TEXT DEFAULT ''", quote_id = "TEXT DEFAULT ''", security_type = "TEXT DEFAULT ''", maturity = "TEXT DEFAULT ''", strike_price = "REAL", put_or_call = "TEXT DEFAULT ''", cfi_code = "TEXT DEFAULT ''", underlying_symbol = "TEXT DEFAULT ''", underlying_security_type = "TEXT DEFAULT ''", underlying_maturity = "TEXT DEFAULT ''", multiplier = "REAL", security_exchange = "TEXT DEFAULT ''", security_id = "TEXT DEFAULT ''", security_id_source = "TEXT DEFAULT ''", open_close = "TEXT DEFAULT ''", covered_uncovered = "TEXT DEFAULT ''", instrument = "TEXT DEFAULT ''", list_id = "TEXT DEFAULT ''", list_seq_no = "INTEGER DEFAULT 0" }
 versioned = true
 archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -44,6 +44,18 @@ archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", exec_id = "TEXT NOT NULL", exec_ref_id = "TEXT DEFAULT ''", trade_id = "TEXT DEFAULT ''", order_id = "TEXT DEFAULT ''", market_order_id = "TEXT DEFAULT ''", cl_ord_id = "TEXT DEFAULT ''", symbol = "TEXT NOT NULL DEFAULT ''", side = "TEXT NOT NULL DEFAULT ''", side_code = "TEXT DEFAULT ''", last_qty = "REAL NOT NULL DEFAULT 0", last_price = "REAL NOT NULL DEFAULT 0", cum_qty = "REAL DEFAULT 0", avg_price = "REAL DEFAULT 0", exec_type = "TEXT DEFAULT ''", exec_type_code = "TEXT DEFAULT ''", leaves_qty = "REAL DEFAULT 0", transact_time = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", direction = "TEXT NOT NULL DEFAULT 'RX'", dk_reason = "TEXT DEFAULT ''", dk_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", security_type = "TEXT DEFAULT ''", maturity = "TEXT DEFAULT ''", strike_price = "REAL", put_or_call = "TEXT DEFAULT ''", cfi_code = "TEXT DEFAULT ''", underlying_symbol = "TEXT DEFAULT ''", underlying_security_type = "TEXT DEFAULT ''", underlying_maturity = "TEXT DEFAULT ''", multiplier = "REAL", security_exchange = "TEXT DEFAULT ''", security_id = "TEXT DEFAULT ''", security_id_source = "TEXT DEFAULT ''", open_close = "TEXT DEFAULT ''", covered_uncovered = "TEXT DEFAULT ''", instrument = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
+
+# Lists (mkfix/fix/lists.py): one row per ListID a side sent or received,
+# split by `direction` like orders. Its orders are fix_orders rows carrying
+# the list_id (and list_seq_no); lists_query counts them. `mode` is how the
+# list travelled: E (NewOrderList), D (orders carrying ListID), or E+D. The
+# request slot (`pending_action`: New, Execute, Cancel) is the counterparty's
+# on a received list and ours on a sent one. `status` is the list's last
+# ListOrderStatus(431) by name, or Sent/Received before one.
+[tables.fix_lists]
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", list_id = "TEXT NOT NULL", direction = "TEXT NOT NULL DEFAULT ''", mode = "TEXT DEFAULT ''", bid_type = "TEXT DEFAULT ''", bid_type_code = "TEXT DEFAULT ''", exec_inst_type = "TEXT DEFAULT ''", exec_inst_type_code = "TEXT DEFAULT ''", tot_no_orders = "INTEGER DEFAULT 0", status = "TEXT DEFAULT ''", status_type = "TEXT DEFAULT ''", status_type_code = "TEXT DEFAULT ''", list_status_code = "TEXT DEFAULT ''", pending_action = "TEXT DEFAULT ''", pending_extra_tags = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", sent_text = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT ''", updated_at = "TEXT DEFAULT ''", last_order_at = "TEXT DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''" }
+versioned = true
+archive = { cutoff = "created_at", format = "%Y%m%d-%H:%M:%S.000" }
 
 # IOIs, adverts and allocations (mkfix/fix/families.py): one row per chain
 # — the ID column is the chain's latest ID, `*_ref_id` the one it replaced or
@@ -141,7 +153,7 @@ archive = { cutoff = "saved", group = "config" }
 # under the dialog they belong to (`scope`: order, cancel, accept, reject,
 # fill, unsolicited, restate, dk, correct, bust, renotify, ioi, advert,
 # allocation, alloc_accept, alloc_reject, rfq, quote, new_quote, quote_reject,
-# hit, counter, pass, rfq_request, unsubscribe; unique per scope, an engine index). One
+# hit, counter, pass, rfq_request, unsubscribe, list; unique per scope, an engine index). One
 # superset of columns, each scope reading its own; qty/price are kept as
 # typed, since a blank one means "ask the row" (a fill's leaves, say). Every
 # such dialog opens on a Template dropdown (`templates_list`) and closes on a
@@ -149,7 +161,7 @@ archive = { cutoff = "saved", group = "config" }
 # Templates pane edits and deletes through the `templates` service. Shared by
 # everyone on the server, like layouts.
 [tables.fix_templates]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", restate_reason = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP", currency = "TEXT DEFAULT ''", qlty_ind = "TEXT DEFAULT ''", natural_flag = "TEXT DEFAULT ''", qualifiers = "TEXT DEFAULT ''", trade_date = "TEXT DEFAULT ''", last_mkt = "TEXT DEFAULT ''", avg_price = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", allocs = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", alloc_rej_code = "TEXT DEFAULT ''", quote_request_type = "TEXT DEFAULT ''", quote_type = "TEXT DEFAULT ''", bid_px = "TEXT DEFAULT ''", offer_px = "TEXT DEFAULT ''", bid_size = "TEXT DEFAULT ''", offer_size = "TEXT DEFAULT ''", valid_for = "TEXT DEFAULT ''", quote_rej_reason = "TEXT DEFAULT ''", symbols = "TEXT DEFAULT ''", subscription_type = "TEXT DEFAULT ''", security_type = "TEXT DEFAULT ''", maturity = "TEXT DEFAULT ''", strike_price = "TEXT DEFAULT ''", put_or_call = "TEXT DEFAULT ''", cfi_code = "TEXT DEFAULT ''", underlying_symbol = "TEXT DEFAULT ''", underlying_security_type = "TEXT DEFAULT ''", underlying_maturity = "TEXT DEFAULT ''", multiplier = "TEXT DEFAULT ''", security_exchange = "TEXT DEFAULT ''", security_id = "TEXT DEFAULT ''", security_id_source = "TEXT DEFAULT ''", open_close = "TEXT DEFAULT ''", covered_uncovered = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", scope = "TEXT NOT NULL", name = "TEXT NOT NULL", session_id = "TEXT DEFAULT ''", symbol = "TEXT DEFAULT ''", side = "TEXT DEFAULT ''", ord_type = "TEXT DEFAULT ''", qty = "TEXT DEFAULT ''", price = "TEXT DEFAULT ''", tif = "TEXT DEFAULT ''", dk_reason = "TEXT DEFAULT ''", text = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", client = "TEXT DEFAULT ''", handl_inst = "TEXT DEFAULT ''", restate_reason = "TEXT DEFAULT ''", created_at = "TEXT DEFAULT CURRENT_TIMESTAMP", currency = "TEXT DEFAULT ''", qlty_ind = "TEXT DEFAULT ''", natural_flag = "TEXT DEFAULT ''", qualifiers = "TEXT DEFAULT ''", trade_date = "TEXT DEFAULT ''", last_mkt = "TEXT DEFAULT ''", avg_price = "TEXT DEFAULT ''", alloc_type = "TEXT DEFAULT ''", allocs = "TEXT DEFAULT ''", alloc_status = "TEXT DEFAULT ''", alloc_rej_code = "TEXT DEFAULT ''", quote_request_type = "TEXT DEFAULT ''", quote_type = "TEXT DEFAULT ''", bid_px = "TEXT DEFAULT ''", offer_px = "TEXT DEFAULT ''", bid_size = "TEXT DEFAULT ''", offer_size = "TEXT DEFAULT ''", valid_for = "TEXT DEFAULT ''", quote_rej_reason = "TEXT DEFAULT ''", symbols = "TEXT DEFAULT ''", subscription_type = "TEXT DEFAULT ''", security_type = "TEXT DEFAULT ''", maturity = "TEXT DEFAULT ''", strike_price = "TEXT DEFAULT ''", put_or_call = "TEXT DEFAULT ''", cfi_code = "TEXT DEFAULT ''", underlying_symbol = "TEXT DEFAULT ''", underlying_security_type = "TEXT DEFAULT ''", underlying_maturity = "TEXT DEFAULT ''", multiplier = "TEXT DEFAULT ''", security_exchange = "TEXT DEFAULT ''", security_id = "TEXT DEFAULT ''", security_id_source = "TEXT DEFAULT ''", open_close = "TEXT DEFAULT ''", covered_uncovered = "TEXT DEFAULT ''", mode = "TEXT DEFAULT ''", bid_type = "TEXT DEFAULT ''", exec_inst_type = "TEXT DEFAULT ''", tot_orders = "TEXT DEFAULT ''", list_orders = "TEXT DEFAULT ''" }
 archive = { group = "config" }
 
 # Saved instruments (Config › Instruments): a name for a set of instrument
@@ -242,10 +254,10 @@ description = "Save, edit and delete blotter action templates"
 
 [services.templates.ops]
 add = [
-    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code", "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_rej_reason", "symbols", "subscription_type", "security_type", "maturity", "strike_price", "put_or_call", "cfi_code", "underlying_symbol", "underlying_security_type", "underlying_maturity", "multiplier", "security_exchange", "security_id", "security_id_source", "open_close", "covered_uncovered"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "", quote_request_type = "", quote_type = "", bid_px = "", offer_px = "", bid_size = "", offer_size = "", valid_for = "", quote_rej_reason = "", symbols = "", subscription_type = "", security_type = "", maturity = "", strike_price = "", put_or_call = "", cfi_code = "", underlying_symbol = "", underlying_security_type = "", underlying_maturity = "", multiplier = "", security_exchange = "", security_id = "", security_id_source = "", open_close = "", covered_uncovered = "" } },
+    { table = "fix_templates", op_type = "insert", fields = ["scope", "name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code", "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_rej_reason", "symbols", "subscription_type", "security_type", "maturity", "strike_price", "put_or_call", "cfi_code", "underlying_symbol", "underlying_security_type", "underlying_maturity", "multiplier", "security_exchange", "security_id", "security_id_source", "open_close", "covered_uncovered", "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "", quote_request_type = "", quote_type = "", bid_px = "", offer_px = "", bid_size = "", offer_size = "", valid_for = "", quote_rej_reason = "", symbols = "", subscription_type = "", security_type = "", maturity = "", strike_price = "", put_or_call = "", cfi_code = "", underlying_symbol = "", underlying_security_type = "", underlying_maturity = "", multiplier = "", security_exchange = "", security_id = "", security_id_source = "", open_close = "", covered_uncovered = "", mode = "", bid_type = "", exec_inst_type = "", tot_orders = "", list_orders = "" } },
 ]
 update = [
-    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code", "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_rej_reason", "symbols", "subscription_type", "security_type", "maturity", "strike_price", "put_or_call", "cfi_code", "underlying_symbol", "underlying_security_type", "underlying_maturity", "multiplier", "security_exchange", "security_id", "security_id_source", "open_close", "covered_uncovered"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "", quote_request_type = "", quote_type = "", bid_px = "", offer_px = "", bid_size = "", offer_size = "", valid_for = "", quote_rej_reason = "", symbols = "", subscription_type = "", security_type = "", maturity = "", strike_price = "", put_or_call = "", cfi_code = "", underlying_symbol = "", underlying_security_type = "", underlying_maturity = "", multiplier = "", security_exchange = "", security_id = "", security_id_source = "", open_close = "", covered_uncovered = "" } },
+    { table = "fix_templates", op_type = "update", key = ["id"], fields = ["name", "session_id", "symbol", "side", "ord_type", "qty", "price", "tif", "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst", "currency", "qlty_ind", "natural_flag", "qualifiers", "trade_date", "last_mkt", "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code", "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for", "quote_rej_reason", "symbols", "subscription_type", "security_type", "maturity", "strike_price", "put_or_call", "cfi_code", "underlying_symbol", "underlying_security_type", "underlying_maturity", "multiplier", "security_exchange", "security_id", "security_id_source", "open_close", "covered_uncovered", "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders"], defaults = { session_id = "", symbol = "", side = "", ord_type = "", qty = "", price = "", tif = "", dk_reason = "", restate_reason = "", text = "", extra_tags = "", client = "", handl_inst = "", currency = "", qlty_ind = "", natural_flag = "", qualifiers = "", trade_date = "", last_mkt = "", avg_price = "", alloc_type = "", allocs = "", alloc_status = "", alloc_rej_code = "", quote_request_type = "", quote_type = "", bid_px = "", offer_px = "", bid_size = "", offer_size = "", valid_for = "", quote_rej_reason = "", symbols = "", subscription_type = "", security_type = "", maturity = "", strike_price = "", put_or_call = "", cfi_code = "", underlying_symbol = "", underlying_security_type = "", underlying_maturity = "", multiplier = "", security_exchange = "", security_id = "", security_id_source = "", open_close = "", covered_uncovered = "", mode = "", bid_type = "", exec_inst_type = "", tot_orders = "", list_orders = "" } },
 ]
 delete = [
     { table = "fix_templates", op_type = "delete", key = ["id"] },
@@ -301,7 +313,7 @@ watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
 sql = """SELECT o.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_orders o LEFT JOIN fix_session_state t ON t.session_id = o.session_id"""
-filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client", "handl_inst", "macro", "market_order_id", "instrument", "security_type"]
+filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client", "handl_inst", "macro", "market_order_id", "instrument", "security_type", "list_id"]
 
 [services.executions_query]
 protocol = "query"
@@ -328,6 +340,39 @@ key = ["id"]
 sql = """SELECT i.*, COALESCE(t.status, 'DOWN') AS session_status
          FROM fix_iois i LEFT JOIN fix_session_state t ON t.session_id = i.session_id"""
 filterable = ["session_id", "status", "symbol", "side", "direction", "session_status", "client"]
+
+# Lists (fix_lists), one query for both blotters split by direction, like
+# orders. Each row counts its orders — the fix_orders rows of its ListID and
+# direction — so an order's fill or answer re-runs it (watch_columns); and
+# carries them as the New List grid takes them (`list_orders`, JSON: what
+# Clone opens on, an order's instrument by the saved name matching it).
+[services.lists_query]
+protocol = "query"
+primary_table = "fix_lists"
+watch_tables = ["fix_lists", "fix_orders", "fix_session_state"]
+watch_columns = { fix_session_state = ["status"], fix_orders = ["status", "cum_qty", "pending_action", "list_id"] }
+key = ["id"]
+sql = """SELECT l.*, COALESCE(t.status, 'DOWN') AS session_status,
+         (SELECT COUNT(*) FROM fix_orders o
+           WHERE o.session_id = l.session_id AND o.list_id = l.list_id AND o.direction = l.direction) AS orders,
+         (SELECT COUNT(*) FROM fix_orders o
+           WHERE o.session_id = l.session_id AND o.list_id = l.list_id AND o.direction = l.direction
+             AND o.status IN ('Filled', 'Canceled', 'Rejected', 'Expired', 'DoneForDay')) AS done_orders,
+         (SELECT COUNT(*) FROM fix_orders o
+           WHERE o.session_id = l.session_id AND o.list_id = l.list_id AND o.direction = l.direction
+             AND o.pending_action = 'New') AS pending_orders,
+         (SELECT COALESCE(SUM(o.cum_qty), 0) FROM fix_orders o
+           WHERE o.session_id = l.session_id AND o.list_id = l.list_id AND o.direction = l.direction) AS filled_qty,
+         (SELECT json_group_array(json_object(
+                   'instrument', COALESCE((SELECT i.name FROM fix_instruments i
+                                            WHERE i.instrument = m.instrument AND m.security_type != '' LIMIT 1), ''),
+                   'symbol', m.symbol, 'side', m.side_code, 'qty', m.entered_qty, 'ord_type', m.ord_type_code,
+                   'price', COALESCE(m.entered_price, ''), 'tif', m.tif_code, 'extra_tags', m.extra_tags))
+            FROM (SELECT * FROM fix_orders o
+                   WHERE o.session_id = l.session_id AND o.list_id = l.list_id AND o.direction = l.direction
+                   ORDER BY o.list_seq_no, o.id) m) AS list_orders
+         FROM fix_lists l LEFT JOIN fix_session_state t ON t.session_id = l.session_id"""
+filterable = ["session_id", "status", "mode", "direction", "session_status", "client", "list_id"]
 
 [services.adverts_query]
 protocol = "query"
@@ -478,7 +523,7 @@ SELECT -o.id, 'order', 'o' || o.id, 'r' || o.run_id,
 
 [services.templates_list]
 protocol = "reqrep"
-sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst, currency, qlty_ind, natural_flag, qualifiers, trade_date, last_mkt, avg_price, alloc_type, allocs, alloc_status, alloc_rej_code, quote_request_type, quote_type, bid_px, offer_px, bid_size, offer_size, valid_for, quote_rej_reason, symbols, subscription_type, security_type, maturity, strike_price, put_or_call, cfi_code, underlying_symbol, underlying_security_type, underlying_maturity, multiplier, security_exchange, security_id, security_id_source, open_close, covered_uncovered FROM fix_templates WHERE scope = :scope ORDER BY name"
+sql = "SELECT id, name, scope, session_id, symbol, side, ord_type, qty, price, tif, dk_reason, restate_reason, text, extra_tags, client, handl_inst, currency, qlty_ind, natural_flag, qualifiers, trade_date, last_mkt, avg_price, alloc_type, allocs, alloc_status, alloc_rej_code, quote_request_type, quote_type, bid_px, offer_px, bid_size, offer_size, valid_for, quote_rej_reason, symbols, subscription_type, security_type, maturity, strike_price, put_or_call, cfi_code, underlying_symbol, underlying_security_type, underlying_maturity, multiplier, security_exchange, security_id, security_id_source, open_close, covered_uncovered, mode, bid_type, exec_inst_type, tot_orders, list_orders FROM fix_templates WHERE scope = :scope ORDER BY name"
 
 # Saved instruments (fix_instruments): the Config › Instruments pane, and
 # the order dialogs' Instrument dropdown, whose `fill` copies a pick's
@@ -732,6 +777,52 @@ sql = """
 SELECT h.* FROM fix_iois__history h
   JOIN (SELECT id, MAX(_mkio_version) AS v
           FROM fix_iois__history
+         WHERE _mkio_ref <= :as_of
+      GROUP BY id) latest
+    ON h.id = latest.id AND h._mkio_version = latest.v
+ WHERE h.direction = 'RX'
+ ORDER BY h.id
+"""
+
+[services.lists_versions]
+protocol = "reqrep"
+description = "One list's recorded versions, oldest first"
+sql = "SELECT * FROM fix_lists__history WHERE id = :id ORDER BY _mkio_version"
+
+[services.lists_state]
+protocol = "reqrep"
+description = "Where a list sits in its chain: the live version and the highest recorded"
+sql = "SELECT (SELECT _mkio_version FROM fix_lists WHERE id = :id) AS current, MAX(_mkio_version) AS top FROM fix_lists__history WHERE id = :id"
+
+[services.lists_history]
+protocol = "query"
+description = "Every recorded list version, newest first, live"
+primary_table = "fix_lists__history"
+sql = "SELECT * FROM fix_lists__history ORDER BY _mkio_ref DESC"
+filterable = ["id", "session_id", "list_id", "direction", "_mkio_op", "_mkio_version"]
+change_log_size = 10000
+
+[services.sent_lists_as_of]
+protocol = "reqrep"
+description = "The sent lists as they stood at a moment"
+sql = """
+SELECT h.* FROM fix_lists__history h
+  JOIN (SELECT id, MAX(_mkio_version) AS v
+          FROM fix_lists__history
+         WHERE _mkio_ref <= :as_of
+      GROUP BY id) latest
+    ON h.id = latest.id AND h._mkio_version = latest.v
+ WHERE h.direction = 'TX'
+ ORDER BY h.id
+"""
+
+[services.received_lists_as_of]
+protocol = "reqrep"
+description = "The received lists as they stood at a moment"
+sql = """
+SELECT h.* FROM fix_lists__history h
+  JOIN (SELECT id, MAX(_mkio_version) AS v
+          FROM fix_lists__history
          WHERE _mkio_ref <= :as_of
       GROUP BY id) latest
     ON h.id = latest.id AND h._mkio_version = latest.v

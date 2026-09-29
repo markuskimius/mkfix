@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.76",
+    "version": "0.77",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -139,6 +139,14 @@
           "sep": true
         },
         {
+          "label": "Sent Lists",
+          "action": "pane.show",
+          "args": "list-blotter"
+        },
+        {
+          "sep": true
+        },
+        {
           "label": "Received IOIs",
           "action": "pane.show",
           "args": "ioi-blotter"
@@ -185,6 +193,14 @@
           "label": "Sent Trades",
           "action": "pane.show",
           "args": "market-trade-blotter"
+        },
+        {
+          "sep": true
+        },
+        {
+          "label": "Received Lists",
+          "action": "pane.show",
+          "args": "market-list-blotter"
         },
         {
           "sep": true
@@ -1033,7 +1049,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.76"
+        "text": "mkfix v0.77"
       }
     ],
     "bindStyle": {
@@ -1940,6 +1956,8 @@
         "updated_at",
         "ioi_id",
         "quote_id",
+        "list_id",
+        "list_seq_no",
         "id",
         "orig_cl_ord_id",
         "side_code",
@@ -2060,7 +2078,9 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)",
         "open_close": "Open/Close (77)",
-        "covered_uncovered": "Covered (203)"
+        "covered_uncovered": "Covered (203)",
+        "list_id": "List ID (66)",
+        "list_seq_no": "List Seq (67)"
       },
       "types": {
         "updated_at": {
@@ -3744,7 +3764,13 @@
             }
           }
         }
-      ]
+      ],
+      "link": {
+        "listen": {
+          "sent_list": "list_id"
+        },
+        "chips": false
+      }
     },
     "trade-blotter": {
       "title": "Received Trades",
@@ -11673,6 +11699,8 @@
         "updated_at",
         "ioi_id",
         "quote_id",
+        "list_id",
+        "list_seq_no",
         "id",
         "orig_cl_ord_id",
         "side_code",
@@ -11793,7 +11821,9 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)",
         "open_close": "Open/Close (77)",
-        "covered_uncovered": "Covered (203)"
+        "covered_uncovered": "Covered (203)",
+        "list_id": "List ID (66)",
+        "list_seq_no": "List Seq (67)"
       },
       "types": {
         "updated_at": {
@@ -13505,7 +13535,13 @@
             }
           }
         }
-      ]
+      ],
+      "link": {
+        "listen": {
+          "received_list": "list_id"
+        },
+        "chips": false
+      }
     },
     "market-trade-blotter": {
       "title": "Sent Trades",
@@ -20518,6 +20554,11 @@
         "security_id_source",
         "open_close",
         "covered_uncovered",
+        "mode",
+        "bid_type",
+        "exec_inst_type",
+        "tot_orders",
+        "list_orders",
         "dk_reason",
         "restate_reason",
         "currency",
@@ -20615,7 +20656,12 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)",
         "open_close": "Open/Close (77)",
-        "covered_uncovered": "Covered (203)"
+        "covered_uncovered": "Covered (203)",
+        "mode": "Sent as",
+        "bid_type": "Bid Type (394)",
+        "exec_inst_type": "Execution (433)",
+        "tot_orders": "TotNoOrders (68)",
+        "list_orders": "Orders"
       },
       "sort": [
         "scope",
@@ -20676,14 +20722,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
                 },
                 {
                   "row": [
@@ -21647,6 +21693,241 @@
                       "showWhen": "row.scope == 'order'"
                     }
                   ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "mode",
+                      "label": "Send as",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "E",
+                          "label": "E - NewOrderList (35=E)"
+                        },
+                        {
+                          "value": "D",
+                          "label": "D - Orders carrying ListID (35=D + 66)"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.mode}",
+                      "showWhen": "row.scope == 'list'"
+                    },
+                    {
+                      "name": "tot_orders",
+                      "label": "TotNoOrders (68)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "No"
+                        },
+                        {
+                          "value": "1",
+                          "label": "Yes - TotNoOrders (68) on each order"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.tot_orders}",
+                      "showWhen": "row.scope == 'list'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_type",
+                      "label": "Bid Type (394)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - No bidding process"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Non-disclosed"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Disclosed"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.bid_type}",
+                      "showWhen": "row.scope == 'list'"
+                    },
+                    {
+                      "name": "exec_inst_type",
+                      "label": "Execution (433)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Immediate"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Wait for execute instruction"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.exec_inst_type}",
+                      "showWhen": "row.scope == 'list'"
+                    }
+                  ]
+                },
+                {
+                  "name": "list_orders",
+                  "label": "Orders",
+                  "type": "grid",
+                  "rows": 3,
+                  "required": false,
+                  "none": "No orders yet: add rows, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.16,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(stock)"
+                      },
+                      "fill": {
+                        "symbol": "symbol"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "placeholder": "IBM",
+                      "width": 0.13
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "qty",
+                      "label": "Qty (38)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Type (40)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "tif",
+                      "label": "TIF (59)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "extra_tags",
+                      "label": "Extra Tags",
+                      "placeholder": "5001=X",
+                      "width": 0.12
+                    }
+                  ],
+                  "value": "${row.list_orders}",
+                  "showWhen": "row.scope == 'list'"
                 },
                 {
                   "name": "text",
@@ -21709,14 +21990,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
                 },
                 {
                   "row": [
@@ -22680,6 +22961,241 @@
                       "showWhen": "row.scope == 'order'"
                     }
                   ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "mode",
+                      "label": "Send as",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "E",
+                          "label": "E - NewOrderList (35=E)"
+                        },
+                        {
+                          "value": "D",
+                          "label": "D - Orders carrying ListID (35=D + 66)"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.mode}",
+                      "showWhen": "row.scope == 'list'"
+                    },
+                    {
+                      "name": "tot_orders",
+                      "label": "TotNoOrders (68)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "No"
+                        },
+                        {
+                          "value": "1",
+                          "label": "Yes - TotNoOrders (68) on each order"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.tot_orders}",
+                      "showWhen": "row.scope == 'list'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_type",
+                      "label": "Bid Type (394)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - No bidding process"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Non-disclosed"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Disclosed"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.bid_type}",
+                      "showWhen": "row.scope == 'list'"
+                    },
+                    {
+                      "name": "exec_inst_type",
+                      "label": "Execution (433)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Immediate"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Wait for execute instruction"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${row.exec_inst_type}",
+                      "showWhen": "row.scope == 'list'"
+                    }
+                  ]
+                },
+                {
+                  "name": "list_orders",
+                  "label": "Orders",
+                  "type": "grid",
+                  "rows": 3,
+                  "required": false,
+                  "none": "No orders yet: add rows, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.16,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(stock)"
+                      },
+                      "fill": {
+                        "symbol": "symbol"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "placeholder": "IBM",
+                      "width": 0.13
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "qty",
+                      "label": "Qty (38)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Type (40)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "tif",
+                      "label": "TIF (59)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "extra_tags",
+                      "label": "Extra Tags",
+                      "placeholder": "5001=X",
+                      "width": 0.12
+                    }
+                  ],
+                  "value": "${row.list_orders}",
+                  "showWhen": "row.scope == 'list'"
                 },
                 {
                   "name": "text",
@@ -24753,6 +25269,1963 @@
           }
         }
       ]
+    },
+    "list-blotter": {
+      "title": "Sent Lists",
+      "type": "mkio-table",
+      "service": "lists_query",
+      "protocol": "query",
+      "filter": "direction == 'TX'",
+      "columns": [
+        "list_id",
+        "session_id",
+        "client",
+        "mode",
+        "status",
+        "orders",
+        "done_orders",
+        "pending_orders",
+        "filled_qty",
+        "tot_no_orders",
+        "pending_action",
+        "status_type",
+        "bid_type",
+        "exec_inst_type",
+        "text",
+        "sent_text",
+        "extra_tags",
+        "macro",
+        "last_order_at",
+        "created_at",
+        "updated_at",
+        "id",
+        "direction",
+        "bid_type_code",
+        "exec_inst_type_code",
+        "status_type_code",
+        "list_status_code",
+        "pending_extra_tags",
+        "raw_message",
+        "session_status",
+        "list_orders"
+      ],
+      "visible": [
+        "list_id",
+        "session_id",
+        "client",
+        "mode",
+        "status",
+        "orders",
+        "done_orders",
+        "pending_orders",
+        "filled_qty",
+        "tot_no_orders",
+        "pending_action",
+        "text",
+        "last_order_at",
+        "updated_at"
+      ],
+      "labels": {
+        "list_id": "List ID (66)",
+        "session_id": "Session",
+        "client": "Client",
+        "mode": "Sent as",
+        "status": "Status (431)",
+        "orders": "Orders",
+        "done_orders": "Done",
+        "pending_orders": "Pending New",
+        "filled_qty": "Filled Qty",
+        "tot_no_orders": "Expected (68)",
+        "pending_action": "Pending",
+        "status_type": "Status Type (429)",
+        "bid_type": "Bid Type (394)",
+        "exec_inst_type": "Execution (433)",
+        "text": "Rcvd Text",
+        "sent_text": "Sent Text",
+        "extra_tags": "Extra Tags",
+        "macro": "Macro",
+        "last_order_at": "Last Order",
+        "created_at": "Created",
+        "updated_at": "Updated",
+        "id": "Row",
+        "direction": "Dir",
+        "bid_type_code": "Bid Type Code",
+        "exec_inst_type_code": "Execution Code",
+        "status_type_code": "Status Type Code",
+        "list_status_code": "Status Code",
+        "pending_extra_tags": "Pending Extra Tags",
+        "raw_message": "Last Message",
+        "session_status": "Session Status",
+        "list_orders": "Orders (JSON)"
+      },
+      "history": {
+        "table": "fix_lists",
+        "key": [
+          "id"
+        ],
+        "versions": "lists_versions",
+        "state": "lists_state",
+        "feed": "lists_history",
+        "asOf": "sent_lists_as_of",
+        "columns": [
+          "list_id",
+          "mode",
+          "status",
+          "status_type",
+          "pending_action",
+          "text",
+          "sent_text",
+          "last_order_at"
+        ]
+      },
+      "types": {
+        "last_order_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "created_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "styles": {
+        "status": [
+          {
+            "when": "CONTAINS(['Executing', 'ReceivedForExecution'], value)",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'AllDone'",
+            "color": "#858585"
+          },
+          {
+            "when": "CONTAINS(['Reject', 'Failed'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "pending_action": [
+          {
+            "when": "value != ''",
+            "color": "#dcdcaa"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "link": {
+        "broadcast": {
+          "sent_list": "list_id"
+        },
+        "chips": false
+      },
+      "buttons": [
+        {
+          "label": "New List…",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New List",
+              "pin": "keep",
+              "width": 760,
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "list"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "session_id": "session_id",
+                    "mode": "mode",
+                    "bid_type": "bid_type",
+                    "exec_inst_type": "exec_inst_type",
+                    "tot_orders": "tot_orders",
+                    "list_orders": "list_orders",
+                    "text": "text",
+                    "extra_tags": "extra_tags",
+                    "client": "client"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_new_list",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "required": true,
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  }
+                },
+                {
+                  "row": [
+                    {
+                      "name": "mode",
+                      "label": "Send as",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "E",
+                          "label": "E - NewOrderList (35=E)"
+                        },
+                        {
+                          "value": "D",
+                          "label": "D - Orders carrying ListID (35=D + 66)"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "E"
+                    },
+                    {
+                      "name": "tot_orders",
+                      "label": "TotNoOrders (68)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "No"
+                        },
+                        {
+                          "value": "1",
+                          "label": "Yes - TotNoOrders (68) on each order"
+                        }
+                      ],
+                      "width": 0.5,
+                      "showWhen": "mode == 'D'"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_type",
+                      "label": "Bid Type (394)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "3",
+                          "label": "3 - No bidding process"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Non-disclosed"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Disclosed"
+                        }
+                      ],
+                      "width": 0.5,
+                      "showWhen": "mode == 'E'"
+                    },
+                    {
+                      "name": "exec_inst_type",
+                      "label": "Execution (433)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Immediate"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Wait for execute instruction"
+                        }
+                      ],
+                      "width": 0.5,
+                      "showWhen": "mode == 'E'"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "mode == 'E'",
+                  "value": "From FIX 4.2 the orders ride in one NewOrderList (73); before, one NewOrderList an order, with ListSeqNo (67) and ListNoOrds (68). Bid Type and Execution are FIX 4.2's."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "mode == 'D'",
+                  "value": "Each order goes as a NewOrderSingle carrying the ListID (66). The receiver counts every order of the ListID as one of the list's, whenever it comes; Add Order… sends one more."
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "list_orders",
+                  "label": "Orders",
+                  "type": "grid",
+                  "rows": 3,
+                  "required": true,
+                  "none": "No orders yet: add rows, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.16,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(stock)"
+                      },
+                      "fill": {
+                        "symbol": "symbol"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "placeholder": "IBM",
+                      "width": 0.13
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "qty",
+                      "label": "Qty (38)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Type (40)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "tif",
+                      "label": "TIF (59)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "extra_tags",
+                      "label": "Extra Tags",
+                      "placeholder": "5001=X",
+                      "width": 0.12
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58) on every order",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags on every order",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(IF(mode == 'E', CONCAT('35=E|66=(new)|394=', COALESCE(bid_type, '3'), IF(COALESCE(exec_inst_type, '') != '', CONCAT('|433=', exec_inst_type), ''), '|68=(orders)|73=(orders)'), CONCAT('35=D each|66=(new)', IF(tot_orders == '1', '|68=(orders)', ''))), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send List",
+                "service": "fix_cmd",
+                "op": "send_new_list"
+              }
+            }
+          }
+        },
+        {
+          "label": "Clone",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Clone ${row.list_id}",
+              "pin": "keep",
+              "width": 760,
+              "fields": [
+                {
+                  "name": "session_id",
+                  "label": "Session",
+                  "type": "select",
+                  "required": true,
+                  "optionsFrom": {
+                    "service": "sessions_list",
+                    "value": "session_id",
+                    "label": "session_id"
+                  },
+                  "value": "${row.session_id}"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "mode",
+                      "label": "Send as",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "E",
+                          "label": "E - NewOrderList (35=E)"
+                        },
+                        {
+                          "value": "D",
+                          "label": "D - Orders carrying ListID (35=D + 66)"
+                        }
+                      ],
+                      "width": 0.5,
+                      "value": "${IF(row.mode == 'E', 'E', 'D')}"
+                    },
+                    {
+                      "name": "tot_orders",
+                      "label": "TotNoOrders (68)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "No"
+                        },
+                        {
+                          "value": "1",
+                          "label": "Yes - TotNoOrders (68) on each order"
+                        }
+                      ],
+                      "width": 0.5,
+                      "showWhen": "mode == 'D'",
+                      "value": "${IF(row.tot_no_orders > 0 && row.mode != 'E', '1', '')}"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "bid_type",
+                      "label": "Bid Type (394)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "3",
+                          "label": "3 - No bidding process"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Non-disclosed"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Disclosed"
+                        }
+                      ],
+                      "width": 0.5,
+                      "showWhen": "mode == 'E'",
+                      "value": "${IF(row.bid_type_code != '', row.bid_type_code, '3')}"
+                    },
+                    {
+                      "name": "exec_inst_type",
+                      "label": "Execution (433)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Immediate"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Wait for execute instruction"
+                        }
+                      ],
+                      "width": 0.5,
+                      "showWhen": "mode == 'E'",
+                      "value": "${row.exec_inst_type_code}"
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "mode == 'E'",
+                  "value": "From FIX 4.2 the orders ride in one NewOrderList (73); before, one NewOrderList an order, with ListSeqNo (67) and ListNoOrds (68). Bid Type and Execution are FIX 4.2's."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "mode == 'D'",
+                  "value": "Each order goes as a NewOrderSingle carrying the ListID (66). The receiver counts every order of the ListID as one of the list's, whenever it comes; Add Order… sends one more."
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.client}"
+                },
+                {
+                  "name": "list_orders",
+                  "label": "Orders",
+                  "type": "grid",
+                  "rows": 3,
+                  "required": true,
+                  "none": "No orders yet: add rows, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.16,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(stock)"
+                      },
+                      "fill": {
+                        "symbol": "symbol"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "placeholder": "IBM",
+                      "width": 0.13
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "qty",
+                      "label": "Qty (38)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Type (40)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "width": 0.14
+                    },
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "tif",
+                      "label": "TIF (59)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "extra_tags",
+                      "label": "Extra Tags",
+                      "placeholder": "5001=X",
+                      "width": 0.12
+                    }
+                  ],
+                  "value": "${row.list_orders}"
+                },
+                {
+                  "type": "readonly",
+                  "value": "An order keeps its instrument where one saved in Config › Instruments matches it."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58) on every order",
+                  "type": "text",
+                  "placeholder": "optional",
+                  "value": "${row.sent_text}"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags on every order",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.extra_tags}"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(IF(mode == 'E', CONCAT('35=E|66=(new)|394=', COALESCE(bid_type, '3'), IF(COALESCE(exec_inst_type, '') != '', CONCAT('|433=', exec_inst_type), ''), '|68=(orders)|73=(orders)'), CONCAT('35=D each|66=(new)', IF(tot_orders == '1', '|68=(orders)', ''))), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send List",
+                "service": "fix_cmd",
+                "op": "send_new_list"
+              }
+            }
+          }
+        },
+        {
+          "label": "Add Order…",
+          "unit": "row",
+          "enable": {
+            "connected": true,
+            "when": "ALL(rows, r -> r.mode != 'E' && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Add an order to ${row.list_id}",
+              "pin": "keep",
+              "width": 420,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "label": "List",
+                  "type": "readonly",
+                  "value": "${row.list_id} on ${row.session_id}"
+                },
+                {
+                  "name": "client",
+                  "label": "Client (session's client tag)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "placeholder": "AAPL",
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "group": "Instrument",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "_instrument",
+                      "label": "Saved instrument (Config › Instruments)",
+                      "type": "select",
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "label",
+                        "empty": "(none: enter it below)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "underlying_symbol": "underlying_symbol",
+                        "underlying_security_type": "underlying_security_type",
+                        "underlying_maturity": "underlying_maturity",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_type",
+                          "label": "Security Type (167)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": "(none: a stock)"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            },
+                            {
+                              "value": "OPT",
+                              "label": "OPT - Option"
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "OOF",
+                              "label": "OOF - Option on Future (>= FIX 5.0)"
+                            }
+                          ]
+                        },
+                        {
+                          "name": "maturity",
+                          "label": "Maturity (200)",
+                          "type": "text",
+                          "placeholder": "YYYYMM or YYYYMMDD",
+                          "width": 0.5
+                        }
+                      ]
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "security_type == 'OOF'",
+                      "value": "Defined from FIX 5.0. On FIX 4.x an option on a future is OPT with Underlying Type FUT; mkfix refuses OOF there."
+                    },
+                    {
+                      "type": "readonly",
+                      "showWhen": "CONTAINS(['FUT', 'OPT'], COALESCE(security_type, ''))",
+                      "value": "FIX 4.3 names futures and options by CFICode (461) alone: mkfix sends one, derived from these terms unless given, and no SecurityType there."
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "strike_price",
+                          "label": "Strike (202)",
+                          "type": "number",
+                          "step": "0.01",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "put_or_call",
+                          "label": "Put/Call (201)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Call"
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Put"
+                            }
+                          ]
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_symbol",
+                          "label": "Underlying (311)",
+                          "type": "text",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "underlying_security_type",
+                          "label": "Underlying Type (310)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            }
+                          ]
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "underlying_maturity",
+                          "label": "Underlying Maturity (313)",
+                          "type": "text",
+                          "placeholder": "YYYYMM",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "cfi_code",
+                          "label": "CFI Code (461)",
+                          "type": "text",
+                          "placeholder": "blank: derived on FIX 4.3",
+                          "width": 0.5
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "multiplier",
+                          "label": "Multiplier (231)",
+                          "type": "number",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "security_exchange",
+                          "label": "Exchange (207)",
+                          "type": "text",
+                          "placeholder": "e.g. XCME",
+                          "width": 0.5
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "security_id",
+                          "label": "Security ID (48)",
+                          "type": "text",
+                          "width": 0.5
+                        },
+                        {
+                          "name": "security_id_source",
+                          "label": "ID Source (22)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - CUSIP"
+                            },
+                            {
+                              "value": "2",
+                              "label": "2 - SEDOL"
+                            },
+                            {
+                              "value": "4",
+                              "label": "4 - ISIN"
+                            },
+                            {
+                              "value": "5",
+                              "label": "5 - RIC"
+                            },
+                            {
+                              "value": "8",
+                              "label": "8 - Exchange Symbol (>= FIX 4.2)"
+                            },
+                            {
+                              "value": "A",
+                              "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "row": [
+                        {
+                          "name": "open_close",
+                          "label": "Open/Close (77)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "O",
+                              "label": "O - Open"
+                            },
+                            {
+                              "value": "C",
+                              "label": "C - Close"
+                            },
+                            {
+                              "value": "R",
+                              "label": "R - Rolled (>= FIX 4.3)"
+                            },
+                            {
+                              "value": "F",
+                              "label": "F - FIFO (>= FIX 4.3)"
+                            }
+                          ]
+                        },
+                        {
+                          "name": "covered_uncovered",
+                          "label": "Covered (203)",
+                          "type": "select",
+                          "width": 0.5,
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Covered"
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Uncovered"
+                            }
+                          ]
+                        }
+                      ],
+                      "showWhen": "CONTAINS(['FUT', 'OPT', 'OOF'], COALESCE(security_type, ''))"
+                    },
+                    {
+                      "name": "save_instrument_as",
+                      "pin": "reset",
+                      "label": "Save instrument as",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps this instrument in Config › Instruments"
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "100",
+                      "min": 1,
+                      "width": 0.5,
+                      "required": true
+                    },
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "CONTAINS(['5', 'B'], ord_type)",
+                  "value": "Defined through FIX 4.3 (and again in 5.0). Elsewhere it is a non-standard OrdType, allowed for testing."
+                },
+                {
+                  "row": [
+                    {
+                      "name": "price",
+                      "label": "Price (44)",
+                      "type": "number",
+                      "placeholder": "0.00",
+                      "step": "0.01",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "tif == '7'",
+                  "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
+                },
+                {
+                  "name": "handl_inst",
+                  "label": "Handling Inst (21)",
+                  "type": "select",
+                  "value": "1",
+                  "options": [
+                    {
+                      "value": "1",
+                      "label": "1 - Automated, private, no broker intervention"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - Automated, public, broker intervention OK"
+                    },
+                    {
+                      "value": "3",
+                      "label": "3 - Manual, best execution"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "row": [
+                        {
+                          "name": "expire_time",
+                          "label": "Expire (126/432; local, time optional)",
+                          "type": "datetime",
+                          "time": "optional",
+                          "step": 1
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', COALESCE(symbol, ''), '|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(security_type, '') != '', CONCAT('|167=', security_type), ''), IF(COALESCE(maturity, '') != '', CONCAT('|200=', maturity), ''), IF(strike_price != NULL, CONCAT('|202=', STR(strike_price)), ''), IF(COALESCE(put_or_call, '') != '', CONCAT('|201=', put_or_call), ''), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Order",
+                "service": "fix_cmd",
+                "op": "add_list_order"
+              }
+            }
+          }
+        },
+        {
+          "label": "Execute",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.mode != 'D' && r.pending_action == '' && not CONTAINS(['AllDone', 'Reject', 'Failed'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Execute ${row.list_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Execute List",
+                "service": "fix_cmd",
+                "op": "execute_list"
+              }
+            }
+          }
+        },
+        {
+          "label": "Cancel",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.pending_action == '' && not CONTAINS(['AllDone', 'Reject', 'Failed'], r.status) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Cancel ${row.list_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "name": "as_orders",
+                  "label": "Cancel by",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": "As the list was sent (K for E, F for D)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "ListCancelRequest (35=K)"
+                    },
+                    {
+                      "value": "1",
+                      "label": "OrderCancelRequest (35=F) per working order"
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Cancel List",
+                "service": "fix_cmd",
+                "op": "cancel_list"
+              }
+            }
+          }
+        },
+        {
+          "label": "Status Request",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Ask for ${row.list_id}'s status",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "type": "readonly",
+                  "value": "A ListStatusRequest (35=M)."
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Send Request",
+                "service": "fix_cmd",
+                "op": "request_list_status"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "list-blotter"
+            }
+          }
+        }
+      ]
+    },
+    "market-list-blotter": {
+      "title": "Received Lists",
+      "type": "mkio-table",
+      "service": "lists_query",
+      "protocol": "query",
+      "filter": "direction == 'RX'",
+      "columns": [
+        "list_id",
+        "session_id",
+        "client",
+        "mode",
+        "status",
+        "orders",
+        "done_orders",
+        "pending_orders",
+        "filled_qty",
+        "tot_no_orders",
+        "pending_action",
+        "status_type",
+        "bid_type",
+        "exec_inst_type",
+        "text",
+        "sent_text",
+        "extra_tags",
+        "macro",
+        "last_order_at",
+        "created_at",
+        "updated_at",
+        "id",
+        "direction",
+        "bid_type_code",
+        "exec_inst_type_code",
+        "status_type_code",
+        "list_status_code",
+        "pending_extra_tags",
+        "raw_message",
+        "session_status",
+        "list_orders"
+      ],
+      "visible": [
+        "list_id",
+        "session_id",
+        "client",
+        "mode",
+        "status",
+        "orders",
+        "done_orders",
+        "pending_orders",
+        "filled_qty",
+        "tot_no_orders",
+        "pending_action",
+        "text",
+        "last_order_at",
+        "updated_at"
+      ],
+      "labels": {
+        "list_id": "List ID (66)",
+        "session_id": "Session",
+        "client": "Client",
+        "mode": "Sent as",
+        "status": "Status (431)",
+        "orders": "Orders",
+        "done_orders": "Done",
+        "pending_orders": "Pending New",
+        "filled_qty": "Filled Qty",
+        "tot_no_orders": "Expected (68)",
+        "pending_action": "Pending",
+        "status_type": "Status Type (429)",
+        "bid_type": "Bid Type (394)",
+        "exec_inst_type": "Execution (433)",
+        "text": "Rcvd Text",
+        "sent_text": "Sent Text",
+        "extra_tags": "Extra Tags",
+        "macro": "Macro",
+        "last_order_at": "Last Order",
+        "created_at": "Created",
+        "updated_at": "Updated",
+        "id": "Row",
+        "direction": "Dir",
+        "bid_type_code": "Bid Type Code",
+        "exec_inst_type_code": "Execution Code",
+        "status_type_code": "Status Type Code",
+        "list_status_code": "Status Code",
+        "pending_extra_tags": "Pending Extra Tags",
+        "raw_message": "Last Message",
+        "session_status": "Session Status",
+        "list_orders": "Orders (JSON)"
+      },
+      "history": {
+        "table": "fix_lists",
+        "key": [
+          "id"
+        ],
+        "versions": "lists_versions",
+        "state": "lists_state",
+        "feed": "lists_history",
+        "asOf": "received_lists_as_of",
+        "columns": [
+          "list_id",
+          "mode",
+          "status",
+          "status_type",
+          "pending_action",
+          "text",
+          "sent_text",
+          "last_order_at"
+        ]
+      },
+      "types": {
+        "last_order_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "created_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "filters": {
+        "updated_at": {
+          "preset": "today"
+        }
+      },
+      "styles": {
+        "status": [
+          {
+            "when": "CONTAINS(['Executing', 'ReceivedForExecution'], value)",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "value == 'AllDone'",
+            "color": "#858585"
+          },
+          {
+            "when": "CONTAINS(['Reject', 'Failed'], value)",
+            "color": "#f44747"
+          }
+        ],
+        "pending_action": [
+          {
+            "when": "value != ''",
+            "color": "#dcdcaa"
+          }
+        ]
+      },
+      "display": {
+        "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
+      },
+      "link": {
+        "broadcast": {
+          "received_list": "list_id"
+        },
+        "chips": false
+      },
+      "buttons": [
+        {
+          "label": "Accept",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> (r.pending_action != '' || r.pending_orders > 0) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Accept ${row.pending_action} on ${row.list_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "type": "readonly",
+                  "value": "New: every order pending New accepted, and a NewOrderList acknowledged (ListStatus). Execute: ListStatus ExecStarted. Cancel: every working order canceled, then ListStatus AllDone."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.pending_extra_tags}"
+                }
+              ],
+              "submit": {
+                "label": "Accept",
+                "service": "fix_cmd",
+                "op": "accept_list"
+              }
+            }
+          }
+        },
+        {
+          "label": "Reject",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> (r.pending_action != '' || r.pending_orders > 0) && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Reject ${row.pending_action} on ${row.list_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
+                  "value": "${row.pending_extra_tags}"
+                }
+              ],
+              "submit": {
+                "label": "Reject",
+                "service": "fix_cmd",
+                "op": "reject_list"
+              }
+            }
+          }
+        },
+        {
+          "label": "Status",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.mode != 'D' && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "ListStatus for ${row.list_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "row": [
+                    {
+                      "name": "status_type",
+                      "label": "Status Type (429)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "6",
+                          "label": "6 - Alert"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Ack"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Response"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Timed"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - ExecStarted"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - AllDone"
+                        }
+                      ],
+                      "value": "6",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "list_status",
+                      "label": "List Status (431)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(the list's own)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - InBiddingProcess"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - ReceivedForExecution"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Executing"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - Canceling"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Alert"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - AllDone"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - Reject"
+                        }
+                      ],
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "List Status Text (444)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Send Status",
+                "service": "fix_cmd",
+                "op": "send_list_status"
+              }
+            }
+          }
+        },
+        {
+          "label": "Fill All",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.done_orders < r.orders && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Fill every working order of ${row.list_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "name": "price",
+                  "label": "Price (31; blank: each order's limit)",
+                  "type": "number",
+                  "step": "0.01"
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Fill",
+                "service": "fix_cmd",
+                "op": "fill_list"
+              }
+            }
+          }
+        },
+        {
+          "label": "Unsol Cxl",
+          "enable": {
+            "connected": true,
+            "minSelected": 1,
+            "when": "ALL(rows, r -> r.done_orders < r.orders && r.session_status == 'ACTIVE')"
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Cancel every working order of ${row.list_id}",
+              "pin": "keep",
+              "width": 380,
+              "submitPerRow": true,
+              "rowData": {
+                "session_id": "${row.session_id}",
+                "list_id": "${row.list_id}"
+              },
+              "fields": [
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                }
+              ],
+              "submit": {
+                "label": "Cancel Orders",
+                "service": "fix_cmd",
+                "op": "cancel_list_orders"
+              }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-list-blotter"
+            }
+          }
+        }
+      ]
     }
   },
   "frames": [
@@ -24828,7 +27301,8 @@
               "allocation-blotter",
               "rfq-blotter",
               "quote-blotter",
-              "rfq-request-blotter"
+              "rfq-request-blotter",
+              "list-blotter"
             ]
           },
           {
@@ -24866,7 +27340,8 @@
               "market-allocation-blotter",
               "market-rfq-blotter",
               "market-quote-blotter",
-              "market-rfq-request-blotter"
+              "market-rfq-request-blotter",
+              "market-list-blotter"
             ]
           },
           {
@@ -24983,7 +27458,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.76",
+      "version": "0.77",
       "mkio": "1.5",
       "expr": "2"
     },

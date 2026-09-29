@@ -394,6 +394,17 @@ A FIX protocol testing engine for capital markets connectivity, built on
   `cancel quote`) and streams quotes (`new quote`) or asks for RFQs
   (`rfq request`, `unsubscribe`) from `run` blocks. The recorder and Macro...
   on every RFQ, quote and RFQ request blotter write them too.
+- **Lists** -- A basket of orders under one ListID (66), sent as one
+  NewOrderList (one a member before FIX 4.2) or as orders each carrying
+  the ListID (with TotNoOrders if asked); received as a list either way,
+  every order of the ListID joining it whenever it arrives. Client > Sent
+  Lists: New List... (the orders in a grid, pasted from a spreadsheet or
+  picked from saved instruments), Clone, Add Order..., Execute, Cancel (a
+  ListCancelRequest or a cancel per order), Status Request. Market >
+  Received Lists: Accept and Reject of the list, an Execute or a Cancel
+  (with ListStatus where it was a NewOrderList), Status, Fill All, Unsol
+  Cxl; a ListStatusRequest is answered at once. Selecting a list narrows
+  the order blotter to its orders.
 - **Options, Futures and Futures Options** -- An order's instrument is more
   than its symbol: the New dialog's Instrument section takes Security Type
   (167), Maturity, Strike, Put/Call, the underlying, Multiplier, Exchange,
@@ -537,7 +548,7 @@ change it): a `manifest.json`, a CSV per table with every column, the version
 history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
 `--tables` takes the short names `messages`, `orders`, `trades`, `iois`, `adverts`,
-`allocations`, `rfqs` (or `quotes`), `rfq_requests`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
+`allocations`, `rfqs` (or `quotes`), `rfq_requests`, `lists`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
 `settings`, `ids`, `replay_jobs`, `templates`, `instruments`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and
 `--host` as the server: when a server answers on that port the archive runs
@@ -621,11 +632,12 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.23.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.24.0, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction
-  digit the stamp carries
+  digit the stamp carries, and 1.24.0 adds the grid field New List… takes
+  its orders in
 
 ## Third-party code
 

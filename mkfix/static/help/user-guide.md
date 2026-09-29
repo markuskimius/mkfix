@@ -267,6 +267,16 @@ A market side that wants to quote can ask to be sent the RFQs for a list of inst
 
 Macros work RFQs, quotes and RFQ requests on both sides too: see RFQs and quotes in the [Macro Language](macro-language.md) page, and the bundled examples `rfq-desk`, `rfq-taker`, `quote-stream`, `quote-taker`, `rfq-subscriber`, `rfq-responder` and `end-to-end-rfq`. **Macro…** on each of these blotters writes the macro that would have done what a row has been through.
 
+## Lists
+
+A list is a basket of orders under one ListID (66): **Client › Sent Lists** and **Market › Received Lists**. Selecting a list narrows the side's order blotter to its orders; clearing the selection shows them all again.
+
+- **New List…** takes the orders in a grid: pick a saved instrument, or type the symbol, side, quantity, type, price and TIF, one row an order. Pasting rows copied from a spreadsheet (or comma-separated lines) into a cell fills the grid from there. Text and Extra Tags apply to every order.
+- **Send as** chooses how it travels. **E** sends one NewOrderList (35=E) holding the orders, with a Bid Type and an Execution instruction; before FIX 4.2 a NewOrderList carries one order, so mkfix sends one for each. **D** sends each order as a NewOrderSingle carrying the ListID, with TotNoOrders (68) if asked.
+- The receiver counts every order of a ListID as one of the list's, whenever it arrives: **Add Order…** sends one more to a D list later, and a New Order with `66=<ListID>` in its Extra Tags does the same.
+- On the client side: **Execute** (ListExecute, for a list sent to wait for one), **Cancel** (a ListCancelRequest, or a cancel for each working order — the default for a D list), **Status Request** (ListStatusRequest), **Clone** (the New List form on the list's orders).
+- On the market side, **Accept** and **Reject** answer what the list has pending: its new orders (and, for a NewOrderList, a ListStatus acknowledging or rejecting it), an Execute, or a Cancel. **Status** sends a ListStatus unasked, **Fill All** fills every working order at its limit (or a price you give), **Unsol Cxl** cancels every working order. A ListStatusRequest is answered at once. The orders themselves are worked in Received Orders like any other.
+
 ## Options and futures
 
 An order can be in an option, a future or an option on a future as well as a stock. The New dialog's **Instrument** section, under Symbol and Side, holds what says which one: Security Type (167), Maturity (200), and for options Strike (202), Put/Call (201) and the underlying, with Multiplier, Exchange, CFI Code, Security ID and Open/Close. Left alone, the order is a stock.

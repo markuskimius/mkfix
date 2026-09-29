@@ -735,7 +735,7 @@ class TestWiring:
                               and app["panes"][i["args"]]["type"] == "mkio-table" and "trade" not in i["args"]]
                  for m in app["menubar"] if m["label"] in ("Client", "Market")}
         assert blotters == {**dict.fromkeys(menus["Client"], "client"), **dict.fromkeys(menus["Market"], "market")}
-        assert len(blotters) == 14 and set(blotters) <= set(app["panes"]), "the panes the controls are put into"
+        assert len(blotters) == 16 and set(blotters) <= set(app["panes"]), "the panes the controls are put into"
         ops = {"play_macro": "play_macro", "pause_runs": "pause_runs", "stop_runs": "stop_runs",
                "record_macro": "record_start", "stop_recording": "record_stop"}
         for dialog, op in ops.items():

@@ -12,6 +12,7 @@ Type codes identify the ID kind at a glance:
     QT  QuoteID on Quotes mkfix sends (a requote mints the next)
     QR  QuoteRespID on QuoteResponses mkfix sends
     RR  RFQReqID on RFQRequests mkfix sends
+    LI  ListID on the lists mkfix sends (NewOrderList, or orders carrying ListID)
 
 The instance code is the first two characters of the username, uppercased and
 padded with trailing X's, so concurrent mkfix users facing the same

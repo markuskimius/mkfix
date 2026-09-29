@@ -22,7 +22,7 @@ STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
 TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct", "bust",
                    "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
                    "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
-                   "unsubscribe"}
+                   "unsubscribe", "list"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -1718,11 +1718,11 @@ class TestMenubar:
     # neither side — Config what the rest is set up with.
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail", None, "replay-control"],
-        "Client": ["order-blotter", "trade-blotter", None, "ioi-blotter", "advert-blotter", "allocation-blotter",
-                   None, "rfq-blotter", "quote-blotter", "rfq-request-blotter"],
-        "Market": ["market-order-blotter", "market-trade-blotter", None, "market-ioi-blotter", "market-advert-blotter",
-                   "market-allocation-blotter", None, "market-rfq-blotter", "market-quote-blotter",
-                   "market-rfq-request-blotter"],
+        "Client": ["order-blotter", "trade-blotter", None, "list-blotter", None, "ioi-blotter", "advert-blotter",
+                   "allocation-blotter", None, "rfq-blotter", "quote-blotter", "rfq-request-blotter"],
+        "Market": ["market-order-blotter", "market-trade-blotter", None, "market-list-blotter", None,
+                   "market-ioi-blotter", "market-advert-blotter", "market-allocation-blotter", None,
+                   "market-rfq-blotter", "market-quote-blotter", "market-rfq-request-blotter"],
         "Macro": ["client-macros", "client-runs", None, "market-macros", "market-runs", None,
                   "end-to-end-macros", "end-to-end-runs"],
         "Config": ["templates", "instruments", "dictionaries"],
@@ -2678,7 +2678,7 @@ class TestRecordHistory:
                      "ioi-blotter", "market-ioi-blotter", "advert-blotter", "market-advert-blotter",
                      "allocation-blotter", "market-allocation-blotter",
                      "rfq-blotter", "quote-blotter", "market-rfq-blotter", "market-quote-blotter",
-                     "rfq-request-blotter", "market-rfq-request-blotter")
+                     "rfq-request-blotter", "market-rfq-request-blotter", "list-blotter", "market-list-blotter")
 
     @pytest.fixture(scope="class")
     def history_panes(self, app_config):
@@ -3024,6 +3024,7 @@ class TestTemplates:
         "send_rfq": "rfq", "quote_rfq": "quote", "requote": "quote", "send_quote": "new_quote",
         "reject_rfq": "quote_reject", "cancel_quote": "cancel", "hit_quote": "hit", "counter_quote": "counter",
         "pass_quote": "pass", "send_rfq_request": "rfq_request", "unsubscribe_rfq_request": "unsubscribe",
+        "send_new_list": "list",
     }
 
     @staticmethod
@@ -3058,7 +3059,7 @@ class TestTemplates:
             assert set(fill.values()) <= columns, op
             keys = set(TEMPLATE_TERMS[op][1])
             assert ("session_id" in keys) == (scope in ("order", "ioi", "advert", "allocation", "rfq", "new_quote",
-                                                         "rfq_request")), op
+                                                         "rfq_request", "list")), op
             assert set(fill) == keys & names, op
             assert keys - names <= set(dialog.get("rowData", {})), op
             assert all(fill[k] == k for k in fill), f"{op}: template columns are named as the fields"
@@ -3863,3 +3864,79 @@ class TestFamilyInstrumentFields:
             spec = app_config["panes"][pane_id]
             assert "instrument" in spec["visible"] and "symbol" not in spec["visible"], pane_id
             assert "security_type" in spec["columns"] and "security_type" not in spec["visible"], pane_id
+
+
+class TestListBlotters:
+    """0.77: Sent Lists and Received Lists over lists_query split by
+    direction; New List… with its orders in a grid (mkui 1.24), Clone from
+    the row's orders, Add Order… under the ListID; a list's selection
+    narrowing its side's order blotter through a table link."""
+
+    @staticmethod
+    def _buttons(app_config, pane_id):
+        return {b["label"]: b for b in app_config["panes"][pane_id]["buttons"]}
+
+    def test_the_two_blotters(self, app_config, toml_config):
+        for pane_id, title, direction, labels in (
+                ("list-blotter", "Sent Lists", "TX",
+                 ["New List…", "Clone", "Add Order…", "Execute", "Cancel", "Status Request", "History"]),
+                ("market-list-blotter", "Received Lists", "RX",
+                 ["Accept", "Reject", "Status", "Fill All", "Unsol Cxl", "History"])):
+            spec = app_config["panes"][pane_id]
+            assert (spec["title"], spec["service"], spec["filter"]) == (title, "lists_query", f"direction == '{direction}'")
+            assert list(self._buttons(app_config, pane_id)) == labels
+            for label, b in self._buttons(app_config, pane_id).items():
+                if b["action"]["type"] != "dialog" or label in ("New List…", "Clone"):
+                    continue
+                dialog = b["action"]["dialog"]
+                assert dialog["rowData"]["list_id"] == "${row.list_id}", (pane_id, label)
+                assert "extra_tags" in _dialog_field_names(dialog), (pane_id, label)
+                assert "r.session_status == 'ACTIVE'" in b["enable"]["when"], (pane_id, label)
+                from mkfix.fix.actions import ACTIONS
+                assert dialog["submit"]["op"] in ACTIONS, (pane_id, label)
+        assert "fix_lists" == toml_config["services"]["lists_query"]["primary_table"]
+
+    def test_a_list_narrows_its_sides_order_blotter(self, app_config):
+        panes = app_config["panes"]
+        for lists_pane, orders_pane, name in (("list-blotter", "order-blotter", "sent_list"),
+                                              ("market-list-blotter", "market-order-blotter", "received_list")):
+            assert panes[lists_pane]["link"] == {"broadcast": {name: "list_id"}, "chips": False}
+            assert panes[orders_pane]["link"] == {"listen": {name: "list_id"}, "chips": False}, \
+                "part of the setup: no chips, the filter chip shows when a list is selected"
+            assert {"list_id", "list_seq_no"} <= set(panes[orders_pane]["columns"])
+
+    def test_the_grid_offers_the_new_order_dialogs_choices(self, app_config):
+        new_order = {f["name"]: f for item in _find_dialog(app_config, "send_new_order")["fields"]
+                     for f in _leaves(item) if f.get("name")}
+        new_list = _find_dialog(app_config, "send_new_list")
+        (grid,) = [f for item in new_list["fields"] for f in _leaves(item) if f.get("type") == "grid"]
+        assert grid["name"] == "list_orders" and grid["required"] is True
+        columns = {c["name"]: c for c in grid["columns"]}
+        assert list(columns) == ["instrument", "symbol", "side", "qty", "ord_type", "price", "tif", "extra_tags"]
+        for col, field in (("side", "side"), ("ord_type", "ord_type"), ("tif", "tif")):
+            assert columns[col]["options"] == new_order[field]["options"], col
+        assert columns["instrument"]["optionsFrom"]["service"] == "instruments_list"
+        assert columns["instrument"]["fill"] == {"symbol": "symbol"}
+
+    def test_clone_is_new_list_prefilled(self, app_config):
+        buttons = self._buttons(app_config, "list-blotter")
+        new, clone = (buttons[k]["action"]["dialog"] for k in ("New List…", "Clone"))
+        assert _dialog_field_names(clone) == _dialog_field_names(new) - {"_template"}
+        fields = {f["name"]: f for item in clone["fields"] for f in _leaves(item) if f.get("name")}
+        assert fields["list_orders"]["value"] == "${row.list_orders}", "the orders as the grid takes them"
+        assert fields["text"]["value"] == "${row.sent_text}" and "value" not in fields["save_as"]
+
+    def test_add_order_is_the_new_order_form_under_the_list(self, app_config):
+        dialog = self._buttons(app_config, "list-blotter")["Add Order…"]["action"]["dialog"]
+        assert dialog["submit"]["op"] == "add_list_order"
+        assert dialog["rowData"] == {"session_id": "${row.session_id}", "list_id": "${row.list_id}"}
+        new_fields = _dialog_field_names(_find_dialog(app_config, "send_new_order"))
+        assert _dialog_field_names(dialog) == new_fields - {"_template", "session_id", "save_as"}
+
+    def test_the_modes_gate_their_buttons(self, app_config):
+        sent = self._buttons(app_config, "list-blotter")
+        assert "r.mode != 'E'" in sent["Add Order…"]["enable"]["when"], "orders join a list sent as orders"
+        assert "r.mode != 'D'" in sent["Execute"]["enable"]["when"], "a ListExecute is for a NewOrderList"
+        received = self._buttons(app_config, "market-list-blotter")
+        assert "r.mode != 'D'" in received["Status"]["enable"]["when"]
+        assert "r.pending_orders > 0" in received["Accept"]["enable"]["when"]

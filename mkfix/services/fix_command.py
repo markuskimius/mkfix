@@ -74,12 +74,14 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_rfq_request": ("rfq_request", ("session_id", "symbols", "subscription_type", "quote_request_type",
                                          "quote_type", "extra_tags", "client")),
     "unsubscribe_rfq_request": ("unsubscribe", ("extra_tags",)),
+    "send_new_list": ("list", ("session_id", "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders",
+                               "text", "extra_tags", "client")),
 }
 
 
 # The sends whose dialog carries the Instrument section's Save instrument as.
-INSTRUMENT_SENDS = frozenset({"send_new_order", "send_ioi", "send_advert", "send_allocation", "send_rfq",
-                              "send_quote"})
+INSTRUMENT_SENDS = frozenset({"send_new_order", "add_list_order", "send_ioi", "send_advert", "send_allocation",
+                              "send_rfq", "send_quote"})
 
 
 class FixCommandService(Service):

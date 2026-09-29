@@ -176,7 +176,7 @@ def _banner(
     if engine is not None:
         source = {"saved": "saved code", "username": "from username"}[engine.ids.instance_source]
         lines.append(
-            f"  IDs:       RT/OR/EX/TR/IO/AD/AL/RQ/QT/QR/RR + {engine.ids.instance_id} + 8-digit counter ({source})"
+            f"  IDs:       RT/OR/EX/TR/IO/AD/AL/RQ/QT/QR/RR/LI + {engine.ids.instance_id} + 8-digit counter ({source})"
         )
 
     sessions = list(engine.sessions.values()) if engine is not None else []

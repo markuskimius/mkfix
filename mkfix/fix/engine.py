@@ -34,7 +34,9 @@ from mkfix.fix import replay
 from mkfix.fix.replay import ReplayTask
 from mkfix.fix.instrument import (INSTRUMENT_COLS, ORDER_INSTRUMENT_COLS, POSITION_COLS, blank_instrument,
                                   carries_instrument,
-                                  instrument_of, instrument_pairs, instrument_text, normalize_instrument)
+                                  format_number, instrument_of, instrument_pairs, instrument_text,
+                                  normalize_instrument)
+from mkfix.fix import lists
 from mkfix.fix.session import FixSession
 
 if TYPE_CHECKING:
@@ -54,7 +56,7 @@ ORDER_COLS = [
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date", "client",
     "handl_inst", "handl_inst_code", "sent_text", "market_order_id", "ioi_id", "quote_id",
-    *ORDER_INSTRUMENT_COLS,
+    *ORDER_INSTRUMENT_COLS, "list_id", "list_seq_no",
 ]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
@@ -125,7 +127,7 @@ EXEC_UPDATE_COLS = [
 TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct",
                    "bust", "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
                    "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
-                   "unsubscribe")
+                   "unsubscribe", "list")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
@@ -133,7 +135,7 @@ TEMPLATE_TERM_COLS = [
     "avg_price", "alloc_type", "allocs", "alloc_status", "alloc_rej_code",
     "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for",
     "quote_rej_reason", "symbols", "subscription_type",
-    *INSTRUMENT_COLS, *POSITION_COLS,
+    *INSTRUMENT_COLS, *POSITION_COLS, "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders",
 ]
 
 # The IOI, advert and allocation rows (families.py): one row per chain,
@@ -193,13 +195,21 @@ RFQ_REQUEST_COLS = [
     "last_quote_req_id", "quote_requests", "client", "extra_tags", "timestamp", "updated_at", "direction",
     "raw_message",
 ]
+# Lists (lists.py): one row per ListID and direction; the orders are fix_orders
+# rows carrying it.
+LIST_COLS = [
+    "session_id", "list_id", "direction", "mode", "bid_type", "bid_type_code", "exec_inst_type",
+    "exec_inst_type_code", "tot_no_orders", "status", "status_type", "status_type_code", "list_status_code",
+    "pending_action", "pending_extra_tags", "text", "sent_text", "client", "extra_tags", "created_at", "updated_at",
+    "last_order_at", "raw_message",
+]
 _FAMILY_COLS = {"fix_iois": IOI_COLS, "fix_adverts": ADVERT_COLS, "fix_allocations": ALLOC_COLS,
-                "fix_rfqs": RFQ_COLS, "fix_rfq_requests": RFQ_REQUEST_COLS}
+                "fix_rfqs": RFQ_COLS, "fix_rfq_requests": RFQ_REQUEST_COLS, "fix_lists": LIST_COLS}
 _FAMILY_IDENTITY = frozenset({"session_id", "direction", "timestamp", "order_cl_ord_id"})
-_FAMILY_UPDATE_COLS = {t: [c for c in cols if c not in ("session_id", "direction", "timestamp")]
+_FAMILY_UPDATE_COLS = {t: [c for c in cols if c not in ("session_id", "direction", "timestamp", "created_at")]
                        for t, cols in _FAMILY_COLS.items()}
 _FAMILY_NAMES = {"fix_iois": "IOI", "fix_adverts": "advert", "fix_allocations": "allocation", "fix_rfqs": "quote",
-                 "fix_rfq_requests": "RFQ request"}
+                 "fix_rfq_requests": "RFQ request", "fix_lists": "list"}
 _CLEAR_ALLOC_SLOT = {"pending_action": "", "pending_alloc_id": "", "pending_terms": "", "pending_extra_tags": ""}
 # AllocStatus(87) to the event an Ack is for the allocation it answers.
 _ALLOC_ACK_KINDS = {"0": "allocation accepted", "1": "allocation rejected", "2": "allocation rejected",
@@ -220,6 +230,8 @@ REPLAY_JOB_COLS = ["name", "file_path", "status", "total_messages", "sent_messag
 # instrument is what it was sent or received with, a trade's what it was
 # filled in. A row built without them gets them blank.
 _NO_INSTRUMENT = blank_instrument()
+# An order's list, written with the order like its instrument; none by default.
+_NO_LIST = {"list_id": "", "list_seq_no": 0}
 
 
 def _instrument_value(row: dict[str, Any], col: str) -> Any:
@@ -239,7 +251,8 @@ def _order_params(row: dict[str, Any], keep_sent_text: bool = False,
     passes `keep_sent_text` so the update leaves the column as it stands, and
     `keep_pending` likewise — on a sent order pending_* is the request still
     outstanding, which only its answer clears (rename_order, resolve_request)."""
-    insert = tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row[c] for c in ORDER_COLS)
+    insert = tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row.get(c, _NO_LIST[c]) if c in _NO_LIST
+                   else row[c] for c in ORDER_COLS)
     update = tuple(None if keep_pending and c in PENDING_COLS else row[c]
                    for c in ORDER_UPDATE_COLS)
     return insert + (None,) + update + (None if keep_sent_text else row["sent_text"],)
@@ -265,6 +278,18 @@ def _sent_exec_kind(dictionary: FixDictionary, msg: FixMessage,
         return dictionary.enum_name("20", trans_type), trans_type
     code = msg.get("150") or fallback_code
     return dictionary.enum_name("150", code), code
+
+
+def _qty_text(value: Any) -> str:
+    """A quantity or price as a ListStatus reports it: no trailing .0."""
+    return format_number(float(value or 0))
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _opt_float(value: Any) -> float | None:
@@ -989,6 +1014,8 @@ class FixEngine:
         spelling, a security type the version lacks echoed as it stands."""
         self._stamp_client(session, msg, row.get("client"))
         session.factory.stamp_instrument(msg, row, originating=False)
+        if row.get("list_id") and msg.get("35") == "8" and session.dictionary.defines("66"):
+            msg["66"] = row["list_id"]
 
     def _client_as_sent(self, session: FixSession, msg: FixMessage) -> str:
         """The client a message will carry once sent — extras applied, as
@@ -1195,6 +1222,14 @@ class FixEngine:
             await self._handle_quote_response(session, msg)
         elif msg_type == "AH":
             await self._handle_rfq_request(session, msg)
+        elif msg_type == "E":
+            await self._handle_new_order_list(session, msg)
+        elif msg_type == "N":
+            await self._handle_list_status(session, msg)
+        elif msg_type in ("L", "K"):
+            await self._handle_list_request(session, msg, "Execute" if msg_type == "L" else "Cancel")
+        elif msg_type == "M":
+            await self._handle_list_status_request(session, msg)
 
     async def _handle_execution_report(self, session: FixSession, msg: FixMessage) -> None:
         """Process an ExecutionReport (35=8): update order state and record fills."""
@@ -1282,8 +1317,10 @@ class FixEngine:
             "ioi_id": "",
             "quote_id": "",
             # Used only when the report creates the row: the upsert never
-            # rewrites an order's instrument.
+            # rewrites an order's instrument or list.
             **instrument_of(msg),
+            "list_id": msg.get("66", ""),
+            "list_seq_no": 0,
         }
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(
@@ -1449,7 +1486,8 @@ class FixEngine:
                 detail={"reason": reason, "text": msg.get("58", "")}))
 
     async def _handle_new_order(self, session: FixSession, msg: FixMessage,
-                                consumed: frozenset[str] | None = None, link_quote: bool = True) -> None:
+                                consumed: frozenset[str] | None = None, link_quote: bool = True,
+                                list_mode: str = "D") -> None:
         """Record an inbound NewOrderSingle (35=D) as a received order awaiting
         action — or the order a QuoteResponse Hit makes (`consumed` its
         tags, and the quote's row is the response's to write)."""
@@ -1506,9 +1544,16 @@ class FixEngine:
             "ioi_id": msg.get("23", ""),
             "quote_id": msg.get("117", ""),
             **instrument_of(msg),
+            "list_id": msg.get("66", ""),
+            "list_seq_no": _int(msg.get("67", "")),
         }
+        if order_row["list_id"] and not order_row["list_seq_no"]:
+            order_row["list_seq_no"] = await self._list_size(session.session_id, order_row["list_id"], "RX") + 1
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
+        if order_row["list_id"]:
+            # Any order of a ListID is one of its list's, however and whenever it came.
+            await self._join_list(session, "RX", order_row["list_id"], order_row, list_mode)
         await self._link_ioi_order(session.session_id, order_row["ioi_id"], order_row["cl_ord_id"])
         if link_quote:
             await self._link_quote_order(session, order_row["quote_id"], order_row["cl_ord_id"], "market")
@@ -1613,6 +1658,8 @@ class FixEngine:
             "ioi_id": sent.get("23", ""),
             "quote_id": sent.get("117", "") or quote_id,
             **instrument_of(sent),
+            "list_id": sent.get("66", ""),
+            "list_seq_no": _int(sent.get("67", "")),
         }
 
     async def send_new_order(
@@ -1634,6 +1681,7 @@ class FixEngine:
         source: str = "manual",
         tag: str = "",
         instrument: dict[str, Any] | None = None,
+        list_id: str = "",
         **extra: str,
     ) -> str:
         """Send a NewOrderSingle and return the ClOrdID. `client` goes out on
@@ -1675,6 +1723,9 @@ class FixEngine:
         msg.extra = extra_pairs
         self._stamp_client(session, msg, client)
         session.factory.stamp_instrument(msg, terms)
+        if list_id:
+            # One more order of a list: its ListID.
+            msg["66"] = list_id
         expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
 
         # Pre-populate the order row as PendingNew *before* the message goes on
@@ -1685,8 +1736,13 @@ class FixEngine:
         # put the order back to PendingNew.
         order_row = await self._sent_order_row(session, msg, cl_ord_id, symbol, side, qty, ord_type, price, tif,
                                                extra_tags, expire_time, expire_date)
+        if order_row["list_id"] and not order_row["list_seq_no"]:
+            # An order joining a list goes last in it.
+            order_row["list_seq_no"] = await self._list_size(session_id, order_row["list_id"], "TX") + 1
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": cl_ord_id})
+        if order_row["list_id"]:
+            await self._join_list(session, "TX", order_row["list_id"], order_row, "D")
         await self._link_ioi_order(session_id, order_row["ioi_id"], cl_ord_id)
         await self._link_quote_order(session, order_row["quote_id"], cl_ord_id, "client", source=source)
         if self.events.active:
@@ -4356,6 +4412,401 @@ class FixEngine:
         if not row:
             raise ValueError(f"Unknown replay job: {job_id}")
         return row
+
+    # ── Lists ──────────────────────────────────────────────────────────
+
+    async def _list_members(self, session_id: str, list_id: str, direction: str) -> list[dict[str, Any]]:
+        return await self._fetch_all(
+            "SELECT * FROM fix_orders WHERE session_id = ? AND list_id = ? AND direction = ? "
+            "ORDER BY list_seq_no, id", (session_id, list_id, direction))
+
+    async def _list_size(self, session_id: str, list_id: str, direction: str) -> int:
+        row = await self._fetch_one(
+            "SELECT COUNT(*) AS n FROM fix_orders WHERE session_id = ? AND list_id = ? AND direction = ?",
+            (session_id, list_id, direction))
+        return int(row["n"]) if row else 0
+
+    def _blank_list(self, session: FixSession, list_id: str, direction: str, mode: str) -> dict[str, Any]:
+        now = _fix_timestamp()
+        return {**{c: "" for c in LIST_COLS}, "session_id": session.session_id, "list_id": list_id,
+                "direction": direction, "mode": mode, "tot_no_orders": 0,
+                "status": "Received" if direction == "RX" else "Sent",
+                "pending_action": "New" if direction == "RX" else "",
+                "created_at": now, "updated_at": now, "last_order_at": now}
+
+    def _list_terms(self, session: FixSession, msg: FixMessage) -> dict[str, Any]:
+        """What a NewOrderList says about the list itself."""
+        d = session.dictionary
+        bid, inst = msg.get("394", ""), msg.get("433", "")
+        return {"bid_type": d.enum_name("394", bid) if bid else "", "bid_type_code": bid,
+                "exec_inst_type": d.enum_name("433", inst) if inst else "", "exec_inst_type_code": inst,
+                "tot_no_orders": _int(msg.get("68", ""))}
+
+    async def _join_list(self, session: FixSession, direction: str, list_id: str, order: dict[str, Any],
+                         mode: str) -> None:
+        """An order of a list: its row made if this is the list's first
+        (a D carrying a ListID names one), else stamped — the mode it came
+        by, when; a received one's pending New. Emits `list`, then `list
+        joined` for each later order."""
+        row = await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, direction)
+        now = _fix_timestamp()
+        if row is None:
+            fresh = {**self._blank_list(session, list_id, direction, mode), "client": order.get("client") or ""}
+            await self._insert_family_row("fix_lists", fresh)
+            kinds: tuple[str, ...] = ("list",)
+        else:
+            both = row["mode"] if mode in row["mode"] else ("E+D" if row["mode"] else mode)
+            updates: dict[str, Any] = {"mode": both, "last_order_at": now}
+            if direction == "RX" and not row["pending_action"]:
+                updates["pending_action"] = "New"
+            await self._update_family_row("fix_lists", row, **updates)
+            kinds = ("list joined",)
+        if direction == "RX":
+            self._emit_row(kinds, session.session_id, "fix_lists",
+                           await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, "RX"),
+                           request=list_id, order=order.get("cl_ord_id", ""))
+
+    @staticmethod
+    def _list_orders(orders: Any) -> list[dict[str, Any]]:
+        """A list's orders as given: the New List dialog's grid (JSON text)
+        or a list of dicts."""
+        if isinstance(orders, str):
+            orders = json.loads(orders) if orders.strip() else []
+        rows = [dict(o) for o in orders or [] if isinstance(o, dict)]
+        return [o for o in rows if any(str(v).strip() for v in o.values())]
+
+    async def send_new_list(self, session_id: str, orders: Any, mode: str = "E", bid_type: str = "",
+                            exec_inst_type: str = "", tot_orders: bool = False, text: str = "",
+                            extra_tags: str = "", client: str = "", source: str = "manual",
+                            tag: str = "") -> str:
+        """Send a list and return its ListID. `mode` E sends one NewOrderList
+        holding the orders (from FIX 4.2; before, a NewOrderList carries one
+        order, so one goes out a member with ListSeqNo and ListNoOrds); D
+        sends each order as a NewOrderSingle carrying the ListID, with
+        TotNoOrders(68) when `tot_orders`. Each order is a dict of the New
+        dialog's fields (symbol, side, qty, ord_type, price, tif, the
+        instrument's terms or a saved one's name as `instrument`, client,
+        handl_inst, extra_tags); `text`, `client` and
+        `extra_tags` apply to every order. The list and its orders are
+        written before anything is sent; an order that fails to go out is
+        Rejected, with those after it."""
+        session = self._active_session(session_id)
+        if mode not in lists.MODES:
+            raise ValueError(f"A list is sent as E (NewOrderList) or D (orders carrying its ListID), not {mode!r}")
+        members = self._list_orders(orders)
+        if not members:
+            raise ValueError("A list needs at least one order")
+        dictionary, factory = session.dictionary, session.factory
+        for n, m in enumerate(members, 1):
+            name = str(m.get("instrument") or "").strip()
+            if name:
+                # The grid's Instrument: a saved one, its terms under what the row typed.
+                saved = await self._fetch_one("SELECT * FROM fix_instruments WHERE name = ?", (name,))
+                if saved is None:
+                    raise ValueError(f"Order {n} of the list names no saved instrument {name!r}")
+                m.update({c: saved[c] for c in INSTRUMENT_COLS if saved[c] not in (None, "") and not m.get(c)})
+                m["symbol"] = m.get("symbol") or saved["symbol"]
+        for n, m in enumerate(members, 1):
+            missing = [k for k in ("symbol", "side", "qty") if not str(m.get(k) or "").strip()]
+            if missing:
+                raise ValueError(f"Order {n} of the list needs {', '.join(missing)}")
+            instrument_pairs(dictionary, normalize_instrument(m))       # refused before an ID is spent
+        grouped = mode == "E" and dictionary.defines("394")               # NoOrders(73) from 4.2
+        list_id = await self.ids.next_id("LI")
+        built: list[tuple[str, FixMessage, dict[str, Any]]] = []
+        for n, m in enumerate(members, 1):
+            cl_ord_id = await self.ids.next_id("RT")
+            qty, price = float(m["qty"]), _opt_float(m.get("price"))
+            ord_type, tif = str(m.get("ord_type") or "2"), str(m.get("tif") or "0")
+            msg = factory.new_order_single(cl_ord_id=cl_ord_id, symbol=str(m["symbol"]), side=str(m["side"]), qty=qty,
+                                           ord_type=ord_type, price=price, tif=tif,
+                                           handl_inst=str(m.get("handl_inst") or "1"), text=text or None)
+            own_extras = str(m.get("extra_tags") or "")
+            msg.extra = parse_extra_tags(extra_tags) + parse_extra_tags(own_extras)
+            self._stamp_client(session, msg, str(m.get("client") or client))
+            factory.stamp_instrument(msg, normalize_instrument(m))
+            msg["66"] = list_id
+            if mode == "D":
+                if tot_orders:
+                    msg["68"] = str(len(members))
+            elif not grouped:
+                msg["35"], msg["67"], msg["68"] = "E", str(n), str(len(members))
+            row = await self._sent_order_row(session, msg, cl_ord_id, str(m["symbol"]), str(m["side"]), qty,
+                                             ord_type, price, tif, "|".join(p for p in (extra_tags, own_extras) if p))
+            row["list_seq_no"] = n
+            built.append((cl_ord_id, msg, row))
+        now = _fix_timestamp()
+        list_row = {**self._blank_list(session, list_id, "TX", mode), "client": client, "extra_tags": extra_tags,
+                    "sent_text": text, "tot_no_orders": len(members) if mode == "E" or tot_orders else 0,
+                    "created_at": now, "updated_at": now, "last_order_at": now}
+        if grouped:
+            list_msg = factory.new_order_list(
+                list_id, [lists.member_pairs(self._as_sent(session, msg), dictionary, n)
+                          for n, (_, msg, _) in enumerate(built, 1)], bid_type=bid_type, exec_inst_type=exec_inst_type)
+            list_row.update(self._list_terms(session, self._as_sent(session, list_msg)))
+            list_row["raw_message"] = self._as_sent(session, list_msg).to_wire_string()
+        await self._insert_family_row("fix_lists", list_row)
+        ops = self._compiled_ops["upsert_order"]
+        for cl_ord_id, _, row in built:
+            await self.writer.submit(ops, (_order_params(row),), {"cl_ord_id": cl_ord_id})
+        created = await self._find_family_row("fix_lists", "list_id", session_id, list_id, "TX")
+        self._emit_row(("sent list",), session_id, "fix_lists", created, source=source, request=list_id, tag=tag)
+        if self.events.active:
+            for cl_ord_id, msg, _ in built:
+                self.events.emit(EngineEvent(("sent order",), session_id, source=source, request=cl_ord_id, msg=msg,
+                                             order=await self._find_order(session_id, cl_ord_id)))
+        pending = built if not grouped else []
+        try:
+            if grouped:
+                await session.send_message(list_msg)
+            for n, (_, msg, _) in enumerate([] if grouped else built):
+                await session.send_message(msg)
+                pending = built[n + 1:]
+        except Exception as exc:
+            for _, _, row in (built if grouped else pending):
+                await self._write_order(row, status="Rejected", leaves_qty=0.0, text=f"Send failed: {exc}")
+            if created is not None and (grouped or len(pending) == len(built)):
+                await self._update_family_row("fix_lists", created, status="Failed", text=f"Send failed: {exc}")
+            raise
+        return list_id
+
+    async def _sent_list(self, session_id: str, list_id: str) -> dict[str, Any]:
+        return await self._load_family_row("fix_lists", "list_id", session_id, list_id, "TX")
+
+    async def _send_list_request(self, session: FixSession, row: dict[str, Any], msg: FixMessage,
+                                 action: str, extra_tags: str) -> None:
+        """A request about a sent list: the slot holds it until its answer."""
+        msg.extra += parse_extra_tags(extra_tags)
+        sent = self._as_sent(session, msg)
+        updates = {"sent_text": sent.get("58", "")}
+        if action:
+            updates.update(pending_action=action, pending_extra_tags=extra_tags)
+        await self._update_family_row("fix_lists", row, **updates)
+        try:
+            await session.send_message(msg)
+        except Exception:
+            await self._update_family_row("fix_lists", row)
+            raise
+
+    async def execute_list(self, session_id: str, list_id: str, text: str = "", extra_tags: str = "") -> str:
+        """ListExecute (35=L): go ahead with a list sent to wait for it."""
+        session = self._active_session(session_id)
+        row = await self._sent_list(session_id, list_id)
+        await self._send_list_request(session, row, session.factory.list_execute(list_id, text=text or None),
+                                      "Execute", extra_tags)
+        return list_id
+
+    async def cancel_list(self, session_id: str, list_id: str, as_orders: Any = None, text: str = "",
+                          extra_tags: str = "") -> list[str]:
+        """Cancel a sent list: a ListCancelRequest (35=K), or — `as_orders`,
+        the default for a list sent as orders — an OrderCancelRequest for
+        each of its orders still working. Returns what was sent: the ListID,
+        or the cancels' ClOrdIDs."""
+        session = self._active_session(session_id)
+        row = await self._sent_list(session_id, list_id)
+        by_orders = row["mode"] == "D" if as_orders in (None, "") else str(as_orders).lower() in ("1", "true", "yes", "f")
+        if not by_orders:
+            await self._send_list_request(session, row, session.factory.list_cancel_request(list_id, text=text or None),
+                                          "Cancel", extra_tags)
+            return [list_id]
+        sent = []
+        for order in await self._list_members(session_id, list_id, "TX"):
+            if lists.is_done(order["status"]) or order["pending_action"]:
+                continue
+            sent.append(await self.send_cancel(session_id, order["cl_ord_id"], order["symbol"], order["side_code"],
+                                               extra_tags=extra_tags, client=order["client"], text=text))
+        return sent
+
+    async def request_list_status(self, session_id: str, list_id: str, extra_tags: str = "") -> str:
+        """ListStatusRequest (35=M) for a sent list."""
+        session = self._active_session(session_id)
+        row = await self._sent_list(session_id, list_id)
+        await self._send_list_request(session, row, session.factory.list_status_request(list_id), "", extra_tags)
+        return list_id
+
+    async def _handle_new_order_list(self, session: FixSession, msg: FixMessage) -> None:
+        """A received NewOrderList (35=E): the list, then each of its orders
+        as a received order of the list — every order of a NewOrderList
+        from 4.2, the one in its body before."""
+        list_id = msg.get("66", "")
+        row = await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, "RX")
+        terms = self._list_terms(session, msg)
+        if row is None:
+            fresh = {**self._blank_list(session, list_id, "RX", "E"), **terms, "raw_message": msg.to_wire_string()}
+            await self._insert_family_row("fix_lists", fresh)
+        else:
+            await self._update_family_row("fix_lists", row, **{k: v for k, v in terms.items() if v},
+                                          raw_message=msg.to_wire_string())
+        for pairs in lists.list_members(msg):
+            await self._handle_new_order(session, lists.member_message(msg, pairs), list_mode="E")
+
+    async def _handle_list_status(self, session: FixSession, msg: FixMessage) -> None:
+        """A received ListStatus (35=N) on a list we sent: its status, and the
+        request it answers cleared — an Execute by an executing or finished
+        list, a Cancel by a finished one. Its orders keep what their
+        ExecutionReports said."""
+        row = await self._find_family_row("fix_lists", "list_id", session.session_id, msg.get("66", ""), "TX")
+        if row is None:
+            return
+        d = session.dictionary
+        kind, status = msg.get("429", ""), msg.get("431", "")
+        updates: dict[str, Any] = {"status_type": d.enum_name("429", kind) if kind else "", "status_type_code": kind,
+                                   "text": msg.get("444", "") or msg.get("58", ""), "raw_message": msg.to_wire_string()}
+        if status:
+            updates.update(status=lists.status_name(d, status), list_status_code=status)
+        answered = {"Execute": (lists.EXECUTING, lists.ALL_DONE, lists.REJECT),
+                    "Cancel": (lists.ALL_DONE, lists.REJECT)}.get(row["pending_action"], ())
+        if status in answered or (row["pending_action"] == "Cancel" and kind == lists.ALL_DONE_TYPE):
+            updates.update(pending_action="", pending_extra_tags="")
+        await self._update_family_row("fix_lists", row, **updates)
+
+    async def _handle_list_request(self, session: FixSession, msg: FixMessage, action: str) -> None:
+        """A received ListExecute (35=L) or ListCancelRequest (35=K) parks on
+        the list for Accept or Reject; one naming no list is refused with a
+        ListStatus saying so."""
+        list_id = msg.get("66", "")
+        row = await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, "RX")
+        if row is None:
+            reply = session.factory.list_status(list_id, lists.RESPONSE, lists.REJECT, [], text=f"Unknown list: {list_id}")
+            await session.send_message(reply)
+            return
+        await self._update_family_row("fix_lists", row, pending_action=action, text=msg.get("58", ""),
+                                      pending_extra_tags=format_extra_tags(extra_pairs_of(msg, session.dictionary,
+                                                                                          frozenset({"66", "60", "58"}))),
+                                      raw_message=msg.to_wire_string())
+        self._emit_row((f"list {action.lower()}",), session.session_id, "fix_lists",
+                       await self._load_family_row_by_id("fix_lists", row["id"]), msg=msg, request=list_id)
+
+    def _member_reports(self, session: FixSession, members: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Each order as a ListStatus reports it."""
+        d = session.dictionary
+        return [{"11": o["cl_ord_id"], "14": _qty_text(o["cum_qty"]), "39": d.enum_code("39", o["status"]),
+                 "151": _qty_text(o["leaves_qty"]), "84": _qty_text(o["order_qty"] - o["cum_qty"] - o["leaves_qty"])
+                 if lists.is_done(o["status"]) else "0", "6": _qty_text(o["avg_price"])} for o in members]
+
+    async def _send_list_status(self, session: FixSession, row: dict[str, Any], status_type: str, order_status: str,
+                                text: str = "", extra_tags: str = "", **updates: Any) -> None:
+        members = await self._list_members(session.session_id, row["list_id"], row["direction"])
+        msg = session.factory.list_status(row["list_id"], status_type, order_status,
+                                          self._member_reports(session, members), text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        status = order_status or row["list_status_code"]
+        await self._update_family_row("fix_lists", row, sent_text=text, **({"status": lists.status_name(
+            session.dictionary, status), "list_status_code": status} if status else {}), **updates)
+        await session.send_message(msg)
+
+    async def _handle_list_status_request(self, session: FixSession, msg: FixMessage) -> None:
+        """A ListStatusRequest (35=M) is answered at once, from the tables."""
+        list_id = msg.get("66", "")
+        row = await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, "RX")
+        if row is None:
+            await session.send_message(session.factory.list_status(list_id, lists.RESPONSE, lists.REJECT, [],
+                                                                   text=f"Unknown list: {list_id}"))
+            return
+        await self._send_list_status(session, row, lists.RESPONSE, row["list_status_code"] or lists.EXECUTING)
+        self._emit_row(("list status request",), session.session_id, "fix_lists", row, msg=msg, request=list_id)
+
+    async def _received_list(self, session_id: str, list_id: str) -> dict[str, Any]:
+        return await self._load_family_row("fix_lists", "list_id", session_id, list_id, "RX")
+
+    async def accept_list(self, session_id: str, list_id: str, text: str = "", extra_tags: str = "") -> str:
+        """Accept what a received list has pending. New: every order still
+        pending New is accepted (an ExecutionReport each), then — for a
+        NewOrderList — a ListStatus acknowledging it: ReceivedForExecution
+        when it waits for a ListExecute, else Executing. Execute: a
+        ListStatus ExecStarted. Cancel: every working order canceled, then
+        a ListStatus AllDone."""
+        session = self._active_session(session_id)
+        row = await self._received_list(session_id, list_id)
+        members = await self._list_members(session_id, list_id, "RX")
+        action = row["pending_action"] or ("New" if any(o["pending_action"] == "New" for o in members) else "")
+        if action == "New":
+            for order in members:
+                if order["pending_action"] == "New":
+                    await self.accept_order(session_id, order["cl_ord_id"])
+            if "E" in row["mode"]:
+                waits = row["exec_inst_type_code"] == "2"
+                await self._send_list_status(session, row, lists.ACK,
+                                             lists.RECEIVED_FOR_EXECUTION if waits else lists.EXECUTING, text,
+                                             extra_tags, pending_action="", pending_extra_tags="")
+            else:
+                await self._update_family_row("fix_lists", row, pending_action="", pending_extra_tags="",
+                                              status="Executing")
+        elif action == "Execute":
+            await self._send_list_status(session, row, lists.EXEC_STARTED, lists.EXECUTING, text, extra_tags,
+                                         pending_action="", pending_extra_tags="")
+        elif action == "Cancel":
+            for order in members:
+                if not lists.is_done(order["status"]):
+                    await self.unsolicited_cancel(session_id, order["cl_ord_id"], text=text)
+            row = await self._received_list(session_id, list_id)
+            await self._send_list_status(session, row, lists.ALL_DONE_TYPE, lists.ALL_DONE, text, extra_tags,
+                                         pending_action="", pending_extra_tags="")
+        else:
+            raise ValueError(f"List {list_id} has nothing pending")
+        return list_id
+
+    async def reject_list(self, session_id: str, list_id: str, text: str = "", extra_tags: str = "") -> str:
+        """Refuse what a received list has pending. New: every order still
+        pending New rejected, and — for a NewOrderList — a ListStatus Reject.
+        Execute or Cancel: a ListStatus saying so, the list as it was."""
+        session = self._active_session(session_id)
+        row = await self._received_list(session_id, list_id)
+        members = await self._list_members(session_id, list_id, "RX")
+        action = row["pending_action"] or ("New" if any(o["pending_action"] == "New" for o in members) else "")
+        if action == "New":
+            for order in members:
+                if order["pending_action"] == "New":
+                    await self.reject_order(session_id, order["cl_ord_id"], text=text)
+            if "E" in row["mode"]:
+                await self._send_list_status(session, row, lists.ACK, lists.REJECT, text, extra_tags,
+                                             pending_action="", pending_extra_tags="")
+            else:
+                await self._update_family_row("fix_lists", row, pending_action="", pending_extra_tags="",
+                                              status="Rejected")
+        elif action in ("Execute", "Cancel"):
+            await self._send_list_status(session, row, lists.RESPONSE, row["list_status_code"] or lists.EXECUTING,
+                                         text or f"{action} refused", extra_tags,
+                                         pending_action="", pending_extra_tags="")
+        else:
+            raise ValueError(f"List {list_id} has nothing pending")
+        return list_id
+
+    async def send_list_status(self, session_id: str, list_id: str, status_type: str = "6", list_status: str = "",
+                               text: str = "", extra_tags: str = "") -> str:
+        """An unsolicited ListStatus on a received list (Alert by default)."""
+        session = self._active_session(session_id)
+        row = await self._received_list(session_id, list_id)
+        await self._send_list_status(session, row, status_type, list_status, text, extra_tags)
+        return list_id
+
+    async def fill_list(self, session_id: str, list_id: str, price: Any = None, text: str = "",
+                        extra_tags: str = "") -> list[str]:
+        """Fill every working order of a received list for what it has left,
+        at its limit price or ``price``; an order with no price of its own
+        needs ``price``, and none is filled without one."""
+        self._active_session(session_id)
+        await self._received_list(session_id, list_id)
+        given = _opt_float(price)
+        working = [o for o in await self._list_members(session_id, list_id, "RX")
+                   if o["status"] not in ("Canceled", "Rejected") and o["leaves_qty"] > 0]
+        unpriced = [o["cl_ord_id"] for o in working if not o["price"]]
+        if unpriced and given is None:
+            raise ValueError(f"No price to fill {', '.join(unpriced)} at: give one")
+        exec_ids = []
+        for order in working:
+            exec_ids.append(await self.fill_order(session_id, order["cl_ord_id"], order["leaves_qty"],
+                                                  given if given is not None else order["price"],
+                                                  extra_tags=extra_tags, text=text))
+        return exec_ids
+
+    async def cancel_list_orders(self, session_id: str, list_id: str, text: str = "", extra_tags: str = "") -> list[str]:
+        """Cancel every working order of a received list, unasked
+        (ExecutionReport Canceled each)."""
+        self._active_session(session_id)
+        await self._received_list(session_id, list_id)
+        return [await self.unsolicited_cancel(session_id, o["cl_ord_id"], text=text, extra_tags=extra_tags)
+                for o in await self._list_members(session_id, list_id, "RX") if not lists.is_done(o["status"])]
 
     async def _fetch_one(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         cursor = await self.db.read_conn.execute(sql, params)
