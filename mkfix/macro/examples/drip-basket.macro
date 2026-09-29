@@ -1,0 +1,22 @@
+# Drip basket
+#
+# Shows:   a list sent order by order — `mode: orders` sends each `order` line as a
+#          NewOrderSingle carrying the ListID, as it is reached, so a paced `repeat` drips the
+#          basket; `tot_orders` giving the count to come; `cancel list` taking the rest back
+# Needs:   any session from FIX 4.0: run it on LOOP-CLI with list-desk armed on LOOP-MKT
+# Watch:   Sent Lists (Client menu): the list's Orders count growing each second; Received
+#          Lists (Market menu) offering it to the desk 5 seconds after the last order
+# Outcome: five orders go a second apart; the desk takes the list once they stop and fills
+#          it; what is still working after 30 seconds is canceled
+
+run
+    new list mode: orders, tot_orders: 5
+        repeat 5 every 1s with sym = ['IBM', 'MSFT', 'AAPL', 'GOOG', 'AMZN']
+            order symbol: sym, side: buy, qty: 100, price: 50 + n
+    # Sent order by order, a list has no ListStatus answering it: each order is acked on its
+    # own, and the list is `done` when the last of them is finished.
+    wait done or timeout 30s
+    if event.kind == 'timeout'
+        cancel list as: list, text: 'too slow'
+        fail 'the basket was not filled'
+    pass '${list.order_count} orders filled'

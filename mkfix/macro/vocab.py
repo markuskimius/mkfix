@@ -21,20 +21,25 @@ ORDER, IOI, ADVERT, ALLOCATION = "order", "ioi", "advert", "allocation"
 # 0.73: the RFQ families. An RFQ and an unsolicited quote are rows of one
 # table (fix_rfqs, told apart by `origin`), an RFQ request of its own.
 RFQ, QUOTE, RFQ_REQUEST = "rfq", "quote", "rfq_request"
-SUBJECTS = (ORDER, IOI, ADVERT, ALLOCATION, RFQ, QUOTE, RFQ_REQUEST)
+# 0.78: a list — its own row, its orders ordinary orders (fix/lists.py).
+LIST = "list"
+# How long a received list's orders must have stopped coming before it is
+# `received`, in macro seconds: a NewOrderList is received at once.
+LIST_QUIET = 5.0
+SUBJECTS = (ORDER, IOI, ADVERT, ALLOCATION, RFQ, QUOTE, RFQ_REQUEST, LIST)
 SUBJECT_TABLES = {ORDER: "fix_orders", IOI: "fix_iois", ADVERT: "fix_adverts", ALLOCATION: "fix_allocations",
-                  RFQ: "fix_rfqs", QUOTE: "fix_rfqs", RFQ_REQUEST: "fix_rfq_requests"}
+                  RFQ: "fix_rfqs", QUOTE: "fix_rfqs", RFQ_REQUEST: "fix_rfq_requests", LIST: "fix_lists"}
 SUBJECT_IDS = {ORDER: "cl_ord_id", IOI: "ioi_id", ADVERT: "adv_id", ALLOCATION: "alloc_id",
-               RFQ: "quote_req_id", QUOTE: "quote_id", RFQ_REQUEST: "rfq_req_id"}
+               RFQ: "quote_req_id", QUOTE: "quote_id", RFQ_REQUEST: "rfq_req_id", LIST: "list_id"}
 # The verb that sends a `run` block's subject and so binds the block to it.
 CREATORS = {ORDER: "new", IOI: "ioi", ADVERT: "advert", ALLOCATION: "allocate",
-            RFQ: "rfq", QUOTE: "new quote", RFQ_REQUEST: "rfq request"}
+            RFQ: "rfq", QUOTE: "new quote", RFQ_REQUEST: "rfq request", LIST: "new list"}
 # How a subject is written: in block headers (`on rfq request`) and at the
 # head of the engine's events about it (`rfq request unsubscribed`).
 SUBJECT_WORDS = {**{s: s for s in SUBJECTS}, RFQ_REQUEST: "rfq request"}
 # The subjects the client side sends, the way it sends orders; the market
 # side sends the rest.
-CLIENT_SENDS = frozenset({ORDER, RFQ})
+CLIENT_SENDS = frozenset({ORDER, RFQ, LIST})
 # The tag and column a message answering a subject names it by: an order
 # answering an IOI (23) or a quote (117), an RFQ answering an RFQ request (644).
 ANSWER_TAGS = {("new", IOI): ("23", "ioi_id"), ("new", QUOTE): ("117", "quote_id"),
@@ -91,11 +96,12 @@ BLOCK_HEADERS: dict[str, tuple[str, str | None]] = {
     "on rfq": (MARKET, RFQ), "on sent rfq": (ATTACHED, RFQ),
     "on quote": (MARKET, QUOTE), "on sent quote": (ATTACHED, QUOTE),
     "on rfq request": (MARKET, RFQ_REQUEST), "on sent rfq request": (ATTACHED, RFQ_REQUEST),
+    "on list": (MARKET, LIST), "on sent list": (ATTACHED, LIST),
 }
 
 
 PLURALS = {ORDER: "orders", IOI: "IOIs", ADVERT: "adverts", ALLOCATION: "allocations", RFQ: "RFQs",
-           QUOTE: "quotes", RFQ_REQUEST: "RFQ requests"}
+           QUOTE: "quotes", RFQ_REQUEST: "RFQ requests", LIST: "lists"}
 
 
 def block_name(kind: str, subject: str) -> str:
@@ -165,6 +171,9 @@ _POSITION_TERMS = {"open_close": "open_close", "covered": "covered_uncovered"}
 # What `instrument 'NAME' …` at the top of a macro may give: a saved
 # instrument's terms, its symbol among them.
 DECLARED_TERMS = {"symbol": "symbol", **{k: v for k, v in _INSTRUMENT_TERMS.items() if k != "instrument"}}
+
+_LIST_TERMS = {"mode": "mode", "bid_type": "bid_type", "execution": "exec_inst_type", "tot_orders": "tot_orders",
+               "client": "client", **_TEXT}
 
 _IOI_TERMS = {
     "symbol": "symbol", "side": "side", "qty": "qty", "price": "price", "valid": "valid_until",
@@ -291,11 +300,36 @@ VERBS: dict[str, Verb] = {v.name: v for v in (
              "split by `;`. The request it creates is this block's."),
     Verb("unsubscribe", "unsubscribe_rfq_request", _SENDING, {"extra": "extra_tags"}, subject=RFQ_REQUEST,
          scope="unsubscribe", key="rfq_req_id", doc="End the RFQ request's subscription."),
+    Verb("new list", "send_new_list", (CLIENT,), _LIST_TERMS, subject=LIST, scope="list",
+         doc="Send a list: the `order` lines under it (a `repeat` may hold them). `mode: list` sends one NewOrderList, "
+             "`mode: orders` each order as it comes, carrying the ListID — so `after` and a paced `repeat` space them."),
+    Verb("add order", "add_list_order", _SENDING, {**_ORDER_TERMS, **_INSTRUMENT_TERMS, **_POSITION_TERMS},
+         ("symbol", "side", "qty"), subject=LIST, scope="order",
+         doc="One more order of the list, carrying its ListID. An indented block under it is that order's own macro."),
+    Verb("execute list", "execute_list", _SENDING, _TEXT, subject=LIST, scope="list_request",
+         doc="Tell the counterparty to execute the list (ListExecute), for one sent to wait for it."),
+    Verb("cancel list", "cancel_list", _SENDING, {"as": "as_orders", **_TEXT}, subject=LIST, scope="cancel",
+         doc="Cancel the list: a ListCancelRequest (`as: list`), or a cancel for each working order (`as: orders`, "
+             "the default for a list sent as orders)."),
+    Verb("request list status", "request_list_status", _SENDING, _TEXT, subject=LIST, scope="list_request",
+         doc="Ask for the list's status (ListStatusRequest)."),
+    Verb("accept list", "accept_list", (MARKET,), _TEXT, subject=LIST, scope="accept",
+         doc="Accept what the list has pending: its new orders (and a ListStatus for a NewOrderList), an execute, "
+             "or a cancel."),
+    Verb("reject list", "reject_list", (MARKET,), _TEXT, subject=LIST, scope="reject",
+         doc="Refuse what the list has pending: its new orders rejected, or the execute or cancel refused."),
+    Verb("list status", "send_list_status", (MARKET,), {"status_type": "status_type", "list_status": "list_status",
+                                                        **_TEXT}, subject=LIST, scope="list_status",
+         doc="Send a ListStatus unasked (Alert by default)."),
+    Verb("fill all", "fill_list", (MARKET,), {"price": "price", **_TEXT}, subject=LIST, scope="list_fill",
+         doc="Fill every working order of the list for what it has left, at its limit or `price`."),
+    Verb("cancel list orders", "cancel_list_orders", (MARKET,), _TEXT, subject=LIST, scope="unsolicited",
+         doc="Cancel every working order of the list, unasked."),
 )}
 
 EVENTS: dict[str, Event] = {e.name: e for e in (
-    Event("cancel", (MARKET,), also=_places((ALLOCATION,), (MARKET,)),
-         doc="The counterparty asked to cancel the order (or, on a received allocation, the allocation)."),
+    Event("cancel", (MARKET,), also=_places((ALLOCATION, LIST), (MARKET,)),
+         doc="The counterparty asked to cancel the order (or, on a received allocation or list, that)."),
     Event("replace", (MARKET,), also=_places((ALLOCATION,), (MARKET,)),
          doc="The counterparty asked to replace the order (or, on a received allocation, the allocation)."),
     Event("dk", (MARKET,), trade=True, doc="The counterparty disputed a trade we sent (DontKnowTrade)."),
@@ -308,9 +342,9 @@ EVENTS: dict[str, Event] = {e.name: e for e in (
     Event("canceled", _SENDING, also=_places((IOI, ADVERT, QUOTE), (MARKET,)) | _places((RFQ,), _SENDING),
          doc="The order was canceled, asked for or not — or a received IOI, advert or quote was canceled by its "
              "sender, or the quote on an RFQ we sent."),
-    Event("rejected", _SENDING, also=_places((ALLOCATION, RFQ), _SENDING),
+    Event("rejected", _SENDING, also=_places((ALLOCATION, RFQ, LIST), _SENDING),
          doc="The order was rejected — or the allocation's Ack refused it (AllocStatus block or account level "
-             "reject), or the RFQ was (QuoteRequestReject)."),
+             "reject), or the RFQ was (QuoteRequestReject), or the list (ListStatus Reject)."),
     Event("cancel rejected", _SENDING, doc="A cancel or replace request was refused (OrderCancelReject); see event.response_to and event.reason."),
     Event("restated", _SENDING, doc="The counterparty changed the order's terms unasked."),
     Event("expired", _SENDING, also=_places((RFQ, QUOTE), SIDES),
@@ -319,15 +353,25 @@ EVENTS: dict[str, Event] = {e.name: e for e in (
     Event("corrected", _SENDING, trade=True, doc="A trade we received was corrected."),
     Event("busted", _SENDING, trade=True, doc="A trade we received was busted."),
     Event("er", _SENDING, doc="Any ExecutionReport, named or not: test event.tag['150']."),
-    Event("accepted", _SENDING, subjects=(ALLOCATION,), doc="The allocation's Ack accepted it (AllocStatus 0)."),
-    Event("received", _SENDING, subjects=(ALLOCATION,), doc="The allocation's Ack says received, not yet accepted (AllocStatus 3)."),
+    Event("accepted", _SENDING, subjects=(ALLOCATION, LIST),
+          doc="The allocation's Ack accepted it (AllocStatus 0) — or a ListStatus acknowledged the list."),
+    Event("received", _SENDING, subjects=(ALLOCATION,), also=_places((LIST,), (MARKET,)),
+          doc="The allocation's Ack says received, not yet accepted (AllocStatus 3). On a received list: all of it "
+              "is here — a NewOrderList at once, orders carrying the ListID after 5 seconds without another."),
     Event("incomplete", _SENDING, subjects=(ALLOCATION,), doc="The allocation's Ack says incomplete (AllocStatus 4)."),
     Event("acked", _SENDING, subjects=(ALLOCATION,), doc="Any Ack of the allocation, named or not: test event.tag['87']."),
     Event("quoted", _SENDING, subjects=(RFQ,), doc="The first quote answering the RFQ arrived: rfq.bid_px, rfq.offer_px…"),
     Event("requoted", _SENDING, subjects=(RFQ,), also=_places((QUOTE,), (MARKET,)),
           doc="A new quote replaced the one standing (a counter answered, a stream ticking)."),
-    Event("status", _SENDING, subjects=(RFQ,), also=_places((QUOTE,), (MARKET,)),
-          doc="A QuoteStatusReport about the quote: rfq.quote_status (quote.quote_status)."),
+    Event("status", _SENDING, subjects=(RFQ, LIST), also=_places((QUOTE,), (MARKET,)),
+          doc="A QuoteStatusReport about the quote: rfq.quote_status (quote.quote_status) — or any ListStatus about "
+              "the list: list.status."),
+    Event("executing", _SENDING, subjects=(LIST,), doc="A ListStatus says the list is executing."),
+    Event("done", _SENDING, subjects=(LIST,), doc="The list's last working order finished."),
+    Event("joined", (MARKET,), subjects=(LIST,), doc="Another order of the list arrived, after it was received."),
+    Event("execute", (MARKET,), subjects=(LIST,), doc="The counterparty asked to execute the list (ListExecute)."),
+    Event("status request", (MARKET,), subjects=(LIST,),
+          doc="The counterparty asked for the list's status (answered at once, from the tables)."),
     Event("hit", (MARKET,), subjects=(RFQ,), also=_places((QUOTE,), _SENDING),
           doc="The counterparty took our quote — a QuoteResponse Hit or an order naming it; the order arrives "
               "as a received order of its own."),
@@ -370,6 +414,11 @@ STATEMENTS: dict[str, tuple[str, str]] = {
     "on sent quote": ("on sent quote [where EXPR]", "A market block run for every quote sent by hand."),
     "on rfq request": ("on rfq request [where EXPR]", "A client block run for every received RFQ request; `rfq` in it answers the request."),
     "on sent rfq request": ("on sent rfq request [where EXPR]", "A market block run for every RFQ request sent by hand."),
+    "on list": ("on list [where EXPR]", "A market block run for every received list, once it is received: a "
+                                        "NewOrderList at once, orders carrying a ListID after 5 seconds without another."),
+    "on sent list": ("on sent list [where EXPR]", "A client block run for every list sent by hand."),
+    "order": ("order TERMS", "One order of the `new list` above it: `new`'s terms. An indented block under it is "
+                             "that order's own macro, started once it is sent."),
     "after": ("after DURATION [± DURATION]", "Wait that long. The optional part is random jitter either way."),
     "wait": ("wait EVENT [or EVENT…] [where EXPR] [or timeout DURATION]", "Wait for an event; carry on either way."),
     "expect": ("expect EVENT [or EVENT…] [where EXPR] within DURATION [else fail 'WHY']", "Wait for an event, and fail the order's macro if it does not come in time."),
@@ -445,6 +494,14 @@ ENUMS: dict[str, dict[str, str]] = {
     "open close": {"open": "O", "close": "C", "rolled": "R", "fifo": "F"},
     "covered": {"covered": "0", "uncovered": "1"},
     "id source": {"cusip": "1", "sedol": "2", "isin": "4", "ric": "5", "exchange_symbol": "8", "bloomberg_symbol": "A"},
+    "list mode": {"list": "E", "orders": "D"},
+    "bid type": {"no_bidding": "3", "non_disclosed": "1", "disclosed": "2"},
+    "execution": {"immediate": "1", "wait": "2"},
+    "tot orders": {"yes": "1"},
+    "cancel as": {"list": "0", "orders": "1"},
+    "status type": {"alert": "6", "ack": "1", "response": "2", "timed": "3", "exec_started": "4", "all_done": "5"},
+    "list status": {"in_bidding_process": "1", "received_for_execution": "2", "executing": "3", "canceling": "4",
+                    "alert": "5", "all_done": "6", "reject": "7"},
 }
 _INSTRUMENT_ENUMS = {"sec_type": "sec type", "underlying_type": "sec type", "put_call": "put call",
                      "id_source": "id source"}
@@ -457,6 +514,11 @@ _ENUM_OF: dict[str, dict[str, str]] = {
             "open_close": "open close", "covered": "covered"},
     # `instrument 'NAME' …`, the declaration at the top of a macro.
     "instrument": _INSTRUMENT_ENUMS,
+    "new list": {"mode": "list mode", "bid_type": "bid type", "execution": "execution", "tot_orders": "tot orders"},
+    "add order": {"side": "side", "type": "type", "tif": "tif", "handl_inst": "handl_inst", **_INSTRUMENT_ENUMS,
+                  "open_close": "open close", "covered": "covered"},
+    "cancel list": {"as": "cancel as"},
+    "list status": {"status_type": "status type", "list_status": "list status"},
     "replace": {"type": "type", "tif": "tif", "handl_inst": "handl_inst"},
     "dk": {"reason": "dk reason"},
     "restate": {"reason": "restate reason"},
@@ -544,15 +606,18 @@ CONTEXT_DOCS = {
     "rfqs": "Every RFQ this run's macros hold, as it stands now, oldest first.",
     "quotes": "Every quote this run's macros hold, as it stands now, oldest first.",
     "rfq_requests": "Every RFQ request this run's macros hold, as it stands now, oldest first.",
+    "list": "In a list block, the list's row: list.list_id, list.mode, list.status, list.order_count, "
+            "list.pending_action…",
+    "lists": "Every list this run's macros hold, as it stands now, oldest first.",
 }
 # The names a `let` or a `with` may not take. The ones 0.68 added — `shared`
 # and the run's rows — are not among them: a macro written before them that
 # calls something `orders` keeps its name, which wins.
 RESERVED = frozenset(CONTEXT_DOCS) - {"shared", "orders", "iois", "adverts", "allocations", "rfqs", "quotes",
-                                      "rfq_requests"}
+                                      "rfq_requests", "lists"}
 # The run's rows of each kind, by the name an expression reads them under.
 PEERS = {ORDER: "orders", IOI: "iois", ADVERT: "adverts", ALLOCATION: "allocations", RFQ: "rfqs", QUOTE: "quotes",
-         RFQ_REQUEST: "rfq_requests"}
+         RFQ_REQUEST: "rfq_requests", LIST: "lists"}
 SIGNAL = "signal"
 
 

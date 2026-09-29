@@ -448,7 +448,9 @@ class TestExamples:
                 kinds.add(block.kind)
                 shapes |= {"on signal"} if block.signal else set()
                 shapes |= {"on signal where"} if block.signal and block.where is not None else set()
-                for st in nodes.walk(block.body):
+                # An order's own macro under a list's line is part of the block.
+                for st in [*nodes.walk(block.body),
+                           *(s for _, member in nodes.member_macros(block.body) for s in nodes.walk(member))]:
                     shapes.add(type(st).__name__)
                     if isinstance(st, Action):
                         verbs.add(st.verb)

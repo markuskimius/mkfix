@@ -22,7 +22,7 @@ STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
 TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct", "bust",
                    "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
                    "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
-                   "unsubscribe", "list"}
+                   "unsubscribe", "list", "list_request", "list_status", "list_fill"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -3024,7 +3024,9 @@ class TestTemplates:
         "send_rfq": "rfq", "quote_rfq": "quote", "requote": "quote", "send_quote": "new_quote",
         "reject_rfq": "quote_reject", "cancel_quote": "cancel", "hit_quote": "hit", "counter_quote": "counter",
         "pass_quote": "pass", "send_rfq_request": "rfq_request", "unsubscribe_rfq_request": "unsubscribe",
-        "send_new_list": "list",
+        "send_new_list": "list", "add_list_order": "order", "execute_list": "list_request",
+        "request_list_status": "list_request", "cancel_list": "cancel", "accept_list": "accept", "reject_list": "reject",
+        "send_list_status": "list_status", "fill_list": "list_fill", "cancel_list_orders": "unsolicited",
     }
 
     @staticmethod
@@ -3931,7 +3933,7 @@ class TestListBlotters:
         assert dialog["submit"]["op"] == "add_list_order"
         assert dialog["rowData"] == {"session_id": "${row.session_id}", "list_id": "${row.list_id}"}
         new_fields = _dialog_field_names(_find_dialog(app_config, "send_new_order"))
-        assert _dialog_field_names(dialog) == new_fields - {"_template", "session_id", "save_as"}
+        assert _dialog_field_names(dialog) == new_fields - {"session_id"}, "an order template, the session the list's"
 
     def test_the_modes_gate_their_buttons(self, app_config):
         sent = self._buttons(app_config, "list-blotter")

@@ -404,7 +404,13 @@ A FIX protocol testing engine for capital markets connectivity, built on
   Received Lists: Accept and Reject of the list, an Execute or a Cancel
   (with ListStatus where it was a NewOrderList), Status, Fill All, Unsol
   Cxl; a ListStatusRequest is answered at once. Selecting a list narrows
-  the order blotter to its orders.
+  the order blotter to its orders. Macros send lists (`new list` with an
+  `order` line an order, each line able to carry the order's own block;
+  `mode: orders` paces a D list line by line), work them from either side
+  (`add order`, `execute list`, `cancel list`, `request list status`;
+  `accept list`, `reject list`, `list status`, `fill all`, `cancel list
+  orders`) and hear their ListStatus; a list sent as D orders is received
+  once 5 seconds pass without another. The recorder writes lists too.
 - **Options, Futures and Futures Options** -- An order's instrument is more
   than its symbol: the New dialog's Instrument section takes Security Type
   (167), Maturity, Strike, Put/Call, the underlying, Multiplier, Exchange,

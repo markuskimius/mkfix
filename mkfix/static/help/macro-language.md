@@ -62,6 +62,9 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 | `on sent quote`, `on sent rfq request` (`where EXPR`) | market | one sent by hand | `requote`/`cancel quote`, `unsubscribe` |
 | `on quote where EXPR` | client | a quote you received unasked | `hit`, `counter`, `pass quote`, `new` |
 | `on rfq request where EXPR` | client | an RFQ request you received | `rfq` — an RFQ answering it, with the request's ID in tag 644 |
+| `run` or `run on SESSION` | client | a list the macro sends with `new list` | `new list`, then `add order`, `execute list`, `cancel list`, `request list status` |
+| `on sent list where EXPR` | client | a list sent by hand | the same, bar `new list` |
+| `on list where EXPR` | market | a list you received, once all of it is here | `accept list`, `reject list`, `list status`, `fill all`, `cancel list orders` |
 | `on signal 'NAME' where EXPR` | either, by what it sends | what the block sends, as in `run` | what `run` may; it starts once for every such signal of the run's own macros — see [Working together](#working-together) |
 
 `where` is optional. In it the subject's columns are names by themselves — `symbol == 'IBM' and order_qty >= 1000` — and `order.symbol` (or `ioi.symbol`, `rfq.symbol`, `rfq_request.symbols`…) works too. A `run` block is about whatever its sending verb sends, and one `run` sends one kind of thing.
@@ -178,6 +181,29 @@ run
 - A market `run` block sends quotes nobody asked for with `new quote`; one standing on the symbol is replaced, so `repeat … every 1s` over `requote` streams prices. The client hears them in an `on quote` block.
 - `rfq request` asks to be sent the RFQs for a list of instruments (FIX 4.3 and later); in an `on rfq request` block, `rfq` answers it. `unsubscribe` ends the subscription.
 
+## Lists
+
+A list is a basket of orders sent together (program trading): `new list` sends it, and its orders are the `order` lines under it, each taking `new`'s terms.
+
+```macro
+run
+    new list mode: list, execution: wait, tot_orders: yes
+        order symbol: 'IBM', side: buy, qty: 100, price: 150
+        order symbol: 'MSFT', side: sell, qty: 50, price: 410
+            expect filled within 30s else fail 'MSFT never filled'
+            pass 'MSFT done'
+    expect accepted within 5s
+    execute list
+    expect done within 60s
+    pass
+```
+
+- `mode: list` sends one NewOrderList (35=E) holding every order, after the lines under `new list` have run; `mode: orders` sends each order as a NewOrderSingle carrying the ListID (tag 66) as its line is reached, so `after` and `repeat` between the lines pace the basket. `tot_orders: yes` adds TotNoOrders (68); sent order by order it may be the count to come, `tot_orders: 20`, on every order.
+- A block under an `order` line is that order's own macro, as if it were a `run` of its own: it waits for its fills while the list goes on. `add order` sends one more order into a sent list, a block under it being that order's macro.
+- `execute list` (ListExecute), `cancel list` (ListCancelRequest; `as: orders` cancels each order instead) and `request list status` (ListStatusRequest) ask about the list; `accepted`, `rejected`, `executing` and `status` are the ListStatus answers, and `done` comes when the last of its orders is finished.
+- The market takes a list in an `on list` block: `accept list` and `reject list` answer it (a ListStatus Ack), `list status` sends a ListStatus of any kind, `fill all` fills every working order of it and `cancel list orders` cancels them unasked. `execute`, `cancel` and `status request` are the client's requests.
+- Orders carrying one ListID are one list whenever they come. A NewOrderList is `received` at once; a list sent order by order is `received`, and offered to the `on list` blocks, once no order of it has come for 5 seconds (macro time). An order arriving after that is `joined`. An `on order` block still sees each order of a list.
+
 ## Actions
 
 An action is a blotter button. Its terms are the dialog's fields, written `name: value`, separated by commas. A value is an expression; quoted text may hold `${…}` placeholders.
@@ -218,6 +244,16 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 | `cancel quote` | Withdraws the quote (QuoteCancel, 4.2+) | `text`, `extra` |
 | `rfq request` | Asks to be sent the RFQs for `symbols` (RFQRequest, 4.3+) | `symbols`, `subscription`, `request_type`, `quote_type`, `client`, `extra` |
 | `unsubscribe` | Ends the RFQ request's subscription | `extra` |
+| `new list` | Sends a list: its orders are the `order` lines under it, each taking `new`'s terms; `mode` is `list` (one NewOrderList) or `orders` (NewOrderSingles carrying the ListID) | `mode`, `bid_type`, `execution`, `tot_orders`, `client`, `text`, `extra` |
+| `add order` | Sends one more order into the list; a block under it is the order's macro | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source`, `open_close`, `covered` |
+| `execute list` | Tells the market to work the list (ListExecute) | `text`, `extra` |
+| `cancel list` | Asks to cancel the list (ListCancelRequest); `as: orders` sends an OrderCancelRequest for each order instead | `as`, `text`, `extra` |
+| `request list status` | Asks for the list's status (ListStatusRequest) | `text`, `extra` |
+| `accept list` | Accepts the received list and whatever it asks, with a ListStatus | `text`, `extra` |
+| `reject list` | Rejects the list, or what it asks | `text`, `extra` |
+| `list status` | Sends a ListStatus: `status_type` `ack`, `response`, `timed`, `exec_started`, `all_done`, `alert`; `list_status` its ListOrderStatus | `status_type`, `list_status`, `text`, `extra` |
+| `fill all` | Fills every working order of the list in full | `price`, `text`, `extra` |
+| `cancel list orders` | Cancels every working order of the list unasked | `text`, `extra` |
 
 - `extra` is the dialogs' Extra Tags: `extra: '9001=venue-A'` adds a tag, `extra: '60='` removes one, and naming a computed tag (`extra: '10=000'`) overrides it.
 - `using 'NAME'` takes the terms from a saved template of that action; terms written on the line override the template's.
@@ -272,7 +308,7 @@ on order
 
 | Event | Side | Happens when |
 |---|---|---|
-| `cancel` | received | the counterparty asks to cancel the order — or, on a received allocation, the allocation |
+| `cancel` | received | the counterparty asks to cancel the order — or, on a received allocation or list, the allocation or the list |
 | `replace` | received | the counterparty asks to replace the order — or, on a received allocation, the allocation |
 | `dk` | received | the counterparty disputes a trade you sent |
 | `ack` | sent | the order is accepted |
@@ -281,7 +317,7 @@ on order
 | `filled` | sent | the fill that completed the order |
 | `replaced` | sent; received IOI or advert | a replace request was accepted — or the IOI or advert you received was replaced by its sender |
 | `canceled` | sent; received IOI, advert or quote | the order was canceled, asked for or not — or the IOI, advert or quote you received, or the quote on your RFQ, was canceled |
-| `rejected` | sent | the order was rejected — or the allocation's Ack refused it, or the RFQ was |
+| `rejected` | sent | the order was rejected — or the allocation's Ack refused it, or the RFQ was, or a ListStatus refused the list |
 | `cancel rejected` | sent | a cancel or replace request was refused; see `event.response_to` and `event.reason` |
 | `restated` | sent | the counterparty changed the order's terms unasked |
 | `expired` | sent; RFQs and quotes both ways | the order expired — or the quote's ValidUntilTime passed |
@@ -289,18 +325,23 @@ on order
 | `corrected` | sent | a trade you received was corrected |
 | `busted` | sent | a trade you received was busted |
 | `er` | sent | any ExecutionReport, named or not: test `event.tag['150']` |
-| `accepted` | sent allocation | the Ack accepted the allocation (AllocStatus 0) |
-| `received` | sent allocation | the Ack says received, not yet accepted (AllocStatus 3) |
+| `accepted` | sent allocation or list | the Ack accepted the allocation (AllocStatus 0) — or a ListStatus Ack accepted the list |
+| `received` | sent allocation; received list | the Ack says received, not yet accepted (AllocStatus 3) — or all of a received list is here |
 | `incomplete` | sent allocation | the Ack says incomplete (AllocStatus 4) |
 | `acked` | sent allocation | any Ack of the allocation, named or not: test `event.tag['87']` |
 | `quoted` | sent RFQ | the first quote answering it arrived |
 | `requoted` | sent RFQ, received quote | a new quote replaced the one standing |
-| `status` | sent RFQ, received quote | a QuoteStatusReport about the quote: `rfq.quote_status` |
+| `status` | sent RFQ, received quote; sent list | a QuoteStatusReport about the quote: `rfq.quote_status` — or any ListStatus about the list: `list.status` |
 | `hit` | received RFQ, sent quote | the counterparty took your quote; its order arrives as a received order |
 | `countered` | received RFQ, sent quote | the counterparty countered: `rfq.pending_bid_px`, `rfq.pending_offer_px` … |
 | `passed` | received RFQ, sent quote | the counterparty passed |
 | `response` | received RFQ, sent quote | any other QuoteResponse: test `event.tag['694']` |
 | `unsubscribed` | received RFQ request | its sender ended the subscription |
+| `executing` | sent list | a ListStatus says the list is executing |
+| `done` | sent list | the last of the list's orders is finished |
+| `joined` | received list | an order carrying its ListID arrived after the list was received |
+| `execute` | received list | the client asked to work the list (ListExecute) |
+| `status request` | received list | the client asked for the list's status (ListStatusRequest); mkfix has already answered it from the tables, and `list status` sends another |
 | `answered` | sent RFQ request | an RFQ naming it arrived: `rfq_request.quote_requests` counts them |
 | `message` | both | any application message about the subject |
 | `manual` | both | someone acted on it by hand; `event.op` names the action |
@@ -352,9 +393,11 @@ Expressions are mkio's expression language: `and or not`, `in`, `== != < <= > >=
 | `rfq` | in an RFQ block, the negotiation's row: `rfq.status`, and the standing quote — `rfq.quote_id`, `rfq.bid_px`, `rfq.offer_px`, `rfq.valid_until` … |
 | `quote` | in a quote block, the quote's row: `quote.quote_id`, `quote.bid_px`, `quote.offer_px`, `quote.status` … |
 | `rfq_request` | in an RFQ request block, the request's row: `rfq_request.symbols`, `rfq_request.quote_requests` … |
+| `list` | in a list block, the list's row: `list.list_id`, `list.mode`, `list.status`, `list.order_count`, `list.pending_action` … |
 | `rfqs` | every RFQ this run's macros hold |
 | `quotes` | every quote this run's macros hold |
 | `rfq_requests` | every RFQ request this run's macros hold |
+| `lists` | every list this run's macros hold |
 
 A misspelt column is an error when you save, not a surprise when you run: `order.leave_qty` is underlined.
 

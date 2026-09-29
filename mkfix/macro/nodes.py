@@ -60,6 +60,17 @@ class Action(Statement):
     target: TradeTarget | None = None
     template: str | None = None   # using 'name'
     terms: list[Term] = field(default_factory=list)
+    # `new list`: its `order` lines (a `repeat` may hold them); `add order`:
+    # the order's own macro. Empty for every other verb.
+    body: list[Statement] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class OrderLine(Statement):
+    """One order of the `new list` it stands under: `new`'s terms, and the
+    order's own macro in ``body`` (another subject's, so `walk` stays out)."""
+    terms: list[Term] = field(default_factory=list)
+    body: list[Statement] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -224,7 +235,7 @@ def walk(body: list[Statement]):
     """Every statement under ``body``, depth first, in source order."""
     for st in body:
         yield st
-        if isinstance(st, (When, While, Repeat)):
+        if isinstance(st, (When, While, Repeat)) or (isinstance(st, Action) and st.verb == "new list"):
             yield from walk(st.body)
         elif isinstance(st, If):
             for _, branch in st.branches:
@@ -243,9 +254,23 @@ def expressions(st: Statement):
     if isinstance(st, If):
         for test, _ in st.branches:
             yield test
+    if isinstance(st, OrderLine):
+        for term in st.terms:
+            if term.value is not None:
+                yield term.value
     if isinstance(st, Action):
         if st.target and st.target.where:
             yield st.target.where
         for term in st.terms:
             if term.value is not None:
                 yield term.value
+
+
+def member_macros(body: list[Statement]):
+    """The orders' own macros under ``body``: each `order` line of a `new
+    list`, and each `add order`, with a block under it — (statement, body)."""
+    for st in walk(body):
+        if isinstance(st, OrderLine) and st.body:
+            yield st, st.body
+        elif isinstance(st, Action) and st.verb == "add order" and st.body:
+            yield st, st.body

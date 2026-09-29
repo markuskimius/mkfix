@@ -212,7 +212,9 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
 
   if (trimmed === "") {
     const verbs = Object.entries(vocab.verbs).filter(([, v]) => placeOk(v)).map(([n, v]) => item(n, "action", v.doc));
-    const statements = Object.entries(vocab.statements).filter(([s]) => !HEADERS.includes(s))
+    // An `order` line belongs under a `new list`, however deep.
+    const listed = underList(lines, row);
+    const statements = Object.entries(vocab.statements).filter(([s]) => !HEADERS.includes(s) && (s !== "order" || listed))
       .map(([s, d]) => item(s, "statement", d.doc ?? d[1]));
     return [...verbs, ...statements];
   }
@@ -286,7 +288,9 @@ export function helpAt(vocab, lines, row, col) {
         if (m.index <= col && col <= m.index + m[0].length && (!best || name.length > best.name.length)) {
           const verbFirst = group === "verbs" && lower.trim().startsWith(name);
           const eventAfter = group === "events" && /^\s*(when|wait|expect)\b/.test(lower);
-          if (group === "statements" || verbFirst || eventAfter) {
+          // A statement that is also a name (`order`, a list's line) is the statement only leading its line.
+          const statement = group === "statements" && (!vocab.context[name] || lower.trim().startsWith(name));
+          if (statement || verbFirst || eventAfter) {
             best = { name, group, doc: entry.doc ?? entry[1], form: entry.form ?? entry[0] ?? "", start: m.index, end: m.index + m[0].length };
           }
         }
@@ -306,6 +310,22 @@ export function helpAt(vocab, lines, row, col) {
 // What a hover over (row, col) shows: { title, lines: [text…], start, end } or
 // null. More than `helpAt`'s one line — an action lists the terms it takes,
 // and a word given to a term (`side: buy`) says the FIX code it stands for.
+// Whether `row` sits under a `new list` line: some line above it, less
+// indented than everything between, opens one.
+function underList(lines, row) {
+  let indent = /^\s*/.exec(lines[row] ?? "")[0].length;
+  for (let r = row - 1; r >= 0 && indent > 0; r--) {
+    const line = lines[r] ?? "";
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const own = /^\s*/.exec(line)[0].length;
+    if (own < indent) {
+      if (/^new\s+list\b/.test(line.trim())) return true;
+      indent = own;
+    }
+  }
+  return false;
+}
+
 export function hoverAt(vocab, lines, row, col) {
   const line = lines[row] ?? "";
   if (col >= line.length) return null;

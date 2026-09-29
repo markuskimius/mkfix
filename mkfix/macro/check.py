@@ -18,7 +18,7 @@ from mkfix.fix.instrument import INSTRUMENT_COLS, normalize_instrument
 from . import vocab
 from .functions import ENV
 from .nodes import (
-    Instrument, Term,
+    After, Instrument, OrderLine, Term,
     Action, Block, Diagnostic, Expect, Expr, If, Let, Repeat, Macro, Share, Signal, Statement, Wait, When,
     expressions, walk,
 )
@@ -271,7 +271,8 @@ class _Checker:
                     outside(st.body)
         outside(block.body)
 
-    def body(self, body: list[Statement], block: Block, schema: Mapping[str, Any], trade_in_hand: bool) -> None:
+    def body(self, body: list[Statement], block: Block, schema: Mapping[str, Any], trade_in_hand: bool,
+             list_body: bool = False) -> None:
         for st in body:
             for e in expressions(st):
                 self.expression(e, schema)
@@ -287,8 +288,50 @@ class _Checker:
                     self.body(branch, block, schema, trade_in_hand)
                 if st.orelse:
                     self.body(st.orelse, block, schema, trade_in_hand)
+            elif isinstance(st, OrderLine):
+                self.order_line(st, block, schema, list_body)
+            elif isinstance(st, Action) and st.verb == "new list":
+                self.new_list(st, block, schema)
+            elif isinstance(st, Action) and st.verb == "add order":
+                if st.body:
+                    self.member(st.body, st, schema)
             elif hasattr(st, "body"):
-                self.body(st.body, block, schema, trade_in_hand)
+                self.body(st.body, block, schema, trade_in_hand, list_body)
+
+    def new_list(self, st: Action, block: Block, schema: Mapping[str, Any]) -> None:
+        """`new list`: its `order` lines, one at least; a list sent as one
+        NewOrderList goes at once, so pacing its orders does nothing."""
+        self.body(st.body, block, schema, False, list_body=True)
+        if not any(isinstance(x, OrderLine) for x in walk(st.body)):
+            self.report(st.line, st.col, st.col + len(st.verb),
+                        "`new list` needs its orders: `order symbol: …, side: …, qty: …` lines under it")
+        mode = next((t for t in st.terms if t.name == "mode"), None)
+        sent = "list" if mode is None else mode.word or getattr(mode.value.node, "value", None)
+        if sent in ("list", "E"):
+            for x in walk(st.body):
+                if isinstance(x, After) or (isinstance(x, Repeat) and (x.interval is not None or x.every is not None)):
+                    self.report(x.line, x.col, x.col + 5,
+                                "A list sent as one NewOrderList (mode: list) goes at once: this pacing does nothing. "
+                                "`mode: orders` sends each order as it comes", severity="warning")
+
+    def order_line(self, st: OrderLine, block: Block, schema: Mapping[str, Any], list_body: bool) -> None:
+        """An `order` line: `new`'s terms, under a `new list` only."""
+        if not list_body:
+            self.report(st.line, st.col, st.col + 5, "An `order` line belongs under a `new list`")
+            return
+        as_new = Block(vocab.CLIENT, st.line, st.col, subject=vocab.ORDER)
+        self.action(Action(st.line, st.col, verb="new", terms=st.terms), as_new, False)
+        if st.body:
+            self.member(st.body, st, schema)
+
+    def member(self, body: list[Statement], at: Statement, outer: Mapping[str, Any]) -> None:
+        """An order's own macro, under its `order` line or `add order`: a
+        macro about an order already sent, as an `on sent order` block is."""
+        block = Block(vocab.ATTACHED, at.line, at.col, subject=vocab.ORDER, body=body)
+        names = [x.name for x in walk(body) if isinstance(x, Let)] + \
+            [x.var for x in walk(body) if isinstance(x, Repeat) and x.var] + \
+            [k for k, v in outer.items() if v is None and k not in vocab.CONTEXT_DOCS]
+        self.body(body, block, vocab.scope_schema(names, vocab.ORDER, self.shared), trade_in_hand=False)
 
     def events(self, st: Wait | Expect | When, block: Block) -> None:
         place = (block.subject, block.kind)

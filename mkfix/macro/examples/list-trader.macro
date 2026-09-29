@@ -1,0 +1,37 @@
+# List trader
+#
+# Shows:   the client side of a list — `new list` with its `order` lines, one of them
+#          carrying a block of its own; `accepted`, `execute list`, `executing`,
+#          `request list status` and `status`, `add order` joining the list late, and `done`
+# Needs:   a FIX 4.2 or later session (a NewOrderList holds many orders from 4.2): run it on
+#          LOOP-CLI with list-desk armed on LOOP-MKT
+# Watch:   Sent Lists (Client menu): the list going Sent, Executing, then its orders filled;
+#          select it to see its orders in Sent Orders
+# Outcome: a three-order basket is sent as one NewOrderList to wait for execution, executed
+#          once accepted, a fourth order added, and the macro passes when every order is filled
+
+on error continue
+
+run
+    when rejected
+        fail 'list refused: ${list.text}'
+    new list mode: list, bid_type: no_bidding, execution: wait, tot_orders: yes
+        order symbol: 'IBM', side: buy, qty: 100, price: 150
+        order symbol: 'MSFT', side: sell, qty: 50, price: 410
+        # A block under an order line is that order's macro, as a `run` of its own.
+        order symbol: 'AAPL', side: buy, qty: 200, price: 230
+            expect filled within 60s else fail 'AAPL never filled'
+            log 'AAPL filled at ${order.avg_price}'
+    expect accepted within 10s else fail 'the list was never acknowledged'
+    execute list
+    expect executing within 10s
+    request list status text: 'where are we?'
+    expect status within 10s
+    log '${list.list_id}: ${list.status}, ${list.order_count} orders'
+    # `lists` is every list this run's macros hold.
+    log '${COUNT(lists, l -> l.status == \'Executing\')} list(s) of this run executing'
+    add order symbol: 'GOOG', side: buy, qty: 10, price: 170
+        expect filled within 60s
+        pass 'the late order filled'
+    expect done within 60s else fail 'the list never finished'
+    pass '${list.order_count} orders done'

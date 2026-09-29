@@ -144,10 +144,10 @@ class TestCompletion:
         client side the other way round. `run` sends for either."""
         assert self.names(tmp_path, 10, side="market") == [
             "seed", "on error", "share", "on order", "run", "on signal", "on sent ioi", "on sent advert",
-            "on sent allocation", "on rfq", "on sent quote", "on sent rfq request"]
+            "on sent allocation", "on rfq", "on sent quote", "on sent rfq request", "on list"]
         assert self.names(tmp_path, 10, side="client") == [
             "seed", "on error", "share", "on sent order", "run", "on signal", "on ioi", "on advert", "on allocation",
-            "on sent rfq", "on quote", "on rfq request"]
+            "on sent rfq", "on quote", "on rfq request", "on sent list"]
         assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 13))
 
     TOGETHER = ["share done = 0", "run", "    new symbol: 'IBM', side: buy, qty: 1", "    share last = order.cl_ord_id",
@@ -158,6 +158,14 @@ class TestCompletion:
     def together(self, tmp_path, row):
         return run_js(tmp_path, f"L.completionsAt(vocab, {json.dumps(self.TOGETHER)}, {row}, "
                                 f"{len(self.TOGETHER[row])}, {{}}).map((c) => c.caption)")
+
+    def test_an_order_line_is_offered_only_under_new_list(self, tmp_path):
+        lines = ["run", "    new list mode: list", "        ", "        repeat 3", "            ", "    "]
+        def at(row):
+            return run_js(tmp_path, f"L.completionsAt(vocab, {json.dumps(lines)}, {row}, {len(lines[row])}, {{}})"
+                                    ".map((c) => c.caption)")
+        assert "order" in at(2) and "order" in at(4), "under the list, and in a repeat under it"
+        assert "order" not in at(5)
 
     def test_what_the_macros_of_a_run_say_to_each_other(self, tmp_path):
         assert self.together(tmp_path, 6) == ["go", "parent filled"], "the signals the macro's own lines send"

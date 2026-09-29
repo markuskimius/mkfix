@@ -431,7 +431,7 @@ class TestChecker:
 class TestVocabulary:
     def test_every_verb_is_an_engine_action_with_its_terms(self):
         # terms that are the message's own, never a template's
-        own = {"expire_time", "valid_until", "orders", "execs"}
+        own = {"expire_time", "valid_until", "orders", "execs", "as_orders"}
         own |= {"_instrument"}          # `instrument: 'NAME'`, resolved by the macro into the terms beside it
         for verb in vocab.VERBS.values():
             assert verb.op in ACTIONS, verb.name
@@ -442,9 +442,8 @@ class TestVocabulary:
             assert verb.scope == scope, f"{verb.name}: `using` reads the {scope} templates"
             assert verb.subject in vocab.SUBJECTS and (verb.subject, verb.sides[0]) in verb.places
         from mkfix.fix.actions import UNSCRIPTED
-        assert {v.op for v in vocab.VERBS.values()} == set(TEMPLATE_TERMS) - UNSCRIPTED, \
-            "one verb per dialog, bar the ops the language has no verb for yet"
-        assert all("list" in op for op in UNSCRIPTED), "only the list ops wait for their verbs (0.78)"
+        assert {v.op for v in vocab.VERBS.values()} == set(TEMPLATE_TERMS), "one verb per dialog"
+        assert UNSCRIPTED == frozenset(), "every op has its verb since 0.78"
 
     def test_every_report_the_engine_names_is_an_event(self):
         named = set(_REPORT_KINDS.values()) | set(_TRANS_KINDS.values()) | {"filled", "er", "cancel rejected", "message"}
@@ -484,7 +483,11 @@ class TestVocabulary:
                  "subscription": ("send_rfq_request", "subscription_type"),
                  "sec type": ("send_new_order", "security_type"), "put call": ("send_new_order", "put_or_call"),
                  "open close": ("send_new_order", "open_close"), "covered": ("send_new_order", "covered_uncovered"),
-                 "id source": ("send_new_order", "security_id_source")}
+                 "id source": ("send_new_order", "security_id_source"),
+                 "list mode": ("send_new_list", "mode"), "bid type": ("send_new_list", "bid_type"),
+                 "execution": ("send_new_list", "exec_inst_type"), "tot orders": ("send_new_list", "tot_orders"),
+                 "cancel as": ("cancel_list", "as_orders"), "status type": ("send_list_status", "status_type"),
+                 "list status": ("send_list_status", "list_status")}
         for enum, (op, field) in exact.items():
             assert set(vocab.ENUMS[enum].values()) == set(options(op, field)), enum
         assert set(vocab.ENUMS["restate reason"].values()) <= set(options("restate_order", "restate_reason"))
@@ -575,7 +578,9 @@ class TestExamples:
             headers |= {"seed"} if sc.seed is not None else set()
             headers |= {"on error"} if sc.on_error == "continue" else set()
             for block in sc.blocks:
-                for st in nodes.walk(block.body):
+                # An order's own macro under a list's line is part of the block.
+                for st in [*nodes.walk(block.body),
+                           *(s for _, member in nodes.member_macros(block.body) for s in nodes.walk(member))]:
                     statements.add(type(st).__name__)
                     if isinstance(st, If):
                         statements |= {"else"} if st.orelse else set()

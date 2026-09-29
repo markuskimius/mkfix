@@ -61,9 +61,11 @@ _HEARD = {
 _CREATORS = set(vocab.CREATORS.values())
 # The column a received subject's `where` narrows on when its symbol is not enough.
 _QTY_COL = {vocab.ORDER: "order_qty", vocab.IOI: "ioi_qty", vocab.ADVERT: "quantity", vocab.ALLOCATION: "quantity",
-            vocab.RFQ: "order_qty", vocab.QUOTE: "order_qty", vocab.RFQ_REQUEST: "num_symbols"}
-# The column that names a subject's instrument (an RFQ request names several).
-_SYMBOL_COL = {vocab.RFQ_REQUEST: "symbols"}
+            vocab.RFQ: "order_qty", vocab.QUOTE: "order_qty", vocab.RFQ_REQUEST: "num_symbols",
+            vocab.LIST: "order_count"}
+# The column that names a subject's instrument (an RFQ request names several;
+# a list, none: its size tells lists apart).
+_SYMBOL_COL = {vocab.RFQ_REQUEST: "symbols", vocab.LIST: "order_count"}
 _QUIET = 0.05          # a delay shorter than this is not worth a line
 
 
@@ -84,6 +86,7 @@ class _Timeline:
     started: float
     steps: list[_Step] = field(default_factory=list)
     subject: str = vocab.ORDER
+    children: dict[int, list[str]] = field(default_factory=dict)    # a list's `add order` step -> its order's lines
 
     @property
     def sent(self) -> bool:
@@ -142,7 +145,8 @@ class Recorder:
             # beginning to write down.
             word = vocab.SUBJECT_WORDS[subject]
             born = (kinds[0] == f"sent {word}" and ev.source == "manual") if sends \
-                else (kinds[0] == word and ev.source == "wire")
+                else (kinds[0] in (word, "received") if subject == vocab.LIST else kinds[0] == word) \
+                and ev.source == "wire"
             if born:
                 self.timelines[key] = _Timeline(dict(row), now, subject=subject)
             return
@@ -189,6 +193,9 @@ class Recorder:
         # nothing done — is no block: a block needs a line.
         lines = [line for line in self.timelines.values()
                  if line.sent or any(s.kind == "did" for s in line.steps)]
+        # A recorded list's orders are written under it, not as orders of their own.
+        folded = {id(m) for line in lines if line.subject == vocab.LIST and line.sent for m in self._members(line.order)}
+        lines = [line for line in lines if id(line) not in folded]
         stamp = self.started_at
         return await self._write(
             lines, f"recorded {stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} {stamp[9:17]} UTC",
@@ -277,6 +284,7 @@ class Recorder:
             if (not heard_since or self.delays) and step.at - last >= _QUIET:
                 out.append(f"after {_duration(step.at - last)}")
             out.append(await self._action(line, step))
+            out += ["    " + s for s in line.children.get(n, [])]
             heard_since, last = False, step.at
         if line.sent and steps and steps[-1].kind == "heard":
             out.append("pass")
@@ -374,11 +382,12 @@ class Recorder:
         made: list[tuple[bool, str, list[str]]] = []
         for n, (body, members) in enumerate(groups):
             symbols = symbols_of[n]
-            where = f"{symbol_col} == {_quote(symbols[0])}" if len(symbols) == 1 \
-                else f"{symbol_col} in [{', '.join(map(_quote, symbols))}]"
+            said = _literal if subject == vocab.LIST else _quote
+            where = f"{symbol_col} == {said(symbols[0])}" if len(symbols) == 1 \
+                else f"{symbol_col} in [{', '.join(map(said, symbols))}]"
             # A symbol worked two ways: the quantity is the next thing that told the orders apart.
             shared = any(set(symbols) & set(other) for k, other in enumerate(symbols_of) if k != n)
-            if shared:
+            if shared and qty_col != symbol_col:
                 qtys = sorted({m.order[qty_col] for m in members}, key=str)
                 where += f" and {qty_col} == {_literal(qtys[0])}" if len(qtys) == 1 else \
                     f" and {qty_col} in [{', '.join(_literal(q) for q in qtys)}]"
@@ -423,6 +432,12 @@ class Recorder:
                     "currency": o["currency"], "client": o.get("client"), "bid": o["bid_px"], "offer": o["offer_px"],
                     "bid_size": o["bid_size"], "offer_size": o["offer_size"], "quote_type": o["quote_type_code"],
                     "text": o.get("sent_text"), "extra": o["quote_extra_tags"], **_instrument_terms(o, position=False)}
+        if subject == vocab.LIST:
+            by_orders = o["mode"] == "D"
+            return {"mode": o["mode"], "bid_type": o["bid_type_code"], "execution": o["exec_inst_type_code"],
+                    # Sent order by order, TotNoOrders is a count; in one NewOrderList, only whether it went.
+                    "tot_orders": (o["tot_no_orders"] or None) if by_orders else ("1" if o["tot_no_orders"] else None),
+                    "client": o.get("client"), "text": o.get("sent_text"), "extra": o.get("extra_tags")}
         if subject == vocab.RFQ_REQUEST:
             return {"symbols": o["symbols"], "subscription": o["subscription_type_code"],
                     "request_type": o["quote_request_type_code"], "quote_type": o["quote_type_code"],
@@ -461,10 +476,12 @@ class Recorder:
 
     async def _sent_blocks(self, lines: list[_Timeline], subject: str = vocab.ORDER) -> list[str]:
         """One `run` block per thing sent, led by its sending verb and the
-        terms it went out with, then what was heard and done."""
+        terms it went out with, then what was heard and done. A list's
+        orders are its `order` lines (and its `add order`s' blocks), each
+        with what was heard and done to it under it."""
         first = min(line.started for line in lines)
         verb = vocab.CREATORS[subject]
-        saved = await self._saved_instruments() if subject != vocab.RFQ_REQUEST else {}
+        saved = await self._saved_instruments() if subject not in (vocab.RFQ_REQUEST, vocab.LIST) else {}
         blocks = []
         for line in sorted(lines, key=lambda t: t.started):
             terms = self._creator_terms(subject, line.order)
@@ -472,9 +489,41 @@ class Recorder:
                 terms = self._named(terms, line.order, saved)
             new = f"{verb} " + ", ".join(f"{k}: {_value(verb, k, v)}" for k, v in terms.items() if v not in (None, ""))
             lead = [f"after {_duration(line.started - first)}"] if line.started - first >= _QUIET else []
+            members = await self._list_orders(line) if subject == vocab.LIST else []
             body = await self._body(line, line.started)
-            blocks.append("\n".join(["run", *("    " + s for s in [*lead, new, *body])]))
+            blocks.append("\n".join(["run", *("    " + s for s in [*lead, new, *members, *body])]))
         return blocks
+
+    def _members(self, row: dict[str, Any]) -> list[_Timeline]:
+        """The recorded orders of a sent list, in the list's order."""
+        return sorted((t for t in self.timelines.values()
+                       if t.subject == vocab.ORDER and t.sent and t.order.get("list_id") == row["list_id"]
+                       and t.order["session_id"] == row["session_id"]),
+                      key=lambda t: (t.order.get("list_seq_no") or 0, t.order["id"]))
+
+    async def _list_orders(self, line: _Timeline) -> list[str]:
+        """A sent list's `order` lines, indented under `new list`: the
+        orders it went out with. Those an `add order` sent later become that
+        step's block (``line.children``)."""
+        members = self._members(line.order)
+        added = [n for n, s in enumerate(line.steps) if s.kind == "did" and s.name == "add order"]
+        first = members[:len(members) - len(added)] if len(members) >= len(added) else []
+        for n, member in zip(added, members[len(first):]):
+            line.children[n] = await self._body(member, member.started)
+        out = []
+        for member in first:
+            terms = self._creator_terms(vocab.ORDER, member.order)
+            # What the list gave every order is the list's to say.
+            for term, col in (("client", "client"), ("text", "sent_text"), ("extra", "extra_tags")):
+                if _equal(terms.get(term), line.order.get(col)) or not line.order.get(col):
+                    if _equal(terms.get(term), line.order.get(col)):
+                        terms[term] = None
+                elif term == "extra" and str(terms.get(term) or "").startswith(line.order[col] + "|"):
+                    terms[term] = str(terms[term])[len(line.order[col]) + 1:]
+            out.append("    order " + ", ".join(f"{k}: {_value('new', k, v)}" for k, v in terms.items()
+                                                 if v not in (None, "")))
+            out += ["        " + s for s in await self._body(member, member.started)]
+        return out
 
     _client_blocks = _sent_blocks
 

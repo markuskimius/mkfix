@@ -42,7 +42,7 @@ from . import vocab
 from .clock import Clock, Scheduler
 from .functions import ENV
 from .instance import DETACHED, FAILED, PASSED, RUNNING, STOPPED, Instance, contains_creator, event_map
-from .nodes import Action, Macro, Share, walk
+from .nodes import Action, Block, Macro, Share, walk
 
 if TYPE_CHECKING:
     from mkfix.fix.engine import FixEngine
@@ -139,6 +139,9 @@ class MacroRunner:
         self._unsubscribe: Callable[[], None] | None = None
         self._matchers: dict[int, Any] = {}
         self._claims: dict[str, Instance] = {}        # tag -> the macro whose `new` is going out
+        # A received list's quiet: by the list row's id, the timer that says
+        # `received` once no order of it has come for vocab.LIST_QUIET.
+        self._quiet: dict[int, tuple[Any, Any, Any]] = {}
 
     # -- runs ------------------------------------------------------------------------------
 
@@ -333,6 +336,8 @@ class MacroRunner:
     def stop_all(self) -> None:
         for run in list(self.runs):
             self.stop(run)
+        for key in list(self._quiet):
+            self._cancel_quiet(key)
 
     def offered(self, side: str | None = None) -> list[Run]:
         """The live runs that wait for orders, first offered first."""
@@ -387,6 +392,8 @@ class MacroRunner:
         # three families (`ev.row` in `ev.table`); the same rules apply to
         # each, under its own kind and with the family's name dropped from
         # the event's kinds.
+        if ev.table == "fix_lists" and ev.source == "wire" and first in ("list", "list joined") and ev.row:
+            self._list_quiet(ev.row)
         if ev.table:
             subject, row = vocab.subject_of_row(ev.table, ev.row), ev.row
             kinds = _macro_kinds(ev.kinds, subject) if subject else ev.kinds
@@ -407,7 +414,8 @@ class MacroRunner:
                     # Sent by hand, by Message Replay, or by a macro as an
                     # answer that is nobody's (`new` in an `on ioi` block).
                     self._offer(ev, vocab.ATTACHED, subject, row, kinds)
-            elif kinds[0] == word and ev.source == "wire":
+            elif kinds[0] == ("received" if subject == vocab.LIST else word) and ev.source == "wire":
+                # A received list is offered once all of it is here.
                 self._offer(ev, vocab.MARKET, subject, row, kinds)
             return
         owner.row = row
@@ -418,6 +426,56 @@ class MacroRunner:
             return
         owner.deliver(event_map(kinds, ev.source, request=ev.request, msg=ev.msg, prev=ev.prev, **ev.detail),
                       ev.trade)
+
+    def _list_quiet(self, row: dict[str, Any]) -> None:
+        """An order of a received list arrived: `received` comes once none
+        has for vocab.LIST_QUIET macro seconds — at the pace of the fastest
+        run armed."""
+        import asyncio
+        key = row["id"]
+        self._cancel_quiet(key)
+        if not any(r.status == "armed" for r in self.runs):
+            return
+        token, future = object(), asyncio.get_running_loop().create_future()
+        speed = max((r.speed for r in self.runs if r.status == "armed"), default=1.0)
+        handle = self.clock.call_later(vocab.LIST_QUIET / speed, token, future)
+        task = asyncio.get_running_loop().create_task(self._list_received(key, token, future, row["session_id"]))
+        self._quiet[key] = (handle, token, task)
+
+    def _cancel_quiet(self, key: int) -> None:
+        old = self._quiet.pop(key, None)
+        if old is not None:
+            handle, _, task = old
+            self.clock.cancel(handle)
+            task.cancel()
+
+    async def _list_received(self, key: int, token: Any, future: Any, session_id: str) -> None:
+        from mkfix.fix.events import EngineEvent
+        try:
+            await future
+            self._quiet.pop(key, None)
+            row = await self.engine._load_family_row_by_id("fix_lists", key)
+            if row is not None:
+                self._on_event(EngineEvent(("list received",), session_id, source="wire", table="fix_lists", row=row))
+        finally:
+            self.clock.scheduler.finished(token)
+
+    def _start_member(self, parent: Instance, st: Any, order: dict[str, Any]) -> bool:
+        """An order of a list with a block under its line: that block is the
+        order's own macro, bound to it from the start, with the list
+        macro's names as they stand."""
+        run = parent.run
+        if run.status != "armed" or len(run.instances) >= self.max_instances or self.live >= self.max_live:
+            self._log(parent, st.line, f"order {order['cl_ord_id']} of the list got no macro: the run is full or over")
+            return False
+        block = Block(vocab.ATTACHED, st.line, st.col, subject=vocab.ORDER, body=st.body)
+        instance = Instance(self, run, block, None, len(run.instances), vars=dict(parent.vars), n=parent.main.n,
+                            session=parent.session)
+        run.instances.append(instance)
+        self.live += 1
+        instance.bind(order)
+        instance.start()
+        return True
 
     def _offer(self, ev: EngineEvent, kind: str, subject: str, row: dict[str, Any], kinds: tuple[str, ...]) -> None:
         name = f"{vocab.SUBJECT_WORDS[subject]} {row[vocab.SUBJECT_IDS[subject]]}"

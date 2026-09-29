@@ -76,6 +76,17 @@ TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "unsubscribe_rfq_request": ("unsubscribe", ("extra_tags",)),
     "send_new_list": ("list", ("session_id", "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders",
                                "text", "extra_tags", "client")),
+    # A list's other dialogs: the order form under its ListID keeps an order
+    # template; the answers and requests keep their scope's or one of their own.
+    "add_list_order": ("order", ORDER_TERMS),
+    "execute_list": ("list_request", ("text", "extra_tags")),
+    "request_list_status": ("list_request", ("text", "extra_tags")),
+    "cancel_list": ("cancel", ("text", "extra_tags")),
+    "accept_list": ("accept", ("text", "extra_tags")),
+    "reject_list": ("reject", ("text", "extra_tags")),
+    "send_list_status": ("list_status", ("status_type", "list_status", "text", "extra_tags")),
+    "fill_list": ("list_fill", ("price", "text", "extra_tags")),
+    "cancel_list_orders": ("unsolicited", ("text", "extra_tags")),
 }
 
 

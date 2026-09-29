@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.77",
+    "version": "0.78",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -1049,7 +1049,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.77"
+        "text": "mkfix v0.78"
       }
     ],
     "bindStyle": {
@@ -20559,6 +20559,8 @@
         "exec_inst_type",
         "tot_orders",
         "list_orders",
+        "status_type",
+        "list_status",
         "dk_reason",
         "restate_reason",
         "currency",
@@ -20661,7 +20663,9 @@
         "bid_type": "Bid Type (394)",
         "exec_inst_type": "Execution (433)",
         "tot_orders": "TotNoOrders (68)",
-        "list_orders": "Orders"
+        "list_orders": "Orders",
+        "status_type": "Status Type (429)",
+        "list_status": "List Status (431)"
       },
       "sort": [
         "scope",
@@ -20767,7 +20771,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.price}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit', 'list_fill'], row.scope)"
                     }
                   ]
                 },
@@ -21928,6 +21932,26 @@
                   ],
                   "value": "${row.list_orders}",
                   "showWhen": "row.scope == 'list'"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "status_type",
+                      "label": "Status Type (429)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.status_type}",
+                      "showWhen": "row.scope == 'list_status'"
+                    },
+                    {
+                      "name": "list_status",
+                      "label": "List Status (431)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.list_status}",
+                      "showWhen": "row.scope == 'list_status'"
+                    }
+                  ]
                 },
                 {
                   "name": "text",
@@ -22035,7 +22059,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.price}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit', 'list_fill'], row.scope)"
                     }
                   ]
                 },
@@ -23196,6 +23220,26 @@
                   ],
                   "value": "${row.list_orders}",
                   "showWhen": "row.scope == 'list'"
+                },
+                {
+                  "row": [
+                    {
+                      "name": "status_type",
+                      "label": "Status Type (429)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.status_type}",
+                      "showWhen": "row.scope == 'list_status'"
+                    },
+                    {
+                      "name": "list_status",
+                      "label": "List Status (431)",
+                      "type": "text",
+                      "width": 0.5,
+                      "value": "${row.list_status}",
+                      "showWhen": "row.scope == 'list_status'"
+                    }
+                  ]
                 },
                 {
                   "name": "text",
@@ -25286,6 +25330,7 @@
         "done_orders",
         "pending_orders",
         "filled_qty",
+        "order_count",
         "tot_no_orders",
         "pending_action",
         "status_type",
@@ -25356,7 +25401,8 @@
         "pending_extra_tags": "Pending Extra Tags",
         "raw_message": "Last Message",
         "session_status": "Session Status",
-        "list_orders": "Orders (JSON)"
+        "list_orders": "Orders (JSON)",
+        "order_count": "Order Count"
       },
       "history": {
         "table": "fix_lists",
@@ -26103,6 +26149,49 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "order"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "symbol": "symbol",
+                    "side": "side",
+                    "qty": "qty",
+                    "ord_type": "ord_type",
+                    "price": "price",
+                    "tif": "tif",
+                    "handl_inst": "handl_inst",
+                    "text": "text",
+                    "extra_tags": "extra_tags",
+                    "client": "client",
+                    "security_type": "security_type",
+                    "maturity": "maturity",
+                    "strike_price": "strike_price",
+                    "put_or_call": "put_or_call",
+                    "cfi_code": "cfi_code",
+                    "underlying_symbol": "underlying_symbol",
+                    "underlying_security_type": "underlying_security_type",
+                    "underlying_maturity": "underlying_maturity",
+                    "multiplier": "multiplier",
+                    "security_exchange": "security_exchange",
+                    "security_id": "security_id",
+                    "security_id_source": "security_id_source",
+                    "open_close": "open_close",
+                    "covered_uncovered": "covered_uncovered"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.add_list_order",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "label": "List",
                   "type": "readonly",
                   "value": "${row.list_id} on ${row.session_id}"
@@ -26587,6 +26676,13 @@
                           "step": 1
                         }
                       ]
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
                     }
                   ]
                 },
@@ -26624,6 +26720,27 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "list_request"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.execute_list",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "text",
                   "label": "Text (58)",
                   "type": "text",
@@ -26634,6 +26751,18 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('35=L|66=', row.list_id, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -26664,6 +26793,27 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "cancel"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.cancel_list",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "as_orders",
                   "label": "Cancel by",
                   "type": "select",
@@ -26693,6 +26843,18 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(IF(as_orders == '1' || (COALESCE(as_orders, '') == '' && row.mode == 'D'), '35=F per working order|41=(its ClOrdID)', CONCAT('35=K|66=', row.list_id)), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -26723,14 +26885,53 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "list_request"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.request_list_status",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "type": "readonly",
                   "value": "A ListStatusRequest (35=M)."
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
                 },
                 {
                   "name": "extra_tags",
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('35=M|66=', row.list_id, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -26773,6 +26974,7 @@
         "done_orders",
         "pending_orders",
         "filled_qty",
+        "order_count",
         "tot_no_orders",
         "pending_action",
         "status_type",
@@ -26843,7 +27045,8 @@
         "pending_extra_tags": "Pending Extra Tags",
         "raw_message": "Last Message",
         "session_status": "Session Status",
-        "list_orders": "Orders (JSON)"
+        "list_orders": "Orders (JSON)",
+        "order_count": "Order Count"
       },
       "history": {
         "table": "fix_lists",
@@ -26942,6 +27145,27 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "accept"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.accept_list",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "type": "readonly",
                   "value": "New: every order pending New accepted, and a NewOrderList acknowledged (ListStatus). Execute: ListStatus ExecStarted. Cancel: every working order canceled, then ListStatus AllDone."
                 },
@@ -26957,6 +27181,18 @@
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
                   "value": "${row.pending_extra_tags}"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(IF(row.pending_action == 'Execute', '35=N|429=4|431=3', IF(row.pending_action == 'Cancel', '35=8 150=4 per working order, then 35=N|429=5|431=6', '35=8 150=0 per order pending New, then (a NewOrderList) 35=N|429=1')), '|66=', row.list_id, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -26987,6 +27223,27 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "reject"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.reject_list",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "text",
                   "label": "Text (58)",
                   "type": "text",
@@ -26998,6 +27255,18 @@
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B",
                   "value": "${row.pending_extra_tags}"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT(IF(row.pending_action == '' || row.pending_action == 'New', '35=8 150=8 per order pending New, then (a NewOrderList) 35=N|431=7', '35=N|429=2'), '|66=', row.list_id, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -27027,6 +27296,29 @@
                 "list_id": "${row.list_id}"
               },
               "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "list_status"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "status_type": "status_type",
+                    "list_status": "list_status",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_list_status",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
                 {
                   "row": [
                     {
@@ -27115,6 +27407,18 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('35=N|66=', row.list_id, '|429=', status_type, IF(COALESCE(list_status, '') != '', CONCAT('|431=', list_status), ''), IF(COALESCE(text, '') != '', CONCAT('|444=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -27145,6 +27449,28 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "list_fill"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "price": "price",
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.fill_list",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "price",
                   "label": "Price (31; blank: each order's limit)",
                   "type": "number",
@@ -27161,6 +27487,18 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('35=8 per working order|66=', row.list_id, IF(price != NULL, CONCAT('|31=', STR(price)), '|31=(its limit)'), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -27191,6 +27529,27 @@
               },
               "fields": [
                 {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "unsolicited"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "text": "text",
+                    "extra_tags": "extra_tags"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.cancel_list_orders",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
                   "name": "text",
                   "label": "Text (58)",
                   "type": "text",
@@ -27201,6 +27560,18 @@
                   "label": "Extra Tags",
                   "type": "text",
                   "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "name": "save_as",
+                  "pin": "reset",
+                  "label": "Save as template",
+                  "type": "text",
+                  "placeholder": "optional — a name keeps these terms for next time"
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('35=8 150=4 per working order, no 41|66=', row.list_id, IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -27458,7 +27829,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.77",
+      "version": "0.78",
       "mkio": "1.5",
       "expr": "2"
     },

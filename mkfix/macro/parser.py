@@ -22,7 +22,8 @@ from mkio import expr
 
 from . import vocab
 from .nodes import (
-    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Instrument, Let, Log, Repeat, Macro, Share, Signal,
+    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Instrument, Let, Log, OrderLine, Repeat, Macro, Share,
+    Signal,
     Statement, Stop, Term, TradeTarget, Wait, When, While, walk,
 )
 
@@ -451,9 +452,19 @@ class _Parser:
             line.end()
             return lg
 
+        if line.take_phrase("order"):
+            # One order of the `new list` above; a block under it is its own macro.
+            st = OrderLine(*at, terms=self.terms(line, "new", vocab.VERBS["new"].terms))
+            if self._indented(line):
+                st.body = self.body(line)
+            return st
+
         verb = line.first_of(_VERBS)
         if verb:
-            return self.action(line, at, verb)
+            act = self.action(line, at, verb)
+            if verb in ("new list", "add order") and self._indented(line):
+                act.body = self.body(line)
+            return act
 
         words = line.words_ahead(1)
         word = words[0] if words else line.text.strip().split()[0]
@@ -548,6 +559,10 @@ class _Parser:
                 break
         line.end()
         return terms
+
+    def _indented(self, line: _Line) -> bool:
+        """A block follows ``line``."""
+        return self.i < len(self.lines) and self.lines[self.i].indent > line.indent
 
     @staticmethod
     def _word_alone(line: _Line) -> bool:

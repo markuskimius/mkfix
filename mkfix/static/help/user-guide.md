@@ -276,6 +276,7 @@ A list is a basket of orders under one ListID (66): **Client › Sent Lists** an
 - The receiver counts every order of a ListID as one of the list's, whenever it arrives: **Add Order…** sends one more to a D list later, and a New Order with `66=<ListID>` in its Extra Tags does the same.
 - On the client side: **Execute** (ListExecute, for a list sent to wait for one), **Cancel** (a ListCancelRequest, or a cancel for each working order — the default for a D list), **Status Request** (ListStatusRequest), **Clone** (the New List form on the list's orders).
 - On the market side, **Accept** and **Reject** answer what the list has pending: its new orders (and, for a NewOrderList, a ListStatus acknowledging or rejecting it), an Execute, or a Cancel. **Status** sends a ListStatus unasked, **Fill All** fills every working order at its limit (or a price you give), **Unsol Cxl** cancels every working order. A ListStatusRequest is answered at once. The orders themselves are worked in Received Orders like any other.
+- Macros send and answer lists: `new list` with an `order` line for each order, `on list` on the market side. A list sent as D orders counts as received once 5 seconds pass without another of its orders. See Lists in the [Macro Language](macro-language.md) page, and the examples `list-trader`, `drip-basket` and `list-desk`.
 
 ## Options and futures
 

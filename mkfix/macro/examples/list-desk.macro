@@ -1,0 +1,35 @@
+# List desk
+#
+# Shows:   the market side of a list — `on list` once all of it is here, `accept list` and
+#          `reject list`, `execute`, `status request` answered with `list status`, `fill all`,
+#          `joined` for an order carrying the ListID after the list was taken, and a `cancel`
+#          of the list met with `accept list` and `cancel list orders`
+# Needs:   a FIX 4.2 or later session: arm it on LOOP-MKT and run list-trader or drip-basket
+#          on LOOP-CLI
+# Watch:   Received Lists (Market menu): Accept/Reject clearing Pending, Status Type and List
+#          Status as sent; select a list to see its orders in Received Orders
+# Outcome: a list of up to 20 orders is accepted and filled, at once or on ListExecute when it
+#          waits for one; a bigger one is rejected; a cancel is honoured
+
+on error continue
+
+on list where order_count > 20
+    reject list text: 'at most 20 orders a list'
+
+on list
+    when execute
+        accept list
+        fill all price: 100
+    when status request
+        list status status_type: response, text: '${list.order_count} orders'
+    when joined
+        log '${list.list_id} has ${list.order_count} orders now'
+        fill all price: 100
+    when cancel
+        accept list text: 'canceled'
+        cancel list orders
+        stop
+    accept list
+    # A list waiting for execution (433=2) is filled on its ListExecute.
+    if list.exec_inst_type_code != '2'
+        fill all price: 100

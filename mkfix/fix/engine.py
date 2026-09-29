@@ -127,7 +127,7 @@ EXEC_UPDATE_COLS = [
 TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct",
                    "bust", "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
                    "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
-                   "unsubscribe", "list")
+                   "unsubscribe", "list", "list_request", "list_status", "list_fill")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
@@ -136,6 +136,7 @@ TEMPLATE_TERM_COLS = [
     "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for",
     "quote_rej_reason", "symbols", "subscription_type",
     *INSTRUMENT_COLS, *POSITION_COLS, "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders",
+    "status_type", "list_status",
 ]
 
 # The IOI, advert and allocation rows (families.py): one row per chain,
@@ -199,7 +200,7 @@ RFQ_REQUEST_COLS = [
 # rows carrying it.
 LIST_COLS = [
     "session_id", "list_id", "direction", "mode", "bid_type", "bid_type_code", "exec_inst_type",
-    "exec_inst_type_code", "tot_no_orders", "status", "status_type", "status_type_code", "list_status_code",
+    "exec_inst_type_code", "tot_no_orders", "order_count", "status", "status_type", "status_type_code", "list_status_code",
     "pending_action", "pending_extra_tags", "text", "sent_text", "client", "extra_tags", "created_at", "updated_at",
     "last_order_at", "raw_message",
 ]
@@ -1351,6 +1352,14 @@ class FixEngine:
         self.events.emit(EngineEvent(
             report_kinds(msg), session_id, msg=msg, request=msg.get("11", ""),
             order=after, prev=order, trade=trade))
+        if after is not None and after["list_id"] and after["direction"] == "TX" and lists.is_done(after["status"]) \
+                and not (order is not None and lists.is_done(order["status"])):
+            # The report that finished a sent list's last working order finished the list.
+            members = await self._list_members(session_id, after["list_id"], "TX")
+            if all(lists.is_done(m["status"]) for m in members):
+                self._emit_row(("list done",), session_id, "fix_lists",
+                               await self._find_family_row("fix_lists", "list_id", session_id, after["list_id"], "TX"),
+                               msg=msg, request=after["list_id"])
 
     async def _record_report_trade(self, session: FixSession, msg: FixMessage, cl_ord_id: str,
                                    client: str, order_id: str,
@@ -1487,7 +1496,7 @@ class FixEngine:
 
     async def _handle_new_order(self, session: FixSession, msg: FixMessage,
                                 consumed: frozenset[str] | None = None, link_quote: bool = True,
-                                list_mode: str = "D") -> None:
+                                list_mode: str = "D", announce_list: bool = True) -> None:
         """Record an inbound NewOrderSingle (35=D) as a received order awaiting
         action — or the order a QuoteResponse Hit makes (`consumed` its
         tags, and the quote's row is the response's to write)."""
@@ -1553,7 +1562,8 @@ class FixEngine:
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
         if order_row["list_id"]:
             # Any order of a ListID is one of its list's, however and whenever it came.
-            await self._join_list(session, "RX", order_row["list_id"], order_row, list_mode)
+            await self._join_list(session, "RX", order_row["list_id"], order_row, list_mode, announce_list,
+                                  tot_no_orders=_int(msg.get("68", "")))
         await self._link_ioi_order(session.session_id, order_row["ioi_id"], order_row["cl_ord_id"])
         if link_quote:
             await self._link_quote_order(session, order_row["quote_id"], order_row["cl_ord_id"], "market")
@@ -4429,7 +4439,7 @@ class FixEngine:
     def _blank_list(self, session: FixSession, list_id: str, direction: str, mode: str) -> dict[str, Any]:
         now = _fix_timestamp()
         return {**{c: "" for c in LIST_COLS}, "session_id": session.session_id, "list_id": list_id,
-                "direction": direction, "mode": mode, "tot_no_orders": 0,
+                "direction": direction, "mode": mode, "tot_no_orders": 0, "order_count": 0,
                 "status": "Received" if direction == "RX" else "Sent",
                 "pending_action": "New" if direction == "RX" else "",
                 "created_at": now, "updated_at": now, "last_order_at": now}
@@ -4443,25 +4453,33 @@ class FixEngine:
                 "tot_no_orders": _int(msg.get("68", ""))}
 
     async def _join_list(self, session: FixSession, direction: str, list_id: str, order: dict[str, Any],
-                         mode: str) -> None:
+                         mode: str, announce: bool = True, tot_no_orders: int = 0) -> None:
         """An order of a list: its row made if this is the list's first
         (a D carrying a ListID names one), else stamped — the mode it came
-        by, when; a received one's pending New. Emits `list`, then `list
-        joined` for each later order."""
+        by, when, how many orders it has now; a received one's pending New.
+        Emits `list`, then `list joined` for each later order — the macro
+        runner counts the quiet after the last toward `received` — unless
+        the NewOrderList holding them all says `received` itself. A D's
+        TotNoOrders(68), when it carries one, is the list's latest word on
+        its size."""
         row = await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, direction)
         now = _fix_timestamp()
+        count = await self._list_size(session.session_id, list_id, direction)
         if row is None:
-            fresh = {**self._blank_list(session, list_id, direction, mode), "client": order.get("client") or ""}
+            fresh = {**self._blank_list(session, list_id, direction, mode), "client": order.get("client") or "",
+                     "order_count": count, **({"tot_no_orders": tot_no_orders} if tot_no_orders else {})}
             await self._insert_family_row("fix_lists", fresh)
             kinds: tuple[str, ...] = ("list",)
         else:
             both = row["mode"] if mode in row["mode"] else ("E+D" if row["mode"] else mode)
-            updates: dict[str, Any] = {"mode": both, "last_order_at": now}
+            updates: dict[str, Any] = {"mode": both, "last_order_at": now, "order_count": count}
+            if tot_no_orders:
+                updates["tot_no_orders"] = tot_no_orders
             if direction == "RX" and not row["pending_action"]:
                 updates["pending_action"] = "New"
             await self._update_family_row("fix_lists", row, **updates)
             kinds = ("list joined",)
-        if direction == "RX":
+        if direction == "RX" and announce:
             self._emit_row(kinds, session.session_id, "fix_lists",
                            await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, "RX"),
                            request=list_id, order=order.get("cl_ord_id", ""))
@@ -4478,12 +4496,13 @@ class FixEngine:
     async def send_new_list(self, session_id: str, orders: Any, mode: str = "E", bid_type: str = "",
                             exec_inst_type: str = "", tot_orders: bool = False, text: str = "",
                             extra_tags: str = "", client: str = "", source: str = "manual",
-                            tag: str = "") -> str:
+                            tag: str = "", tot_count: int = 0) -> str:
         """Send a list and return its ListID. `mode` E sends one NewOrderList
         holding the orders (from FIX 4.2; before, a NewOrderList carries one
         order, so one goes out a member with ListSeqNo and ListNoOrds); D
         sends each order as a NewOrderSingle carrying the ListID, with
-        TotNoOrders(68) when `tot_orders`. Each order is a dict of the New
+        TotNoOrders(68) when `tot_orders` — the orders given, or `tot_count`
+        when more are to follow (a macro pacing a basket). Each order is a dict of the New
         dialog's fields (symbol, side, qty, ord_type, price, tif, the
         instrument's terms or a saved one's name as `instrument`, client,
         handl_inst, extra_tags); `text`, `client` and
@@ -4527,8 +4546,8 @@ class FixEngine:
             factory.stamp_instrument(msg, normalize_instrument(m))
             msg["66"] = list_id
             if mode == "D":
-                if tot_orders:
-                    msg["68"] = str(len(members))
+                if tot_orders or tot_count:
+                    msg["68"] = str(tot_count or len(members))
             elif not grouped:
                 msg["35"], msg["67"], msg["68"] = "E", str(n), str(len(members))
             row = await self._sent_order_row(session, msg, cl_ord_id, str(m["symbol"]), str(m["side"]), qty,
@@ -4537,7 +4556,8 @@ class FixEngine:
             built.append((cl_ord_id, msg, row))
         now = _fix_timestamp()
         list_row = {**self._blank_list(session, list_id, "TX", mode), "client": client, "extra_tags": extra_tags,
-                    "sent_text": text, "tot_no_orders": len(members) if mode == "E" or tot_orders else 0,
+                    "sent_text": text, "order_count": len(members),
+                    "tot_no_orders": tot_count or (len(members) if mode == "E" or tot_orders else 0),
                     "created_at": now, "updated_at": now, "last_order_at": now}
         if grouped:
             list_msg = factory.new_order_list(
@@ -4553,8 +4573,10 @@ class FixEngine:
         self._emit_row(("sent list",), session_id, "fix_lists", created, source=source, request=list_id, tag=tag)
         if self.events.active:
             for cl_ord_id, msg, _ in built:
+                # The list's tag: its macro sent these, and no `on sent order` block may take them.
                 self.events.emit(EngineEvent(("sent order",), session_id, source=source, request=cl_ord_id, msg=msg,
-                                             order=await self._find_order(session_id, cl_ord_id)))
+                                             order=await self._find_order(session_id, cl_ord_id),
+                                             detail={"tag": tag} if tag else {}))
         pending = built if not grouped else []
         try:
             if grouped:
@@ -4617,11 +4639,12 @@ class FixEngine:
                                                extra_tags=extra_tags, client=order["client"], text=text))
         return sent
 
-    async def request_list_status(self, session_id: str, list_id: str, extra_tags: str = "") -> str:
+    async def request_list_status(self, session_id: str, list_id: str, text: str = "", extra_tags: str = "") -> str:
         """ListStatusRequest (35=M) for a sent list."""
         session = self._active_session(session_id)
         row = await self._sent_list(session_id, list_id)
-        await self._send_list_request(session, row, session.factory.list_status_request(list_id), "", extra_tags)
+        await self._send_list_request(session, row, session.factory.list_status_request(list_id, text=text or None),
+                                      "", extra_tags)
         return list_id
 
     async def _handle_new_order_list(self, session: FixSession, msg: FixMessage) -> None:
@@ -4637,8 +4660,16 @@ class FixEngine:
         else:
             await self._update_family_row("fix_lists", row, **{k: v for k, v in terms.items() if v},
                                           raw_message=msg.to_wire_string())
+        grouped = "73" in msg.fields
         for pairs in lists.list_members(msg):
-            await self._handle_new_order(session, lists.member_message(msg, pairs), list_mode="E")
+            # A NewOrderList holding its orders is received whole; one holding
+            # one (before 4.2) is an order of the list like a D.
+            await self._handle_new_order(session, lists.member_message(msg, pairs), list_mode="E",
+                                         announce_list=not grouped)
+        if grouped:
+            self._emit_row(("list received",), session.session_id, "fix_lists",
+                           await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, "RX"),
+                           msg=msg, request=list_id)
 
     async def _handle_list_status(self, session: FixSession, msg: FixMessage) -> None:
         """A received ListStatus (35=N) on a list we sent: its status, and the
@@ -4659,6 +4690,11 @@ class FixEngine:
         if status in answered or (row["pending_action"] == "Cancel" and kind == lists.ALL_DONE_TYPE):
             updates.update(pending_action="", pending_extra_tags="")
         await self._update_family_row("fix_lists", row, **updates)
+        kinds = (("list rejected",) if status == lists.REJECT else ("list accepted",) if kind == lists.ACK else ()) \
+            + (("list executing",) if status == lists.EXECUTING or kind == lists.EXEC_STARTED else ()) \
+            + ("list status",)
+        self._emit_row(kinds, session.session_id, "fix_lists", await self._load_family_row_by_id("fix_lists", row["id"]),
+                       msg=msg, request=row["list_id"], status=updates.get("status", ""))
 
     async def _handle_list_request(self, session: FixSession, msg: FixMessage, action: str) -> None:
         """A received ListExecute (35=L) or ListCancelRequest (35=K) parks on

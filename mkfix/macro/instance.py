@@ -32,8 +32,8 @@ from mkio import expr
 from . import vocab
 from .functions import ENV, RNG_NAME
 from .nodes import (
-    Action, After, Block, Expect, Expr, Finish, If, Let, Log, Repeat, Share, Signal, Statement, Stop, Wait,
-    When, While,
+    Action, After, Block, Expect, Expr, Finish, If, Let, Log, OrderLine, Repeat, Share, Signal, Statement, Stop,
+    Wait, When, While,
 )
 
 if TYPE_CHECKING:
@@ -98,6 +98,15 @@ def event_map(kinds: tuple[str, ...] | list[str], source: str = "macro", *, requ
     }
 
 
+def _count(value: Any) -> int:
+    """`tot_orders: 5` — the count a list's orders carry in TotNoOrders(68)
+    when they go one by one; `yes` (1) counts what the list turns out to be."""
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def contains_creator(body: list[Statement], subject: str = vocab.ORDER) -> bool:
     """Whether the verb that sends ``subject`` (`new`, `ioi`, `advert`,
     `allocate`) stands somewhere in ``body``."""
@@ -138,6 +147,7 @@ class Instance:
         self._compiled: dict[int, tuple[Any, set[str]]] = {}
         self.main = Flow("main", since_at=self.started_at, n=n)
         self.tag = f"{run.id}:{index}"          # how the runner knows the order this macro sends
+        self._building: dict[str, Any] | None = None     # a `new list` under way: its mode, terms, orders
 
     # -- life ------------------------------------------------------------------------
 
@@ -278,6 +288,8 @@ class Instance:
     async def _statement(self, flow: Flow, st: Statement, depth: int) -> None:
         if isinstance(st, Action):
             await self._act(flow, st)
+        elif isinstance(st, OrderLine):
+            await self._list_order(flow, st)
         elif isinstance(st, After):
             delay = await self._seconds(flow, st.delay)
             if st.jitter is not None:
@@ -456,24 +468,30 @@ class Instance:
 
     # -- actions ---------------------------------------------------------------------------
 
+    async def _terms(self, flow: Flow, verb: str, terms: list[Any], line: int) -> dict[str, Any]:
+        """A line's terms as the payload takes them: words as their codes,
+        and a named instrument under the terms written out, which add to it
+        or override it."""
+        given: dict[str, Any] = {}
+        for term in terms:
+            value = term.word if term.value is None else await self.value(flow, term.value)
+            enum = vocab.enum_of(verb, term.name)
+            if enum and value is not None:
+                value = vocab.enum_code(enum, value)
+            given[term.key] = "" if value is None else value
+        payload: dict[str, Any] = {}
+        named = given.pop("_instrument", "")
+        if named != "":
+            payload.update(await self.runner._instrument(str(named), self, line))
+        payload.update(given)
+        return payload
+
     async def _act(self, flow: Flow, st: Action) -> None:
         verb = vocab.VERBS[st.verb]
         payload: dict[str, Any] = {}
         if st.template is not None:
             payload.update(await self.runner._template(st, self))
-        given: dict[str, Any] = {}
-        for term in st.terms:
-            value = term.word if term.value is None else await self.value(flow, term.value)
-            enum = vocab.enum_of(st.verb, term.name)
-            if enum and value is not None:
-                value = vocab.enum_code(enum, value)
-            given[term.key] = "" if value is None else value
-        # A named instrument sits between the template and the terms written
-        # out, which add to it or override it.
-        named = given.pop("_instrument", "")
-        if named != "":
-            payload.update(await self.runner._instrument(str(named), self, st.line))
-        payload.update(given)
+        payload.update(await self._terms(flow, st.verb, st.terms, st.line))
         creator = vocab.CREATORS[self.kind]
         creates = st.verb == creator and self.block.kind == vocab.CLIENT
         word = vocab.SUBJECT_WORDS[self.kind]
@@ -495,6 +513,9 @@ class Instance:
             extras = str(payload.get("extra_tags") or "")
             if not any(pair.split("=", 1)[0].strip() == tag for pair in extras.split("|")):
                 payload["extra_tags"] = "|".join(p for p in (f"{tag}={self.row[column]}", extras) if p)
+        if st.verb == "new list":
+            await self._new_list(flow, st, payload)
+            return
         if st.verb in ("replace", "cancel"):
             payload = {**self._as_entered(st.verb == "replace"), **payload}
         elif st.verb.startswith("replace "):
@@ -524,7 +545,13 @@ class Instance:
                     payload["orig_cl_ord_id"] = self.row["cl_ord_id"]
                 else:
                     payload["cl_ord_id"] = self.row["cl_ord_id"]
+                if st.verb == "add order":
+                    payload["_tag"] = self.tag      # the list's: its order is nobody else's to take
                 result = await self.runner.engine.perform(verb.op, payload, source="macro")
+                if st.verb == "add order" and st.body:
+                    order = await self.runner.engine._find_order(payload["session_id"], result["cl_ord_id"])
+                    if order is not None:
+                        self.runner._start_member(self, st, order)
                 if creates and self.row is None:     # nobody listened to the announcement
                     row = await self.runner._sent_row(self.kind, payload["session_id"],
                                                       result[vocab.SUBJECT_IDS[self.kind]])
@@ -539,6 +566,92 @@ class Instance:
                     raise ScriptError(st.line, why) from None
                 self.runner._log(self, st.line, why)
                 self.deliver(event_map(("error",), text=why, op=verb.op))
+
+    # -- lists -----------------------------------------------------------------------------
+
+    async def _new_list(self, flow: Flow, st: Action, payload: dict[str, Any]) -> None:
+        """`new list`: run its lines. An `order` line of a list sent as one
+        NewOrderList (`mode: list`) is kept until the lines have run, then
+        they all go at once; of one sent as orders (`mode: orders`) it goes
+        as it is reached — the first sends the list, each later one joins
+        it — so `after` and a paced `repeat` space them. An order whose line
+        has a block under it gets that block as its own macro."""
+        self._building = {"mode": str(payload.get("mode") or "E"), "payload": payload, "orders": [], "list_id": ""}
+        try:
+            await self._body(flow, st.body, 1)
+        finally:
+            building, self._building = self._building, None
+        if building["mode"] != "E":
+            if not building["list_id"]:
+                raise ScriptError(st.line, "`new list` reached no `order` line: nothing was sent")
+            return
+        if not building["orders"]:
+            raise ScriptError(st.line, "`new list` reached no `order` line: nothing was sent")
+        result = await self._list_send(st, "send_new_list",
+                                       {**payload, "list_orders": [o for o, _ in building["orders"]]})
+        if result is None:
+            return
+        members = await self.runner.engine._list_members(payload["session_id"], result["list_id"], "TX")
+        for (_, line), order in zip(building["orders"], members):
+            if line.body:
+                self.runner._start_member(self, line, order)
+
+    async def _list_order(self, flow: Flow, st: OrderLine) -> None:
+        b = self._building
+        if b is None:
+            raise ScriptError(st.line, "an `order` line belongs under `new list`")
+        terms = await self._terms(flow, "new", st.terms, st.line)
+        if b["mode"] == "E":
+            b["orders"].append((terms, st))
+            return
+        payload, engine = b["payload"], self.runner.engine
+        count = _count(payload.get("tot_orders"))
+        if not b["list_id"]:
+            result = await self._list_send(st, "send_new_list", {**payload, "list_orders": [terms], "mode": "D"})
+            if result is None:
+                return
+            b["list_id"] = result["list_id"]
+            order = (await engine._list_members(payload["session_id"], b["list_id"], "TX") or [None])[-1]
+        else:
+            extras = "|".join(p for p in (str(payload.get("extra_tags") or ""), str(terms.get("extra_tags") or ""),
+                                          f"68={count}" if count > 1 else "") if p)
+            data = {**terms, "session_id": payload["session_id"], "list_id": b["list_id"], "_tag": self.tag,
+                    "text": payload.get("text", "") or terms.get("text", ""), "extra_tags": extras,
+                    "client": terms.get("client") or payload.get("client", "")}
+            result = await self._list_send(st, "add_list_order", data)
+            if result is None:
+                return
+            order = await engine._find_order(payload["session_id"], result["cl_ord_id"])
+        if st.body and order is not None:
+            self.runner._start_member(self, st, order)
+
+    async def _list_send(self, st: Statement, op: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """One of a list's sends, as `_act` sends: counted, one at a time,
+        the list bound when it is the first; None when refused under `on
+        error continue`."""
+        async with self._action_lock:
+            if not self.live:
+                raise asyncio.CancelledError()
+            self.actions += 1
+            if self.actions > self.runner.max_actions:
+                raise ScriptError(st.line, f"more than {self.runner.max_actions} actions on one list")
+            try:
+                result = await self.runner.engine.perform(op, payload, source="macro")
+                if op == "send_new_list" and self.row is None:
+                    row = await self.runner._sent_row(vocab.LIST, payload["session_id"], result["list_id"])
+                    if row is None:
+                        raise ScriptError(st.line, "`new list` sent, but its list row was not found")
+                    self.bind(row)
+                return result
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                why = e.message if isinstance(e, ScriptError) else f"`new list` was refused: {e}"
+                if self.run.macro.on_error != "continue":
+                    raise ScriptError(st.line, why) from None
+                self.runner._log(self, st.line, why)
+                self.deliver(event_map(("error",), text=why, op=op))
+                return None
 
     def _quote_as_entered(self) -> dict[str, Any]:
         """What the quote dialogs open on: the standing quote's prices, sizes
