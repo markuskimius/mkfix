@@ -281,3 +281,51 @@ class TestRefusals:
         assert [(o["symbol"], o["status"]) for o in await _orders(db, "TX")] == [
             ("IBM", "PendingNew"), ("MSFT", "Rejected"), ("ORCL", "Rejected")]
         assert (await _lists(db, "TX"))[0]["status"] == "Sent", "one order went: the list stands"
+
+
+class TestAllDone:
+    """A list whose every order is finished is AllDone on both sides, sent
+    as one NewOrderList or as orders, whether or not a ListStatus says so."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["E", "D"])
+    async def test_the_last_order_finished_finishes_the_list(self, linked, mode):
+        db, engine, cli, mkt = linked
+        seen = []
+        engine.events.subscribe(lambda ev: seen.append(ev.kinds[0]) if ev.table == "fix_lists" else None)
+        list_id = await engine.send_new_list("Client", BASKET, mode=mode)
+        await engine.accept_list("Server", list_id)
+        first, second = await _orders(db, "RX")
+        await engine.fill_order("Server", first["cl_ord_id"], 100, 10)
+        assert {r["status"] for r in await _lists(db)} != {"AllDone"}, "one order still works"
+        await engine.unsolicited_cancel("Server", second["cl_ord_id"])
+        rows = await _lists(db)
+        assert [(r["direction"], r["status"], r["list_status_code"]) for r in rows] == [
+            ("TX", "AllDone", "6"), ("RX", "AllDone", "6")]
+        assert seen.count("list done") == 1
+
+    @pytest.mark.asyncio
+    async def test_not_while_orders_it_announced_are_still_to_come(self, linked):
+        db, engine, cli, mkt = linked
+        list_id = await engine.send_new_list("Client", BASKET[:1], mode="D", tot_count=2)
+        (order,) = await _orders(db, "RX")
+        await engine.fill_order("Server", order["cl_ord_id"], 100, 10)
+        assert {r["status"] for r in await _lists(db)} != {"AllDone"}, "TotNoOrders says one more is coming"
+        cl = await engine.send_new_order("Client", "MSFT", "1", 5, price=1, list_id=list_id)
+        received = next(o for o in await _orders(db, "RX") if o["cl_ord_id"] == cl)
+        await engine.fill_order("Server", received["cl_ord_id"], 5, 1)
+        assert {r["status"] for r in await _lists(db)} == {"AllDone"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("linked", ["FIX.4.1"], indirect=True)
+    async def test_named_all_done_where_the_version_has_no_name(self, linked):
+        db, engine, cli, mkt = linked
+        list_id = await engine.send_new_list("Client", BASKET[:1], mode="D")
+        (order,) = await _orders(db, "RX")
+        await engine.fill_order("Server", order["cl_ord_id"], 100, 10)
+        assert {r["status"] for r in await _lists(db)} == {"AllDone"} and list_id
+
+
+def test_all_done_name():
+    assert lists.all_done_name(FixDictionary("FIX.4.2")) == "AllDone"
+    assert lists.all_done_name(FixDictionary("FIX.4.0")) == "AllDone"

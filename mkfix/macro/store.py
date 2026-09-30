@@ -63,12 +63,15 @@ _LOOPBACK_DESCRIPTION = "Loopback for macro examples"
 # hand-sent IOIs and allocations after). The derivatives desk is offered
 # orders before the venue, which takes every order on its session.
 TOUR = {"market": "loopback-venue", "client": "loopback-client"}
-TOUR_ARMED = {"market": ("derivatives-desk", "loopback-venue", "rfq-desk"),
+TOUR_ARMED = {"market": ("derivatives-desk", "spread-desk", "loopback-venue", "rfq-desk", "list-desk"),
               "client": ("ioi-taker", "allocation-check", "quote-taker", "rfq-responder")}
-TOUR_RUN = {"client": ("loopback-client", "rfq-taker", "futures-roll"),
+TOUR_RUN = {"client": ("loopback-client", "rfq-taker", "futures-roll", "list-trader", "drip-basket",
+                       "calendar-spread"),
             "market": ("ioi-desk", "allocation-desk", "quote-stream", "rfq-subscriber")}
-# (ahead, behind): a run the tour keeps offered orders before another.
-TOUR_AHEAD = ("derivatives-desk", "loopback-venue")
+# (ahead, behind): runs the tour keeps offered orders before another — the
+# desks narrowed to futures and options, and to multileg orders, before a
+# venue that takes every order (as one an earlier tour saved still does).
+TOUR_AHEAD = (("derivatives-desk", "loopback-venue"), ("spread-desk", "loopback-venue"))
 _LIVE_RUNS = ("armed", "paused")
 
 
@@ -513,9 +516,10 @@ class MacroManager:
                 armed = [r for r in self.live_runs(name) if r.session == (session or None)]
                 runs[name] = self._run_rows[armed[0]] if armed \
                     else (await self.arm(name, side=side, session=session))["run_id"]
-        ahead, behind = (self._runs_by_row.get(int(runs[name])) for name in TOUR_AHEAD)
-        if ahead is not None and behind is not None:
-            await self._put_ahead(ahead, behind)
+        for pair in TOUR_AHEAD:
+            ahead, behind = (self._runs_by_row.get(int(runs[name])) for name in pair)
+            if ahead is not None and behind is not None:
+                await self._put_ahead(ahead, behind)
         for side, names in TOUR_RUN.items():
             for name in names:
                 runs[name] = (await self.arm(name, side=side, session=LOOPBACK[side]))["run_id"]

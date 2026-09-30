@@ -79,6 +79,7 @@ class _Step:
     stamp: str = ""
     target: str = ""               # the trade target already worked out (a macro from history)
     legs: list[dict[str, Any]] = field(default_factory=list)    # a multileg `replace`'s new legs
+    during: bool = False           # heard while an action was under way: its answer
 
 
 @dataclass
@@ -168,15 +169,22 @@ class Recorder:
                 if verb == "replace" and legs:
                     from mkfix.fix.multileg import normalize_legs
                     step.legs = normalize_legs(legs)
-                line.steps.append(step)
+                # An answer that came back inside the send (a ListStatusRequest is answered at
+                # once) was heard before the action is announced: the action goes before it.
+                at = len(line.steps)
+                while at and line.steps[at - 1].kind == "heard" and line.steps[at - 1].during:
+                    at -= 1
+                line.steps.insert(at, step)
         elif ev.source == "wire":
             heard = "filled" if "filled" in kinds else kinds[0]
             if heard in _HEARD[(subject, vocab.CLIENT if sends else vocab.MARKET)]:
-                line.steps.append(_Step(now, "heard", heard))
+                line.steps.append(_Step(now, "heard", heard, during=self.engine.performing.get(ev.session_id, 0) > 0))
 
     @staticmethod
     def _terms(verb: str, ev: EngineEvent) -> dict[str, Any]:
         data, prev = ev.detail.get("data") or {}, ev.prev or {}
+        if verb == "add order":
+            data = {"ord_type": "2", "tif": "0", **data}      # what the order goes with when none is given
         terms = {term: data.get(key) for term, key in vocab.VERBS[verb].terms.items()
                  if data.get(key) not in (None, "")}
         if verb == "replace":
@@ -472,6 +480,33 @@ class Recorder:
         await cursor.close()
         return {r["name"]: instrument_payload(dict(r)) for r in rows}
 
+    def _declare(self, name: str, payload: dict[str, Any], symbol: str) -> None:
+        """`instrument 'NAME' …` at the top of the macro, so the text runs on
+        a server that has no such instrument saved."""
+        self._declared[name] = "instrument " + _quote(name) + " " + ", ".join(
+            f"{k}: {_value('instrument', k, v)}" for k, v in _instrument_terms({**payload, "symbol": symbol},
+                                                                               symbol=True).items()
+            if v not in (None, ""))
+
+    def _rfq_instruments(self, terms: dict[str, Any], row: dict[str, Any],
+                         saved: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """An RFQ request's instruments by name — the name it was sent with,
+        else a saved instrument of the same terms — each declared at the
+        top; one saved nowhere is written as its symbol."""
+        import json
+        from .check import instrument_payload
+        names, symbols = [], [s for s in str(terms.get("symbols") or "").replace(";", " ").split() if s]
+        for entry in json.loads(row.get("instrument_terms") or "[]"):
+            mine = instrument_payload(entry)
+            name = entry.get("name") or next((n for n, p in saved.items() if p == mine and len(p) > 1), None)
+            if name is None:
+                symbols.append(entry.get("symbol", ""))
+                continue
+            names.append(name)
+            self._declare(name, mine, entry.get("symbol", ""))
+        out = {"symbols": "; ".join(s for s in symbols if s), "instruments": ", ".join(names)}
+        return {**out, **{k: v for k, v in terms.items() if k not in out}}
+
     def _named(self, terms: dict[str, Any], order: dict[str, Any], saved: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """An order in an instrument saved in Config › Instruments names it,
         `instrument: 'NAME'`, and the macro declares it at the top, so the
@@ -481,10 +516,7 @@ class Recorder:
         name = next((n for n, payload in saved.items() if payload == mine and len(payload) > 1), None)
         if name is None:
             return terms
-        self._declared[name] = "instrument " + _quote(name) + " " + ", ".join(
-            f"{k}: {_value('instrument', k, v)}" for k, v in _instrument_terms({**mine, "symbol": order["symbol"]},
-                                                                               symbol=True).items()
-            if v not in (None, ""))
+        self._declare(name, mine, order["symbol"])
         dropped = set(_instrument_terms(mine, symbol=True))       # Open/Close and Covered are the order's
         return {"instrument": name, **{k: v for k, v in terms.items() if k not in dropped}}
 
@@ -495,7 +527,7 @@ class Recorder:
         with what was heard and done to it under it."""
         first = min(line.started for line in lines)
         verb = vocab.CREATORS[subject]
-        saved = await self._saved_instruments() if subject not in (vocab.RFQ_REQUEST, vocab.LIST) else {}
+        saved = await self._saved_instruments() if subject != vocab.LIST else {}
         blocks = []
         for line in sorted(lines, key=lambda t: t.started):
             members: list[str] = []
@@ -503,7 +535,9 @@ class Recorder:
                 new, members = await self._multileg(line, saved)
             else:
                 terms = self._creator_terms(subject, line.order)
-                if saved:
+                if subject == vocab.RFQ_REQUEST:
+                    terms = self._rfq_instruments(terms, line.order, saved)
+                elif saved:
                     terms = self._named(terms, line.order, saved)
                 new = f"{verb} " + ", ".join(f"{k}: {_value(verb, k, v)}" for k, v in terms.items()
                                              if v not in (None, ""))

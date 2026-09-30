@@ -200,7 +200,8 @@ _QUOTE_TERMS = ("quote_id", "bid_px", "offer_px", "bid_size", "offer_size", "val
                 "quote_type_code")
 # RFQ requests (35=AH): one row per RFQReqID, its instruments as symbols.
 RFQ_REQUEST_COLS = [
-    "session_id", "rfq_req_id", "symbols", "num_symbols", "quote_request_type", "quote_request_type_code",
+    "session_id", "rfq_req_id", "symbols", "instruments", "instrument_terms", "num_symbols", "quote_request_type",
+    "quote_request_type_code",
     "quote_type", "quote_type_code", "subscription_type", "subscription_type_code", "status",
     "last_quote_req_id", "quote_requests", "client", "extra_tags", "timestamp", "updated_at", "direction",
     "raw_message",
@@ -353,6 +354,8 @@ class FixEngine:
         self._compiled_ops: dict[str, tuple[CompiledOp, ...]] = {}
         self._replay_tasks: dict[int, ReplayTask] = {}
         self.events = EventBus()
+        # Actions under way, by session: what the session hears meanwhile answers one.
+        self.performing: dict[str, int] = {}
         self._order_locks: dict[str, asyncio.Lock] = {}
         self._expiry_task: asyncio.Task | None = None
         self._expiry_wake = asyncio.Event()
@@ -1384,9 +1387,14 @@ class FixEngine:
         trade = await self._record_report_trade(session, msg, cl_ord_id, order_row["client"],
                                                 own_order_id, instrument)
 
+        after = await self._find_order(session_id, cl_ord_id)
+        done = None
+        if after is not None and after["list_id"] and after["direction"] == "TX" and lists.is_done(after["status"]) \
+                and not (order is not None and lists.is_done(order["status"])):
+            # The report that finished a sent list's last working order finished the list.
+            done = await self._finish_list(session, after["list_id"], "TX")
         if not self.events.active:
             return
-        after = await self._find_order(session_id, cl_ord_id)
         if order is None and after is not None:
             # A row this report created: an order that went out around
             # send_new_order — a replayed log — becomes known here.
@@ -1397,14 +1405,8 @@ class FixEngine:
         self.events.emit(EngineEvent(
             report_kinds(msg), session_id, msg=msg, request=msg.get("11", ""),
             order=after, prev=order, trade=trade))
-        if after is not None and after["list_id"] and after["direction"] == "TX" and lists.is_done(after["status"]) \
-                and not (order is not None and lists.is_done(order["status"])):
-            # The report that finished a sent list's last working order finished the list.
-            members = await self._list_members(session_id, after["list_id"], "TX")
-            if all(lists.is_done(m["status"]) for m in members):
-                self._emit_row(("list done",), session_id, "fix_lists",
-                               await self._find_family_row("fix_lists", "list_id", session_id, after["list_id"], "TX"),
-                               msg=msg, request=after["list_id"])
+        if done is not None:
+            self._emit_row(("list done",), session_id, "fix_lists", done, msg=msg, request=after["list_id"])
 
     async def _handle_leg_report(self, session: FixSession, msg: FixMessage) -> None:
         """A report of one leg of a multileg order (442=2): the leg its
@@ -2226,7 +2228,11 @@ class FixEngine:
         data = {**data, "_source": source}
         prev, trade = await self._action_subject(op, data)
         prev_row, table = await self._family_subject(op, data)
-        result = await action(self, data)
+        self.performing[session_id] = self.performing.get(session_id, 0) + 1
+        try:
+            result = await action(self, data)
+        finally:
+            self.performing[session_id] -= 1
         if op in ("send_new_order", "send_new_multileg"):   # announced as `sent order` by the send itself, before it
             order = await self._find_order(session_id, result["cl_ord_id"])
         else:
@@ -2419,6 +2425,24 @@ class FixEngine:
                 f"Cannot {action} {execution['exec_id']}: trade "
                 f"{execution['trade_id']} is busted")
 
+    async def _finish_list(self, session: FixSession, list_id: str, direction: str) -> dict[str, Any] | None:
+        """A list whose every order is finished is AllDone — on the sent side
+        whether or not a ListStatus says so (a list sent as orders gets none),
+        on the received side once the market has worked its last order. The
+        list's row as it stands then, or None while an order still works —
+        or is still to come: fewer than its TotNoOrders(68) so far."""
+        members = await self._list_members(session.session_id, list_id, direction)
+        if not members or not all(lists.is_done(m["status"]) for m in members):
+            return None
+        row = await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, direction)
+        if row is None or len(members) < (row["tot_no_orders"] or 0):
+            return None
+        name = lists.all_done_name(session.dictionary)
+        if row["status"] != name:
+            await self._update_family_row("fix_lists", row, status=name, list_status_code=lists.ALL_DONE)
+            row = await self._find_family_row("fix_lists", "list_id", session.session_id, list_id, direction)
+        return row
+
     async def _write_order(self, order: dict[str, Any], **updates: Any) -> None:
         """Apply updates to an order row on top of the snapshot its caller loaded.
 
@@ -2431,6 +2455,12 @@ class FixEngine:
         row = {**order, **updates, "updated_at": _fix_timestamp()}
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(row),), {"cl_ord_id": row["cl_ord_id"]})
+        if row.get("list_id") and row["direction"] == "RX" and lists.is_done(row["status"]) \
+                and not lists.is_done(order.get("status", "")):
+            # The market finished a received list's order: perhaps its last.
+            session = self.sessions.get(row["session_id"])
+            if session is not None:
+                await self._finish_list(session, row["list_id"], "RX")
 
     async def _rename_order(self, session_id: str, old_cl_ord_id: str, new_cl_ord_id: str) -> None:
         """Move an order row to its next ClOrdID after an accepted cancel/replace."""
@@ -4419,30 +4449,65 @@ class FixEngine:
 
     def _rfq_request_message(self, session: FixSession, rfq_req_id: str, symbols: list[str], subscription_type: str,
                              quote_request_type: str, quote_type: str, extra_tags: str,
-                             client: str) -> FixMessage:
+                             client: str, instruments: list[dict[str, Any]] | None = None) -> FixMessage:
         self._require_message(session, "AH")
-        if not symbols:
+        if not symbols and not instruments:
             raise ValueError("An RFQ request names at least one instrument")
+        named = [(i["symbol"], instrument_pairs(session.dictionary, normalize_instrument(i)))
+                 for i in instruments or []]
         msg = session.factory.rfq_request(rfq_req_id, symbols, subscription_type=subscription_type,
-                                          quote_request_type=quote_request_type, quote_type=quote_type)
+                                          quote_request_type=quote_request_type, quote_type=quote_type,
+                                          instruments=named)
         msg.extra += parse_extra_tags(extra_tags)
         self._stamp_client(session, msg, client)
         return msg
 
+    async def _rfq_instruments(self, instruments: Any) -> list[dict[str, Any]]:
+        """An RFQ request's instruments: saved instruments by name (a list, or
+        comma-joined as the dialog's checklist gives them) or terms already
+        resolved (a macro's, its declared ones included) — each with its
+        symbol. A strategy is refused: an RFQ request names instruments."""
+        if isinstance(instruments, str):
+            instruments = [n.strip() for n in instruments.split(",") if n.strip()]
+        out: list[dict[str, Any]] = []
+        for item in instruments or []:
+            if isinstance(item, dict):
+                out.append(dict(item))
+                continue
+            rows = await self._fetch_all("SELECT * FROM fix_instruments WHERE name = ?", (item,))
+            if not rows:
+                raise ValueError(f"No instrument named {item!r} in Config › Instruments")
+            if rows[0].get("legs"):
+                raise ValueError(f"{item!r} is a strategy: an RFQ request names single instruments")
+            row = rows[0]
+            out.append({"name": item, "symbol": row["symbol"],
+                        **{c: row[c] for c in INSTRUMENT_COLS if row[c] not in (None, "")}})
+        for item in out:
+            if not item.get("symbol"):
+                raise ValueError(f"Instrument {item.get('name', '')!r} has no symbol")
+        return out
+
     async def send_rfq_request(self, session_id: str, symbols: str, subscription_type: str = "1",
                                quote_request_type: str = "", quote_type: str = "", client: str = "",
-                               extra_tags: str = "", source: str = "manual", tag: str = "") -> str:
+                               extra_tags: str = "", source: str = "manual", tag: str = "",
+                               instruments: Any = "") -> str:
         """Ask to be sent the RFQs for `symbols` (one per line, or split by
-        `;`, commas or spaces) and return the RFQReqID; the row is written
-        and announced (`sent rfq request`) before the send."""
+        `;`, commas or spaces) and `instruments` (saved ones by name, each an
+        instance of NoRelatedSym carrying its instrument) and return the
+        RFQReqID; the row is written and announced (`sent rfq request`)
+        before the send."""
         session = self._active_session(session_id)
         if subscription_type not in ("0", "1"):
             raise ValueError("An RFQ request subscribes (1) or asks a snapshot (0); Unsubscribe ends one")
+        named = await self._rfq_instruments(instruments)
         rfq_req_id = await self.ids.next_id("RR")
         msg = self._rfq_request_message(session, rfq_req_id, parse_symbols(symbols), subscription_type,
-                                        quote_request_type, quote_type, extra_tags, client)
+                                        quote_request_type, quote_type, extra_tags, client, named)
         row = self._sent_family_row(session, msg, rfq_request_columns, extra_tags, _fix_timestamp())
         row.update(status=RFQ_REQUEST_STATUS_OF[subscription_type], last_quote_req_id="", quote_requests=0)
+        if named:
+            # As sent, with the names they were picked by: what Unsubscribe and the recorder name again.
+            row["instrument_terms"] = json.dumps(named)
         await self._insert_family_row("fix_rfq_requests", row)
         row = await self._find_family_row("fix_rfq_requests", "rfq_req_id", session_id, rfq_req_id, "TX") or row
         self._emit_row(("sent rfq request",), session_id, "fix_rfq_requests", row, msg=msg, source=source,
@@ -4459,7 +4524,7 @@ class FixEngine:
             raise ValueError(f"RFQ request {rfq_req_id} is {row['status']}: nothing to unsubscribe")
         msg = self._rfq_request_message(session, rfq_req_id, parse_symbols(row["symbols"]), "2",
                                         row["quote_request_type_code"], row["quote_type_code"], extra_tags,
-                                        row["client"])
+                                        row["client"], json.loads(row["instrument_terms"] or "[]"))
         sent = self._as_sent(session, msg)
         code = sent.get("263", "2")
         await self._update_family_row("fix_rfq_requests", row, status="Unsubscribed", subscription_type_code=code,

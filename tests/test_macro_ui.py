@@ -972,7 +972,7 @@ class TestWiring:
         app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
         fired = [b["action"]["dialog"]["submit"]["then"] for pane in app["panes"].values() for b in pane.get("buttons", [])
                  if b.get("label") == "Macro…"]
-        assert len(fired) == 13 and all(t["action"] == "macro.recorded" and t["args"]["from"] == "history" for t in fired)
+        assert len(fired) == 15 and all(t["action"] == "macro.recorded" and t["args"]["from"] == "history" for t in fired)
         assert app["dialogs"]["stop_recording"]["submit"]["then"]["args"].get("from") is None, "a recording is the default"
         # the help says where the button is and what it writes
         text = (HELP / "macro-language.md").read_text(encoding="utf-8")

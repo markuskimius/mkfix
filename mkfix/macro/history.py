@@ -29,7 +29,7 @@ import time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from mkfix.fix import multileg
+from mkfix.fix import lists, multileg
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.events import report_kinds
 from mkfix.fix.families import (ALLOC_ACCEPTING, CONSUMED_ADVERT_TAGS, CONSUMED_ALLOC_ACK_TAGS, CONSUMED_ALLOC_TAGS,
@@ -41,7 +41,7 @@ from mkfix.fix.message import (CONSUMED_EXEC_TAGS, CONSUMED_ORDER_TAGS, FixMessa
                                format_extra_tags, parse_fix)
 
 from . import vocab
-from .recorder import _HEARD, Recorder, _number, _Step, _Timeline
+from .recorder import _HEARD, _QUIET, Recorder, _number, _Step, _Timeline
 
 if TYPE_CHECKING:
     from mkfix.fix.engine import FixEngine
@@ -53,6 +53,10 @@ _OURS = {
     "G": CONSUMED_ORDER_TAGS | {"126", "432"},
     "F": CONSUMED_ORDER_TAGS | {"125"},
     "AB": CONSUMED_ORDER_TAGS | {"126", "432"} | multileg.CONSUMED_LEG_TAGS,
+    # The list messages: the ListID and what each says as its own.
+    "L": frozenset({"66", "58"}), "K": frozenset({"66", "58"}), "M": frozenset({"66", "58"}),
+    "N": frozenset({"66", "429", "431", "82", "83", "68", "73", "11", "14", "39", "151", "84", "6", "444", "58",
+                    "60"}),
     "AC": CONSUMED_ORDER_TAGS | {"126", "432"} | multileg.CONSUMED_LEG_TAGS,
     "8": CONSUMED_EXEC_TAGS | {"378", "103"} | multileg.CONSUMED_LEG_TAGS,
     "9": frozenset({"11", "37", "39", "41", "58", "60", "102", "434"}),
@@ -81,6 +85,8 @@ _FAMILY = {
 # IOITransType(28) and AdvTransType(5) spell New/Replace/Cancel N/R/C; AllocTransType(71) 0/1/2.
 _TRANS = {"N": "new", "R": "replace", "C": "cancel", "0": "new", "1": "replace", "2": "cancel"}
 _ACK_HEARD = {"0": "accepted", "1": "rejected", "2": "rejected", "3": "received", "4": "incomplete", "5": "rejected"}
+# What finishes an order, heard: the end of its part in a list.
+_ENDS = ("filled", "canceled", "rejected", "expired", "done for day")
 _ORDER_ANSWERS = {"ack": "accept", "rejected": "reject", "replaced": "accept", "restated": "restate"}
 # A sent trade's report by what it is, whatever the dialect calls it.
 _REPORT_OF = {"PartialFill": "fill", "Fill": "fill", "Trade": "fill", "Correct": "corrected",
@@ -230,7 +236,10 @@ class FromHistory(Recorder):
                 "handl_inst_code": msg.get("21", ""), "sent_text": msg.get("58", ""), "extra_tags": extra,
                 **instrument_of(msg)}
 
-    async def _order(self, row: dict[str, Any]) -> _Timeline | None:
+    async def _order(self, row: dict[str, Any], in_list_at: float | None = None) -> _Timeline | None:
+        """An order's timeline. One sent inside a NewOrderList has no
+        NewOrderSingle of its own: ``in_list_at`` is when its list went, and
+        its terms are the row's."""
         session_id, sent = row["session_id"], row["direction"] == "TX"
         versions = await self._versions("fix_orders", row)
         chain = sorted({v[c] for v in versions for c in ("cl_ord_id", "pending_cl_ord_id", "orig_cl_ord_id") if v.get(c)})
@@ -244,14 +253,20 @@ class FromHistory(Recorder):
             disputes = await self._messages(session_id, f"msg_type = 'Q' AND exec_id IN ({','.join('?' * len(execs))})",
                                             tuple(execs))
             messages = sorted(messages + [m for m in disputes if m["id"] not in known], key=lambda m: m["id"])
+        every = messages
         first, messages = self._life(
             messages, lambda m: m["msg_type"] in ("D", "AB") and m["direction"] == ("TX" if sent else "RX"), born)
-        if first is None:
+        if first is None and in_list_at is not None:
+            messages = [m for m in every if m["at"] >= in_list_at]
+            line = _Timeline(dict(row), in_list_at, subject=vocab.ORDER)
+        elif first is None:
             self._leave_out(f"{row['cl_ord_id']}: its NewOrderSingle is not among the messages kept")
             return None
-        client, extra = self._extras(session_id, first["msg"])
-        line = _Timeline({**row, **self._order_terms(first["msg"], client, extra)}, first["at"], subject=vocab.ORDER)
-        if first["msg_type"] == "AB":
+        else:
+            client, extra = self._extras(session_id, first["msg"])
+            line = _Timeline({**row, **self._order_terms(first["msg"], client, extra)}, first["at"],
+                             subject=vocab.ORDER)
+        if first is not None and first["msg_type"] == "AB":
             # A multileg order: the legs it went out with, and what it asked for.
             line.order["_legs"] = multileg.legs_of(first["msg"], self._dictionary(session_id, first["msg"]))
             line.order["multileg_rpt_type"] = first["msg"].get("563", "")
@@ -385,6 +400,138 @@ class FromHistory(Recorder):
             self._leave_out(f"{who}: an ExecutionReport the language has no action for ({name})")
             return None
         return step
+
+    # -- a list ------------------------------------------------------------------------------------
+
+    async def _list(self, row: dict[str, Any]) -> _Timeline | None:
+        """A list: its own messages (NewOrderList, ListStatus, ListExecute,
+        ListCancelRequest, ListStatusRequest) and its orders'. Sent, its
+        orders become the `new list`'s `order` lines — those that went
+        later, `add order`s — each with what happened to it. Received, what
+        was done to it is read from what went out at once: a ListStatus
+        answering a request, or every working order acknowledged, filled or
+        canceled together (`accept list`, `fill all`, `cancel list orders`)."""
+        session_id, sent = row["session_id"], row["direction"] == "TX"
+        mark = f"{SOH}66={row['list_id']}{SOH}"
+        messages = await self._messages(session_id, "msg_type IN ('E', 'N', 'L', 'K', 'M', 'D') AND instr(raw_message, ?) > 0",
+                                        (mark,))
+        mine_first = [m for m in messages if m["msg_type"] in ("E", "D") and m["direction"] == ("TX" if sent else "RX")]
+        if not mine_first:
+            self._leave_out(f"{row['list_id']}: its orders' messages are not among the messages kept")
+            return None
+        start = mine_first[0]["at"]
+        # The mode it went out in: an order that joined it later makes the row's `E+D`.
+        line = _Timeline({**row, "mode": "E" if mine_first[0]["msg_type"] == "E" else "D"}, start,
+                         subject=vocab.LIST)
+        members = await self._fetch("SELECT * FROM fix_orders WHERE session_id = ? AND direction = ? AND list_id = ? "
+                                    "ORDER BY list_seq_no, id", (session_id, row["direction"], row["list_id"]))
+        return await (self._sent_list(line, messages, members) if sent else self._received_list(line, messages, members))
+
+    async def _sent_list(self, line: _Timeline, messages: list[dict[str, Any]],
+                         members: list[dict[str, Any]]) -> _Timeline:
+        start, session_id = line.started, line.order["session_id"]
+        heard = _HEARD[(vocab.LIST, vocab.CLIENT)]
+        # The orders that went with the list, then any that joined it later: an `add order` each.
+        sends = {m["msg"].get("11", ""): m["at"] for m in messages if m["msg_type"] == "D" and m["direction"] == "TX"}
+        timelines: list[tuple[float, _Timeline]] = []
+        for member in members:
+            at = sends.get(member["cl_ord_id"], start)
+            timeline = await self._order(member, in_list_at=start if member["cl_ord_id"] not in sends else None)
+            if timeline is None:
+                continue
+            # The ListID each carried is the list's to say.
+            own = timeline.order.get("extra_tags") or ""
+            timeline.order["extra_tags"] = "|".join(p for p in own.split("|")
+                                                    if p and p != f"66={line.order['list_id']}")
+            self.timelines[(vocab.ORDER, member["id"])] = timeline
+            timelines.append((at, timeline))
+            if at - start >= _QUIET:
+                client, extra = self._extras(session_id, next(m["msg"] for m in messages
+                                                              if m["msg"].get("11") == member["cl_ord_id"]))
+                # Its ListID is the `add order`'s own.
+                extra = "|".join(p for p in extra.split("|") if p and p != f"66={line.order['list_id']}")
+                terms = self._creator_terms(vocab.ORDER, {**member, "client": client, "extra_tags": extra})
+                line.steps.append(_Step(at, "did", "add order", {k: v for k, v in terms.items() if v not in (None, "")},
+                                        stamp=_stamp(at)))
+        for m in messages:
+            msg, kind, mine = m["msg"], m["msg_type"], m["direction"] == "TX"
+            step: _Step | None = None
+            if kind in ("L", "K", "M") and mine:
+                verb = {"L": "execute list", "K": "cancel list", "M": "request list status"}[kind]
+                terms = {k: v for k, v in self._said(msg, session_id).items() if v}
+                step = _Step(m["at"], "did", verb, terms, stamp=m["timestamp"])
+            elif kind == "N" and not mine:
+                status, status_type = msg.get("431", ""), msg.get("429", "")
+                name = "rejected" if status == lists.REJECT else "accepted" if status_type == lists.ACK \
+                    else "executing" if status == lists.EXECUTING or status_type == lists.EXEC_STARTED else "status"
+                step = _Step(m["at"], "heard", name)
+            if step is not None and (step.kind == "did" or step.name in heard):
+                line.steps.append(step)
+        # `done`: the first moment every order sent by then had finished — an order
+        # that joined later does not undo it.
+        ended = {id(t): next((s.at for s in t.steps if s.kind == "heard" and s.name in _ENDS), None)
+                 for _, t in timelines}
+        for t_end in sorted(e for e in ended.values() if e is not None):
+            if all(ended[id(t)] is not None and ended[id(t)] <= t_end for at, t in timelines if at <= t_end):
+                line.steps.append(_Step(t_end, "heard", "done"))
+                break
+        line.steps.sort(key=lambda s: s.at)
+        return line
+
+    async def _received_list(self, line: _Timeline, messages: list[dict[str, Any]],
+                             members: list[dict[str, Any]]) -> _Timeline:
+        session_id, heard = line.order["session_id"], _HEARD[(vocab.LIST, vocab.MARKET)]
+        requests = {"L": "execute", "K": "cancel", "M": "status request"}
+        answered_status = False
+        for m in messages:
+            msg, kind, mine = m["msg"], m["msg_type"], m["direction"] == "TX"
+            if kind in requests and not mine:
+                if requests[kind] in heard:
+                    line.steps.append(_Step(m["at"], "heard", requests[kind]))
+                answered_status = kind == "M"
+            elif kind == "N" and mine:
+                status, status_type = msg.get("431", ""), msg.get("429", "")
+                if answered_status and status_type == lists.RESPONSE:
+                    answered_status = False           # mkfix answers a ListStatusRequest itself
+                    continue
+                # A ListStatus says its text in ListStatusText (444) from 4.2.
+                said = {**self._said(msg, session_id), "text": msg.get("444", "") or msg.get("58", "")}
+                if status_type in (lists.ACK, lists.EXEC_STARTED, lists.ALL_DONE_TYPE):
+                    verb = "reject list" if status == lists.REJECT else "accept list"
+                    terms = said
+                else:
+                    verb = "list status"
+                    terms = {"status_type": status_type, "list_status": status, **said}
+                line.steps.append(_Step(m["at"], "did", verb, {k: v for k, v in terms.items() if v},
+                                        stamp=m["timestamp"]))
+        # What the market did to all of the list's orders at once.
+        ids = [o["cl_ord_id"] for o in members]
+        if ids:
+            reports = await self._messages(session_id, f"msg_type = '8' AND direction = 'TX' AND cl_ord_id IN "
+                                                       f"({','.join('?' * len(ids))})", tuple(ids))
+            batches: list[list[dict[str, Any]]] = []
+            for r in reports:
+                if batches and r["at"] - batches[-1][-1]["at"] < _QUIET:
+                    batches[-1].append(r)
+                else:
+                    batches.append([r])
+            said = {s.at for s in line.steps if s.kind == "did"}
+            for batch in batches:
+                kinds = {report_kinds(r["msg"])[0] for r in batch}
+                at = batch[0]["at"]
+                if kinds == {"ack"} and not any(abs(a - at) < _QUIET for a in said):
+                    line.steps.append(_Step(at, "did", "accept list", {}, stamp=batch[0]["timestamp"]))
+                elif kinds == {"fill"} and (len({r["msg"].get("11") for r in batch}) > 1 or len(ids) == 1):
+                    prices = {r["msg"].get("31", "") for r in batch}
+                    terms = {"price": prices.pop()} if len(prices) == 1 else {}
+                    line.steps.append(_Step(at, "did", "fill all", terms, stamp=batch[0]["timestamp"]))
+                elif kinds == {"canceled"} and not any(r["msg"].get("41") for r in batch):
+                    line.steps.append(_Step(at, "did", "cancel list orders", {}, stamp=batch[0]["timestamp"]))
+                elif kinds - {"ack"}:
+                    self._leave_out(f"{line.order['list_id']}: its orders were worked one by one — "
+                                    "Macro… on Received Orders writes them")
+        line.steps.sort(key=lambda s: s.at)
+        return line
 
     # -- an IOI, an advert, an allocation --------------------------------------------------------
 
@@ -617,6 +764,8 @@ class FromHistory(Recorder):
                 line = await self._negotiation(subject, row)
             elif subject == vocab.RFQ_REQUEST:
                 line = await self._rfq_request(row)
+            elif subject == vocab.LIST:
+                line = await self._list(row)
             else:
                 line = await self._family(subject, row)
             # What we received and never answered has nothing to write, as in a recording.

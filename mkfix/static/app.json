@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.79",
+    "version": "0.80",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -1059,7 +1059,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.79"
+        "text": "mkfix v0.80"
       }
     ],
     "bindStyle": {
@@ -11762,13 +11762,17 @@
         "timestamp",
         "direction",
         "raw_message",
-        "session_status"
+        "session_status",
+        "instruments",
+        "instrument_terms",
+        "instrument_names"
       ],
       "visible": [
         "rfq_req_id",
         "session_id",
         "client",
         "symbols",
+        "instruments",
         "num_symbols",
         "subscription_type",
         "status",
@@ -11784,7 +11788,7 @@
         "rfq_req_id": "RFQReqID",
         "session_id": "Session",
         "client": "Client",
-        "symbols": "Instruments",
+        "symbols": "Symbols",
         "num_symbols": "Count",
         "subscription_type": "Subscription",
         "status": "Status",
@@ -11802,7 +11806,10 @@
         "timestamp": "Opened",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "instruments": "Instruments",
+        "instrument_terms": "Instrument Terms",
+        "instrument_names": "Instrument Names"
       },
       "filters": {
         "updated_at": {
@@ -11906,11 +11913,24 @@
                 },
                 {
                   "name": "symbols",
-                  "label": "Instruments (146: symbols, one per line)",
+                  "label": "Symbols (55, one per line)",
                   "type": "textarea",
                   "rows": 3,
                   "placeholder": "AAPL\nIBM",
-                  "required": true
+                  "required": false
+                },
+                {
+                  "name": "instruments",
+                  "label": "Saved instruments (Config › Instruments), each with its terms",
+                  "type": "checklist",
+                  "size": 6,
+                  "value": "",
+                  "none": "No instrument is saved yet: Config › Instruments",
+                  "optionsFrom": {
+                    "service": "instruments_list",
+                    "value": "name",
+                    "label": "label"
+                  }
                 },
                 {
                   "name": "subscription_type",
@@ -12002,7 +12022,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('146=(one per instrument)|55=', REPLACE(COALESCE(symbols, ''), '\\n', ','), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), '|263=', subscription_type, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('146=(one per instrument)|55=', REPLACE(COALESCE(symbols, ''), '\\n', ','), IF(COALESCE(instruments, '') != '', CONCAT(IF(COALESCE(symbols, '') != '', ',', ''), instruments, ' (with their terms)'), ''), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), '|263=', subscription_type, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -12047,12 +12067,25 @@
                 },
                 {
                   "name": "symbols",
-                  "label": "Instruments (146: symbols, one per line)",
+                  "label": "Symbols (55, one per line)",
                   "type": "textarea",
                   "rows": 3,
                   "placeholder": "AAPL\nIBM",
-                  "required": true,
+                  "required": false,
                   "value": "${REPLACE(row.symbols, '; ', '\\n')}"
+                },
+                {
+                  "name": "instruments",
+                  "label": "Saved instruments (Config › Instruments), each with its terms",
+                  "type": "checklist",
+                  "size": 6,
+                  "value": "${row.instrument_names}",
+                  "none": "No instrument is saved yet: Config › Instruments",
+                  "optionsFrom": {
+                    "service": "instruments_list",
+                    "value": "name",
+                    "label": "label"
+                  }
                 },
                 {
                   "name": "subscription_type",
@@ -12145,7 +12178,7 @@
                 {
                   "label": "Terms as tags",
                   "type": "readonly",
-                  "compute": "CONCAT('146=(one per instrument)|55=', REPLACE(COALESCE(symbols, ''), '\\n', ','), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), '|263=', subscription_type, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                  "compute": "CONCAT('146=(one per instrument)|55=', REPLACE(COALESCE(symbols, ''), '\\n', ','), IF(COALESCE(instruments, '') != '', CONCAT(IF(COALESCE(symbols, '') != '', ',', ''), instruments, ' (with their terms)'), ''), IF(COALESCE(quote_request_type, '') != '', CONCAT('|303=', quote_request_type), ''), IF(COALESCE(quote_type, '') != '', CONCAT('|537=', quote_type), ''), '|263=', subscription_type, IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
                 }
               ],
               "submit": {
@@ -20253,13 +20286,17 @@
         "timestamp",
         "direction",
         "raw_message",
-        "session_status"
+        "session_status",
+        "instruments",
+        "instrument_terms",
+        "instrument_names"
       ],
       "visible": [
         "rfq_req_id",
         "session_id",
         "client",
         "symbols",
+        "instruments",
         "num_symbols",
         "subscription_type",
         "status",
@@ -20275,7 +20312,7 @@
         "rfq_req_id": "RFQReqID",
         "session_id": "Session",
         "client": "Client",
-        "symbols": "Instruments",
+        "symbols": "Symbols",
         "num_symbols": "Count",
         "subscription_type": "Subscription",
         "status": "Status",
@@ -20293,7 +20330,10 @@
         "timestamp": "Opened",
         "direction": "Dir",
         "raw_message": "Message",
-        "session_status": "Session Status"
+        "session_status": "Session Status",
+        "instruments": "Instruments",
+        "instrument_terms": "Instrument Terms",
+        "instrument_names": "Instrument Names"
       },
       "filters": {
         "updated_at": {
@@ -28540,6 +28580,86 @@
               "pane": "list-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' lists'), row.list_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "client"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "list"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.list_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. The RFQs you sent against each request become `rfq` actions in an `on rfq request` block."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Client Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "client",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -29180,6 +29300,86 @@
               "pane": "market-list-blotter"
             }
           }
+        },
+        {
+          "label": "Macro…",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "Macro from ${IF(LEN(rows) > 1, CONCAT(LEN(rows), ' lists'), row.list_id)}",
+              "width": 400,
+              "fields": [
+                {
+                  "name": "side",
+                  "type": "hidden",
+                  "value": "market"
+                },
+                {
+                  "name": "subject",
+                  "type": "hidden",
+                  "value": "list"
+                },
+                {
+                  "name": "row_ids",
+                  "type": "hidden",
+                  "value": "${JOIN(MAP(rows, r -> r.id), ',')}"
+                },
+                {
+                  "name": "save",
+                  "type": "hidden",
+                  "value": "1"
+                },
+                {
+                  "name": "name",
+                  "label": "Save the macro as",
+                  "type": "text",
+                  "required": true,
+                  "value": "History of ${row.list_id}${IF(LEN(rows) > 1, CONCAT(' and ', LEN(rows) - 1, ' more'), '')}"
+                },
+                {
+                  "name": "delays",
+                  "label": "Keep the delays",
+                  "type": "checkbox",
+                  "value": false
+                },
+                {
+                  "type": "readonly",
+                  "value": "Written from the messages kept: the macro that would have played this side's part in what it has been through. Each request becomes a `run` block: `rfq request`, then its `unsubscribe`."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "not delays",
+                  "value": "Each action will run the moment what it answered comes. Time is written only where nothing came between two actions."
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "delays",
+                  "value": "Each action will also wait the time it took to answer."
+                },
+                {
+                  "type": "readonly",
+                  "value": "The macro opens in Market Macros. If the name is taken, or there is nothing to write, nothing is saved."
+                }
+              ],
+              "submit": {
+                "label": "Write macro",
+                "service": "fix_cmd",
+                "op": "macro_from_history",
+                "then": {
+                  "action": "macro.recorded",
+                  "args": {
+                    "side": "market",
+                    "name": "${name}",
+                    "from": "history"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -29658,7 +29858,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.79",
+      "version": "0.80",
       "mkio": "1.5",
       "expr": "2"
     },

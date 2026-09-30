@@ -1970,7 +1970,8 @@ class TestMacroFromHistory:
              "rfq-blotter": ("client", "rfq", "quote_req_id"), "quote-blotter": ("client", "quote", "quote_id"),
              "market-rfq-blotter": ("market", "rfq", "quote_req_id"), "market-quote-blotter": ("market", "quote", "quote_id"),
              "market-rfq-request-blotter": ("market", "rfq_request", "rfq_req_id"),
-             "rfq-request-blotter": ("client", "rfq_request", "rfq_req_id")}
+             "rfq-request-blotter": ("client", "rfq_request", "rfq_req_id"),
+             "list-blotter": ("client", "list", "list_id"), "market-list-blotter": ("market", "list", "list_id")}
 
     def test_the_blotters_that_have_it(self, app_config):
         have = {pane for pane, spec in app_config["panes"].items()
@@ -3699,7 +3700,10 @@ class TestRfqRequestBlotters:
         assert new["submit"]["op"] == clone["submit"]["op"] == "send_rfq_request"
         assert _dialog_field_names(clone) == _dialog_field_names(new) - {"_template"}
         fields = self._fields(new)
-        assert fields["symbols"]["type"] == "textarea" and fields["symbols"]["required"] is True
+        # Symbols, saved instruments, or both: the engine refuses neither.
+        assert fields["symbols"]["type"] == "textarea" and fields["symbols"]["required"] is False
+        assert fields["instruments"]["type"] == "checklist"
+        assert fields["instruments"]["optionsFrom"]["service"] == "instruments_list"
         assert [o["value"] for o in fields["subscription_type"]["options"]] == ["1", "0"], "Unsubscribe ends one"
         assert "text" not in fields, "an RFQRequest carries no Text"
         assert any("35=AH" in f.get("value", "") and "4.3" in f.get("value", "") for f in new["fields"])
@@ -3905,14 +3909,14 @@ class TestListBlotters:
     def test_the_two_blotters(self, app_config, toml_config):
         for pane_id, title, direction, labels in (
                 ("list-blotter", "Sent Lists", "TX",
-                 ["New List…", "Clone", "Add Order…", "Execute", "Cancel", "Status Request", "History"]),
+                 ["New List…", "Clone", "Add Order…", "Execute", "Cancel", "Status Request", "History", "Macro…"]),
                 ("market-list-blotter", "Received Lists", "RX",
-                 ["Accept", "Reject", "Status", "Fill All", "Unsol Cxl", "History"])):
+                 ["Accept", "Reject", "Status", "Fill All", "Unsol Cxl", "History", "Macro…"])):
             spec = app_config["panes"][pane_id]
             assert (spec["title"], spec["service"], spec["filter"]) == (title, "lists_query", f"direction == '{direction}'")
             assert list(self._buttons(app_config, pane_id)) == labels
             for label, b in self._buttons(app_config, pane_id).items():
-                if b["action"]["type"] != "dialog" or label in ("New List…", "Clone"):
+                if b["action"]["type"] != "dialog" or label in ("New List…", "Clone", "Macro…"):
                     continue
                 dialog = b["action"]["dialog"]
                 assert dialog["rowData"]["list_id"] == "${row.list_id}", (pane_id, label)

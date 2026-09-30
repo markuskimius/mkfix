@@ -67,5 +67,12 @@ def status_name(dictionary: Any, code: str) -> str:
     return dictionary.enum_name("431", code) if code else ""
 
 
+def all_done_name(dictionary: Any) -> str:
+    """What a list whose every order is finished says: ListOrderStatus
+    AllDone by the version's name for it — FIX 4.0 and 4.1 have none."""
+    name = status_name(dictionary, ALL_DONE)
+    return "AllDone" if name == ALL_DONE else name
+
+
 def is_done(status: str) -> bool:
     return status in DONE_STATUSES

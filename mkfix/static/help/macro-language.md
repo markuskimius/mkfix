@@ -179,7 +179,7 @@ run
 - `quote` answers the RFQ, and again answers a counter; `requote` replaces a standing quote, `cancel quote` withdraws it. Terms left out keep the standing quote's: `quote offer: 150.2` moves the offer alone. `valid` is how long a quote stands; when it runs out it is `expired` on both sides.
 - `hit`, `counter` and `pass quote` answer with a QuoteResponse, FIX 4.4 and later. `hit` makes an order on both sides that belongs to no macro — the market's `on order` blocks take it like any other. `new` takes the quote on any version, naming it in tag 117.
 - A market `run` block sends quotes nobody asked for with `new quote`; one standing on the symbol is replaced, so `repeat … every 1s` over `requote` streams prices. The client hears them in an `on quote` block.
-- `rfq request` asks to be sent the RFQs for a list of instruments (FIX 4.3 and later); in an `on rfq request` block, `rfq` answers it. `unsubscribe` ends the subscription.
+- `rfq request` asks to be sent the RFQs for a list of instruments (FIX 4.3 and later): `symbols` by symbol, `instruments: 'ESZ6, ESH7'` by name, each with its terms (an option, a future). In an `on rfq request` block, `rfq` answers it; `rfq_request.instruments` names the instruments it carried. `unsubscribe` ends the subscription.
 
 ## Multileg orders
 
@@ -271,7 +271,7 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 | `new quote` | Sends a quote nobody asked for | `symbol`, `side`, `qty`, `currency`, `client`, `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source` |
 | `requote` | Replaces the quote under a new QuoteID; answers a pending counter | `bid`, `offer`, `bid_size`, `offer_size`, `valid`, `quote_type`, `text`, `extra` |
 | `cancel quote` | Withdraws the quote (QuoteCancel, 4.2+) | `text`, `extra` |
-| `rfq request` | Asks to be sent the RFQs for `symbols` (RFQRequest, 4.3+) | `symbols`, `subscription`, `request_type`, `quote_type`, `client`, `extra` |
+| `rfq request` | Asks to be sent the RFQs for `symbols` and `instruments` — declared or saved ones by name, comma-separated, each sent with its terms (RFQRequest, 4.3+) | `symbols`, `instruments`, `subscription`, `request_type`, `quote_type`, `client`, `extra` |
 | `unsubscribe` | Ends the RFQ request's subscription | `extra` |
 | `new list` | Sends a list: its orders are the `order` lines under it, each taking `new`'s terms; `mode` is `list` (one NewOrderList) or `orders` (NewOrderSingles carrying the ListID) | `mode`, `bid_type`, `execution`, `tot_orders`, `client`, `text`, `extra` |
 | `add order` | Sends one more order into the list; a block under it is the order's macro | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source`, `open_close`, `covered` |

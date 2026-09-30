@@ -641,60 +641,82 @@ class TestTour:
         monkeypatch.setattr(manager, "setup_loopback", setup)
         await manager.save("loopback-client", manager.example("loopback-client")["source"] + "# mine\n", "client")
         first = await _ask(engine)("run_loopback_tour", {})
-        assert (first["venue_run"], first["client_run"]) == (2, 8)
-        assert first["runs"] == {"derivatives-desk": 1, "loopback-venue": 2, "rfq-desk": 3, "ioi-taker": 4,
-                                 "allocation-check": 5, "quote-taker": 6, "rfq-responder": 7, "loopback-client": 8,
-                                 "rfq-taker": 9, "futures-roll": 10, "ioi-desk": 11, "allocation-desk": 12,
-                                 "quote-stream": 13, "rfq-subscriber": 14}, \
-            "what waits is armed first, then what sends"
-        assert [manager._run_rows[r] for r in manager.runner.offered("market")][:2] == [1, 2], \
-            "the derivatives desk is offered orders before the venue"
+        order = ["derivatives-desk", "spread-desk", "loopback-venue", "rfq-desk", "list-desk",
+                 "ioi-taker", "allocation-check", "quote-taker", "rfq-responder",
+                 "loopback-client", "rfq-taker", "futures-roll", "list-trader", "drip-basket", "calendar-spread",
+                 "ioi-desk", "allocation-desk", "quote-stream", "rfq-subscriber"]
+        assert first["runs"] == {name: n for n, name in enumerate(order, 1)}, "what waits is armed first, then what sends"
+        assert (first["venue_run"], first["client_run"]) == (first["runs"]["loopback-venue"],
+                                                             first["runs"]["loopback-client"])
+        assert [manager._run_rows[r] for r in manager.runner.offered("market")][:3] == [1, 2, 3], \
+            "the derivatives and spread desks are offered orders before the venue"
         saved = {r["name"]: r for r in await _fetch_all(db, "SELECT * FROM fix_macros")}
         assert saved["loopback-venue"]["side"] == "market" and saved["loopback-client"]["source"].endswith("# mine\n")
         assert saved["ioi-desk"]["side"] == "market" and saved["ioi-taker"]["side"] == "client"
         assert saved["rfq-desk"]["side"] == saved["quote-stream"]["side"] == "market"
         assert saved["rfq-taker"]["side"] == saved["quote-taker"]["side"] == "client"
         assert saved["derivatives-desk"]["side"] == "market" and saved["futures-roll"]["side"] == "client"
+        assert saved["list-desk"]["side"] == saved["spread-desk"]["side"] == "market"
+        assert saved["list-trader"]["side"] == saved["drip-basket"]["side"] == saved["calendar-spread"]["side"] == "client"
         runs = await _fetch_all(db, "SELECT macro, session, side FROM fix_macro_runs ORDER BY id")
+        waits = {"ioi-taker", "allocation-check", "quote-taker", "rfq-responder"}
         assert [(r["macro"], r["session"], r["side"]) for r in runs] == [
-            ("derivatives-desk", "LOOP-MKT", "market"), ("loopback-venue", "LOOP-MKT", "market"),
-            ("rfq-desk", "LOOP-MKT", "market"),
-            ("ioi-taker", "", "client"), ("allocation-check", "", "client"), ("quote-taker", "", "client"),
-            ("rfq-responder", "", "client"), ("loopback-client", "LOOP-CLI", "client"), ("rfq-taker", "LOOP-CLI", "client"),
-            ("futures-roll", "LOOP-CLI", "client"),
-            ("ioi-desk", "LOOP-MKT", "market"), ("allocation-desk", "LOOP-MKT", "market"),
-            ("quote-stream", "LOOP-MKT", "market"), ("rfq-subscriber", "LOOP-MKT", "market")]
+            (name, "" if name in waits else "LOOP-CLI" if saved[name]["side"] == "client" else "LOOP-MKT",
+             saved[name]["side"]) for name in order]
         again = await manager.run_tour()
-        assert (again["venue_run"], again["client_run"]) == (2, 15), "what waits is left armed; what sends runs again"
-        assert again["runs"]["ioi-taker"] == 4 and again["runs"]["rfq-desk"] == 3 and again["runs"]["ioi-desk"] == 18
-        assert again["runs"]["derivatives-desk"] == 1 and again["runs"]["futures-roll"] == 17
+        sends = order[9:]
+        assert again["runs"] == {**first["runs"], **{name: len(order) + n for n, name in enumerate(sends, 1)}}, \
+            "what waits is left armed; what sends runs again"
         await clock.advance(72)
         await manager.flush()
         rows = {r["id"]: r for r in await _fetch_all(db, "SELECT * FROM fix_macro_runs ORDER BY id")}
         assert all(r["failed"] == 0 for r in rows.values()), [(r["macro"], r["failed"]) for r in rows.values()]
+
+        def both(name):
+            return [(rows[i]["orders"], rows[i]["passed"]) for i in (first["runs"][name], again["runs"][name])]
+
+        def passed(name):
+            return [rows[i]["passed"] for i in (first["runs"][name], again["runs"][name])]
         # The client runs pass every order they send; the first also minds, with its `on sent order`, the orders
         # sent by macros that own none of them: ioi-taker's against the IOIs, quote-taker's against the quote.
-        assert [(rows[i]["orders"], rows[i]["passed"]) for i in (8, 15)] == [(18, 5), (5, 5)]
-        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (11, 12, 18, 19)] == [
-            ("ioi-desk", 4), ("allocation-desk", 2), ("ioi-desk", 4), ("allocation-desk", 2)]
+        # A list's orders are its macro's, and minded by nobody else.
+        assert both("loopback-client") == [(18, 5), (5, 5)]
+        assert passed("ioi-desk") == [4, 4] and passed("allocation-desk") == [2, 2]
         # Each roll closes December and opens March; the desk fills all four, the venue none of them.
-        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (10, 17)] == [("futures-roll", 2)] * 2
-        assert (rows[1]["macro"], rows[1]["orders"], rows[1]["passed"]) == ("derivatives-desk", 4, 4)
+        assert passed("futures-roll") == [2, 2]
+        derivatives = rows[first["runs"]["derivatives-desk"]]
+        assert (derivatives["orders"], derivatives["passed"]) == (4, 4)
         futures = await _fetch_all(db, "SELECT macro, status FROM fix_orders WHERE direction = 'RX' "
                                        "AND security_type = 'FUT'")
         assert [(f["macro"], f["status"]) for f in futures] == [("derivatives-desk #1", "Filled")] * 4
         # Each rfq-taker lifts its two RFQs; the first also minds the responder's RFQs, sent by nobody's macro.
-        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (9, 16)] == [("rfq-taker", 2), ("rfq-taker", 2)]
-        assert [(rows[i]["macro"], rows[i]["passed"]) for i in (14, 21)] == [("rfq-subscriber", 1)] * 2
-        assert (rows[7]["macro"], rows[7]["passed"]) == ("rfq-responder", 2), "one pass per subscription ended"
+        assert passed("rfq-taker") == [2, 2] and passed("rfq-subscriber") == [1, 1]
+        assert rows[first["runs"]["rfq-responder"]]["passed"] == 2, "one pass per subscription ended"
         # The second stream's quote replaces the first's on IBM: that macro is detached, not failed.
-        assert (rows[13]["passed"], rows[20]["passed"]) == (0, 1)
-        log = await _fetch_all(db, "SELECT text FROM fix_macro_log WHERE run_id = 13")
-        assert any("taken over by quote-stream's `new quote`" in r["text"] for r in log)
+        # (The second stream stands until the quote-taker lifts it or its requotes run out: either ends it well.)
+        assert [rows[again["runs"]["quote-stream"]][k] for k in ("orders", "failed")] == [1, 0]
+        assert rows[first["runs"]["quote-stream"]]["passed"] == 0
+        log = await _fetch_all(db, f"SELECT text FROM fix_macro_log WHERE run_id = {first['runs']['quote-stream']}")
+        # Detached either way: by the new quote's announcement, or by a requote the takeover refused first.
+        assert any("taken over by" in r["text"] and "`new quote`" in r["text"] for r in log)
         rfqs = await _fetch_all(db, "SELECT session_id, origin, status FROM fix_rfqs WHERE origin = 'rfq'")
         assert {r["status"] for r in rfqs} == {"Hit"} and len(rfqs) == 16, "every RFQ lifted, on both sides"
         requests = await _fetch_all(db, "SELECT status, quote_requests FROM fix_rfq_requests")
         assert [(r["status"], r["quote_requests"]) for r in requests] == [("Unsubscribed", 2)] * 4
+        # The lists: the trader's basket and the drip, both worked by the list desk, not the venue, to the end.
+        assert passed("list-trader") == [2, 2], "the late order's block and the list's own"
+        assert passed("drip-basket") == [1, 1]
+        lists = await _fetch_all(db, "SELECT direction, status FROM fix_lists ORDER BY id")
+        assert len(lists) == 8 and {r["status"] for r in lists} == {"AllDone"}
+        listed = await _fetch_all(db, "SELECT macro, status FROM fix_orders WHERE direction = 'RX' AND list_id != ''")
+        assert len(listed) == 18 and {o["status"] for o in listed} == {"Filled"}
+        assert not any(o["macro"].startswith("loopback-venue") for o in listed)
+        # The calendar spread: rolled, filled with its legs by the spread desk.
+        assert passed("calendar-spread") == [1, 1]
+        spreads = await _fetch_all(db, "SELECT macro, status FROM fix_orders WHERE direction = 'RX' AND leg_count > 0")
+        assert [(o["macro"], o["status"]) for o in spreads] == [("spread-desk #2", "Filled")] * 2
+        legs = await _fetch_all(db, "SELECT cum_qty, leg_qty FROM fix_order_legs WHERE direction = 'TX'")
+        assert len(legs) == 4 and all(leg["cum_qty"] == leg["leg_qty"] for leg in legs)
 
     @pytest.mark.asyncio
     async def test_a_venue_armed_before_the_tour_goes_behind_the_desk(self, kit, monkeypatch):

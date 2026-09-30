@@ -116,7 +116,7 @@ archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 # `quote_requests` counts the QuoteRequests that have named it (644) and
 # `last_quote_req_id` is the latest of them.
 [tables.fix_rfq_requests]
-columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", rfq_req_id = "TEXT NOT NULL", symbols = "TEXT DEFAULT ''", num_symbols = "INTEGER DEFAULT 0", quote_request_type = "TEXT DEFAULT ''", quote_request_type_code = "TEXT DEFAULT ''", quote_type = "TEXT DEFAULT ''", quote_type_code = "TEXT DEFAULT ''", subscription_type = "TEXT DEFAULT ''", subscription_type_code = "TEXT DEFAULT ''", status = "TEXT DEFAULT ''", last_quote_req_id = "TEXT DEFAULT ''", quote_requests = "INTEGER DEFAULT 0", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''" }
+columns = { id = "INTEGER PRIMARY KEY AUTOINCREMENT", session_id = "TEXT NOT NULL", rfq_req_id = "TEXT NOT NULL", symbols = "TEXT DEFAULT ''", num_symbols = "INTEGER DEFAULT 0", quote_request_type = "TEXT DEFAULT ''", quote_request_type_code = "TEXT DEFAULT ''", quote_type = "TEXT DEFAULT ''", quote_type_code = "TEXT DEFAULT ''", subscription_type = "TEXT DEFAULT ''", subscription_type_code = "TEXT DEFAULT ''", status = "TEXT DEFAULT ''", last_quote_req_id = "TEXT DEFAULT ''", quote_requests = "INTEGER DEFAULT 0", client = "TEXT DEFAULT ''", extra_tags = "TEXT DEFAULT ''", timestamp = "TEXT NOT NULL DEFAULT ''", updated_at = "TEXT DEFAULT ''", direction = "TEXT NOT NULL DEFAULT ''", raw_message = "TEXT DEFAULT ''", macro = "TEXT DEFAULT ''", instruments = "TEXT DEFAULT ''", instrument_terms = "TEXT DEFAULT ''" }
 versioned = true
 archive = { cutoff = "timestamp", format = "%Y%m%d-%H:%M:%S.000" }
 
@@ -440,9 +440,11 @@ primary_table = "fix_rfq_requests"
 watch_tables = ["fix_rfq_requests", "fix_session_state"]
 watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
-sql = """SELECT q.*, COALESCE(t.status, 'DOWN') AS session_status
+sql = """SELECT q.*, COALESCE(t.status, 'DOWN') AS session_status,
+         COALESCE((SELECT group_concat(json_extract(j.value, '$.name'), ',') FROM json_each(IIF(q.instrument_terms = '',
+                   '[]', q.instrument_terms)) j WHERE json_extract(j.value, '$.name') IS NOT NULL), '') AS instrument_names
          FROM fix_rfq_requests q LEFT JOIN fix_session_state t ON t.session_id = q.session_id"""
-filterable = ["session_id", "status", "direction", "session_status", "client"]
+filterable = ["session_id", "status", "direction", "session_status", "client", "instruments"]
 
 [services.templates_query]
 protocol = "query"

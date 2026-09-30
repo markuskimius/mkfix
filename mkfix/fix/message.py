@@ -861,14 +861,18 @@ class FixMessageFactory:
         return msg
 
     def rfq_request(self, rfq_req_id: str, symbols: list[str], subscription_type: str = "1",
-                    quote_request_type: str = "", quote_type: str = "") -> FixMessage:
+                    quote_request_type: str = "", quote_type: str = "",
+                    instruments: list[tuple[str, list[tuple[str, str]]]] | None = None) -> FixMessage:
         """RFQRequest (35=AH, FIX 4.3+): RFQReqID(644), one NoRelatedSym(146)
-        instance per instrument — each carrying the request and quote
-        types when given — then SubscriptionRequestType(263)."""
+        instance per instrument — a symbol, or a symbol and its instrument's
+        pairs — each carrying the request and quote types when given, then
+        SubscriptionRequestType(263)."""
         msg = self.create({"35": "AH", "644": rfq_req_id})
-        pairs: list[tuple[str, str]] = [("146", str(len(symbols)))] if symbols else []
-        for symbol in symbols:
+        entries = [(s, []) for s in symbols] + list(instruments or [])
+        pairs: list[tuple[str, str]] = [("146", str(len(entries)))] if entries else []
+        for symbol, own in entries:
             pairs.append(("55", symbol))
+            pairs += own
             for tag, value in (("303", quote_request_type), ("537", quote_type)):
                 if value and self.dictionary.defines(tag):
                     pairs.append((tag, value))

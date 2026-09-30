@@ -297,3 +297,47 @@ class TestRecordingAndHistory:
         assert responder["source"].count("    rfq symbol:") == 2
         for result, side in ((subscriber, "market"), (responder, "client")):
             assert macro.errors(macro.check(result["source"], side=side)[1]) == [], result["source"]
+
+
+class TestRequestInstruments:
+    """0.79.2: `rfq request instruments: 'A, B'` names declared or saved
+    instruments, each an instance with its terms; the recorder and a macro
+    from history write them back by name."""
+
+    ESZ6 = "instrument 'ESZ6' symbol: 'ES', sec_type: future, maturity: '202612'\n"
+
+    def test_the_words(self):
+        assert macro.errors(macro.check(self.ESZ6 + "run\n    rfq request instruments: 'ESZ6'\n")[1]) == []
+        found = [d.message for d in macro.errors(macro.check("run\n    rfq request subscription: subscribe\n")[1])]
+        assert found == ["`rfq request` needs symbols or instruments"]
+        found = [d.message for d in macro.check("run\n    rfq request instruments: 'ESZ6, NOPE'\n",
+                                                instruments={"ESZ6": {"symbol": "ES"}})[1]]
+        assert any("No instrument named 'NOPE'" in m for m in found), found
+
+    @pytest.mark.asyncio
+    async def test_a_declared_instrument_goes_with_its_terms(self, pair):
+        run = pair.arm(self.ESZ6 + "run\n    rfq request symbols: 'IBM', instruments: 'ESZ6'\n"
+                       "    pass '${rfq_request.instruments}'\n", session="LOOP-MKT")
+        await pair.advance(1)
+        assert [i.message for i in run.instances] == ["ES Dec26"]
+        wire = pair.engine._as_sent(pair.mkt, pair.mkt.sent[-1]).to_pipe_string()
+        assert "|146=2|55=IBM|55=ES|167=FUT|200=202612|" in wire
+        (received,) = await rows(pair, "fix_rfq_requests", "WHERE session_id = 'LOOP-CLI'")
+        assert (received["symbols"], received["instruments"]) == ("IBM", "ES Dec26")
+
+    @pytest.mark.asyncio
+    async def test_recorded_and_from_history_by_name(self, pair):
+        engine = pair.engine
+        await engine.save_instrument("ESZ6", symbol="ES", security_type="FUT", maturity="202612")
+        recorder = Recorder(engine, "market", "LOOP-MKT")
+        await engine.perform("send_rfq_request", {"session_id": "LOOP-MKT", "symbols": "IBM",
+                                                  "instruments": "ESZ6"})
+        recorded = await recorder.stop("rec")
+        sent = await rows(pair, "fix_rfq_requests", "WHERE session_id = 'LOOP-MKT'")
+        written = await FromHistory(engine, "market").write(vocab.RFQ_REQUEST, [r["id"] for r in sent])
+        for result in (recorded, written):
+            lines = result["source"].splitlines()
+            assert "instrument 'ESZ6' symbol: 'ES', sec_type: future, maturity: '202612'" in lines
+            assert any(line.strip().startswith("rfq request symbols: 'IBM', instruments: 'ESZ6'") for line in lines), \
+                result["source"]
+            assert macro.errors(macro.check(result["source"], side="market")[1]) == []

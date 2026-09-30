@@ -260,7 +260,7 @@ The client side asks for a price and the market side quotes it. Each negotiation
 
 ### RFQ requests
 
-A market side that wants to quote can ask to be sent the RFQs for a list of instruments (an RFQRequest, FIX 4.3 and later).
+A market side that wants to quote can ask to be sent the RFQs for a list of instruments (an RFQRequest, FIX 4.3 and later): by symbol, or by picking instruments saved in **Config › Instruments**, which go out with their terms — an option's strike and expiry, a future's maturity. The blotters show them under **Instruments**.
 
 - **Sent RFQ Requests** (Market): **New** takes the instruments one per line and subscribes, or asks for a single snapshot. **Clone** copies a request. **Unsubscribe** ends a subscription.
 - **Received RFQ Requests** (Client): **RFQ…** opens a new RFQ that names the request in tag 644.
@@ -276,7 +276,7 @@ A list is a basket of orders under one ListID (66): **Client › Sent Lists** an
 - **Send as** chooses how it travels. **E** sends one NewOrderList (35=E) holding the orders, with a Bid Type and an Execution instruction; before FIX 4.2 a NewOrderList carries one order, so mkfix sends one for each. **D** sends each order as a NewOrderSingle carrying the ListID, with TotNoOrders (68) if asked.
 - The receiver counts every order of a ListID as one of the list's, whenever it arrives: **Add Order…** sends one more to a D list later, and a New Order with `66=<ListID>` in its Extra Tags does the same.
 - On the client side: **Execute** (ListExecute, for a list sent to wait for one), **Cancel** (a ListCancelRequest, or a cancel for each working order — the default for a D list), **Status Request** (ListStatusRequest), **Clone** (the New List form on the list's orders).
-- On the market side, **Accept** and **Reject** answer what the list has pending: its new orders (and, for a NewOrderList, a ListStatus acknowledging or rejecting it), an Execute, or a Cancel. **Status** sends a ListStatus unasked, **Fill All** fills every working order at its limit (or a price you give), **Unsol Cxl** cancels every working order. A ListStatusRequest is answered at once. The orders themselves are worked in Received Orders like any other.
+- On the market side, **Accept** and **Reject** answer what the list has pending: its new orders (and, for a NewOrderList, a ListStatus acknowledging or rejecting it), an Execute, or a Cancel. **Status** sends a ListStatus unasked, **Fill All** fills every working order at its limit (or a price you give), **Unsol Cxl** cancels every working order. A ListStatusRequest is answered at once. The orders themselves are worked in Received Orders like any other. A list whose every order is finished is **AllDone** on both sides, whether or not a ListStatus said so. **Macro…** on either blotter writes the macro for the lists selected.
 - Macros send and answer lists: `new list` with an `order` line for each order, `on list` on the market side. A list sent as D orders counts as received once 5 seconds pass without another of its orders. See Lists in the [Macro Language](macro-language.md) page, and the examples `list-trader`, `drip-basket` and `list-desk`.
 
 ## Options and futures

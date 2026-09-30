@@ -16,6 +16,7 @@ from mkfix.macro.instance import COMPLETED, FAILED, PASSED
 
 from tests.test_engine import _fetch_all, stack  # noqa: F401
 from tests.test_macro_recorder import body, hand  # noqa: F401
+from tests.test_macro_history import hand as kept  # noqa: F401  (keeps its messages, as a session does)
 from tests.test_macro_sending import pair  # noqa: F401
 
 BASKET = """run
@@ -245,3 +246,75 @@ class TestRecording:
         assert body(source)[:4] == ["on list where order_count == 1", "    accept list", "    after 1s",
                                     "    fill all price: 11"], source
         assert macro.check(source, side="market")[1] == []
+
+
+class TestFromHistory:
+    """0.79.2: Macro… on the list blotters — a list written from its own
+    messages and its orders', the same text a recording writes."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["E", "D"])
+    async def test_a_sent_list_is_its_recording(self, kept, mode):
+        from mkfix.macro.history import FromHistory
+
+        async def work():
+            orders = [{"symbol": "IBM", "side": "1", "qty": "100", "ord_type": "2", "price": "10", "tif": "0"},
+                      {"symbol": "MSFT", "side": "2", "qty": "50", "ord_type": "2", "price": "20", "tif": "0"}]
+            list_id = (await kept.do("send_new_list", session_id="LOOP-CLI", list_orders=json.dumps(orders),
+                                     mode=mode))["list_id"]
+            await kept.do("accept_list", 1, session_id="LOOP-MKT", list_id=list_id)
+            await kept.do("request_list_status", 1, session_id="LOOP-CLI", list_id=list_id)
+            await kept.do("fill_list", 1, session_id="LOOP-MKT", list_id=list_id, price="11")
+            await kept.do("add_list_order", 1, session_id="LOOP-CLI", list_id=list_id, symbol="ORCL", side="1",
+                          qty="5", price="3")
+            return list_id
+        recorder = kept.recorder("client")
+        await work()
+        recorded = await recorder.stop("rec")
+        ids = [r["id"] for r in await _fetch_all(kept.pair.db, "SELECT id FROM fix_lists WHERE direction = 'TX'")]
+        result = await FromHistory(kept.engine, "client").write(vocab.LIST, ids)
+        assert body(result["source"]) == body(recorded["source"]), result["source"] + "\n----\n" + recorded["source"]
+        lines = body(result["source"])
+        assert lines[1].startswith("    new list mode: " + ("list" if mode == "E" else "orders"))
+        assert "    request list status" in lines and any(line.startswith("    add order symbol: 'ORCL'")
+                                                            for line in lines)
+        assert macro.check(result["source"], side="client")[1] == []
+
+    @pytest.mark.asyncio
+    async def test_a_received_list_worked_as_a_list(self, kept):
+        from mkfix.macro.history import FromHistory
+        orders = [{"symbol": "IBM", "side": "1", "qty": "100", "price": "10"},
+                  {"symbol": "MSFT", "side": "1", "qty": "50", "price": "20"}]
+        list_id = (await kept.do("send_new_list", session_id="LOOP-CLI", list_orders=json.dumps(orders),
+                                 exec_inst_type="2"))["list_id"]
+        await kept.do("accept_list", 1, session_id="LOOP-MKT", list_id=list_id)
+        await kept.do("execute_list", 1, session_id="LOOP-CLI", list_id=list_id)
+        await kept.do("accept_list", 1, session_id="LOOP-MKT", list_id=list_id)
+        await kept.do("send_list_status", 1, session_id="LOOP-MKT", list_id=list_id, status_type="6",
+                      list_status="3", text="working")
+        await kept.do("fill_list", 1, session_id="LOOP-MKT", list_id=list_id, price="9")
+        ids = [r["id"] for r in await _fetch_all(kept.pair.db, "SELECT id FROM fix_lists WHERE direction = 'RX'")]
+        result = await FromHistory(kept.engine, "market").write(vocab.LIST, ids)
+        assert body(result["source"]) == [
+            "on list where order_count == 2",
+            "    accept list",
+            "    wait execute",
+            "    accept list",
+            "    after 1s",
+            "    list status status_type: alert, list_status: executing, text: 'working'",
+            "    after 1s",
+            "    fill all price: 9"], result["source"]
+        assert result["left_out"] == [] and macro.check(result["source"], side="market")[1] == []
+
+    @pytest.mark.asyncio
+    async def test_orders_worked_one_by_one_are_said(self, kept):
+        from mkfix.macro.history import FromHistory
+        orders = [{"symbol": "IBM", "side": "1", "qty": "100", "price": "10"},
+                  {"symbol": "MSFT", "side": "1", "qty": "50", "price": "20"}]
+        list_id = (await kept.do("send_new_list", session_id="LOOP-CLI", list_orders=json.dumps(orders)))["list_id"]
+        await kept.do("accept_list", 1, session_id="LOOP-MKT", list_id=list_id)
+        (first, _) = await _fetch_all(kept.pair.db, "SELECT cl_ord_id FROM fix_orders WHERE direction = 'RX' ORDER BY id")
+        await kept.market("fill_order", first["cl_ord_id"], wait=1, qty=100, price=10)
+        ids = [r["id"] for r in await _fetch_all(kept.pair.db, "SELECT id FROM fix_lists WHERE direction = 'RX'")]
+        result = await FromHistory(kept.engine, "market").write(vocab.LIST, ids)
+        assert any("worked one by one" in w for w in result["left_out"])

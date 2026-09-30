@@ -8,11 +8,12 @@
 # Watch:   Received Orders and Sent Trades; Market Macro Runs, one row an order
 # Outcome: every order on LOOP-MKT is accepted and filled in two clips a second
 #          apart; the first replace of an order is accepted and later ones are
-#          refused; cancels are honoured; a disputed trade is re-notified
+#          refused; cancels are honoured; a disputed trade is re-notified. A
+#          list's orders and multileg orders are list-desk's and spread-desk's
 
 on error continue
 
-on order where session_id == 'LOOP-MKT'
+on order where session_id == 'LOOP-MKT' and list_id == '' and leg_count == 0
     after 100ms ± 20ms
     accept text: 'working'
 

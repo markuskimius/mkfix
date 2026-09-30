@@ -349,10 +349,10 @@ async def _cancel_quote(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
 @_action("send_rfq_request")
 async def _send_rfq_request(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
     return {"rfq_req_id": await e.send_rfq_request(
-        session_id=d["session_id"], symbols=d["symbols"], subscription_type=d.get("subscription_type") or "1",
+        session_id=d["session_id"], symbols=d.get("symbols") or "", subscription_type=d.get("subscription_type") or "1",
         quote_request_type=d.get("quote_request_type", ""), quote_type=d.get("quote_type", ""),
         client=d.get("client", ""), extra_tags=d.get("extra_tags", ""), source=d.get("_source", "manual"),
-        tag=d.get("_tag", ""))}
+        tag=d.get("_tag", ""), **({"instruments": d["instruments"]} if d.get("instruments") else {}))}
 
 
 @_action("unsubscribe_rfq_request")

@@ -388,6 +388,19 @@ class _Checker:
                         f"{value!r} is no strategy: it has no legs. A strategy is an instrument with `leg` lines "
                         "(or saved with legs in Config › Instruments)")
 
+    def instruments_named(self, term: Term) -> None:
+        """`instruments: 'A, B'`: each declared or saved, none a strategy."""
+        value = getattr(term.value.node, "value", None) if term.value is not None else None
+        if not isinstance(value, str) or term.value.template:
+            return                                   # computed: resolved when it runs
+        for name in (n.strip() for n in value.split(",")):
+            if not name:
+                continue
+            one = Term(term.name, term.key, None, term.value, term.line, term.col)
+            one.value = Expr(repr(name), expr.parse(repr(name)), term.value.line, term.value.col)
+            self.instrument_named(one)
+            self.not_a_strategy(one)
+
     def not_a_strategy(self, term: Term) -> None:
         value = getattr(term.value.node, "value", None) if term.value is not None else None
         payload = (self.declared.get(value) or (self.instruments or {}).get(value)) if isinstance(value, str) else None
@@ -475,11 +488,15 @@ class _Checker:
             if term.name == "instrument" and st.verb != "new multileg":     # its strategy: `legs`
                 self.instrument_named(term)
                 self.not_a_strategy(term)
+            if term.name == "instruments":
+                self.instruments_named(term)
         if st.template is None:
             # A named instrument brings its symbol.
             missing = [name for name in verb.required if name not in seen
                        and not (name == "symbol" and "instrument" in seen)
                        and not (name == "price" and "leg" in seen)]     # a leg's fill: its LegPrice
+            if st.verb == "rfq request" and not seen & {"symbols", "instruments"}:
+                missing.append("symbols or instruments")
             if missing:
                 self.report(st.line, st.col, end, f"`{st.verb}` needs {', '.join(missing)}")
         elif self.templates is not None:

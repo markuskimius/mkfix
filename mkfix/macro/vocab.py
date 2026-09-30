@@ -211,8 +211,9 @@ _PRICE_TERMS = {"bid": "bid_px", "offer": "offer_px", "bid_size": "bid_size", "o
 _QUOTE_TERMS = {**_PRICE_TERMS, "valid": "valid_for", "quote_type": "quote_type", **_TEXT}
 _NEW_QUOTE_TERMS = {"symbol": "symbol", "side": "side", "qty": "qty", "currency": "currency", "client": "client",
                     **_QUOTE_TERMS}
-_RFQ_REQUEST_TERMS = {"symbols": "symbols", "subscription": "subscription_type", "request_type": "quote_request_type",
-                      "quote_type": "quote_type", "client": "client", "extra": "extra_tags"}
+_RFQ_REQUEST_TERMS = {"symbols": "symbols", "instruments": "instruments", "subscription": "subscription_type",
+                      "request_type": "quote_request_type", "quote_type": "quote_type", "client": "client",
+                      "extra": "extra_tags"}
 _ALLOC_TERMS = {
     "symbol": "symbol", "side": "side", "qty": "qty", "avg_price": "avg_price", "trade_date": "trade_date",
     "alloc_type": "alloc_type", "orders": "orders", "execs": "execs", "accounts": "allocs", "client": "client",
@@ -322,10 +323,11 @@ VERBS: dict[str, Verb] = {v.name: v for v in (
          doc="Replace the quote with a new QuoteID; terms left out keep the quote's. Answers a pending counter."),
     Verb("cancel quote", "cancel_quote", _SENDING, _TEXT, subject=QUOTE, scope="cancel", key="quote_id",
          also=_places((RFQ,), (MARKET,)), doc="Withdraw the quote with a QuoteCancel (FIX 4.2+)."),
-    Verb("rfq request", "send_rfq_request", (CLIENT,), _RFQ_REQUEST_TERMS, ("symbols",), subject=RFQ_REQUEST,
+    Verb("rfq request", "send_rfq_request", (CLIENT,), _RFQ_REQUEST_TERMS, subject=RFQ_REQUEST,
          scope="rfq_request",
          doc="Ask to be sent the RFQs for some instruments (RFQRequest, FIX 4.3+): `symbols` one per line or "
-             "split by `;`. The request it creates is this block's."),
+             "split by `;`, and `instruments` naming declared or saved ones, comma-separated, each with its "
+             "terms. The request it creates is this block's."),
     Verb("unsubscribe", "unsubscribe_rfq_request", _SENDING, {"extra": "extra_tags"}, subject=RFQ_REQUEST,
          scope="unsubscribe", key="rfq_req_id", doc="End the RFQ request's subscription."),
     Verb("new list", "send_new_list", (CLIENT,), _LIST_TERMS, subject=LIST, scope="list",

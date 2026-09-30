@@ -526,6 +526,12 @@ class Instance:
         if st.verb == "new list":
             await self._new_list(flow, st, payload)
             return
+        if st.verb == "rfq request" and payload.get("instruments"):
+            # Names, declared or saved: resolved here, so a declared one needs nothing saved.
+            names = payload["instruments"]
+            names = [n.strip() for n in names.split(",")] if isinstance(names, str) else list(names)
+            payload["instruments"] = [{"name": n, **await self.runner._instrument(n, self, st.line)}
+                                      for n in names if n]
         strategy = payload.pop("_strategy", "") if st.verb == "new multileg" else ""
         if strategy:
             payload = {**await self.runner._strategy(str(strategy), self, st.line), **payload}
@@ -577,11 +583,27 @@ class Instance:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                if await self._taken_over():
+                    return
                 why = e.message if isinstance(e, ScriptError) else f"`{st.verb}` was refused: {e}"
                 if self.run.macro.on_error != "continue":
                     raise ScriptError(st.line, why) from None
                 self.runner._log(self, st.line, why)
                 self.deliver(event_map(("error",), text=why, op=verb.op))
+
+    async def _taken_over(self) -> bool:
+        """A quote sent unasked takes the row of the one standing on its
+        instrument (`bind`). An action of the macro that held it, refused
+        because the row already stands on the new QuoteID before the send
+        that brought it is announced, is that takeover, not a failure: the
+        macro is detached as `bind` would have."""
+        if self.kind != vocab.QUOTE or self.row is None or not self.live:
+            return False
+        fresh = await self.runner.engine._load_family_row_by_id("fix_rfqs", self.key)
+        if fresh is None or fresh["quote_id"] == self.row["quote_id"]:
+            return False
+        self.finish(DETACHED, "its quote was taken over by another `new quote`")
+        return True
 
     # -- lists -----------------------------------------------------------------------------
 

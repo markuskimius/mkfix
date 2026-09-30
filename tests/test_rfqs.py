@@ -3,6 +3,7 @@ QuoteRequest and the quotes answering it, or a stream of unsolicited quotes
 — the messages each side sends and answers, per version, and the pure part
 in mkfix/fix/families.py."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -14,6 +15,7 @@ from mkfix.fix.message import FixMessageFactory, parse_fix
 
 from tests.test_engine import RecordingStub, _fetch_all, stack  # noqa: F401
 from tests.test_replay_e2e import LinkedSession
+from tests.test_instruments import linked as linked44  # noqa: F401  (FIX 4.4: RFQRequest is 4.3's)
 
 R_42 = "8=FIX.4.2|35=R|131=Q1|146=1|55=AAPL|54=1|38=500|303=1|60=20260927-10:00:00.000|58=please|5001=r"
 S_44 = ("8=FIX.4.4|35=S|131={req}|117={qid}|537=1|55=AAPL|132=150.1|133=150.3|134=500|135=400"
@@ -681,3 +683,47 @@ class TestRfqRequests:
         writer.submit = real_submit
         assert trace.index("wrote") < trace.index("sent")
         assert seen[-1].row["status"] == "Unsubscribed" and seen[-1].detail["prev_row"]["status"] == "Active"
+
+
+class TestRfqRequestInstruments:
+    """0.79.2: an RFQ request names saved instruments beside its symbols —
+    each an instance of NoRelatedSym carrying its instrument."""
+
+    @pytest.mark.asyncio
+    async def test_saved_instruments_ride_in_their_own_instances(self, linked44):
+        db, engine, cli, mkt = linked44
+        await engine.save_instrument("ESZ6", symbol="ES", security_type="FUT", maturity="202612")
+        await engine.save_instrument("C250", symbol="AAPL", security_type="OPT", maturity="20261218",
+                                     strike_price="250", put_or_call="Call")
+        rr = await engine.send_rfq_request("Server", "IBM", instruments="ESZ6, C250")
+        wire = mkt.wire[-1]
+        assert "|146=3|55=IBM|55=ES|167=FUT|200=202612|55=AAPL|167=OPT|200=20261218|202=250|201=1|263=1|" in wire
+        rows = {r["direction"]: r for r in await _fetch_all(db, "SELECT * FROM fix_rfq_requests")}
+        for side in ("TX", "RX"):
+            row = rows[side]
+            assert (row["symbols"], row["instruments"], row["num_symbols"]) == (
+                "IBM", "ES Dec26; AAPL 18Dec26 250 C", 3), side
+        assert [i.get("name") for i in json.loads(rows["TX"]["instrument_terms"])] == ["ESZ6", "C250"]
+        assert rows["RX"]["extra_tags"] == "", "the instruments are columns, not echoed extras"
+        await engine.unsubscribe_rfq_request("Server", rr)
+        assert "|146=3|55=IBM|55=ES|167=FUT|" in mkt.wire[-1] and "|263=2|" in mkt.wire[-1], "the same instruments"
+
+    @pytest.mark.asyncio
+    async def test_instruments_alone(self, linked44):
+        db, engine, cli, mkt = linked44
+        await engine.save_instrument("ESZ6", symbol="ES", security_type="FUT", maturity="202612")
+        await engine.send_rfq_request("Server", "", instruments=["ESZ6"])
+        assert "|146=1|55=ES|167=FUT|" in mkt.wire[-1]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("instruments, message", [
+        ("NOPE", "No instrument named 'NOPE'"),
+        ("CAL", "is a strategy"),
+        ("", "at least one instrument"),
+    ])
+    async def test_what_is_refused(self, linked44, instruments, message):
+        db, engine, cli, mkt = linked44
+        await engine.save_instrument("CAL", legs=[{"symbol": "ES", "side": "1"}, {"symbol": "ES", "side": "2"}])
+        with pytest.raises(ValueError, match=message):
+            await engine.send_rfq_request("Server", "", instruments=instruments)
+        assert await _fetch_all(db, "SELECT * FROM fix_rfq_requests") == []

@@ -384,7 +384,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   negotiation, the standing quote on it, every requote and answer in its
   History; a quote whose Valid For runs out is Expired on both sides. The
   market can ask for the RFQs on a list of instruments (Sent RFQ Requests:
-  New, Clone, Unsubscribe; an RFQRequest, FIX 4.3+); the client answers from
+  New, Clone, Unsubscribe; an RFQRequest, FIX 4.3+), by symbol or by
+  picking instruments saved in Config > Instruments, each sent with its
+  terms; the client answers from
   Received RFQ Requests with RFQ..., which names the request in tag 644, and
   both sides count the RFQs each request has drawn. Macros speak them all: a
   client macro sends an RFQ from a `run` block (`rfq`) and takes, counters or
@@ -410,7 +412,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   (`add order`, `execute list`, `cancel list`, `request list status`;
   `accept list`, `reject list`, `list status`, `fill all`, `cancel list
   orders`) and hear their ListStatus; a list sent as D orders is received
-  once 5 seconds pass without another. The recorder writes lists too.
+  once 5 seconds pass without another. The recorder writes lists too, and
+  so does Macro... on both list blotters. A list whose every order is
+  finished is AllDone on both sides, ListStatus or not. The loopback tour
+  plays the list and multileg examples.
 - **Multileg Orders** -- A spread traded as one order: NewOrderMultileg
   (35=AB) and MultilegOrderCancelReplace (35=AC), the legs in NoLegs (555).
   Sent Orders' New Multileg... takes the legs in a grid (or from a strategy

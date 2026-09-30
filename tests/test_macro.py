@@ -435,6 +435,7 @@ class TestVocabulary:
         own |= {"_instrument"}          # `instrument: 'NAME'`, resolved by the macro into the terms beside it
         own |= {"_strategy"}            # `new multileg instrument: 'NAME'`, resolved into its legs
         own |= {"leg", "report_legs"}   # which of a multileg order's legs a fill is of: the fill's own
+        own |= {"instruments"}          # an RFQ request's named instruments, resolved by the macro
         for verb in vocab.VERBS.values():
             assert verb.op in ACTIONS, verb.name
             scope, terms = TEMPLATE_TERMS[verb.op]

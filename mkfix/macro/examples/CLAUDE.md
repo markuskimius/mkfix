@@ -8,9 +8,11 @@ Shipped in the wheel, read-only, opened as copies. Each opens with `# Title`, a 
 
 RFQs (0.73): `rfq-desk`, `rfq-taker`, `quote-stream`, `quote-taker`, `rfq-subscriber`, `rfq-responder`, `end-to-end-rfq`. Their rules (`when`) come before the quote, since an answer can arrive inside the send.
 
-Lists (0.78): `list-trader` (one NewOrderList, an order's own block, `add order`, the requests), `drip-basket` (order by order, paced by `repeat`), `list-desk` (the market side). Not in the tour: the venue's `on order` would take the lists' orders too. The coverage tests walk the orders' own blocks (`nodes.member_macros`) as well as the block's.
+Lists (0.78): `list-trader` (one NewOrderList, an order's own block, `add order`, the requests), `drip-basket` (order by order, paced by `repeat`), `list-desk` (the market side). The coverage tests walk the orders' own blocks (`nodes.member_macros`) as well as the block's.
 
-Multileg (0.79): `calendar-spread` (a declared strategy, `replace` with `leg` lines, `event.leg`, `legs`) and `spread-desk` (`report_legs`, `fill leg:`). Not in the tour either.
+Multileg (0.79): `calendar-spread` (a declared strategy, `replace` with `leg` lines, `event.leg`, `legs`) and `spread-desk` (`report_legs`, `fill leg:`).
+
+The tour plays them since 0.80: `list-desk` and `spread-desk` armed on LOOP-MKT, `list-trader`, `drip-basket` and `calendar-spread` run on LOOP-CLI; `loopback-venue` takes only orders that are neither a list's nor multileg (`list_id == '' and leg_count == 0`), and `TOUR_AHEAD` (pairs now) keeps spread-desk ahead of a venue an older tour saved.
 
 ## The loopback pair and the tour
 

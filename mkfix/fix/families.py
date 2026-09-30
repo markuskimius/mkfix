@@ -15,6 +15,7 @@ the pure part.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -371,7 +372,7 @@ def parse_stamp(value: str) -> datetime | None:
 # answer. One row per RFQReqID on fix_rfq_requests, the market side
 # sending and the client side receiving.
 
-CONSUMED_RFQ_REQUEST_TAGS = frozenset({"644", "263", "146", "55", "303", "537"})
+CONSUMED_RFQ_REQUEST_TAGS = frozenset({"644", "263", "146", "55", "303", "537"}) | INSTRUMENT_TAGS
 RFQ_REQUEST_STATUS_OF = {"0": "Snapshot", "1": "Active", "2": "Unsubscribed"}
 
 
@@ -379,12 +380,20 @@ def rfq_request_columns(msg: FixMessage, dictionary: FixDictionary) -> dict[str,
     """The columns of an RFQ request row: its instruments as `; `-joined
     symbols, the request and quote types of the first instrument (the
     dialog gives one to every instrument), the subscription type."""
-    instances = group_instances(msg, "146", ("55", "303", "537"), dictionary)
+    instances = group_instances(msg, "146", ("55", "303", "537", *sorted(INSTRUMENT_TAGS)), dictionary)
     first = instances[0] if instances else {}
     rtype, qtype, sub = first.get("303", ""), first.get("537", ""), msg.get("263", "")
+    # An instance naming more than its symbol is an instrument: kept apart
+    # from the plain symbols, with its terms, so an unsubscribe can name it again.
+    plain = [i["55"] for i in instances if i.get("55") and not any(i.get(t) for t in INSTRUMENT_TAGS)]
+    named = [instrument_of(FixMessage(i)) | {"symbol": i.get("55", "")} for i in instances
+             if any(i.get(t) for t in INSTRUMENT_TAGS)]
     return {
         "rfq_req_id": msg.get("644", ""),
-        "symbols": "; ".join(i["55"] for i in instances if i.get("55")),
+        "symbols": "; ".join(plain),
+        "instruments": "; ".join(n["instrument"] for n in named),
+        "instrument_terms": json.dumps([{k: v for k, v in n.items() if k in (*INSTRUMENT_COLS, "symbol")
+                                         and v not in (None, "")} for n in named]) if named else "",
         "num_symbols": len(instances),
         "quote_request_type": dictionary.enum_name("303", rtype) if rtype else "",
         "quote_request_type_code": rtype,
