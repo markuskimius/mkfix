@@ -326,6 +326,21 @@ class TestRequestInstruments:
         assert (received["symbols"], received["instruments"]) == ("IBM", "ES Dec26")
 
     @pytest.mark.asyncio
+    async def test_a_template_keeps_them(self, pair):
+        engine = pair.engine
+        await engine.save_instrument("ESZ6", symbol="ES", security_type="FUT", maturity="202612")
+        await engine.save_template("rfq_request", "futures", symbols="IBM", instruments="ESZ6",
+                                   subscription_type="0")
+        (row,) = await _fetch_all(pair.db, "SELECT instruments FROM fix_templates")
+        assert row["instruments"] == "ESZ6"
+        run = pair.arm("run\n    rfq request using 'futures'\n    pass '${rfq_request.instruments}'\n",
+                       session="LOOP-MKT")
+        await pair.advance(1)
+        assert [i.message for i in run.instances] == ["ES Dec26"]
+        wire = pair.engine._as_sent(pair.mkt, pair.mkt.sent[-1]).to_pipe_string()
+        assert "|146=2|55=IBM|55=ES|167=FUT|200=202612|263=0|" in wire
+
+    @pytest.mark.asyncio
     async def test_recorded_and_from_history_by_name(self, pair):
         engine = pair.engine
         await engine.save_instrument("ESZ6", symbol="ES", security_type="FUT", maturity="202612")

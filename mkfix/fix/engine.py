@@ -145,7 +145,7 @@ TEMPLATE_TERM_COLS = [
     "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for",
     "quote_rej_reason", "symbols", "subscription_type",
     *INSTRUMENT_COLS, *POSITION_COLS, "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders",
-    "status_type", "list_status", "legs", "rpt_type",
+    "status_type", "list_status", "legs", "rpt_type", "instruments",
 ]
 
 # The IOI, advert and allocation rows (families.py): one row per chain,

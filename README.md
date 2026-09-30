@@ -386,7 +386,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   market can ask for the RFQs on a list of instruments (Sent RFQ Requests:
   New, Clone, Unsubscribe; an RFQRequest, FIX 4.3+), by symbol or by
   picking instruments saved in Config > Instruments, each sent with its
-  terms; the client answers from
+  terms (a template keeps the picks); the client answers from
   Received RFQ Requests with RFQ..., which names the request in tag 644, and
   both sides count the RFQs each request has drawn. Macros speak them all: a
   client macro sends an RFQ from a `run` block (`rfq`) and takes, counters or

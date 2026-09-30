@@ -622,6 +622,17 @@ class TestSaveAsTemplate:
         engine.save_template.assert_awaited_once_with(scope, "t1", **terms)
         assert _sent(ws)["ok"] is True
 
+
+    @pytest.mark.asyncio
+    async def test_an_rfq_request_keeps_its_instruments_by_name(self):
+        engine = _make_engine()
+        svc = _make_service(engine)
+        await svc.on_message(_make_ws(), {"ref": "r", "op": "send_rfq_request", "data": {
+            "session_id": "S1", "symbols": "IBM", "instruments": "ESZ6,C250", "subscription_type": "1",
+            "save_as": "t1"}})
+        engine.save_template.assert_awaited_once_with(
+            "rfq_request", "t1", session_id="S1", symbols="IBM", instruments="ESZ6,C250", subscription_type="1",
+            quote_request_type="", quote_type="", extra_tags="", client="")
     @pytest.mark.asyncio
     async def test_blank_save_as_saves_nothing(self):
         engine = _make_engine()

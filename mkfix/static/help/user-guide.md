@@ -260,7 +260,7 @@ The client side asks for a price and the market side quotes it. Each negotiation
 
 ### RFQ requests
 
-A market side that wants to quote can ask to be sent the RFQs for a list of instruments (an RFQRequest, FIX 4.3 and later): by symbol, or by picking instruments saved in **Config › Instruments**, which go out with their terms — an option's strike and expiry, a future's maturity. The blotters show them under **Instruments**.
+A market side that wants to quote can ask to be sent the RFQs for a list of instruments (an RFQRequest, FIX 4.3 and later): by symbol, or by picking instruments saved in **Config › Instruments**, which go out with their terms — an option's strike and expiry, a future's maturity. The blotters show them under **Instruments**, and a template saved from the dialog keeps the instruments picked.
 
 - **Sent RFQ Requests** (Market): **New** takes the instruments one per line and subscribes, or asks for a single snapshot. **Clone** copies a request. **Unsubscribe** ends a subscription.
 - **Received RFQ Requests** (Client): **RFQ…** opens a new RFQ that names the request in tag 644.

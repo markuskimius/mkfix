@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.80",
+    "version": "0.81",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -1059,7 +1059,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.80"
+        "text": "mkfix v0.81"
       }
     ],
     "bindStyle": {
@@ -11883,6 +11883,7 @@
                   "fill": {
                     "session_id": "session_id",
                     "symbols": "symbols",
+                    "instruments": "instruments",
                     "subscription_type": "subscription_type",
                     "quote_request_type": "quote_request_type",
                     "quote_type": "quote_type",
@@ -21386,7 +21387,8 @@
         "id",
         "created_at",
         "legs",
-        "rpt_type"
+        "rpt_type",
+        "instruments"
       ],
       "visible": [
         "name",
@@ -21466,7 +21468,8 @@
         "status_type": "Status Type (429)",
         "list_status": "List Status (431)",
         "legs": "Legs",
-        "rpt_type": "Report Type (563)"
+        "rpt_type": "Report Type (563)",
+        "instruments": "Instruments"
       },
       "sort": [
         "scope",
@@ -22219,6 +22222,20 @@
                   "type": "textarea",
                   "rows": 3,
                   "value": "${row.symbols}",
+                  "showWhen": "row.scope == 'rfq_request'"
+                },
+                {
+                  "name": "instruments",
+                  "label": "Saved instruments (Config › Instruments)",
+                  "type": "checklist",
+                  "size": 5,
+                  "value": "${row.instruments}",
+                  "none": "No instrument is saved yet: Config › Instruments",
+                  "optionsFrom": {
+                    "service": "instruments_list",
+                    "value": "name",
+                    "label": "label"
+                  },
                   "showWhen": "row.scope == 'rfq_request'"
                 },
                 {
@@ -23683,6 +23700,20 @@
                   "type": "textarea",
                   "rows": 3,
                   "value": "${row.symbols}",
+                  "showWhen": "row.scope == 'rfq_request'"
+                },
+                {
+                  "name": "instruments",
+                  "label": "Saved instruments (Config › Instruments)",
+                  "type": "checklist",
+                  "size": 5,
+                  "value": "${row.instruments}",
+                  "none": "No instrument is saved yet: Config › Instruments",
+                  "optionsFrom": {
+                    "service": "instruments_list",
+                    "value": "name",
+                    "label": "label"
+                  },
                   "showWhen": "row.scope == 'rfq_request'"
                 },
                 {
@@ -29858,7 +29889,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.80",
+      "version": "0.81",
       "mkio": "1.5",
       "expr": "2"
     },
