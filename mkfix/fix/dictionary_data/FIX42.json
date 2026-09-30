@@ -1780,6 +1780,82 @@
   "446": {
    "name": "EncodedListStatusText",
    "type": "DATA"
+  },
+  "555": {
+   "name": "NoLegs",
+   "type": "NUMINGROUP"
+  },
+  "563": {
+   "name": "MultiLegRptTypeReq",
+   "type": "INT"
+  },
+  "564": {
+   "name": "LegPositionEffect",
+   "type": "CHAR"
+  },
+  "565": {
+   "name": "LegCoveredOrUncovered",
+   "type": "INT"
+  },
+  "566": {
+   "name": "LegPrice",
+   "type": "PRICE"
+  },
+  "600": {
+   "name": "LegSymbol",
+   "type": "STRING"
+  },
+  "602": {
+   "name": "LegSecurityID",
+   "type": "STRING"
+  },
+  "603": {
+   "name": "LegSecurityIDSource",
+   "type": "STRING"
+  },
+  "608": {
+   "name": "LegCFICode",
+   "type": "STRING"
+  },
+  "609": {
+   "name": "LegSecurityType",
+   "type": "STRING"
+  },
+  "610": {
+   "name": "LegMaturityMonthYear",
+   "type": "MONTHYEAR"
+  },
+  "611": {
+   "name": "LegMaturityDate",
+   "type": "LOCALMKTDATE"
+  },
+  "612": {
+   "name": "LegStrikePrice",
+   "type": "PRICE"
+  },
+  "614": {
+   "name": "LegContractMultiplier",
+   "type": "FLOAT"
+  },
+  "616": {
+   "name": "LegSecurityExchange",
+   "type": "EXCHANGE"
+  },
+  "623": {
+   "name": "LegRatioQty",
+   "type": "FLOAT"
+  },
+  "624": {
+   "name": "LegSide",
+   "type": "CHAR"
+  },
+  "637": {
+   "name": "LegLastPx",
+   "type": "PRICE"
+  },
+  "654": {
+   "name": "LegRefID",
+   "type": "STRING"
   }
  },
  "enums": {
@@ -1926,7 +2002,9 @@
    "j": "BusinessMessageReject",
    "k": "BidRequest",
    "l": "BidResponse",
-   "m": "ListStrikePrice"
+   "m": "ListStrikePrice",
+   "AB": "NewOrderMultileg",
+   "AC": "MultilegOrderCancelReplace"
   },
   "39": {
    "0": "New",
@@ -2244,7 +2322,8 @@
    "TD": "TimeDeposit",
    "USTB": "USTreasuryBill",
    "WAR": "Warrant",
-   "ZOO": "CatsTigersAndEtc"
+   "ZOO": "CatsTigersAndEtc",
+   "MLEG": "MultilegInstrument"
   },
   "169": {
    "0": "Other",
@@ -2674,6 +2753,11 @@
    "1": "SingleSecurity",
    "2": "IndividualLegOfMultiLegSecurity",
    "3": "MultiLegSecurity"
+  },
+  "563": {
+   "0": "ReportByMulitlegSecurityOnly",
+   "1": "ReportByMultilegSecurityAndInstrumentLegs",
+   "2": "ReportByInstrumentLegsOnly"
   }
  },
  "messages": {
@@ -2859,6 +2943,14 @@
   },
   "m": {
    "name": "ListStrikePrice",
+   "category": "app"
+  },
+  "AB": {
+   "name": "NewOrderMultileg",
+   "category": "app"
+  },
+  "AC": {
+   "name": "MultilegOrderCancelReplace",
    "category": "app"
   }
  },
@@ -3303,6 +3395,28 @@
     "58",
     "354",
     "355"
+   ]
+  },
+  "555": {
+   "delim": "600",
+   "members": [
+    "600",
+    "602",
+    "603",
+    "608",
+    "609",
+    "610",
+    "611",
+    "612",
+    "614",
+    "616",
+    "623",
+    "624",
+    "564",
+    "565",
+    "654",
+    "566",
+    "637"
    ]
   }
  }

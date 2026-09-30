@@ -1,0 +1,23 @@
+# Spread desk
+#
+# Shows:   the market side of multileg orders — an `on order` block narrowed to them (`leg_count`),
+#          a replace accepted, `fill` of the whole order with `report_legs: yes` (442=3, then a
+#          442=2 report per leg at its LegPrice), and `fill leg:` filling one leg alone
+# Needs:   a FIX 4.1 or later session: arm it on LOOP-MKT and run calendar-spread on LOOP-CLI
+# Watch:   Received Orders (Market menu): the Legs column, and Received Order Legs beside Sent Trades
+#          for the selected order; Sent Trades holds the order's trade and each leg's (LegRefID)
+# Outcome: a spread asking for its legs' reports is filled with them; one that asks for the legs
+#          only is filled leg by leg; any other is filled whole
+
+on order where leg_count > 0
+    when replace
+        accept
+    accept
+    after 2s
+    if order.multileg_rpt_type == '2'
+        # The legs only: each leg filled on its own, in its own units.
+        fill leg: 1, qty: order.leaves_qty
+        fill leg: 2, qty: order.leaves_qty
+    else
+        let legs_too = IF(order.multileg_rpt_type == '1', 'yes', 'no')
+        fill qty: order.leaves_qty, price: order.price, report_legs: legs_too

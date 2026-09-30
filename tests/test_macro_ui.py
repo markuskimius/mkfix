@@ -109,8 +109,8 @@ class TestCompletion:
         assert self.names(tmp_path, 2, 3) == ["cancel", "replace", "dk"] and "ack" not in self.names(tmp_path, 2)
 
     def test_terms_then_the_ones_left(self, tmp_path):
-        assert self.names(tmp_path, 3) == ["qty", "price", "text", "extra", "using"]
-        assert self.names(tmp_path, 4) == ["price", "text", "extra"]
+        assert self.names(tmp_path, 3) == ["qty", "price", "text", "extra", "leg", "report_legs", "using"]
+        assert self.names(tmp_path, 4) == ["price", "text", "extra", "leg", "report_legs"]
 
     def test_words_for_a_term_templates_sessions_fields_targets_headers(self, tmp_path):
         assert "repricing" in self.names(tmp_path, 5)
@@ -225,7 +225,7 @@ class TestHover:
     def test_an_action_lists_its_terms(self, tmp_path):
         tip = self.hover(tmp_path, 0, "fill")
         assert tip["title"] == "fill" and (tip["start"], tip["end"]) == (4, 8)
-        assert tip["lines"][1] == "Terms: qty, price, text, extra" and "template" in tip["lines"][2]
+        assert tip["lines"][1] == "Terms: qty, price, text, extra, leg, report_legs" and "template" in tip["lines"][2]
         assert "which trade: last trade, first trade, trade where" in self.hover(tmp_path, 3, "dk")["lines"][1]
 
     def test_statements_events_names_and_functions(self, tmp_path):
@@ -738,9 +738,11 @@ class TestWiring:
         mount = re.search(r"const BLOTTERS = \{([^}]*)\};", module).group(1)
         blotters = dict(re.findall(r'"([\w-]+)": "(client|market)"', mount))
         # the order, IOI, advert and allocation blotters of each side; the
-        # trade blotters, which only answer, carry none
+        # trade blotters, which only answer, and the legs panes, which follow
+        # an order, carry none
         menus = {m["label"]: [i["args"] for i in m["items"] if i.get("action") == "pane.show"
-                              and app["panes"][i["args"]]["type"] == "mkio-table" and "trade" not in i["args"]]
+                              and app["panes"][i["args"]]["type"] == "mkio-table" and "trade" not in i["args"]
+                              and "legs" not in i["args"]]
                  for m in app["menubar"] if m["label"] in ("Client", "Market")}
         assert blotters == {**dict.fromkeys(menus["Client"], "client"), **dict.fromkeys(menus["Market"], "market")}
         assert len(blotters) == 16 and set(blotters) <= set(app["panes"]), "the panes the controls are put into"

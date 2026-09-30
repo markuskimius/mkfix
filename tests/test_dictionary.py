@@ -1,5 +1,8 @@
 """Tests for FIX data dictionary."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 from mkfix.fix.dictionary import (STANDARD_VERSIONS, FixDictionary, custom_names, merge_dictionary,
@@ -164,11 +167,12 @@ LIST_TAGS = {
     **{tag: set(STANDARD_VERSIONS) for tag in ("66", "67", "68", "73")},
     **{tag: _from("FIX.4.2") for tag in ("394", "433", "429", "431", "444")},
 }
+# The multileg subset 4.1 and 4.2 carry from 4.4 (tools/overlays/FIX4?.multileg.json).
+CARRIED_LEG_TAGS = ("555", "600", "602", "603", "608", "609", "610", "611", "612", "614", "616",
+                    "623", "624", "564", "565", "654", "566", "637", "563")
 MULTILEG_TAGS = {
-    **{tag: _from("FIX.4.3") for tag in (
-        "555", "600", "602", "603", "608", "609", "610", "611", "612", "614", "616",
-        "623", "624", "564", "565", "654", "566", "637", "563")},
-    "442": _from("FIX.4.2"),            # MultiLegReportingType
+    **{tag: _from("FIX.4.1") for tag in CARRIED_LEG_TAGS},
+    "442": _from("FIX.4.1"),            # MultiLegReportingType: 4.2's own, carried into 4.1
     "1358": _from("FIX.5.0SP1"),        # LegPutOrCall
 }
 SECURITY_TYPES = {
@@ -178,12 +182,12 @@ SECURITY_TYPES = {
     "OOF": _from("FIX.5.0"),
     "OOP": _from("FIX.5.0"),
     "OOC": _from("FIX.5.0SP1"),
-    "MLEG": _from("FIX.4.3"),
+    "MLEG": _from("FIX.4.1"),
 }
 MESSAGE_TYPES = {
     **{msg_type: set(STANDARD_VERSIONS) for msg_type in ("E", "N", "L", "K", "M")},
-    "AB": _from("FIX.4.3"),
-    "AC": _from("FIX.4.3"),
+    "AB": _from("FIX.4.1"),
+    "AC": _from("FIX.4.1"),
 }
 
 
@@ -201,6 +205,46 @@ class TestInstrumentListAndLegTags:
     def test_message_defined_by(self, msg_type, versions):
         assert {v for v in STANDARD_VERSIONS
                 if FixDictionary(v).msg_type_name(msg_type) != msg_type} == versions
+
+
+class TestMultilegCarriedInto41And42:
+    """4.1 and 4.2 take only what a multileg order needs from 4.4: never
+    the Parties group, which they express with flat tags, nor the legs'
+    nested groups."""
+
+    OVERLAYS = Path(__file__).parent.parent / "tools" / "overlays"
+
+    @pytest.mark.parametrize("name, version", [("FIX41", "FIX.4.1"), ("FIX42", "FIX.4.2")])
+    def test_exactly_the_multileg_set(self, name, version):
+        overlay = json.loads((self.OVERLAYS / f"{name}.multileg.json").read_text(encoding="utf-8"))
+        carried = set(CARRIED_LEG_TAGS) | ({"442"} if name == "FIX41" else set())
+        assert set(overlay["fields"]) == carried
+        assert set(overlay["messages"]) == {"AB", "AC"}
+        assert overlay["enums"]["35"].keys() == {"AB", "AC"} and overlay["enums"]["167"].keys() == {"MLEG"}
+        d = FixDictionary(version)
+        legs = d.group("555")
+        assert legs["delim"] == "600" and set(legs["members"]) == set(CARRIED_LEG_TAGS) - {"555", "563"}
+        for tag in ("453", "448", "447", "452", "539", "604", "670", "683", "556", "587", "588", "690"):
+            assert not d.defines(tag), tag
+        assert d.group("453") is None
+
+    def test_the_legs_are_in_44s_order(self):
+        order = FixDictionary("FIX.4.4").group("555")["members"]
+        for version in ("FIX.4.1", "FIX.4.2"):
+            members = FixDictionary(version).group("555")["members"]
+            assert members == [m for m in order if m in members]
+
+    def test_the_converter_merges_every_overlay_of_a_version_in_order(self, tmp_path):
+        import sys
+        sys.path.insert(0, str(self.OVERLAYS.parent))
+        try:
+            from quickfix_to_json import overlays_of
+        finally:
+            sys.path.remove(str(self.OVERLAYS.parent))
+        for name in ("FIX42.json", "FIX42.b.json", "FIX42.a.json", "FIX421.json", "FIX44.a.json"):
+            (tmp_path / name).write_text("{}", encoding="utf-8")
+        assert [p.name for p in overlays_of(tmp_path, "FIX42")] == ["FIX42.json", "FIX42.a.json", "FIX42.b.json"]
+        assert [p.name for p in overlays_of(tmp_path, "FIX41")] == []
 
 
 class TestCustomDictionaries:

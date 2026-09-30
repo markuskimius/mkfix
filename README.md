@@ -411,6 +411,16 @@ A FIX protocol testing engine for capital markets connectivity, built on
   `accept list`, `reject list`, `list status`, `fill all`, `cancel list
   orders`) and hear their ListStatus; a list sent as D orders is received
   once 5 seconds pass without another. The recorder writes lists too.
+- **Multileg Orders** -- A spread traded as one order: NewOrderMultileg
+  (35=AB) and MultilegOrderCancelReplace (35=AC), the legs in NoLegs (555).
+  Sent Orders' New Multileg... takes the legs in a grid (or from a strategy
+  saved with legs in Config > Instruments), a net price and the Report Type
+  (563); Replace sends the AC. Received Orders' Fill reports the whole order
+  (MultiLegReportingType 3), each leg after it, or one leg alone (type 2).
+  Sent/Received Order Legs follow the selected order with each leg's fills.
+  FIX 4.1 and 4.2 carry the multileg subset of 4.4 (no Parties); FIX 4.0
+  has none. Macros send them with `new multileg` and `leg` lines, replace
+  them with legs, and fill them with `fill leg:` and `report_legs:`.
 - **Options, Futures and Futures Options** -- An order's instrument is more
   than its symbol: the New dialog's Instrument section takes Security Type
   (167), Maturity, Strike, Put/Call, the underlying, Multiplier, Exchange,
@@ -553,7 +563,7 @@ mkfix restore archive/mkfix_20260912-020000
 change it): a `manifest.json`, a CSV per table with every column, the version
 history of the orders, trades and sessions archived, and the session state
 rows alongside their sessions. The running-data tables are the default;
-`--tables` takes the short names `messages`, `orders`, `trades`, `iois`, `adverts`,
+`--tables` takes the short names `messages`, `orders`, `legs` (a multileg order's legs), `trades`, `iois`, `adverts`,
 `allocations`, `rfqs` (or `quotes`), `rfq_requests`, `lists`, `macro_runs`, `macro_orders`, `macro_log`, `sessions`, `dictionaries`,
 `settings`, `ids`, `replay_jobs`, `templates`, `instruments`, `macros`, `layouts`, and `--group config` or `--all` reaches the config tables, which
 are archived whole rather than by cutoff. Give the same `-d`, `-p` and

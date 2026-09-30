@@ -433,6 +433,8 @@ class TestVocabulary:
         # terms that are the message's own, never a template's
         own = {"expire_time", "valid_until", "orders", "execs", "as_orders"}
         own |= {"_instrument"}          # `instrument: 'NAME'`, resolved by the macro into the terms beside it
+        own |= {"_strategy"}            # `new multileg instrument: 'NAME'`, resolved into its legs
+        own |= {"leg", "report_legs"}   # which of a multileg order's legs a fill is of: the fill's own
         for verb in vocab.VERBS.values():
             assert verb.op in ACTIONS, verb.name
             scope, terms = TEMPLATE_TERMS[verb.op]
@@ -487,16 +489,22 @@ class TestVocabulary:
                  "list mode": ("send_new_list", "mode"), "bid type": ("send_new_list", "bid_type"),
                  "execution": ("send_new_list", "exec_inst_type"), "tot orders": ("send_new_list", "tot_orders"),
                  "cancel as": ("cancel_list", "as_orders"), "status type": ("send_list_status", "status_type"),
-                 "list status": ("send_list_status", "list_status")}
+                 "list status": ("send_list_status", "list_status"),
+                 "report type": ("send_new_multileg", "rpt_type")}
         for enum, (op, field) in exact.items():
             assert set(vocab.ENUMS[enum].values()) == set(options(op, field)), enum
         assert set(vocab.ENUMS["restate reason"].values()) <= set(options("restate_order", "restate_reason"))
         assert set(vocab.ENUMS["alloc status"].values()) == set(options("accept_allocation", "alloc_status")) \
             | set(options("reject_allocation", "alloc_status"))
-        assert set(exact) | {"restate reason", "alloc status"} == set(vocab.ENUMS), "every list is held to a dialog"
+        # The legs grid's Side offers buy and sell; Report legs is Fill's yes or no.
+        assert set(vocab.ENUMS["leg side"].values()) == set(options("send_new_multileg", "side")) & {"1", "2"}
+        assert {"Y"} == set(options("fill_order", "report_legs")) and vocab.ENUMS["report legs"]["yes"] == "Y"
+        assert set(exact) | {"restate reason", "alloc status", "leg side", "report legs"} == set(vocab.ENUMS), \
+            "every list is held to a dialog"
         # every term with words names its list, and the words are what the verb's op takes
         for verb, terms in vocab._ENUM_OF.items():
-            known = vocab.DECLARED_TERMS if verb == "instrument" else vocab.VERBS[verb].terms   # the declaration
+            known = vocab.DECLARED_TERMS if verb == "instrument" else vocab.LEG_TERMS if verb == "leg" \
+                else vocab.VERBS[verb].terms   # the declaration, a `leg` line, a verb
             for term, enum in terms.items():
                 assert term in known and enum in vocab.ENUMS, (verb, term)
 

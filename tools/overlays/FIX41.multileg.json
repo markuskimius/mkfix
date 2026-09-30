@@ -1,0 +1,138 @@
+{
+ "_comment": "The multileg subset of FIX 4.4 carried into FIX 4.1 so multileg orders (AB/AC) work there: the two messages, NoLegs(555) without its nested groups (no LegSecAltID, LegStipulations, LegAllocs, NestedParties), MultiLegRptTypeReq(563) and SecurityType MLEG, and MultiLegReportingType(442), which 4.2 already has. Parties(453) is deliberately not carried: this version has flat party tags. A leg's put/call rides in LegCFICode(608), as on 4.4.",
+ "fields": {
+  "442": {
+   "name": "MultiLegReportingType",
+   "type": "CHAR"
+  },
+  "555": {
+   "name": "NoLegs",
+   "type": "NUMINGROUP"
+  },
+  "563": {
+   "name": "MultiLegRptTypeReq",
+   "type": "INT"
+  },
+  "564": {
+   "name": "LegPositionEffect",
+   "type": "CHAR"
+  },
+  "565": {
+   "name": "LegCoveredOrUncovered",
+   "type": "INT"
+  },
+  "566": {
+   "name": "LegPrice",
+   "type": "PRICE"
+  },
+  "600": {
+   "name": "LegSymbol",
+   "type": "STRING"
+  },
+  "602": {
+   "name": "LegSecurityID",
+   "type": "STRING"
+  },
+  "603": {
+   "name": "LegSecurityIDSource",
+   "type": "STRING"
+  },
+  "608": {
+   "name": "LegCFICode",
+   "type": "STRING"
+  },
+  "609": {
+   "name": "LegSecurityType",
+   "type": "STRING"
+  },
+  "610": {
+   "name": "LegMaturityMonthYear",
+   "type": "MONTHYEAR"
+  },
+  "611": {
+   "name": "LegMaturityDate",
+   "type": "LOCALMKTDATE"
+  },
+  "612": {
+   "name": "LegStrikePrice",
+   "type": "PRICE"
+  },
+  "614": {
+   "name": "LegContractMultiplier",
+   "type": "FLOAT"
+  },
+  "616": {
+   "name": "LegSecurityExchange",
+   "type": "EXCHANGE"
+  },
+  "623": {
+   "name": "LegRatioQty",
+   "type": "FLOAT"
+  },
+  "624": {
+   "name": "LegSide",
+   "type": "CHAR"
+  },
+  "637": {
+   "name": "LegLastPx",
+   "type": "PRICE"
+  },
+  "654": {
+   "name": "LegRefID",
+   "type": "STRING"
+  }
+ },
+ "enums": {
+  "35": {
+   "AB": "NewOrderMultileg",
+   "AC": "MultilegOrderCancelReplace"
+  },
+  "167": {
+   "MLEG": "MultilegInstrument"
+  },
+  "563": {
+   "0": "ReportByMulitlegSecurityOnly",
+   "1": "ReportByMultilegSecurityAndInstrumentLegs",
+   "2": "ReportByInstrumentLegsOnly"
+  },
+  "442": {
+   "1": "SingleSecurity",
+   "2": "IndividualLegOfAMultiLegSecurity",
+   "3": "MultiLegSecurity"
+  }
+ },
+ "messages": {
+  "AB": {
+   "name": "NewOrderMultileg",
+   "category": "app"
+  },
+  "AC": {
+   "name": "MultilegOrderCancelReplace",
+   "category": "app"
+  }
+ },
+ "groups": {
+  "555": {
+   "delim": "600",
+   "members": [
+    "600",
+    "602",
+    "603",
+    "608",
+    "609",
+    "610",
+    "611",
+    "612",
+    "614",
+    "616",
+    "623",
+    "624",
+    "564",
+    "565",
+    "654",
+    "566",
+    "637"
+   ]
+  }
+ }
+}

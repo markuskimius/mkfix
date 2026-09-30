@@ -220,8 +220,7 @@ class MacroRunner:
         """Start a sending block — a `run` at Run…, an `on signal` at its
         signal: one subject's macro when its sending verb stands among its
         own lines, else a generator whose `repeat` starts one each pass."""
-        creator = vocab.CREATORS[block.subject]
-        if any(isinstance(st, Action) and st.verb == creator for st in block.body) \
+        if any(isinstance(st, Action) and vocab.SENDERS.get(st.verb) == block.subject for st in block.body) \
                 or not contains_creator(block.body, block.subject):
             return self._start_script(run, block, block.body, {}, n, event=event, session=session)
         if run.status != "armed":
@@ -626,6 +625,27 @@ class MacroRunner:
         if row is None:
             raise ScriptError(line, f"no instrument named {name!r}")
         return instrument_payload(dict(row))
+
+    async def _strategy(self, name: str, instance: Instance, line: int) -> dict[str, Any]:
+        """`new multileg instrument: 'NAME'`: the strategy's legs, and its
+        symbol for the order's own."""
+        from .instance import ScriptError
+        payload = await self._instrument(name, instance, line)
+        if not payload.get("legs"):
+            raise ScriptError(line, f"{name!r} is no strategy: it has no legs")
+        return {"legs": payload["legs"], **({"symbol": payload["symbol"]} if payload.get("symbol") else {})}
+
+    async def _legs(self, instance: Instance) -> list[dict[str, Any]]:
+        """A multileg order's legs, first first; none for any other order."""
+        order = instance.order
+        if order is None or not order.get("leg_count"):
+            return []
+        cursor = await self.engine.db.read_conn.execute(
+            "SELECT * FROM fix_order_legs WHERE session_id = ? AND direction = ? AND order_id = ? ORDER BY seq",
+            (order["session_id"], order["direction"], order["order_id"]))
+        rows = [dict(r) for r in await cursor.fetchall()]
+        await cursor.close()
+        return rows
 
     async def _template(self, st: Action, instance: Instance) -> dict[str, Any]:
         """A saved template's terms as the payload takes them: every term

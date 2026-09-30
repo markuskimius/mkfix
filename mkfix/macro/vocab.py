@@ -34,6 +34,9 @@ SUBJECT_IDS = {ORDER: "cl_ord_id", IOI: "ioi_id", ADVERT: "adv_id", ALLOCATION: 
 # The verb that sends a `run` block's subject and so binds the block to it.
 CREATORS = {ORDER: "new", IOI: "ioi", ADVERT: "advert", ALLOCATION: "allocate",
             RFQ: "rfq", QUOTE: "new quote", RFQ_REQUEST: "rfq request", LIST: "new list"}
+# Every verb that sends a subject and so binds a `run` block to it: the
+# creators, and `new multileg`, which sends an order of several legs (0.79).
+SENDERS = {**{verb: subject for subject, verb in CREATORS.items()}, "new multileg": ORDER}
 # How a subject is written: in block headers (`on rfq request`) and at the
 # head of the engine's events about it (`rfq request unsubscribed`).
 SUBJECT_WORDS = {**{s: s for s in SUBJECTS}, RFQ_REQUEST: "rfq request"}
@@ -172,6 +175,22 @@ _POSITION_TERMS = {"open_close": "open_close", "covered": "covered_uncovered"}
 # instrument's terms, its symbol among them.
 DECLARED_TERMS = {"symbol": "symbol", **{k: v for k, v in _INSTRUMENT_TERMS.items() if k != "instrument"}}
 
+# A multileg order (0.79): the strategy's own terms on `new multileg`, its
+# legs on the `leg` lines under it — or all of them from a strategy, an
+# instrument with legs, named by `instrument`.
+_MULTILEG_TERMS = {
+    "symbol": "symbol", "side": "side", "qty": "qty", "type": "ord_type", "price": "price", "tif": "tif",
+    "expire": "expire_time", "report": "rpt_type", "client": "client", "handl_inst": "handl_inst",
+    "instrument": "_strategy", **_TEXT,
+}
+LEG_TERMS = {
+    "instrument": "_instrument", "symbol": "symbol", "sec_type": "security_type", "maturity": "maturity",
+    "strike": "strike_price", "put_call": "put_or_call", "cfi": "cfi_code", "multiplier": "multiplier",
+    "exchange": "security_exchange", "security_id": "security_id", "id_source": "security_id_source",
+    "ratio": "ratio", "side": "side", "open_close": "position_effect", "covered": "covered", "price": "leg_price",
+    "ref": "leg_ref_id",
+}
+
 _LIST_TERMS = {"mode": "mode", "bid_type": "bid_type", "execution": "exec_inst_type", "tot_orders": "tot_orders",
                "client": "client", **_TEXT}
 
@@ -209,9 +228,15 @@ VERBS: dict[str, Verb] = {v.name: v for v in (
          doc="Send a new order (NewOrderSingle). In a `run` block the order it creates is the block's order; "
              "in an `on ioi` block it answers the IOI (tag 23), in a quote's or an RFQ's it takes the quote "
              "(tag 117, any FIX version), and belongs to no macro."),
+    Verb("new multileg", "send_new_multileg", (CLIENT,), _MULTILEG_TERMS, ("side", "qty"), scope="multileg",
+         doc="Send a multileg order (NewOrderMultileg, 35=AB; FIX 4.1 on): the strategy's side, quantity and net "
+             "price here, its legs on the `leg` lines under it — or a strategy's, `instrument: 'NAME'`. The order "
+             "it creates is the block's order."),
     Verb("replace", "send_cancel_replace", _SENDING, {k: v for k, v in _ORDER_TERMS.items() if k not in ("symbol", "side")},
          scope="order",
-         doc="Ask to replace the order (OrderCancelReplaceRequest). Terms left out keep the order's last accepted value."),
+         doc="Ask to replace the order (OrderCancelReplaceRequest). Terms left out keep the order's last accepted "
+             "value. A multileg order is replaced with a MultilegOrderCancelReplace (35=AC): `leg` lines under the "
+             "`replace` are its new legs, none keeps the ones it has."),
     Verb("cancel", "send_cancel", _SENDING, _TEXT, scope="cancel",
          doc="Ask to cancel the order (OrderCancelRequest)."),
     Verb("dk", "dk_trade", _SENDING, {"reason": "dk_reason", **_TEXT}, ("reason",), trade=True, scope="dk",
@@ -220,8 +245,11 @@ VERBS: dict[str, Verb] = {v.name: v for v in (
          doc="Accept whatever is pending on the order: the new order, or a cancel or replace request."),
     Verb("reject", "reject_request", (MARKET,), _TEXT, scope="reject",
          doc="Reject whatever is pending: ExecutionReport Rejected for a new order, OrderCancelReject for a request."),
-    Verb("fill", "fill_order", (MARKET,), {"qty": "qty", "price": "price", **_TEXT}, ("qty", "price"), scope="fill",
-         doc="Fill the order, in part or in full (ExecutionReport with a trade)."),
+    Verb("fill", "fill_order", (MARKET,), {"qty": "qty", "price": "price", **_TEXT, "leg": "leg",
+                                           "report_legs": "report_legs"}, ("qty", "price"), scope="fill",
+         doc="Fill the order, in part or in full (ExecutionReport with a trade). On a multileg order `leg: N` fills "
+             "that leg alone (442=2; qty in the leg's units, price the leg's LegPrice unless given), and "
+             "`report_legs: yes` follows the order's fill with a report of each leg."),
     Verb("unsol cxl", "unsolicited_cancel", (MARKET,), _TEXT, scope="unsolicited",
          doc="Cancel the order though nobody asked (ExecutionReport Canceled without OrigClOrdID)."),
     Verb("restate", "restate_order", (MARKET,), {"qty": "qty", "price": "price", "reason": "restate_reason", **_TEXT}, ("qty",),
@@ -419,6 +447,8 @@ STATEMENTS: dict[str, tuple[str, str]] = {
     "on sent list": ("on sent list [where EXPR]", "A client block run for every list sent by hand."),
     "order": ("order TERMS", "One order of the `new list` above it: `new`'s terms. An indented block under it is "
                              "that order's own macro, started once it is sent."),
+    "leg": ("leg TERMS", "One leg of the `new multileg` (or multileg `replace`) above it, or of a declared strategy: "
+                         "its instrument, `side`, `ratio`, `open_close` and `price`."),
     "after": ("after DURATION [± DURATION]", "Wait that long. The optional part is random jitter either way."),
     "wait": ("wait EVENT [or EVENT…] [where EXPR] [or timeout DURATION]", "Wait for an event; carry on either way."),
     "expect": ("expect EVENT [or EVENT…] [where EXPR] within DURATION [else fail 'WHY']", "Wait for an event, and fail the order's macro if it does not come in time."),
@@ -492,6 +522,9 @@ ENUMS: dict[str, dict[str, str]] = {
     "sec type": {"stock": "CS", "option": "OPT", "future": "FUT", "option_on_future": "OOF"},
     "put call": {"call": "1", "put": "0"},
     "open close": {"open": "O", "close": "C", "rolled": "R", "fifo": "F"},
+    "leg side": {"buy": "1", "sell": "2"},
+    "report type": {"multileg_only": "0", "multileg_and_legs": "1", "legs_only": "2"},
+    "report legs": {"yes": "Y", "no": ""},
     "covered": {"covered": "0", "uncovered": "1"},
     "id source": {"cusip": "1", "sedol": "2", "isin": "4", "ric": "5", "exchange_symbol": "8", "bloomberg_symbol": "A"},
     "list mode": {"list": "E", "orders": "D"},
@@ -518,6 +551,10 @@ _ENUM_OF: dict[str, dict[str, str]] = {
     "add order": {"side": "side", "type": "type", "tif": "tif", "handl_inst": "handl_inst", **_INSTRUMENT_ENUMS,
                   "open_close": "open close", "covered": "covered"},
     "cancel list": {"as": "cancel as"},
+    "new multileg": {"side": "side", "type": "type", "tif": "tif", "handl_inst": "handl_inst", "report": "report type"},
+    "leg": {"sec_type": "sec type", "put_call": "put call", "id_source": "id source", "side": "leg side",
+            "open_close": "open close", "covered": "covered"},
+    "fill": {"report_legs": "report legs"},
     "list status": {"status_type": "status type", "list_status": "list status"},
     "replace": {"type": "type", "tif": "tif", "handl_inst": "handl_inst"},
     "dk": {"reason": "dk reason"},
@@ -562,6 +599,7 @@ def _columns(table: str) -> dict[str, None]:
 SUBJECT_FIELDS: dict[str, dict[str, None]] = {subject: _columns(table) for subject, table in SUBJECT_TABLES.items()}
 ORDER_FIELDS = SUBJECT_FIELDS[ORDER]
 TRADE_FIELDS = _columns("fix_executions")
+LEG_FIELDS = _columns("fix_order_legs")
 _VERSION_FIELDS = {"_mkio_version": None, "_mkio_ref": None}
 
 
@@ -574,6 +612,7 @@ def event_fields(subject: str = ORDER) -> dict[str, Any]:
         "text": None, "op": None,                  # error, manual
         # signal: what was said, with what, and by whom — the sender's row, whatever it is a row of
         "name": None, "value": None, "sender": {"*": None}, "subject": None, "n": None,
+        "leg": None,                               # a leg's fill: its LegRefID
     }
 
 
@@ -587,6 +626,7 @@ CONTEXT_DOCS = {
                   "allocation.allocs, allocation.alloc_status…",
     "trade": "The trade in hand: the event's, or the one a trade target chose.",
     "trades": "Every trade of the order, oldest first.",
+    "legs": "A multileg order's legs, first first: legs[0].instrument, legs[0].cum_qty, legs[0].leg_ref_id…",
     "history": "Every recorded version of the row, oldest first.",
     "event": "What just happened: event.kind, event.tag['150'], event.request, event.prev (the row before it)…",
     "elapsed": "Seconds since this macro started.",
@@ -646,7 +686,7 @@ def scope_schema(names: tuple[str, ...] | list[str] = (), subject: str = ORDER,
     alone; the run's rows stand under their plurals."""
     fields = SUBJECT_FIELDS[subject]
     return {
-        subject: fields, "trade": TRADE_FIELDS, "trades": {"*": TRADE_FIELDS},
+        subject: fields, "trade": TRADE_FIELDS, "trades": {"*": TRADE_FIELDS}, "legs": {"*": LEG_FIELDS},
         "history": {"*": {**fields, **_VERSION_FIELDS}}, "event": event_fields(subject),
         "elapsed": None, "since": None, "n": None,
         "shared": {name: None for name in shared},

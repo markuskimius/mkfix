@@ -40,6 +40,7 @@ from mkfix.upgrade import mirror_columns_in_archive, scenarios_in_archive, strip
 ALIASES: dict[str, str] = {
     "messages": "fix_messages",
     "orders": "fix_orders",
+    "legs": "fix_order_legs",
     "trades": "fix_executions",
     "executions": "fix_executions",
     "iois": "fix_iois",
@@ -127,7 +128,7 @@ def _parser(cmd: str) -> argparse.ArgumentParser:
                             + ", ".join(ALIASES) + " (default: the data group; "
                             "overrides --group)")
         p.add_argument("--group", default=None, metavar="{data,config}",
-                       help="archive one group: data (messages, orders, trades, lists, iois, adverts, "
+                       help="archive one group: data (messages, orders, legs, trades, lists, iois, adverts, "
                             "allocations, rfqs, rfq_requests, macro_runs, macro_orders, macro_log; the default) or config (the rest). Most config "
                             "tables are archived whole, whatever the cutoff")
         p.add_argument("--all", action="store_true",

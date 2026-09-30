@@ -41,6 +41,8 @@ NEW_QUOTE_TERMS = ("session_id", "symbol", "side", "qty", "currency", "client", 
 TEMPLATE_TERMS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_new_order": ("order", ORDER_TERMS),
     "send_cancel_replace": ("order", ORDER_TERMS),
+    "send_new_multileg": ("multileg", ("session_id", "symbol", "side", "qty", "ord_type", "price", "tif",
+                                       "handl_inst", "text", "extra_tags", "client", "legs", "rpt_type")),
     "send_cancel": ("cancel", ("text", "extra_tags")),
     "accept_request": ("accept", ("text", "extra_tags")),
     "reject_request": ("reject", ("text", "extra_tags")),
@@ -143,6 +145,10 @@ class FixCommandService(Service):
             await engine.save_instrument(
                 data["save_instrument_as"], symbol=data.get("symbol", ""),
                 **{c: data[c] for c in INSTRUMENT_COLS if c in data})
+        # New Multileg…'s "Save strategy as": its legs kept by name the same way.
+        if data.get("save_instrument_as") and command == "send_new_multileg":
+            await engine.save_instrument(data["save_instrument_as"], symbol=data.get("symbol", ""),
+                                         legs=data.get("legs", ""))
 
         if command in ACTIONS:
             return {"ok": True, **await engine.perform(command, data)}
@@ -293,6 +299,7 @@ class FixCommandService(Service):
         elif command == "save_instrument":
             name = await engine.save_instrument(
                 data.get("name", ""), symbol=data.get("symbol", ""), description=data.get("description", ""),
+                **({"legs": data["legs"]} if data.get("legs") else {}),
                 **{c: data[c] for c in INSTRUMENT_COLS if c in data})
             return {"ok": True, "name": name}
 

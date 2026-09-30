@@ -74,6 +74,13 @@ class OrderLine(Statement):
 
 
 @dataclass(slots=True)
+class LegLine(Statement):
+    """One leg of the `new multileg` (or multileg `replace`) it stands
+    under, or of a declared strategy: vocab.LEG_TERMS."""
+    terms: list[Term] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class After(Statement):
     delay: Expr | None = None
     jitter: Expr | None = None
@@ -161,6 +168,7 @@ class Share(Statement):
 class Instrument(Statement):
     name: str = ""                    # instrument 'NAME' symbol: …, sec_type: …
     terms: list[Term] = field(default_factory=list)
+    legs: list[LegLine] = field(default_factory=list)   # a strategy: its `leg` lines
 
 
 @dataclass(slots=True)
@@ -231,12 +239,18 @@ class Macro:
         return any(b.kind == "client" and b.signal is None for b in self.blocks)
 
 
+# The verbs whose indented lines are `leg` lines.
+LEGGED = ("new multileg", "replace")
+
+
 def walk(body: list[Statement]):
     """Every statement under ``body``, depth first, in source order."""
     for st in body:
         yield st
         if isinstance(st, (When, While, Repeat)) or (isinstance(st, Action) and st.verb == "new list"):
             yield from walk(st.body)
+        elif isinstance(st, Action) and st.verb in LEGGED:
+            yield from st.body                      # its `leg` lines
         elif isinstance(st, If):
             for _, branch in st.branches:
                 yield from walk(branch)
@@ -254,7 +268,7 @@ def expressions(st: Statement):
     if isinstance(st, If):
         for test, _ in st.branches:
             yield test
-    if isinstance(st, OrderLine):
+    if isinstance(st, (OrderLine, LegLine)):
         for term in st.terms:
             if term.value is not None:
                 yield term.value

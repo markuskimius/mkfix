@@ -29,6 +29,7 @@ import time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
+from mkfix.fix import multileg
 from mkfix.fix.dictionary import FixDictionary
 from mkfix.fix.events import report_kinds
 from mkfix.fix.families import (ALLOC_ACCEPTING, CONSUMED_ADVERT_TAGS, CONSUMED_ALLOC_ACK_TAGS, CONSUMED_ALLOC_TAGS,
@@ -51,7 +52,9 @@ _OURS = {
     "D": CONSUMED_ORDER_TAGS | {"126", "432"},
     "G": CONSUMED_ORDER_TAGS | {"126", "432"},
     "F": CONSUMED_ORDER_TAGS | {"125"},
-    "8": CONSUMED_EXEC_TAGS | {"378", "103"},
+    "AB": CONSUMED_ORDER_TAGS | {"126", "432"} | multileg.CONSUMED_LEG_TAGS,
+    "AC": CONSUMED_ORDER_TAGS | {"126", "432"} | multileg.CONSUMED_LEG_TAGS,
+    "8": CONSUMED_EXEC_TAGS | {"378", "103"} | multileg.CONSUMED_LEG_TAGS,
     "9": frozenset({"11", "37", "39", "41", "58", "60", "102", "434"}),
     "Q": frozenset({"11", "17", "31", "32", "37", "38", "54", "55", "58", "127"}) | INSTRUMENT_TAGS | POSITION_TAGS,
     "6": CONSUMED_IOI_TAGS,
@@ -242,12 +245,16 @@ class FromHistory(Recorder):
                                             tuple(execs))
             messages = sorted(messages + [m for m in disputes if m["id"] not in known], key=lambda m: m["id"])
         first, messages = self._life(
-            messages, lambda m: m["msg_type"] == "D" and m["direction"] == ("TX" if sent else "RX"), born)
+            messages, lambda m: m["msg_type"] in ("D", "AB") and m["direction"] == ("TX" if sent else "RX"), born)
         if first is None:
             self._leave_out(f"{row['cl_ord_id']}: its NewOrderSingle is not among the messages kept")
             return None
         client, extra = self._extras(session_id, first["msg"])
         line = _Timeline({**row, **self._order_terms(first["msg"], client, extra)}, first["at"], subject=vocab.ORDER)
+        if first["msg_type"] == "AB":
+            # A multileg order: the legs it went out with, and what it asked for.
+            line.order["_legs"] = multileg.legs_of(first["msg"], self._dictionary(session_id, first["msg"]))
+            line.order["multileg_rpt_type"] = first["msg"].get("563", "")
         trades = _Trades()
         restated = await self._restated(row) if not sent else {}
         accepted = dict(line.order)                       # the terms last accepted: what a replace changes
@@ -263,13 +270,15 @@ class FromHistory(Recorder):
             elif kind == "9":
                 step = _Step(m["at"], "did", "reject", self._said(msg, session_id), stamp=m["timestamp"]) if mine \
                     else _Step(m["at"], "heard", "cancel rejected")
-            elif kind in ("F", "G"):
+            elif kind in ("F", "G", "AC"):
                 request = "cancel" if kind == "F" else "replace"
                 if not mine:
                     step = _Step(m["at"], "heard", request)
                 elif sent:
                     step = _Step(m["at"], "did", request, self._request(msg, session_id, kind, accepted, asked),
                                  stamp=m["timestamp"])
+                    if kind == "AC":
+                        step.legs = multileg.legs_of(msg, self._dictionary(session_id, msg))
             elif kind == "Q":
                 trade = trades.find(msg.get("17", ""))
                 if not mine:
@@ -322,6 +331,16 @@ class FromHistory(Recorder):
         kind, exec_id, ref = kinds[0], msg.get("17", ""), msg.get("19", "")
         qty, price = msg.get("32", ""), msg.get("31", "")
         said = self._said(msg, session_id) if mine else {}
+        if msg.get("442") == multileg.LEG:
+            # One leg's report: a fill of that leg, never the order's `filled`.
+            if kind != "fill":
+                return None
+            trades.fill(exec_id, qty, price)
+            leg = (multileg.legs_of(msg, self._dictionary(session_id, msg)) or [{}])[0].get("leg_ref_id", "")
+            if mine:
+                return _Step(m["at"], "did", "fill", {"leg": leg, "qty": qty, "price": price, **said},
+                             stamp=m["timestamp"])
+            return _Step(m["at"], "heard", "fill", stamp=m["timestamp"])
         step = _Step(m["at"], "did" if mine else "heard", "filled" if "filled" in kinds else kind, stamp=m["timestamp"])
         if kind in ("fill", "corrected", "busted"):
             version, before = restated.get(exec_id, (None, None))

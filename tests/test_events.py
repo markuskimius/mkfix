@@ -229,10 +229,9 @@ class TestInboundEvents:
 class TestPerform:
     def test_the_table_covers_every_dialog_and_names_its_subject(self):
         assert set(TEMPLATE_TERMS) <= set(ACTIONS), "every op a dialog submits is an action"
-        assert set(ACTIONS) == set(ORDER_KEY) | set(TRADE_KEY) | {"send_new_order"} | set(SUBJECT_KEY) | set(CREATES)
+        assert set(ACTIONS) == set(ORDER_KEY) | set(TRADE_KEY) | {"send_new_order", "send_new_multileg"} | set(SUBJECT_KEY) | set(CREATES)
         assert not set(ORDER_KEY) & set(TRADE_KEY)
-        assert all(op.endswith(("_list", "_list_status", "_list_order", "_list_orders")) for op in UNSCRIPTED), \
-            "only the list ops wait for their verbs (0.78)"
+        assert UNSCRIPTED == frozenset(), "every op has its macro verb"
 
     @pytest.mark.asyncio
     async def test_unknown_action(self, stack):

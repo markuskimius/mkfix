@@ -76,6 +76,7 @@ def _order_params(**overrides):
         "expire_time": "", "expire_date": "", "client": "",
         "handl_inst": "", "handl_inst_code": "", "sent_text": "", "market_order_id": "", "ioi_id": "",
         "quote_id": "", **blank_instrument(), "instrument": "AAPL", "list_id": "", "list_seq_no": 0,
+        "legs": "", "leg_count": 0, "multileg_rpt_type": "",
     }
     base.update(overrides)
     insert = tuple(base[c] for c in ORDER_COLS)
@@ -3228,7 +3229,7 @@ class TestVersioning:
         assert set(versioned_tables(CONFIG)) == {
             "fix_sessions", "fix_orders", "fix_executions", "fix_macros",
             "fix_iois", "fix_adverts", "fix_allocations", "fix_rfqs", "fix_rfq_requests", "fix_instruments",
-            "fix_lists"}
+            "fix_lists", "fix_order_legs"}
 
     @pytest.mark.asyncio
     async def test_order_lifecycle_is_one_chain(self, stack):

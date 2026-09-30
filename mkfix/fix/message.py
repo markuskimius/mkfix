@@ -526,6 +526,49 @@ class FixMessageFactory:
         self._strip_legacy_body_time(fields)
         return self.create(fields)
 
+    def new_order_multileg(
+        self,
+        cl_ord_id: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        legs: list[dict[str, Any]],
+        ord_type: str = "2",
+        price: float | None = None,
+        tif: str = "0",
+        handl_inst: str = "1",
+        rpt_type: str = "",
+        expire_time: str = "",
+        expire_date: str = "",
+        expire_precision: str = "",
+        text: str | None = None,
+        orig_cl_ord_id: str = "",
+    ) -> FixMessage:
+        """NewOrderMultileg (35=AB), or with ``orig_cl_ord_id`` its
+        MultilegOrderCancelReplace (35=AC): the strategy's Symbol and
+        SecurityType MLEG where the version has it, the order's terms, and
+        the legs in NoLegs(555) (multileg.group_pairs) — which ride ahead
+        of any extra tags in ``msg.extra``."""
+        from mkfix.fix import multileg
+        fields: dict[str, str] = {"35": "AC" if orig_cl_ord_id else "AB", "11": cl_ord_id}
+        if orig_cl_ord_id:
+            fields["41"] = orig_cl_ord_id
+        fields.update({"21": handl_inst, "55": symbol})
+        if self.dictionary.has_enum("167", "MLEG"):
+            fields["167"] = "MLEG"
+        fields.update({"54": side, "60": self._now(), "38": str(int(qty)), "40": ord_type})
+        if price is not None:
+            fields["44"] = str(price)
+        if tif:
+            fields["59"] = tif
+        if rpt_type and self.dictionary.defines("563"):
+            fields["563"] = rpt_type
+        self._add_expiry(fields, expire_time, expire_date, expire_precision)
+        self._add_handling(fields, text)
+        msg = self.create(fields)
+        msg.extra = multileg.group_pairs(self.dictionary, legs)
+        return msg
+
     def order_cancel_reject(
         self,
         cl_ord_id: str,
@@ -1120,6 +1163,7 @@ CONSUMED_ORDER_TAGS = frozenset({
 CONSUMED_EXEC_TAGS = frozenset({
     "6", "11", "14", "17", "19", "20", "31", "32", "37", "38", "39", "40", "41",
     "44", "54", "55", "58", "59", "60", "99", "126", "150", "151", "432",
+    "442",                                  # MultiLegReportingType: which of a multileg order's reports
 }) | INSTRUMENT_TAGS | POSITION_TAGS
 
 

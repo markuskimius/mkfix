@@ -48,7 +48,7 @@ Every IBM or MSFT order that arrives is accepted after 200 ms and then filled in
 | Block | Side | The subject is | The macro may |
 |---|---|---|---|
 | `on order where EXPR` | market | an order you received | `accept`, `reject`, `fill`, `unsol cxl`, `restate`, `correct`, `bust`, `renotify` |
-| `run` or `run on SESSION` | client | an order the macro sends with `new` | `new`, `replace`, `cancel`, `dk` |
+| `run` or `run on SESSION` | client | an order the macro sends with `new` or `new multileg` | `new` or `new multileg`, `replace`, `cancel`, `dk` |
 | `on sent order where EXPR` | client | an order sent some other way — by hand, or by Message Replay | `replace`, `cancel`, `dk` |
 | `run` or `run on SESSION` | market | an IOI, advert or allocation the macro sends with `ioi`, `advert` or `allocate` | that verb, then `replace ioi`/`cancel ioi`, `replace advert`/`cancel advert`, `replace allocation`/`cancel allocation` |
 | `on sent ioi`, `on sent advert`, `on sent allocation` (`where EXPR`) | market | one sent by hand from its Sent blotter | the same `replace …` and `cancel …` |
@@ -181,6 +181,34 @@ run
 - A market `run` block sends quotes nobody asked for with `new quote`; one standing on the symbol is replaced, so `repeat … every 1s` over `requote` streams prices. The client hears them in an `on quote` block.
 - `rfq request` asks to be sent the RFQs for a list of instruments (FIX 4.3 and later); in an `on rfq request` block, `rfq` answers it. `unsubscribe` ends the subscription.
 
+## Multileg orders
+
+A multileg order is one order over several instruments: a calendar spread, a call spread. `new multileg` sends it, its side, quantity and net price its own, its legs on the `leg` lines under it.
+
+```macro
+instrument 'ES Dec/Mar' symbol: 'ES'
+    leg symbol: 'ES', sec_type: future, maturity: '202612', side: sell, price: 5200
+    leg symbol: 'ES', sec_type: future, maturity: '202703', side: buy, open_close: open, price: 5215
+
+run
+    new multileg instrument: 'ES Dec/Mar', side: buy, qty: 5, price: 15, report: multileg_and_legs
+    when fill and event.leg != ''
+        log 'leg ${event.leg}: ${trade.last_qty} at ${trade.last_price}'
+    expect ack within 5s
+    replace price: 20
+        leg symbol: 'ES', sec_type: future, maturity: '202612', side: sell, price: 5200
+        leg symbol: 'ES', sec_type: future, maturity: '202706', side: buy, price: 5220
+    expect filled within 30s
+    pass '${COUNT(legs, l -> l.cum_qty >= l.leg_qty)} legs filled'
+```
+
+- A `leg` takes the instrument's terms (`symbol`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `multiplier`, `exchange`, `security_id`, `id_source`, or a saved instrument by `instrument`), its `side` (`buy` or `sell`), `ratio` (quantity per unit of the order, 1 when left out), `open_close`, `covered`, `price` (LegPrice) and `ref` (its LegRefID, its place when left out). Two legs or more.
+- A **strategy** is an instrument with legs: declared at the top with `leg` lines under it, as above, or saved in Config › Instruments with legs. `new multileg instrument: 'NAME'` sends its legs; the terms written out on the line are the order's own.
+- `report` asks for the order's reports, the legs', or both (MultiLegRptTypeReq: `multileg_only`, `multileg_and_legs`, `legs_only`).
+- `replace` on a multileg order sends a MultilegOrderCancelReplace (35=AC); `leg` lines under it are its new legs, none keeps the ones it has.
+- The market fills the whole order with `fill` (MultiLegReportingType 3) and adds each leg's report with `report_legs: yes`; `fill leg: 2, qty: 5` fills that leg alone, in the leg's own units, at its LegPrice unless `price` is given. A leg's report is a `fill` whose `event.leg` names the leg — never `filled`, which is the order's — and it moves `legs`, not the order.
+- FIX 4.1 on: the 4.1 and 4.2 dictionaries carry the multileg part of 4.4.
+
 ## Lists
 
 A list is a basket of orders sent together (program trading): `new list` sends it, and its orders are the `order` lines under it, each taking `new`'s terms.
@@ -211,12 +239,13 @@ An action is a blotter button. Its terms are the dialog's fields, written `name:
 | Action | Does | Terms |
 |---|---|---|
 | `new` | Sends a new order; in an `on ioi` block, one answering the IOI (tag 23) that no macro owns | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra`, `instrument`, `sec_type`, `maturity`, `strike`, `put_call`, `cfi`, `underlying`, `underlying_type`, `underlying_maturity`, `multiplier`, `exchange`, `security_id`, `id_source`, `open_close`, `covered` |
-| `replace` | Asks to replace the order; terms left out keep their last accepted value | `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
+| `new multileg` | Sends a multileg order (NewOrderMultileg); its legs are the `leg` lines under it, or a strategy's (`instrument`) | `symbol`, `side`, `qty`, `type`, `price`, `tif`, `expire`, `report`, `client`, `handl_inst`, `instrument`, `text`, `extra` |
+| `replace` | Asks to replace the order; terms left out keep their last accepted value. On a multileg order, `leg` lines under it are its new legs | `qty`, `type`, `price`, `tif`, `expire`, `client`, `handl_inst`, `text`, `extra` |
 | `cancel` | Asks to cancel the order | `text`, `extra` |
 | `dk` | Disputes a received trade (DontKnowTrade) | `reason`, `text`, `extra` |
 | `accept` | Accepts whatever is pending: the new order, or a cancel or replace request | `text`, `extra` |
 | `reject` | Rejects whatever is pending | `text`, `extra` |
-| `fill` | Fills the order, in part or in full | `qty`, `price`, `text`, `extra` |
+| `fill` | Fills the order, in part or in full; on a multileg order `leg` fills one leg alone, `report_legs: yes` adds each leg's report | `qty`, `price`, `text`, `extra`, `leg`, `report_legs` |
 | `unsol cxl` | Cancels the order though nobody asked | `text`, `extra` |
 | `restate` | Changes the order's terms unasked | `qty`, `price`, `reason`, `text`, `extra` |
 | `correct` | Corrects a trade you sent | `qty`, `price`, `text`, `extra` |
@@ -313,7 +342,7 @@ on order
 | `dk` | received | the counterparty disputes a trade you sent |
 | `ack` | sent | the order is accepted |
 | `pending` | sent | a request was received but not yet decided |
-| `fill` | sent | a fill, partial or complete |
+| `fill` | sent | a fill, partial or complete; a leg's fill of a multileg order says which in `event.leg` (`''` for the order's own) |
 | `filled` | sent | the fill that completed the order |
 | `replaced` | sent; received IOI or advert | a replace request was accepted — or the IOI or advert you received was replaced by its sender |
 | `canceled` | sent; received IOI, advert or quote | the order was canceled, asked for or not — or the IOI, advert or quote you received, or the quote on your RFQ, was canceled |
@@ -379,6 +408,7 @@ Expressions are mkio's expression language: `and or not`, `in`, `== != < <= > >=
 | `allocation` | in an allocation block, the allocation's row: `allocation.alloc_id`, `allocation.allocs`, `allocation.pending_action`, `allocation.alloc_status`, `allocation.alloc_rej_reason` … |
 | `trade` | the trade in hand: the event's, or the one a trade target chose |
 | `trades` | every trade of the order, oldest first (an IOI, advert or allocation has none) |
+| `legs` | a multileg order's legs, first first: `legs[0].instrument`, `legs[0].cum_qty`, `legs[0].leg_qty`, `legs[0].leg_ref_id` … (none for any other order) |
 | `history` | every recorded version of the subject's row, oldest first |
 | `event` | what just happened: `event.kind`, `event.request`, `event.tag['150']`, `event.text`, `event.op` … |
 | `event.prev` | the subject as it stood before the event. A re-notified fill is recorded as a new trade; `event.prev.cum_qty < order.cum_qty` is how a macro tells a fill that moved CumQty from one that restated it |

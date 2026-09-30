@@ -113,7 +113,7 @@ async def _send_cancel_replace(e: FixEngine, d: dict[str, Any]) -> dict[str, Any
         side=d["side"], qty=float(d["qty"]), ord_type=d.get("ord_type", "2"), price=_price(d),
         tif=d.get("tif"), expire_time=d.get("expire_time", ""), expire_date=d.get("expire_date", ""),
         expire_precision=d.get("expire_precision", ""), client=d.get("client", ""),
-        handl_inst=d.get("handl_inst") or "1", **_common(d))}
+        handl_inst=d.get("handl_inst") or "1", **({"legs": d["legs"]} if d.get("legs") else {}), **_common(d))}
 
 
 def _on_order(name: str, returns: str | None) -> None:
@@ -136,9 +136,25 @@ _on_order("reject_cancel", None)
 
 @_action("fill_order")
 async def _fill_order(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    if str(d.get("leg") or "").strip() or _yes(d.get("report_legs")):
+        # A multileg order's Fill: one leg, or the order and its legs.
+        return {"exec_id": await e.fill_multileg(
+            session_id=d["session_id"], cl_ord_id=d["cl_ord_id"], qty=float(d["qty"]), price=d.get("price"),
+            leg=d.get("leg", ""), report_legs=_yes(d.get("report_legs")), **_common(d))}
     return {"exec_id": await e.fill_order(
         session_id=d["session_id"], cl_ord_id=d["cl_ord_id"], qty=float(d["qty"]),
         price=float(d["price"]), **_common(d))}
+
+
+@_action("send_new_multileg")
+async def _send_new_multileg(e: FixEngine, d: dict[str, Any]) -> dict[str, Any]:
+    return {"cl_ord_id": await e.send_new_multileg(
+        session_id=d["session_id"], legs=d.get("legs") or "", side=d["side"], qty=float(d["qty"]),
+        ord_type=d.get("ord_type", "2"), price=_price(d), tif=d.get("tif", "0"), symbol=d.get("symbol", ""),
+        rpt_type=d.get("rpt_type", ""), expire_time=d.get("expire_time", ""), expire_date=d.get("expire_date", ""),
+        expire_precision=d.get("expire_precision", ""), client=d.get("client", ""),
+        handl_inst=d.get("handl_inst") or "1", source=d.get("_source", "manual"), tag=d.get("_tag", ""),
+        list_id=d.get("list_id", ""), **_common(d))}
 
 
 @_action("restate_order")

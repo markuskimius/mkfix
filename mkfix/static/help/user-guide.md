@@ -128,8 +128,9 @@ The order and trade blotters open on today's rows. Clear the *Today* chip to see
 | Button | Sends | Offered when |
 |---|---|---|
 | **New** | NewOrderSingle | always |
-| **Clone** | NewOrderSingle, the form filled from the selected order | one order is selected |
-| **Replace** | OrderCancelReplaceRequest, the form filled from the terms last accepted | the order is working, or filled |
+| **New Multileg…** | NewOrderMultileg: a spread of two legs or more; see [Multileg orders](#multileg-orders) | always |
+| **Clone** | NewOrderSingle, the form filled from the selected order | one order, not a multileg one, is selected |
+| **Replace** | OrderCancelReplaceRequest, the form filled from the terms last accepted; for a multileg order a MultilegOrderCancelReplace with its legs | the order is working, or filled |
 | **Cancel** | OrderCancelRequest | the order is working |
 | **History** | nothing; see [History](#history) | one order is selected |
 | **Macro…** | nothing; writes a macro, see [Macros](#macros) | any order is selected |
@@ -164,10 +165,10 @@ A new order, a cancel request and a replace request all arrive the same way: as 
 |---|---|---|
 | **Accept** | ExecutionReport New, Canceled or Replaced | something is pending |
 | **Reject** | ExecutionReport Rejected, or OrderCancelReject for a request | something is pending |
-| **Fill** | ExecutionReport with a fill | the order is working, or filled |
+| **Fill** | ExecutionReport with a fill; for a multileg order, of the whole order or of one leg | the order is working, or filled |
 | **Unsol Cxl** | ExecutionReport Canceled that nobody asked for | the same |
 | **Restate** | ExecutionReport Restated with new quantity and price | the same |
-| **Clone** | the order, sent out again as your own | one order is selected |
+| **Clone** | the order, sent out again as your own | one order, not a multileg one, is selected |
 | **Allocate** | AllocationInstruction for the order's fills | the session is active |
 | **Macro…** | nothing; writes a macro, see [Macros](#macros) | any order is selected |
 
@@ -287,6 +288,18 @@ An order can be in an option, a future or an option on a future as well as a sto
 - Each FIX version says it differently, and mkfix says it the session's way: FIX 4.1 and 4.2 split a maturity date into month and day, FIX 4.3 names futures and options by CFI Code instead of Security Type, and Option on Future (OOF) exists only from FIX 5.0 — on 4.x send an Option whose Underlying Type is Future. A FIX 4.0 session sends no instrument at all.
 - IOIs, adverts, allocations, RFQs and quotes have the same section (without Open/Close and Covered, which are an order's). An order sent from Received IOIs or Received Quotes opens in that IOI's or quote's instrument, a Hit's order is in the quote's, and Allocate opens in the order's. Quotes streamed on two series of one symbol are two rows.
 - A template keeps the instrument too. Macros name one the same way; see the Macro Language page.
+
+## Multileg orders
+
+A multileg order trades several instruments at once as one order: a calendar spread of two futures, a call spread of two options. **New Multileg…** on **Client › Sent Orders** sends one as a NewOrderMultileg (35=AB).
+
+- The order's own terms are the strategy's: Side, Quantity, and a **Net Price**, which may be negative. The **Legs** grid holds the legs, one row each: the instrument (picked from **Config › Instruments**, or typed), the leg's Side, Ratio (quantity per unit of the order), Open/Close, and its own Price. **Report Type** (563) asks the counterparty to report the order, the legs, or both.
+- A **strategy** is an instrument with legs. **Strategy** at the top of the dialog fills the grid from one saved in **Config › Instruments**, whose editor has a **Strategy legs** section; **Save strategy as** keeps the grid's legs under a name.
+- **Replace** on a multileg order sends a MultilegOrderCancelReplace (35=AC) with the legs in its grid: change a maturity or a strike to roll a leg. Cancel is an ordinary OrderCancelRequest.
+- On **Market › Received Orders**, **Fill** fills the whole order (MultiLegReportingType 3), and with **Report legs** follows it with a report of each leg at its price (type 2). Its **Leg** choice fills one leg alone, in the leg's own quantity; the order's own fills do not move.
+- **Client › Sent Order Legs** and **Market › Received Order Legs**, tabs beside the trade blotters, show the legs of the order selected in the order blotter above, with each leg's fills. The order blotters' **Legs** column shows them short: `-1 ES Dec26 / +1 ES Mar27`. A leg's trade carries its **LegRefID**.
+- FIX 4.3 defined these messages. mkfix's FIX 4.1 and 4.2 dictionaries carry the part of them a multileg order needs; FIX 4.0 has none, and New Multileg… is refused there. Before FIX 5.0 SP1 a leg's Put/Call rides in its LegCFICode.
+- Macros send and fill multileg orders too: `new multileg` with a `leg` line for each leg; see the Macro Language page and the examples `calendar-spread` and `spread-desk`.
 
 ## Templates
 

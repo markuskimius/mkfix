@@ -32,8 +32,8 @@ from mkio import expr
 from . import vocab
 from .functions import ENV, RNG_NAME
 from .nodes import (
-    Action, After, Block, Expect, Expr, Finish, If, Let, Log, OrderLine, Repeat, Share, Signal, Statement, Stop,
-    Wait, When, While,
+    Action, After, Block, Expect, Expr, Finish, If, LegLine, Let, Log, OrderLine, Repeat, Share, Signal, Statement,
+    Stop, Wait, When, While,
 )
 
 if TYPE_CHECKING:
@@ -95,6 +95,8 @@ def event_map(kinds: tuple[str, ...] | list[str], source: str = "macro", *, requ
         "kind": kinds[0], "kinds": list(kinds), "source": source, "request": request, "tag": tags,
         "prev": prev, "response_to": detail.get("response_to"), "reason": detail.get("reason"),
         "text": detail.get("text") or tags.get("58"), "op": detail.get("op"),
+        # A multileg order's leg a fill is of (its LegRefID); '' for the order's own.
+        "leg": detail.get("leg") or "",
     }
 
 
@@ -111,8 +113,7 @@ def contains_creator(body: list[Statement], subject: str = vocab.ORDER) -> bool:
     """Whether the verb that sends ``subject`` (`new`, `ioi`, `advert`,
     `allocate`) stands somewhere in ``body``."""
     from .nodes import walk
-    creator = vocab.CREATORS[subject]
-    return any(isinstance(st, Action) and st.verb == creator for st in walk(body))
+    return any(isinstance(st, Action) and vocab.SENDERS.get(st.verb) == subject for st in walk(body))
 
 
 contains_new = contains_creator
@@ -186,6 +187,11 @@ class Instance:
         self.flows.append(flow)
         self.runner.scheduler.started(flow)
         flow.task = asyncio.get_running_loop().create_task(self._guarded(flow, coro))
+        # A task cancelled before its first step never enters _guarded — a
+        # handler woken by the event that ended the macro: its coroutine is
+        # closed and its flow stops counting as busy here, or `settle` would
+        # wait for it for ever.
+        flow.task.add_done_callback(lambda _t: (coro.close(), self.runner.scheduler.finished(flow)))
 
     async def _guarded(self, flow: Flow, coro: Any) -> None:
         try:
@@ -290,6 +296,8 @@ class Instance:
             await self._act(flow, st)
         elif isinstance(st, OrderLine):
             await self._list_order(flow, st)
+        elif isinstance(st, LegLine):
+            raise ScriptError(st.line, "a `leg` line belongs under `new multileg` or a multileg `replace`")
         elif isinstance(st, After):
             delay = await self._seconds(flow, st.delay)
             if st.jitter is not None:
@@ -445,11 +453,13 @@ class Instance:
             self.kind: self.row, "trade": flow.trade, "event": flow.event,
             "elapsed": (now - self.started_at) * self.run.speed,
             "since": (now - flow.since_at) * self.run.speed, "n": flow.n,
-            "trades": None, "history": None, "shared": self.run.shared,
+            "trades": None, "legs": None, "history": None, "shared": self.run.shared,
             **dict.fromkeys(vocab.PEERS.values()), **self.vars, RNG_NAME: self.rng,
         }
         if "trades" in refs:
             scope["trades"] = await self.runner._trades(self)
+        if "legs" in refs:
+            scope["legs"] = await self.runner._legs(self)
         if "history" in refs:
             scope["history"] = await self.runner._history(self)
         for kind, name in vocab.PEERS.items():
@@ -493,7 +503,7 @@ class Instance:
             payload.update(await self.runner._template(st, self))
         payload.update(await self._terms(flow, st.verb, st.terms, st.line))
         creator = vocab.CREATORS[self.kind]
-        creates = st.verb == creator and self.block.kind == vocab.CLIENT
+        creates = vocab.SENDERS.get(st.verb) == self.kind and self.block.kind == vocab.CLIENT
         word = vocab.SUBJECT_WORDS[self.kind]
         if creates:
             if self.row is not None:
@@ -516,6 +526,12 @@ class Instance:
         if st.verb == "new list":
             await self._new_list(flow, st, payload)
             return
+        strategy = payload.pop("_strategy", "") if st.verb == "new multileg" else ""
+        if strategy:
+            payload = {**await self.runner._strategy(str(strategy), self, st.line), **payload}
+        if st.verb in ("new multileg", "replace") and st.body:
+            payload["legs"] = [await self._terms(flow, "leg", leg.terms, leg.line) for leg in st.body
+                               if isinstance(leg, LegLine)]
         if st.verb in ("replace", "cancel"):
             payload = {**self._as_entered(st.verb == "replace"), **payload}
         elif st.verb.startswith("replace "):
@@ -535,7 +551,7 @@ class Instance:
                 # this order may have just renamed it.
                 if verb.trade:
                     payload["exec_id"] = (await self._target(flow, st))["exec_id"]
-                elif creates or st.verb in vocab.CREATORS.values():
+                elif creates or st.verb in vocab.SENDERS:
                     pass                                    # sends something new: no subject to name
                 elif verb.key:
                     payload[verb.key] = self.row[verb.key]

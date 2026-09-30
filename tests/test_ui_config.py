@@ -22,7 +22,7 @@ STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
 TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct", "bust",
                    "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
                    "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
-                   "unsubscribe", "list", "list_request", "list_status", "list_fill"}
+                   "unsubscribe", "list", "list_request", "list_status", "list_fill", "multileg"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -519,13 +519,14 @@ class TestServiceReferences:
         a reorder that swaps actions under the labels would be worse than the
         old order."""
         buttons = app_config["panes"]["order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["New", "Clone", "Replace", "Cancel", "History", "Macro…"]
+        assert [b["label"] for b in buttons] == ["New", "New Multileg…", "Clone", "Replace", "Cancel", "History",
+                                                 "Macro…"]
         ops = {
             b["label"]: b["action"].get("op")
             or b["action"]["dialog"]["submit"]["op"]
             for b in buttons if b["action"]["type"] != "action"
         }
-        assert ops == {"New": "send_new_order", "Clone": "send_new_order",
+        assert ops == {"New": "send_new_order", "New Multileg…": "send_new_multileg", "Clone": "send_new_order",
                        "Replace": "send_cancel_replace", "Cancel": "send_cancel",
                        "Macro…": "macro_from_history"}
 
@@ -1718,9 +1719,9 @@ class TestMenubar:
     # neither side — Config what the rest is set up with.
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail", None, "replay-control"],
-        "Client": ["order-blotter", "trade-blotter", None, "list-blotter", None, "ioi-blotter", "advert-blotter",
+        "Client": ["order-blotter", "sent-legs", "trade-blotter", None, "list-blotter", None, "ioi-blotter", "advert-blotter",
                    "allocation-blotter", None, "rfq-blotter", "quote-blotter", "rfq-request-blotter"],
-        "Market": ["market-order-blotter", "market-trade-blotter", None, "market-list-blotter", None,
+        "Market": ["market-order-blotter", "received-legs", "market-trade-blotter", None, "market-list-blotter", None,
                    "market-ioi-blotter", "market-advert-blotter", "market-allocation-blotter", None,
                    "market-rfq-blotter", "market-quote-blotter", "market-rfq-request-blotter"],
         "Macro": ["client-macros", "client-runs", None, "market-macros", "market-runs", None,
@@ -3012,7 +3013,8 @@ class TestTemplates:
 
     # fix_cmd op -> the template scope its dialog loads and saves
     SCOPES = {
-        "send_new_order": "order", "send_cancel_replace": "order", "send_cancel": "cancel",
+        "send_new_order": "order", "send_cancel_replace": "order", "send_new_multileg": "multileg",
+        "send_cancel": "cancel",
         "accept_request": "accept", "reject_request": "reject", "fill_order": "fill",
         "unsolicited_cancel": "unsolicited", "restate_order": "restate",
         "dk_trade": "dk", "correct_trade": "correct", "bust_trade": "bust",
@@ -3061,7 +3063,7 @@ class TestTemplates:
             assert set(fill.values()) <= columns, op
             keys = set(TEMPLATE_TERMS[op][1])
             assert ("session_id" in keys) == (scope in ("order", "ioi", "advert", "allocation", "rfq", "new_quote",
-                                                         "rfq_request", "list")), op
+                                                         "rfq_request", "list", "multileg")), op
             assert set(fill) == keys & names, op
             assert keys - names <= set(dialog.get("rowData", {})), op
             assert all(fill[k] == k for k in fill), f"{op}: template columns are named as the fields"
@@ -3241,7 +3243,9 @@ class TestClone:
         for pane_id in (*self.ORDER_PANES, "templates"):
             button = _clone_button(app_config, pane_id)
             assert button["unit"] == "row", pane_id
-            assert button["enable"] == {"connected": True}, f"{pane_id}: no status gate"
+            # A strategy is sent again from New Multileg…: Clone copies one instrument's order.
+            legs = {"when": "ALL(rows, r -> r.leg_count == 0)"} if pane_id != "templates" else {}
+            assert button["enable"] == {"connected": True, **legs}, f"{pane_id}: no status gate"
             assert button["action"]["type"] == "dialog"
             dialog = button["action"]["dialog"]
             assert "rowData" not in dialog or pane_id == "templates"
@@ -3805,7 +3809,7 @@ class TestInstrumentFields:
         assert ["Instruments", "pane.show", "instruments"] in [
             [i["label"], i["action"], i["args"]] for m in app_config["menubar"] if m["label"] == "Config"
             for i in m["items"]]
-        takes = {"name", "symbol", "description", *INSTRUMENT_COLS}
+        takes = {"name", "symbol", "description", "legs", *INSTRUMENT_COLS}
         for button in spec["buttons"]:
             action = button["action"]
             if action["type"] == "dialog":
@@ -3903,7 +3907,8 @@ class TestListBlotters:
         for lists_pane, orders_pane, name in (("list-blotter", "order-blotter", "sent_list"),
                                               ("market-list-blotter", "market-order-blotter", "received_list")):
             assert panes[lists_pane]["link"] == {"broadcast": {name: "list_id"}, "chips": False}
-            assert panes[orders_pane]["link"] == {"listen": {name: "list_id"}, "chips": False}, \
+            assert {k: v for k, v in panes[orders_pane]["link"].items() if k != "broadcast"} == \
+                {"listen": {name: "list_id"}, "chips": False}, \
                 "part of the setup: no chips, the filter chip shows when a list is selected"
             assert {"list_id", "list_seq_no"} <= set(panes[orders_pane]["columns"])
 

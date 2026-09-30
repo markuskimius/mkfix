@@ -58,7 +58,7 @@ _HEARD = {
                            if (subject, kind) in e.places and e.name not in _NEVER_HEARD)
     for subject in vocab.SUBJECTS for kind in (vocab.MARKET, vocab.CLIENT)
 }
-_CREATORS = set(vocab.CREATORS.values())
+_CREATORS = set(vocab.SENDERS)
 # The column a received subject's `where` narrows on when its symbol is not enough.
 _QTY_COL = {vocab.ORDER: "order_qty", vocab.IOI: "ioi_qty", vocab.ADVERT: "quantity", vocab.ALLOCATION: "quantity",
             vocab.RFQ: "order_qty", vocab.QUOTE: "order_qty", vocab.RFQ_REQUEST: "num_symbols",
@@ -78,6 +78,7 @@ class _Step:
     trade: dict[str, Any] | None = None
     stamp: str = ""
     target: str = ""               # the trade target already worked out (a macro from history)
+    legs: list[dict[str, Any]] = field(default_factory=list)    # a multileg `replace`'s new legs
 
 
 @dataclass
@@ -149,13 +150,25 @@ class Recorder:
                 and ev.source == "wire"
             if born:
                 self.timelines[key] = _Timeline(dict(row), now, subject=subject)
+                if ev.msg is not None and ev.msg.get("35") == "AB":
+                    # The legs it went out with: an accepted AC rewrites the rows.
+                    from mkfix.fix.multileg import legs_of
+                    session = self.engine.sessions.get(ev.session_id)
+                    if session is not None:
+                        self.timelines[key].order["_legs"] = legs_of(self.engine._as_sent(session, ev.msg),
+                                                                      session.dictionary)
             return
         if ev.source == "manual" and kinds[0] == "action":
             verb = _VERB_OF.get(ev.detail.get("op", ""))
             if verb and verb not in _CREATORS:
                 # The trade as it stood: a correction is named by the terms it found, not the ones it left.
-                line.steps.append(_Step(now, "did", verb, self._terms(verb, ev),
-                                        ev.detail.get("trade_before") or ev.trade, _fix_timestamp()))
+                step = _Step(now, "did", verb, self._terms(verb, ev), ev.detail.get("trade_before") or ev.trade,
+                             _fix_timestamp())
+                legs = (ev.detail.get("data") or {}).get("legs")
+                if verb == "replace" and legs:
+                    from mkfix.fix.multileg import normalize_legs
+                    step.legs = normalize_legs(legs)
+                line.steps.append(step)
         elif ev.source == "wire":
             heard = "filled" if "filled" in kinds else kinds[0]
             if heard in _HEARD[(subject, vocab.CLIENT if sends else vocab.MARKET)]:
@@ -285,6 +298,7 @@ class Recorder:
                 out.append(f"after {_duration(step.at - last)}")
             out.append(await self._action(line, step))
             out += ["    " + s for s in line.children.get(n, [])]
+            out += ["    " + _leg_line(leg) for leg in step.legs]
             heard_since, last = False, step.at
         if line.sent and steps and steps[-1].kind == "heard":
             out.append("pass")
@@ -484,15 +498,57 @@ class Recorder:
         saved = await self._saved_instruments() if subject not in (vocab.RFQ_REQUEST, vocab.LIST) else {}
         blocks = []
         for line in sorted(lines, key=lambda t: t.started):
-            terms = self._creator_terms(subject, line.order)
-            if saved:
-                terms = self._named(terms, line.order, saved)
-            new = f"{verb} " + ", ".join(f"{k}: {_value(verb, k, v)}" for k, v in terms.items() if v not in (None, ""))
+            members: list[str] = []
+            if subject == vocab.ORDER and line.order.get("leg_count"):
+                new, members = await self._multileg(line, saved)
+            else:
+                terms = self._creator_terms(subject, line.order)
+                if saved:
+                    terms = self._named(terms, line.order, saved)
+                new = f"{verb} " + ", ".join(f"{k}: {_value(verb, k, v)}" for k, v in terms.items()
+                                             if v not in (None, ""))
             lead = [f"after {_duration(line.started - first)}"] if line.started - first >= _QUIET else []
-            members = await self._list_orders(line) if subject == vocab.LIST else []
+            if subject == vocab.LIST:
+                members = await self._list_orders(line)
             body = await self._body(line, line.started)
             blocks.append("\n".join(["run", *("    " + s for s in [*lead, new, *members, *body])]))
         return blocks
+
+    async def _multileg(self, line: _Timeline, saved: dict[str, dict[str, Any]]) -> tuple[str, list[str]]:
+        """A multileg order's `new multileg` line and its `leg` lines — or,
+        when its legs are a saved strategy's, `instrument: 'NAME'`, the
+        strategy declared at the top as the instruments are."""
+        o = line.order
+        legs = o.get("_legs")
+        if legs is None:
+            legs = await self._fetch_legs(o)
+        terms = {"symbol": o["symbol"], "side": o["side_code"], "qty": o["entered_qty"] or o["order_qty"],
+                 "type": o["ord_type_code"], "price": o["entered_price"], "tif": o["tif_code"],
+                 "expire": o.get("expire_time") or o.get("expire_date"), "report": o.get("multileg_rpt_type"),
+                 "client": o.get("client"),
+                 "handl_inst": o.get("handl_inst_code") if o.get("handl_inst_code") != "1" else "",
+                 "text": o.get("sent_text"), "extra": o.get("extra_tags")}
+        mine = _legs_key(legs)
+        name = next((n for n, payload in saved.items() if payload.get("legs") and _legs_key(payload["legs"]) == mine),
+                    None)
+        written = [_leg_line(leg) for leg in legs]
+        if name is not None:
+            self._declared[name] = "\n".join(
+                [f"instrument {_quote(name)} symbol: {_quote(saved[name].get('symbol', ''))}",
+                 *("    " + w for w in written)])
+            terms = {"instrument": name, **{k: v for k, v in terms.items() if k != "symbol"}}
+            written = []
+        text = "new multileg " + ", ".join(f"{k}: {_value('new multileg', k, v)}" for k, v in terms.items()
+                                          if v not in (None, ""))
+        return text, ["    " + w for w in written]
+
+    async def _fetch_legs(self, order: dict[str, Any]) -> list[dict[str, Any]]:
+        cursor = await self.engine.db.read_conn.execute(
+            "SELECT * FROM fix_order_legs WHERE session_id = ? AND direction = ? AND order_id = ? ORDER BY seq",
+            (order["session_id"], order["direction"], order["order_id"]))
+        rows = [dict(r) for r in await cursor.fetchall()]
+        await cursor.close()
+        return rows
 
     def _members(self, row: dict[str, Any]) -> list[_Timeline]:
         """The recorded orders of a sent list, in the list's order."""
@@ -612,18 +668,44 @@ def _literal(value: Any) -> str:
 
 
 def _value(verb: str, term: str, value: Any) -> str:
+    if term == "leg":
+        return _literal(value)          # a LegRefID: 1, or 'A'
     enum = vocab.enum_of(verb, term)
     if enum:
         word = next((w for w, code in vocab.ENUMS[enum].items() if code == str(value)), None)
         return word or _quote(value)
     if term == "valid":
         return _seconds_term(value)
-    if term in ("qty", "price", "avg_price", "bid", "offer", "bid_size", "offer_size", "strike", "multiplier"):
+    if term in ("qty", "price", "avg_price", "bid", "offer", "bid_size", "offer_size", "strike", "multiplier", "ratio"):
         try:
             return _number(value)
         except (TypeError, ValueError):
             return _quote(value)
     return _quote(value)
+
+
+def _leg_terms(leg: dict[str, Any]) -> dict[str, Any]:
+    """A leg — a leg row, or normalized terms — as a `leg` line's terms."""
+    from mkfix.fix.multileg import normalize_leg
+    leg = normalize_leg(leg, leg.get("seq") or 1)
+    code = lambda words, col: words.get(leg.get(col) or "", leg.get(col))  # noqa: E731
+    return {"symbol": leg["symbol"], "sec_type": leg["security_type"], "maturity": leg["maturity"],
+            "strike": leg["strike_price"], "put_call": code(PUT_OR_CALL, "put_or_call"), "cfi": leg["cfi_code"],
+            "multiplier": leg["multiplier"], "exchange": leg["security_exchange"], "security_id": leg["security_id"],
+            "id_source": leg["security_id_source"], "side": leg["side_code"],
+            "ratio": leg["ratio"] if leg["ratio"] != 1 else None,
+            "open_close": code(OPEN_CLOSE, "position_effect"), "covered": code(COVERED, "covered"),
+            "price": leg["leg_price"], "ref": leg["leg_ref_id"] if leg["leg_ref_id"] != str(leg["seq"]) else None}
+
+
+def _leg_line(leg: dict[str, Any]) -> str:
+    return "leg " + ", ".join(f"{k}: {_value('leg', k, v)}" for k, v in _leg_terms(leg).items() if v not in (None, ""))
+
+
+def _legs_key(legs: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    """Legs compared as terms, however they were spelled."""
+    return [tuple(sorted((k, str(v)) for k, v in _leg_terms({**leg, "seq": n}).items() if v not in (None, "")))
+            for n, leg in enumerate(legs, 1)]
 
 
 def _instrument_terms(row: dict[str, Any], symbol: bool = False, position: bool = True) -> dict[str, Any]:

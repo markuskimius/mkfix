@@ -1,0 +1,36 @@
+# Calendar spread
+#
+# Shows:   the client side of a multileg order — a strategy declared with `leg` lines, `new
+#          multileg` sending it (35=AB) with MultiLegRptTypeReq, a `replace` whose `leg` lines roll
+#          the far leg (35=AC), `when fill` telling a leg's report (`event.leg`) from the order's,
+#          and `legs`, the order's legs as they stand
+# Needs:   a FIX 4.1 or later session (4.1 and 4.2 carry the multileg subset of 4.4): run it on
+#          LOOP-CLI with spread-desk armed on LOOP-MKT
+# Watch:   Sent Orders (Client menu): the Legs column; select the order and Sent Order Legs, beside
+#          Received Trades, shows each leg's fills as its reports come
+# Outcome: a Dec/Mar ES calendar is bought, rolled to Dec/Jun once acknowledged, and passes when
+#          it and both of its legs are filled
+
+# A strategy: an instrument with legs. Saved ones (Config › Instruments,
+# legs filled in) are named the same way.
+instrument 'ES Dec/Mar' symbol: 'ES'
+    leg symbol: 'ES', sec_type: future, maturity: '202612', side: sell, open_close: close, price: 5200
+    leg symbol: 'ES', sec_type: future, maturity: '202703', side: buy, open_close: open, price: 5215
+
+run
+    new multileg instrument: 'ES Dec/Mar', side: buy, qty: 5, price: 15, report: multileg_and_legs
+    # The rules first: a report can come back inside the send.
+    when fill and event.leg != ''
+        log 'leg ${event.leg}: ${trade.last_qty} at ${trade.last_price}'
+    expect ack within 5s else fail 'the spread was never acknowledged'
+    # Roll the far leg a quarter out: the legs under `replace` are its new legs.
+    replace price: 20
+        leg symbol: 'ES', sec_type: future, maturity: '202612', side: sell, open_close: close, price: 5200
+        leg symbol: 'ES', sec_type: future, maturity: '202706', side: buy, open_close: open, price: 5220
+    expect replaced within 5s
+    expect filled within 30s else fail 'the spread did not fill'
+    # Each leg's own report may follow the order's.
+    after 1s
+    if COUNT(legs, l -> l.cum_qty >= l.leg_qty) == COUNT(legs, l -> true)
+        pass '${order.legs} filled at ${order.avg_price}'
+    fail '${COUNT(legs, l -> l.cum_qty < l.leg_qty)} leg(s) still open'

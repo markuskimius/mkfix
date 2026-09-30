@@ -36,7 +36,7 @@ from mkfix.fix.instrument import (INSTRUMENT_COLS, ORDER_INSTRUMENT_COLS, POSITI
                                   carries_instrument,
                                   format_number, instrument_of, instrument_pairs, instrument_text,
                                   normalize_instrument)
-from mkfix.fix import lists
+from mkfix.fix import lists, multileg
 from mkfix.fix.session import FixSession
 
 if TYPE_CHECKING:
@@ -56,8 +56,17 @@ ORDER_COLS = [
     "tif_code", "extra_tags", "entered_qty", "entered_price",
     "expire_time", "expire_date", "client",
     "handl_inst", "handl_inst_code", "sent_text", "market_order_id", "ioi_id", "quote_id",
-    *ORDER_INSTRUMENT_COLS, "list_id", "list_seq_no",
+    *ORDER_INSTRUMENT_COLS, "list_id", "list_seq_no", "legs", "leg_count", "multileg_rpt_type",
 ]
+
+# A multileg order's legs (multileg.py), one row per leg: its terms as the
+# AB or the accepted AC said, and its own fills from the leg reports.
+LEG_COLS = [
+    "session_id", "direction", "order_id", "cl_ord_id", "seq", "leg_ref_id", "symbol",
+    *multileg.LEG_INSTRUMENT_COLS, "instrument", "ratio", "side", "side_code", "position_effect", "covered",
+    "leg_price", "leg_qty", "cum_qty", "avg_price", "last_qty", "last_price", "created_at", "updated_at",
+]
+_LEG_UPDATE_COLS = [c for c in LEG_COLS if c not in ("session_id", "direction", "order_id", "created_at")]
 
 # The as-submitted terms of a sent order — what the New dialog or the latest
 # Replace dialog carried. Kept outside the ER upsert so the counterparty's
@@ -102,7 +111,7 @@ EXEC_COLS = [
     "symbol", "side", "side_code", "last_qty", "last_price", "cum_qty",
     "avg_price", "exec_type", "exec_type_code", "leaves_qty",
     "transact_time", "text", "timestamp", "direction", "client", "extra_tags",
-    *ORDER_INSTRUMENT_COLS,
+    *ORDER_INSTRUMENT_COLS, "leg_ref_id",
 ]
 
 # exec_type display names a bust records (ExecTransType Cancel through FIX
@@ -127,7 +136,7 @@ EXEC_UPDATE_COLS = [
 TEMPLATE_SCOPES = ("order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct",
                    "bust", "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
                    "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
-                   "unsubscribe", "list", "list_request", "list_status", "list_fill")
+                   "unsubscribe", "list", "list_request", "list_status", "list_fill", "multileg")
 TEMPLATE_TERM_COLS = [
     "session_id", "symbol", "side", "ord_type", "qty", "price", "tif",
     "dk_reason", "restate_reason", "text", "extra_tags", "client", "handl_inst",
@@ -136,7 +145,7 @@ TEMPLATE_TERM_COLS = [
     "quote_request_type", "quote_type", "bid_px", "offer_px", "bid_size", "offer_size", "valid_for",
     "quote_rej_reason", "symbols", "subscription_type",
     *INSTRUMENT_COLS, *POSITION_COLS, "mode", "bid_type", "exec_inst_type", "tot_orders", "list_orders",
-    "status_type", "list_status",
+    "status_type", "list_status", "legs", "rpt_type",
 ]
 
 # The IOI, advert and allocation rows (families.py): one row per chain,
@@ -231,8 +240,9 @@ REPLAY_JOB_COLS = ["name", "file_path", "status", "total_messages", "sent_messag
 # instrument is what it was sent or received with, a trade's what it was
 # filled in. A row built without them gets them blank.
 _NO_INSTRUMENT = blank_instrument()
-# An order's list, written with the order like its instrument; none by default.
-_NO_LIST = {"list_id": "", "list_seq_no": 0}
+# An order's list and legs, written with the order like its instrument; none
+# by default. A replace moves the legs through its own op (set_order_legs).
+_NO_LIST = {"list_id": "", "list_seq_no": 0, "legs": "", "leg_count": 0, "multileg_rpt_type": ""}
 
 
 def _instrument_value(row: dict[str, Any], col: str) -> Any:
@@ -260,8 +270,8 @@ def _order_params(row: dict[str, Any], keep_sent_text: bool = False,
 
 
 def _exec_params(row: dict[str, Any]) -> tuple[Any, ...]:
-    return tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row[c]
-                 for c in EXEC_COLS) + (None,)
+    return tuple(_instrument_value(row, c) if c in _NO_INSTRUMENT else row.get(c, "") if c == "leg_ref_id"
+                 else row[c] for c in EXEC_COLS) + (None,)
 
 
 def _exec_update_params(row: dict[str, Any], row_id: int) -> tuple[Any, ...]:
@@ -607,6 +617,35 @@ class FixEngine:
                      "WHERE id = ? RETURNING *"),
                 param_names=tuple(update_cols + ["_mkio_ref", "id"]),
             ),)
+        self._compiled_ops["insert_leg"] = (CompiledOp(
+            table="fix_order_legs",
+            op_type="insert",
+            sql=(f"INSERT INTO fix_order_legs ({', '.join(LEG_COLS)}, _mkio_ref) "
+                 f"VALUES ({', '.join(['?'] * (len(LEG_COLS) + 1))}) RETURNING *"),
+            param_names=tuple(LEG_COLS + ["_mkio_ref"]),
+        ),)
+        self._compiled_ops["update_leg"] = (CompiledOp(
+            table="fix_order_legs",
+            op_type="update",
+            sql=(f"UPDATE fix_order_legs SET {', '.join(c + ' = ?' for c in _LEG_UPDATE_COLS)}, _mkio_ref = ? "
+                 "WHERE id = ? RETURNING *"),
+            param_names=tuple(_LEG_UPDATE_COLS + ["_mkio_ref", "id"]),
+        ),)
+        self._compiled_ops["delete_leg"] = (CompiledOp(
+            table="fix_order_legs",
+            op_type="delete",
+            sql="DELETE FROM fix_order_legs WHERE id = ? RETURNING *",
+            param_names=("id",),
+        ),)
+        # A replace's legs, and a received AC's parked until accepted: the
+        # upsert never touches them.
+        self._compiled_ops["set_order_legs"] = (CompiledOp(
+            table="fix_orders",
+            op_type="update",
+            sql=("UPDATE fix_orders SET legs = ?, leg_count = ?, pending_legs = ?, updated_at = ?, _mkio_ref = ? "
+                 "WHERE id = ? RETURNING *"),
+            param_names=("legs", "leg_count", "pending_legs", "updated_at", "_mkio_ref", "id"),
+        ),)
         # An order naming an IOI (tag 23) is written onto the IOI's row.
         self._compiled_ops["link_ioi_order"] = (CompiledOp(
             table="fix_iois",
@@ -630,7 +669,8 @@ class FixEngine:
             param_names=tuple(tmpl_cols + ["_mkio_ref"]),
         ),)
 
-        inst_cols = ["name", "symbol", *INSTRUMENT_COLS, "instrument", "description", "created_at", "updated_at"]
+        inst_cols = ["name", "symbol", *INSTRUMENT_COLS, "instrument", "description", "created_at", "updated_at",
+                     "legs"]
         inst_set = ", ".join(f"{c} = excluded.{c}" for c in inst_cols if c not in ("name", "created_at"))
         self._compiled_ops["upsert_instrument"] = (CompiledOp(
             table="fix_instruments",
@@ -1017,6 +1057,8 @@ class FixEngine:
         session.factory.stamp_instrument(msg, row, originating=False)
         if row.get("list_id") and msg.get("35") == "8" and session.dictionary.defines("66"):
             msg["66"] = row["list_id"]
+        if row.get("leg_count") and msg.get("35") == "8" and "442" not in msg and session.dictionary.defines("442"):
+            msg["442"] = multileg.WHOLE
 
     def _client_as_sent(self, session: FixSession, msg: FixMessage) -> str:
         """The client a message will carry once sent — extras applied, as
@@ -1191,11 +1233,11 @@ class FixEngine:
         """Handle an inbound application-level FIX message."""
         if msg_type == "8":
             await self._handle_execution_report(session, msg)
-        elif msg_type == "D":
+        elif msg_type in ("D", "AB"):
             await self._handle_new_order(session, msg)
         elif msg_type == "F":
             await self._handle_cancel_request(session, msg, "Cancel")
-        elif msg_type == "G":
+        elif msg_type in ("G", "AC"):
             await self._handle_cancel_request(session, msg, "Replace")
         elif msg_type == "9":
             await self._handle_cancel_reject(session, msg)
@@ -1234,6 +1276,9 @@ class FixEngine:
 
     async def _handle_execution_report(self, session: FixSession, msg: FixMessage) -> None:
         """Process an ExecutionReport (35=8): update order state and record fills."""
+        if msg.get("442") == multileg.LEG:
+            await self._handle_leg_report(session, msg)
+            return
         dictionary = session.dictionary
         now = _fix_timestamp()
         cl_ord_id = msg.get("11", "")
@@ -1361,9 +1406,53 @@ class FixEngine:
                                await self._find_family_row("fix_lists", "list_id", session_id, after["list_id"], "TX"),
                                msg=msg, request=after["list_id"])
 
+    async def _handle_leg_report(self, session: FixSession, msg: FixMessage) -> None:
+        """A report of one leg of a multileg order (442=2): the leg its
+        LegRefID(654) names — else its LegSymbol, else its Symbol — takes the
+        fill, and the trade is recorded against the order in the leg's
+        instrument; the order itself does not move. A report naming no
+        order of ours, or no leg of it, stays a recorded message."""
+        session_id = session.session_id
+        order = await self._find_order_for_report(session_id, msg.get("11", ""), msg.get("41", ""))
+        if order is None:
+            return
+        rows = await self._order_legs(session_id, order["direction"], order["order_id"])
+        named = (multileg.legs_of(msg, session.dictionary) or [{}])[0]
+        ref = named.get("leg_ref_id") if msg.get("654") or named.get("symbol") else ""
+        row = next((r for r in rows if ref and r["leg_ref_id"] == ref), None) or \
+            next((r for r in rows if r["symbol"] in (named.get("symbol"), msg.get("55"))), None)
+        if row is None:
+            return
+        last_qty = msg.get_float("32", 0.0)
+        last_price = named.get("leg_last_px") if named.get("leg_last_px") is not None else msg.get_float("31", 0.0)
+        is_fill = msg.get("150", "") in ("1", "2", "F") or msg.get("20", "0") == "0" and last_qty > 0
+        if is_fill and last_qty > 0:
+            cum = msg.get_float("14", 0.0) or row["cum_qty"] + last_qty
+            avg = msg.get_float("6", 0.0) or (row["avg_price"] * row["cum_qty"] + last_qty * last_price) / cum
+            await self._update_leg(row, cum_qty=cum, avg_price=avg, last_qty=last_qty, last_price=last_price)
+        instrument = {**_instrument_cols(row), "open_close": row["position_effect"],
+                      "covered_uncovered": row["covered"], "instrument": row["instrument"]}
+        trade = await self._record_report_trade(session, msg, order["cl_ord_id"], order["client"],
+                                                order["order_id"], instrument, leg_ref_id=row["leg_ref_id"])
+        if not self.events.active:
+            return
+        if trade is not None:
+            trade = await self._find_execution(session_id, trade["exec_id"])
+        # A leg's report is never the order's `filled`: only `fill`, naming the leg.
+        kinds = ("fill", "er") if trade is not None else ("er",)
+        self.events.emit(EngineEvent(kinds, session_id, msg=msg, request=msg.get("11", ""),
+                                     order=await self._load_order_by_id(order["id"]), prev=order, trade=trade,
+                                     detail={"leg": row["leg_ref_id"]}))
+
+    async def _update_leg(self, row: dict[str, Any], **updates: Any) -> None:
+        row = {**row, **updates, "updated_at": _fix_timestamp()}
+        await self.writer.submit(self._compiled_ops["update_leg"],
+                                 (tuple(row[c] for c in _LEG_UPDATE_COLS) + (None, row["id"]),), {"id": row["id"]})
+
     async def _record_report_trade(self, session: FixSession, msg: FixMessage, cl_ord_id: str,
                                    client: str, order_id: str,
-                                   instrument: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                                   instrument: dict[str, Any] | None = None,
+                                   leg_ref_id: str = "") -> dict[str, Any] | None:
         """The trade an ExecutionReport reports — a fill, or a correction or
         bust of one — written as a row or a new version of one; None for a
         report that is about the order alone."""
@@ -1419,8 +1508,10 @@ class FixEngine:
             "dk_reason": "",
             "dk_text": "",
             "client": client or await self._client_of_order(session_id, cl_ord_id),
-            "extra_tags": format_extra_tags(extra_pairs_of(msg, dictionary, CONSUMED_EXEC_TAGS)),
+            "extra_tags": format_extra_tags(extra_pairs_of(
+                msg, dictionary, CONSUMED_EXEC_TAGS | (multileg.CONSUMED_LEG_TAGS if leg_ref_id else frozenset()))),
             **(instrument if instrument is not None else instrument_of(msg)),
+            "leg_ref_id": leg_ref_id,
         }
         await self._submit_execution(exec_row, referenced["id"] if referenced else None)
         return exec_row
@@ -1507,6 +1598,9 @@ class FixEngine:
         ord_type_code = msg.get("40", "")
         tif_code = msg.get("59", "")
         handl_inst_code = msg.get("21", "")
+        legs = multileg.legs_of(msg, dictionary) if msg.get("35") == "AB" else []
+        if legs:
+            consumed = (consumed or CONSUMED_ORDER_TAGS) | multileg.CONSUMED_LEG_TAGS
         extras = format_extra_tags(extra_pairs_of(msg, dictionary, *((consumed,) if consumed else ())))
 
         order_row = {
@@ -1555,11 +1649,16 @@ class FixEngine:
             **instrument_of(msg),
             "list_id": msg.get("66", ""),
             "list_seq_no": _int(msg.get("67", "")),
+            "legs": multileg.legs_text(legs),
+            "leg_count": len(legs),
+            "multileg_rpt_type": msg.get("563", "") if legs else "",
         }
         if order_row["list_id"] and not order_row["list_seq_no"]:
             order_row["list_seq_no"] = await self._list_size(session.session_id, order_row["list_id"], "RX") + 1
         ops = self._compiled_ops["upsert_order"]
         await self.writer.submit(ops, (_order_params(order_row),), {"cl_ord_id": order_row["cl_ord_id"]})
+        if legs:
+            await self._write_legs(session.session_id, "RX", order_row["order_id"], order_row["cl_ord_id"], legs, qty)
         if order_row["list_id"]:
             # Any order of a ListID is one of its list's, however and whenever it came.
             await self._join_list(session, "RX", order_row["list_id"], order_row, list_mode, announce_list,
@@ -1587,15 +1686,21 @@ class FixEngine:
             except ValueError:
                 order = None
             if order is not None:
+                legs = multileg.legs_of(msg, session.dictionary) if msg.get("35") == "AC" else []
+                consumed = CONSUMED_ORDER_TAGS | (multileg.CONSUMED_LEG_TAGS if legs else frozenset())
                 await self._write_order(
                     order,
                     pending_action=action,
                     pending_cl_ord_id=request_id,
                     pending_qty=msg.get_float("38", 0.0),
                     pending_price=msg.get_float("44", 0.0),
-                    pending_extra_tags=format_extra_tags(extra_pairs_of(msg, session.dictionary)),
+                    pending_extra_tags=format_extra_tags(extra_pairs_of(msg, session.dictionary, consumed)),
                     text=msg.get("58", ""),
                 )
+                if legs or order.get("pending_legs"):
+                    # An AC's legs wait beside the slot until Accept; any other request leaves none waiting.
+                    await self._set_order_legs(order, order["legs"], order["leg_count"],
+                                               multileg.legs_json(legs) if legs else "")
         if order is None:
             reject = session.factory.order_cancel_reject(
                 cl_ord_id=request_id,
@@ -1769,6 +1874,108 @@ class FixEngine:
 
         return cl_ord_id
 
+    # -- multileg orders (multileg.py) --------------------------------------------------------
+
+    async def _order_legs(self, session_id: str, direction: str, order_id: str) -> list[dict[str, Any]]:
+        return await self._fetch_all(
+            "SELECT * FROM fix_order_legs WHERE session_id = ? AND direction = ? AND order_id = ? ORDER BY seq",
+            (session_id, direction, order_id))
+
+    async def _write_legs(self, session_id: str, direction: str, order_id: str, cl_ord_id: str,
+                          legs: list[dict[str, Any]], qty: float) -> None:
+        """An order's legs as given, over the ones it had: a leg of the same
+        place keeps its fills and takes the new terms, one no longer there
+        goes. `leg_qty` is the order's quantity times the leg's ratio."""
+        now = _fix_timestamp()
+        had = {leg["seq"]: leg for leg in await self._order_legs(session_id, direction, order_id)}
+        for leg in legs:
+            row = {c: None if c in multileg.NUMERIC_COLS or c == "leg_price" else "" for c in LEG_COLS}
+            row.update({c: leg.get(c, row[c]) for c in LEG_COLS if c in leg})
+            row.update(session_id=session_id, direction=direction, order_id=order_id, cl_ord_id=cl_ord_id,
+                       leg_qty=qty * (leg.get("ratio") or 1), updated_at=now)
+            old = had.pop(leg["seq"], None)
+            if old is None:
+                row.update(cum_qty=0.0, avg_price=0.0, last_qty=0.0, last_price=0.0, created_at=now)
+                await self.writer.submit(self._compiled_ops["insert_leg"],
+                                         (tuple(row[c] for c in LEG_COLS) + (None,),), {"id": None})
+            else:
+                row.update({c: old[c] for c in multileg.LEG_FILL_COLS})
+                await self.writer.submit(self._compiled_ops["update_leg"],
+                                         (tuple(row[c] for c in _LEG_UPDATE_COLS) + (None, old["id"]),),
+                                         {"id": old["id"]})
+        for old in had.values():
+            await self.writer.submit(self._compiled_ops["delete_leg"], ((old["id"],),), {"id": old["id"]})
+
+    async def _set_order_legs(self, order: dict[str, Any], legs: str, leg_count: int, pending_legs: str) -> None:
+        await self.writer.submit(self._compiled_ops["set_order_legs"],
+                                 ((legs, leg_count, pending_legs, _fix_timestamp(), None, order["id"]),),
+                                 {"cl_ord_id": order["cl_ord_id"]})
+
+    async def send_new_multileg(
+        self,
+        session_id: str,
+        legs: Any,
+        side: str,
+        qty: float,
+        ord_type: str = "2",
+        price: float | None = None,
+        tif: str = "0",
+        symbol: str = "",
+        rpt_type: str = "",
+        extra_tags: str = "",
+        expire_time: str = "",
+        expire_date: str = "",
+        expire_precision: str = "",
+        client: str = "",
+        handl_inst: str = "1",
+        text: str = "",
+        source: str = "manual",
+        tag: str = "",
+        list_id: str = "",
+    ) -> str:
+        """Send a NewOrderMultileg (35=AB) and return the ClOrdID: `legs` as
+        the dialog's grid gives them (multileg.normalize_legs), `side`,
+        `qty` and `price` the strategy's — a net price, which may be
+        negative. Refused where the version has no AB (FIX 4.0, or a custom
+        dictionary without it). Written and announced as send_new_order."""
+        session = self._active_session(session_id)
+        if not multileg.supports(session.dictionary):
+            raise ValueError(f"{session.dictionary.version} has no NewOrderMultileg (35=AB)")
+        parsed = multileg.normalize_legs(legs)
+        multileg.check_legs(parsed)
+        symbol = (symbol or "").strip() or multileg.strategy_symbol(parsed)
+        cl_ord_id = await self.ids.next_id("RT")
+        msg = session.factory.new_order_multileg(
+            cl_ord_id=cl_ord_id, symbol=symbol, side=side, qty=qty, legs=parsed, ord_type=ord_type, price=price,
+            tif=tif, handl_inst=handl_inst, rpt_type=rpt_type, expire_time=expire_time, expire_date=expire_date,
+            expire_precision=expire_precision, text=text or None)
+        msg.extra += parse_extra_tags(extra_tags)
+        self._stamp_client(session, msg, client)
+        if list_id:
+            msg["66"] = list_id
+        expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
+        order_row = await self._sent_order_row(session, msg, cl_ord_id, symbol, side, qty, ord_type, price, tif,
+                                               extra_tags, expire_time, expire_date)
+        order_row.update(legs=multileg.legs_text(parsed), leg_count=len(parsed),
+                         multileg_rpt_type=self._as_sent(session, msg).get("563", ""))
+        if order_row["list_id"] and not order_row["list_seq_no"]:
+            order_row["list_seq_no"] = await self._list_size(session_id, order_row["list_id"], "TX") + 1
+        await self.writer.submit(self._compiled_ops["upsert_order"], (_order_params(order_row),),
+                                 {"cl_ord_id": cl_ord_id})
+        await self._write_legs(session_id, "TX", order_row["order_id"], cl_ord_id, parsed, qty)
+        if order_row["list_id"]:
+            await self._join_list(session, "TX", order_row["list_id"], order_row, "D")
+        if self.events.active:
+            self.events.emit(EngineEvent(
+                ("sent order",), session_id, source=source, request=cl_ord_id, msg=msg,
+                order=await self._find_order(session_id, cl_ord_id), detail={"tag": tag}))
+        try:
+            await session.send_message(msg)
+        except Exception as exc:
+            await self._write_order(order_row, status="Rejected", leaves_qty=0.0, text=f"Send failed: {exc}")
+            raise
+        return cl_ord_id
+
     async def send_cancel(
         self,
         session_id: str,
@@ -1822,36 +2029,59 @@ class FixEngine:
         client: str = "",
         handl_inst: str = "1",
         text: str = "",
+        legs: Any = None,
         **extra: str,
     ) -> str:
         """Send an OrderCancelReplaceRequest and return the new ClOrdID.
 
         The submitted terms are recorded on the order row (ENTERED_COLS) so
         the next Replace dialog opens on them; tag 59 goes out only when
-        ``tif`` is given."""
+        ``tif`` is given. A multileg order is replaced with a
+        MultilegOrderCancelReplace (35=AC) carrying ``legs``, or the legs it
+        has when none are given; they become its legs when accepted."""
         session = self.sessions.get(session_id)
         if not session or not session.is_active:
             raise ValueError(f"Session {session_id} is not active")
 
         extra_pairs = parse_extra_tags(extra_tags)
+        try:
+            current = await self._load_order(session_id, orig_cl_ord_id)
+        except ValueError:
+            current = None
+        # The Replace dialog's grid is hidden, and empty, on a plain order.
+        given = multileg.normalize_legs(legs) if legs not in (None, "") else []
+        new_legs: list[dict[str, Any]] = []
+        if current is not None and current.get("leg_count"):
+            new_legs = given or multileg.normalize_legs(await self._order_legs(session_id, "TX", current["order_id"]))
+            multileg.check_legs(new_legs)
+        elif given:
+            raise ValueError(f"{orig_cl_ord_id} is not a multileg order: it has no legs to replace")
         cl_ord_id = await self.ids.next_id("RT")
-        msg = session.factory.cancel_replace_request(
-            cl_ord_id=cl_ord_id,
-            orig_cl_ord_id=orig_cl_ord_id,
-            symbol=symbol,
-            side=side,
-            qty=qty,
-            ord_type=ord_type,
-            price=price,
-            tif=tif,
-            handl_inst=handl_inst,
-            expire_time=expire_time,
-            expire_date=expire_date,
-            expire_precision=expire_precision,
-            text=text or None,
-            **extra,
-        )
-        msg.extra = extra_pairs
+        if new_legs:
+            msg = session.factory.new_order_multileg(
+                cl_ord_id=cl_ord_id, symbol=symbol, side=side, qty=qty, legs=new_legs, ord_type=ord_type,
+                price=price, tif=tif or "", handl_inst=handl_inst, rpt_type=current.get("multileg_rpt_type", ""),
+                expire_time=expire_time, expire_date=expire_date, expire_precision=expire_precision,
+                text=text or None, orig_cl_ord_id=orig_cl_ord_id)
+            msg.extra += extra_pairs
+        else:
+            msg = session.factory.cancel_replace_request(
+                cl_ord_id=cl_ord_id,
+                orig_cl_ord_id=orig_cl_ord_id,
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                ord_type=ord_type,
+                price=price,
+                tif=tif,
+                handl_inst=handl_inst,
+                expire_time=expire_time,
+                expire_date=expire_date,
+                expire_precision=expire_precision,
+                text=text or None,
+                **extra,
+            )
+            msg.extra = extra_pairs
         self._stamp_client(session, msg, client)
         await self._stamp_order_instrument(session, msg, orig_cl_ord_id)
         expire_time, expire_date = session.factory.expiry(expire_time, expire_date, expire_precision)
@@ -1874,6 +2104,8 @@ class FixEngine:
         if tif is not None:
             entered["time_in_force"] = dictionary.enum_name("59", tif)
             entered["tif_code"] = tif
+        if new_legs:
+            entered["legs"] = multileg.legs_json(new_legs)
         # Recorded before the send for the same reason send_new_order writes
         # first: an ExecutionReport accepting the replace renames the chain to
         # the new ClOrdID, and this lookup by the superseded one would miss.
@@ -1955,6 +2187,12 @@ class FixEngine:
         params = tuple(row[c] for c in ENTERED_COLS) + (_fix_timestamp(), None, session_id, cl_ord_id)
         await self.writer.submit(self._compiled_ops["record_entered"], (params,),
                                  {"cl_ord_id": cl_ord_id})
+        if terms.get("legs"):
+            # An accepted AC's legs are the order's now.
+            legs = multileg.normalize_legs(terms["legs"])
+            await self._write_legs(session_id, "TX", order["order_id"], cl_ord_id, legs,
+                                   terms.get("entered_qty") or order["order_qty"])
+            await self._set_order_legs(order, multileg.legs_text(legs), len(legs), order.get("pending_legs") or "")
 
     async def _send_request(self, session: FixSession, msg: FixMessage, request_id: str) -> None:
         """Send a cancel/replace whose request slot is already written; one
@@ -1989,7 +2227,7 @@ class FixEngine:
         prev, trade = await self._action_subject(op, data)
         prev_row, table = await self._family_subject(op, data)
         result = await action(self, data)
-        if op == "send_new_order":      # announced as `sent order` by send_new_order itself, before its send
+        if op in ("send_new_order", "send_new_multileg"):   # announced as `sent order` by the send itself, before it
             order = await self._find_order(session_id, result["cl_ord_id"])
         else:
             order = await self._load_order_by_id(prev["id"] if prev else None)
@@ -2245,7 +2483,7 @@ class FixEngine:
         exec_type_code: str, last_qty: float, last_price: float,
         cum_qty: float, avg_price: float, leaves_qty: float,
         exec_ref_id: str = "", row_id: int | None = None,
-        text: str = "", extra_tags: str = "",
+        text: str = "", extra_tags: str = "", leg_ref_id: str = "",
     ) -> None:
         now = _fix_timestamp()
         exec_row = {
@@ -2275,6 +2513,7 @@ class FixEngine:
             "client": order.get("client") or "",
             "extra_tags": extra_tags,
             **_instrument_cols(order),
+            "leg_ref_id": leg_ref_id,
         }
         await self._submit_execution(exec_row, row_id)
 
@@ -2397,6 +2636,86 @@ class FixEngine:
             text=sent_text, extra_tags=extra_tags,
         )
         return msg, exec_id
+
+    @_market_action
+    async def fill_leg(self, session_id: str, cl_ord_id: str, leg: Any, qty: float, price: Any = None,
+                       extra_tags: str = "", text: str = "") -> tuple[FixMessage, str]:
+        """Fill one leg of a received multileg order — `leg` its LegRefID or
+        its place, 1 first — with an ExecutionReport of the leg (442=2): the
+        leg's instrument and side, `qty` in the leg's own units, at `price`
+        (else the leg's LegPrice), its LegRefID and LegLastPx in a
+        one-instance NoLegs. The leg's fills move; the order's do not.
+        Returns the ExecID."""
+        if qty <= 0:
+            raise ValueError("Fill quantity must be positive")
+        session = self._active_session(session_id)
+        dictionary = session.dictionary
+        order = await self._load_order(session_id, cl_ord_id)
+        if not order.get("leg_count"):
+            raise ValueError(f"{cl_ord_id} is not a multileg order")
+        rows = await self._order_legs(session_id, order["direction"], order["order_id"])
+        wanted = str(leg).strip()
+        row = next((r for r in rows if r["leg_ref_id"] == wanted), None) or \
+            next((r for r in rows if wanted.isdigit() and r["seq"] == int(wanted)), None)
+        if row is None:
+            raise ValueError(f"{cl_ord_id} has no leg {wanted}")
+        price = _opt_float(price)
+        if price is None:
+            price = row["leg_price"]
+        if price is None:
+            raise ValueError(f"No price to fill leg {row['leg_ref_id']} at: give one, or a LegPrice")
+        order_id = order["order_id"] or await self.ids.next_id("OR")
+        exec_id = await self.ids.next_id("EX")
+        trade_id = await self.ids.next_id("TR")
+        cum = row["cum_qty"] + qty
+        avg = (row["avg_price"] * row["cum_qty"] + qty * price) / cum
+        leaves = max(row["leg_qty"] - cum, 0.0)
+        status_code = "2" if leaves == 0 else "1"
+        msg = session.factory.execution_report(
+            order_id=order_id, cl_ord_id=cl_ord_id, exec_id=exec_id, exec_trans_type="0",
+            exec_type=status_code, ord_status=status_code, symbol=row["symbol"], side=row["side_code"],
+            qty=row["leg_qty"], last_qty=qty, last_price=price, cum_qty=cum, avg_price=avg, leaves_qty=leaves,
+            text=text or None)
+        if dictionary.defines("442"):
+            msg["442"] = multileg.LEG
+        named = [("555", "1"), ("600", row["symbol"]), ("654", row["leg_ref_id"]), ("637", format_number(price))]
+        msg.extra = [(t, v) for t, v in named if dictionary.defines(t)] + parse_extra_tags(extra_tags)
+        instrument = {**_instrument_cols(row), "open_close": row["position_effect"],
+                      "covered_uncovered": row["covered"], "instrument": row["instrument"]}
+        self._stamp_client(session, msg, order.get("client"))
+        session.factory.stamp_instrument(msg, instrument, originating=False)
+        sent_text = self._text_as_sent(session, msg)
+
+        await self._update_leg(row, cum_qty=cum, avg_price=avg, last_qty=qty, last_price=price)
+        if order["pending_action"] == "New":
+            # As a fill does, the report acknowledges a not-yet-accepted order.
+            await self._write_order(order, order_id=order_id, status="New", sent_text=sent_text,
+                                    pending_action="", pending_extra_tags="")
+        await self._write_sent_execution(
+            {**order, **instrument, "order_id": order_id, "symbol": row["symbol"], "side": row["side"],
+             "side_code": row["side_code"]},
+            exec_id, trade_id, *_sent_exec_kind(dictionary, msg, status_code), qty, price, cum, avg, leaves,
+            text=sent_text, extra_tags=extra_tags, leg_ref_id=row["leg_ref_id"])
+        return msg, exec_id
+
+    async def fill_multileg(self, session_id: str, cl_ord_id: str, qty: float, price: Any = None,
+                            leg: Any = "", report_legs: bool = False, extra_tags: str = "",
+                            text: str = "") -> str:
+        """The Fill of a received order that may be multileg: `leg` fills that
+        one leg alone (fill_leg); otherwise the order is filled (fill_order,
+        442=3) and, with `report_legs`, each leg is reported filled after it
+        for `qty` times its ratio, at its LegPrice (else `price`). Returns
+        the order fill's ExecID, or the leg's."""
+        if str(leg or "").strip():
+            return await self.fill_leg(session_id, cl_ord_id, leg, qty, price, extra_tags=extra_tags, text=text)
+        exec_id = await self.fill_order(session_id, cl_ord_id, qty, float(price), extra_tags=extra_tags, text=text)
+        if report_legs:
+            order = await self._load_order(session_id, cl_ord_id)
+            for row in await self._order_legs(session_id, order["direction"], order["order_id"]):
+                leg_price = row["leg_price"] if row["leg_price"] is not None else float(price)
+                await self.fill_leg(session_id, cl_ord_id, row["leg_ref_id"], qty * (row["ratio"] or 1), leg_price,
+                                    text=text)
+        return exec_id
 
     @_market_action
     async def unsolicited_cancel(self, session_id: str, cl_ord_id: str, extra_tags: str = "",
@@ -2620,6 +2939,11 @@ class FixEngine:
         sent_text = self._text_as_sent(session, msg)
 
         await self._rename_order(session_id, cl_ord_id, new_cl_ord_id)
+        if order.get("pending_legs"):
+            # An accepted AC's legs are the order's now.
+            legs = multileg.normalize_legs(order["pending_legs"])
+            await self._write_legs(session_id, "RX", order["order_id"], new_cl_ord_id, legs, new_qty)
+            await self._set_order_legs(order, multileg.legs_text(legs), len(legs), "")
         await self._write_order(
             {**order, "cl_ord_id": new_cl_ord_id, "orig_cl_ord_id": cl_ord_id},
             status=dictionary.enum_name("39", status_code),
@@ -4912,10 +5236,12 @@ class FixEngine:
             {"scope": scope, "name": name})
         return name
 
-    async def save_instrument(self, name: str, symbol: str = "", description: str = "", **terms: Any) -> str:
+    async def save_instrument(self, name: str, symbol: str = "", description: str = "", legs: Any = "",
+                              **terms: Any) -> str:
         """Keep an instrument's terms under a name, replacing the one of the
         same name. Saved as given, whatever the version: the send checks a
-        security type against the session it goes out on."""
+        security type against the session it goes out on. With ``legs`` it
+        is a strategy (security type MLEG): New Multileg… fills its legs."""
         name = (name or "").strip()
         if not name:
             raise ValueError("An instrument needs a name")
@@ -4923,9 +5249,18 @@ class FixEngine:
         if unknown:
             raise ValueError(f"Not instrument terms: {', '.join(sorted(unknown))}")
         row = {**normalize_instrument(terms), "symbol": (symbol or "").strip()}
+        legs_text = ""
+        text = instrument_text(row)
+        if legs not in (None, "", []):
+            parsed = multileg.normalize_legs(legs)
+            multileg.check_legs(parsed)
+            legs_text = multileg.legs_json(parsed)
+            row["symbol"] = row["symbol"] or multileg.strategy_symbol(parsed)
+            row["security_type"] = "MLEG"
+            text = multileg.legs_text(parsed)
         now = _fix_timestamp()
         values = ((name, row["symbol"]) + tuple(row[c] for c in INSTRUMENT_COLS)
-                  + (instrument_text(row), description or "", now, now, None))
+                  + (text, description or "", now, now, legs_text, None))
         await self.writer.submit(self._compiled_ops["upsert_instrument"], (values,), {"name": name})
         return name
 

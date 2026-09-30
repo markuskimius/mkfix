@@ -217,6 +217,14 @@ def apply_overlay(doc: dict[str, object], overlay_path: Path) -> None:
         doc[key] = dict(sorted(doc[key].items(), key=lambda kv: int(kv[0])))
 
 
+def overlays_of(overlay_dir: Path, name: str) -> list[Path]:
+    """A version's overlays in merge order: `<VER>.json`, then each
+    `<VER>.*.json` (a feature carried over whole, e.g. FIX42.multileg.json)
+    in name order."""
+    base = overlay_dir / f"{name}.json"
+    return ([base] if base.exists() else []) + sorted(overlay_dir.glob(f"{name}.*.json"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("versions", nargs="*", default=None,
@@ -243,8 +251,7 @@ def main() -> None:
     for version in versions:
         print(f"converting {version}")
         doc = convert(version, args.spec_dir)
-        overlay_path = args.overlay_dir / f"{VERSIONS[version]}.json"
-        if overlay_path.exists():
+        for overlay_path in overlays_of(args.overlay_dir, VERSIONS[version]):
             print(f"  applying overlay {overlay_path}")
             apply_overlay(doc, overlay_path)
         out_path = args.out / f"{VERSIONS[version]}.json"

@@ -18,7 +18,7 @@ from mkfix.fix.instrument import INSTRUMENT_COLS, normalize_instrument
 from . import vocab
 from .functions import ENV
 from .nodes import (
-    After, Instrument, OrderLine, Term,
+    After, Instrument, LegLine, OrderLine, Term, LEGGED,
     Action, Block, Diagnostic, Expect, Expr, If, Let, Repeat, Macro, Share, Signal, Statement, Wait, When,
     expressions, walk,
 )
@@ -48,22 +48,37 @@ def instrument_payload(values: Mapping[str, Any]) -> dict[str, Any]:
     inline is added to it."""
     row = normalize_instrument(values)
     return {**({"symbol": values["symbol"]} if values.get("symbol") else {}),
-            **{c: row[c] for c in INSTRUMENT_COLS if row[c] not in (None, "")}}
+            **{c: row[c] for c in INSTRUMENT_COLS if row[c] not in (None, "")},
+            # A strategy's legs, as a list: what `new multileg` sends.
+            **({"legs": _legs_list(values["legs"])} if values.get("legs") else {})}
+
+
+def _legs_list(legs: Any) -> list[dict[str, Any]]:
+    import json
+    return json.loads(legs) if isinstance(legs, str) else list(legs)
+
+
+def _literal_terms(terms: list[Term], verb: str) -> dict[str, Any]:
+    """Written-out terms (a declaration's) as payload values: words as their codes."""
+    values: dict[str, Any] = {}
+    for term in terms:
+        if not term.key:
+            continue
+        enum = vocab.enum_of(verb, term.name)
+        if term.word is not None:
+            values[term.key] = vocab.enum_code(enum, term.word)
+        else:
+            value = getattr(term.value.node, "value", None)
+            values[term.key] = vocab.enum_code(enum, value) if enum and isinstance(value, str) else value
+    return values
 
 
 def declared_payload(decl: Instrument) -> dict[str, Any]:
     """The instrument an `instrument 'NAME' …` line declares. Its terms are
     literals (the checker holds them to it), so this needs no scope."""
-    values: dict[str, Any] = {}
-    for term in decl.terms:
-        if not term.key:
-            continue
-        if term.word is not None:
-            values[term.key] = vocab.enum_code(vocab.enum_of("instrument", term.name), term.word)
-        else:
-            value = getattr(term.value.node, "value", None)
-            enum = vocab.enum_of("instrument", term.name)
-            values[term.key] = vocab.enum_code(enum, value) if enum and isinstance(value, str) else value
+    values = _literal_terms(decl.terms, "instrument")
+    if decl.legs:
+        values["legs"] = [_literal_terms(leg.terms, "leg") for leg in decl.legs]
     return instrument_payload(values)
 
 
@@ -164,6 +179,10 @@ class _Checker:
                 self.enum_words("instrument", term)
         if "symbol" not in seen:
             self.report(decl.line, decl.col, end, f"Instrument {decl.name!r} needs its symbol: symbol: 'ES'")
+        for leg in decl.legs:
+            self.leg_line(leg, declared=True)
+        if len(decl.legs) == 1:
+            self.report(decl.line, decl.col, end, f"Strategy {decl.name!r} has one leg: a strategy has two or more")
         payload = declared_payload(decl)
         saved = (self.instruments or {}).get(decl.name)
         if saved is not None and saved != payload:
@@ -237,9 +256,13 @@ class _Checker:
         first sending verb decides the subject (the parser set it); a
         second kind of sending verb belongs in a block of its own."""
         creator = vocab.CREATORS[block.subject]
-        creators = set(vocab.CREATORS.values())
+        creators = set(vocab.SENDERS)
+
+        def sends(st: Statement) -> bool:
+            return isinstance(st, Action) and vocab.SENDERS.get(st.verb) == block.subject
+
         header = "on signal" if block.signal is not None else "run"
-        if not any(isinstance(st, Action) and st.verb == creator for st in walk(block.body)):
+        if not any(sends(st) for st in walk(block.body)):
             self.report(block.line, block.col, block.col + len(header),
                         f"A{'n' if header[0] == 'o' else ''} `{header}` block sends something of its own: it needs a "
                         "`new`, `ioi`, `advert`, `allocate`, `rfq`, `new quote` or `rfq request`"
@@ -247,17 +270,17 @@ class _Checker:
                            "`when signal 'NAME'` inside that block" if block.signal is not None else ""))
             return
         for st in walk(block.body):
-            if isinstance(st, Action) and st.verb in creators and st.verb != creator \
+            if isinstance(st, Action) and st.verb in creators and not sends(st) \
                     and (block.subject, vocab.CLIENT) not in vocab.VERBS[st.verb].places:
                 self.report(st.line, st.col, st.col + len(st.verb),
                             f"This `run` block sends {vocab.PLURALS[block.subject]} (`{creator}`): `{st.verb}` "
                             "belongs in a `run` block of its own")
-        if any(isinstance(st, Action) and st.verb == creator for st in block.body):
+        if any(sends(st) for st in block.body):
             return
 
         def outside(body: list[Statement]) -> None:
             for st in body:
-                if isinstance(st, Repeat) and any(isinstance(x, Action) and x.verb == creator for x in walk(st.body)):
+                if isinstance(st, Repeat) and any(sends(x) for x in walk(st.body)):
                     continue                                   # the macros themselves
                 if isinstance(st, (Action, Wait, Expect, When)):
                     self.report(st.line, st.col, st.col + 4,
@@ -290,6 +313,11 @@ class _Checker:
                     self.body(st.orelse, block, schema, trade_in_hand)
             elif isinstance(st, OrderLine):
                 self.order_line(st, block, schema, list_body)
+            elif isinstance(st, LegLine):
+                self.report(st.line, st.col, st.col + 3, "A `leg` line belongs under `new multileg`, a `replace` "
+                                                         "of a multileg order, or a declared strategy")
+            elif isinstance(st, Action) and st.verb in LEGGED:
+                self.legs(st, schema)
             elif isinstance(st, Action) and st.verb == "new list":
                 self.new_list(st, block, schema)
             elif isinstance(st, Action) and st.verb == "add order":
@@ -297,6 +325,75 @@ class _Checker:
                     self.member(st.body, st, schema)
             elif hasattr(st, "body"):
                 self.body(st.body, block, schema, trade_in_hand, list_body)
+
+    def legs(self, st: Action, schema: Mapping[str, Any]) -> None:
+        """The `leg` lines under `new multileg` or `replace`: two at least,
+        and on `new multileg` either they or a strategy, not both."""
+        legs = [x for x in st.body if isinstance(x, LegLine)]
+        for x in st.body:
+            if not isinstance(x, LegLine):
+                self.report(x.line, x.col, x.col + 4, f"Only `leg` lines stand under `{st.verb}`")
+        for leg in legs:
+            for e in expressions(leg):
+                self.expression(e, schema)
+            self.leg_line(leg)
+        end = st.col + len(st.verb)
+        strategy = next((t for t in st.terms if t.name == "instrument"), None)
+        if st.verb == "new multileg" and strategy is not None:
+            if legs:
+                self.report(st.line, st.col, end, "`new multileg` takes its legs from the strategy or from its "
+                                                  "`leg` lines, not both")
+            self.strategy_named(strategy)
+        elif st.verb == "new multileg" and len(legs) < 2 and st.template is None:
+            self.report(st.line, st.col, end, "`new multileg` needs its legs: two `leg` lines or more under it, "
+                                              "or a strategy — instrument: 'NAME'")
+        elif st.body and len(legs) < 2:
+            self.report(st.line, st.col, end, "A multileg order has two legs or more")
+
+    def leg_line(self, leg: LegLine, declared: bool = False) -> None:
+        seen: set[str] = set()
+        for term in leg.terms:
+            if term.name not in vocab.LEG_TERMS:
+                self.report(term.line, term.col, term.col + len(term.name),
+                            f"A leg has no term {term.name!r}. It takes: {', '.join(vocab.LEG_TERMS)}"
+                            f"{_close(term.name, vocab.LEG_TERMS)}")
+                continue
+            if term.name in seen:
+                self.report(term.line, term.col, term.col + len(term.name), f"{term.name!r} is given twice")
+            seen.add(term.name)
+            if declared and term.name == "instrument":
+                self.report(term.line, term.col, term.col + len(term.name),
+                            "A declared strategy's legs are written out: no `instrument` in them")
+            elif declared and term.value is not None and type(term.value.node).__name__ != "Literal":
+                self.report(term.value.line, term.value.col, term.value.col + len(term.value.source),
+                            "An instrument's terms are written out — 'ES', 50, future — not computed")
+            else:
+                self.enum_words("leg", term)
+            if term.name == "instrument":
+                self.instrument_named(term)
+                self.not_a_strategy(term)
+        missing = [n for n in ("symbol", "side") if n not in seen and not (n == "symbol" and "instrument" in seen)]
+        if missing:
+            self.report(leg.line, leg.col, leg.col + 3, f"A leg needs {' and '.join(missing)}")
+
+    def strategy_named(self, term: Term) -> None:
+        """`new multileg instrument: 'NAME'` names a strategy: one with legs."""
+        self.instrument_named(term)
+        value = getattr(term.value.node, "value", None) if term.value is not None else None
+        if not isinstance(value, str):
+            return
+        payload = self.declared.get(value) or (self.instruments or {}).get(value)
+        if payload is not None and not payload.get("legs"):
+            self.report(term.value.line, term.value.col, term.value.col + len(term.value.source),
+                        f"{value!r} is no strategy: it has no legs. A strategy is an instrument with `leg` lines "
+                        "(or saved with legs in Config › Instruments)")
+
+    def not_a_strategy(self, term: Term) -> None:
+        value = getattr(term.value.node, "value", None) if term.value is not None else None
+        payload = (self.declared.get(value) or (self.instruments or {}).get(value)) if isinstance(value, str) else None
+        if payload is not None and payload.get("legs"):
+            self.report(term.value.line, term.value.col, term.value.col + len(term.value.source),
+                        f"{value!r} is a strategy: it is sent with `new multileg instrument: {value!r}`")
 
     def new_list(self, st: Action, block: Block, schema: Mapping[str, Any]) -> None:
         """`new list`: its `order` lines, one at least; a list sent as one
@@ -349,7 +446,7 @@ class _Checker:
         verb = vocab.VERBS[st.verb]
         end = st.col + len(st.verb)
         if (block.subject, block.kind) not in verb.places:
-            if block.kind == vocab.CLIENT and st.verb in vocab.CREATORS.values():
+            if block.kind == vocab.CLIENT and st.verb in vocab.SENDERS:
                 return                                          # `sending` said which block it belongs in
             extra = " — one order per macro; send more from a `run on` block" \
                 if st.verb == "new" and block.subject == vocab.ORDER else ""
@@ -375,12 +472,14 @@ class _Checker:
                 self.report(term.line, term.col, term.col + len(term.name), f"{term.name!r} is given twice")
             seen.add(term.name)
             self.enum_words(st.verb, term)
-            if term.name == "instrument":
+            if term.name == "instrument" and st.verb != "new multileg":     # its strategy: `legs`
                 self.instrument_named(term)
+                self.not_a_strategy(term)
         if st.template is None:
             # A named instrument brings its symbol.
             missing = [name for name in verb.required if name not in seen
-                       and not (name == "symbol" and "instrument" in seen)]
+                       and not (name == "symbol" and "instrument" in seen)
+                       and not (name == "price" and "leg" in seen)]     # a leg's fill: its LegPrice
             if missing:
                 self.report(st.line, st.col, end, f"`{st.verb}` needs {', '.join(missing)}")
         elif self.templates is not None:

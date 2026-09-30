@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.78",
+    "version": "0.79",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -131,6 +131,11 @@
           "args": "order-blotter"
         },
         {
+          "label": "Sent Order Legs",
+          "action": "pane.show",
+          "args": "sent-legs"
+        },
+        {
           "label": "Received Trades",
           "action": "pane.show",
           "args": "trade-blotter"
@@ -188,6 +193,11 @@
           "label": "Received Orders",
           "action": "pane.show",
           "args": "market-order-blotter"
+        },
+        {
+          "label": "Received Order Legs",
+          "action": "pane.show",
+          "args": "received-legs"
         },
         {
           "label": "Sent Trades",
@@ -1049,7 +1059,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.78"
+        "text": "mkfix v0.79"
       }
     ],
     "bindStyle": {
@@ -1977,7 +1987,12 @@
         "expire_date",
         "handl_inst_code",
         "pending_entered",
-        "session_status"
+        "session_status",
+        "legs",
+        "leg_count",
+        "multileg_rpt_type",
+        "pending_legs",
+        "legs_json"
       ],
       "visible": [
         "order_id",
@@ -1986,6 +2001,7 @@
         "session_id",
         "client",
         "instrument",
+        "legs",
         "side",
         "ord_type",
         "handl_inst",
@@ -2080,7 +2096,12 @@
         "open_close": "Open/Close (77)",
         "covered_uncovered": "Covered (203)",
         "list_id": "List ID (66)",
-        "list_seq_no": "List Seq (67)"
+        "list_seq_no": "List Seq (67)",
+        "legs": "Legs",
+        "leg_count": "Legs (555)",
+        "multileg_rpt_type": "Report Type (563)",
+        "pending_legs": "Pending Legs",
+        "legs_json": "Legs (grid)"
       },
       "types": {
         "updated_at": {
@@ -2735,10 +2756,480 @@
           }
         },
         {
+          "label": "New Multileg…",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "dialog",
+            "dialog": {
+              "title": "New Multileg Order",
+              "pin": "keep",
+              "width": 760,
+              "fields": [
+                {
+                  "name": "_template",
+                  "label": "Template",
+                  "type": "select",
+                  "optionsFrom": {
+                    "service": "templates_list",
+                    "params": {
+                      "scope": "multileg"
+                    },
+                    "value": "name",
+                    "label": "name"
+                  },
+                  "fill": {
+                    "session_id": "session_id",
+                    "symbol": "symbol",
+                    "side": "side",
+                    "qty": "qty",
+                    "ord_type": "ord_type",
+                    "price": "price",
+                    "tif": "tif",
+                    "handl_inst": "handl_inst",
+                    "text": "text",
+                    "extra_tags": "extra_tags",
+                    "client": "client",
+                    "legs": "legs",
+                    "rpt_type": "rpt_type"
+                  },
+                  "remember": {
+                    "key": "mkfix.template.send_new_multileg",
+                    "value": "IF(COALESCE(save_as, '') != '', save_as, _template)"
+                  }
+                },
+                {
+                  "row": [
+                    {
+                      "name": "session_id",
+                      "label": "Session",
+                      "type": "select",
+                      "required": true,
+                      "width": 0.5,
+                      "optionsFrom": {
+                        "service": "sessions_list",
+                        "value": "session_id",
+                        "label": "session_id"
+                      }
+                    },
+                    {
+                      "name": "_strategy",
+                      "label": "Strategy (Config › Instruments)",
+                      "type": "select",
+                      "width": 0.5,
+                      "optionsFrom": {
+                        "service": "strategies_list",
+                        "value": "name",
+                        "label": "label",
+                        "empty": "(none: enter the legs)"
+                      },
+                      "fill": {
+                        "legs": "legs",
+                        "symbol": "symbol"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (55)",
+                      "type": "text",
+                      "width": 0.25,
+                      "placeholder": "blank: the legs'"
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (54)",
+                      "type": "select",
+                      "width": 0.25,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Sell Short"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - Sell Short Exempt"
+                        }
+                      ],
+                      "value": "1"
+                    },
+                    {
+                      "name": "qty",
+                      "label": "Quantity (38)",
+                      "type": "number",
+                      "placeholder": "10",
+                      "min": 1,
+                      "width": 0.25,
+                      "required": true
+                    },
+                    {
+                      "name": "price",
+                      "label": "Net Price (44)",
+                      "type": "number",
+                      "step": "0.01",
+                      "width": 0.25
+                    }
+                  ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "ord_type",
+                      "label": "Order Type (40)",
+                      "type": "select",
+                      "width": 0.25,
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Market"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Limit"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - Market on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "B",
+                          "label": "B - Limit on Close (<= FIX 4.3)"
+                        },
+                        {
+                          "value": "I",
+                          "label": "I - Funari"
+                        }
+                      ],
+                      "value": "2"
+                    },
+                    {
+                      "name": "tif",
+                      "label": "Time in Force (59)",
+                      "type": "select",
+                      "width": 0.25,
+                      "options": [
+                        {
+                          "value": "0",
+                          "label": "0 - Day"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - GTC"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - At the Opening"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - IOC"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - FOK"
+                        },
+                        {
+                          "value": "5",
+                          "label": "5 - GTX"
+                        },
+                        {
+                          "value": "6",
+                          "label": "6 - GTD"
+                        },
+                        {
+                          "value": "7",
+                          "label": "7 - At the Close (>= FIX 4.2)"
+                        }
+                      ],
+                      "value": "0"
+                    },
+                    {
+                      "name": "rpt_type",
+                      "label": "Report Type (563)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(not asked)"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - The multileg security only"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - The multileg security and its legs"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - The legs only"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "legs",
+                  "label": "Legs (555)",
+                  "type": "grid",
+                  "rows": 2,
+                  "required": true,
+                  "none": "No legs yet: add rows, pick a strategy above, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.13,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(type it)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (600)",
+                      "placeholder": "ES",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "security_type",
+                      "label": "Type (609)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF (>= FIX 5.0)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (610)",
+                      "placeholder": "YYYYMM",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (612)",
+                      "type": "number",
+                      "width": 0.08
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "width": 0.08
+                    },
+                    {
+                      "name": "ratio",
+                      "label": "Ratio (623)",
+                      "type": "number",
+                      "placeholder": "1",
+                      "width": 0.07
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (624)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "width": 0.09
+                    },
+                    {
+                      "name": "position_effect",
+                      "label": "Open/Close (564)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "O",
+                          "label": "O - Open"
+                        },
+                        {
+                          "value": "C",
+                          "label": "C - Close"
+                        }
+                      ],
+                      "width": 0.1
+                    },
+                    {
+                      "name": "leg_price",
+                      "label": "Price (566)",
+                      "type": "number",
+                      "width": 0.08
+                    }
+                  ]
+                },
+                {
+                  "type": "readonly",
+                  "value": "A leg's Put/Call rides in LegCFICode (608) before FIX 5.0 SP1. Side and Price are the strategy's: a net price may be negative. FIX 4.1 and 4.2 carry the multileg messages; FIX 4.0 has none."
+                },
+                {
+                  "row": [
+                    {
+                      "name": "client",
+                      "label": "Client (session's client tag)",
+                      "type": "text",
+                      "placeholder": "optional",
+                      "width": 0.5
+                    },
+                    {
+                      "name": "handl_inst",
+                      "label": "Handling Inst (21)",
+                      "type": "select",
+                      "value": "1",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Automated, private, no broker intervention"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Automated, public, broker intervention OK"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Manual, best execution"
+                        }
+                      ],
+                      "width": 0.5
+                    }
+                  ]
+                },
+                {
+                  "name": "text",
+                  "label": "Text (58)",
+                  "type": "text",
+                  "placeholder": "optional"
+                },
+                {
+                  "name": "extra_tags",
+                  "label": "Extra Tags",
+                  "type": "text",
+                  "placeholder": "e.g. 5001=X|382=2|375=A|375=B"
+                },
+                {
+                  "group": "Advanced",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "row": [
+                        {
+                          "name": "expire_time",
+                          "label": "Expire (126/432; local, time optional)",
+                          "type": "datetime",
+                          "time": "optional",
+                          "step": 1
+                        }
+                      ]
+                    },
+                    {
+                      "name": "save_instrument_as",
+                      "pin": "reset",
+                      "label": "Save strategy as",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these legs in Config › Instruments"
+                    },
+                    {
+                      "name": "save_as",
+                      "pin": "reset",
+                      "label": "Save as template",
+                      "type": "text",
+                      "placeholder": "optional — a name keeps these terms for next time"
+                    }
+                  ]
+                },
+                {
+                  "label": "Terms as tags",
+                  "type": "readonly",
+                  "compute": "CONCAT('55=', IF(COALESCE(symbol, '') != '', symbol, '(the legs\\' symbol)'), '|167=MLEG|54=', side, '|38=', STR(qty), '|40=', ord_type, IF(price != NULL, CONCAT('|44=', STR(price)), ''), '|59=', tif, '|21=', handl_inst, IF(COALESCE(rpt_type, '') != '', CONCAT('|563=', rpt_type), ''), '|555=', STR(LEN(SPLIT(COALESCE(legs, ''), '{')) - 1), IF(COALESCE(text, '') != '', CONCAT('|58=', text), ''), IF(COALESCE(extra_tags, '') != '', CONCAT('|', extra_tags), ''))"
+                }
+              ],
+              "submit": {
+                "label": "Send Multileg",
+                "service": "fix_cmd",
+                "op": "send_new_multileg"
+              }
+            }
+          }
+        },
+        {
           "label": "Clone",
           "unit": "row",
           "enable": {
-            "connected": true
+            "connected": true,
+            "when": "ALL(rows, r -> r.leg_count == 0)"
           },
           "action": {
             "type": "dialog",
@@ -3302,9 +3793,9 @@
           "action": {
             "type": "dialog",
             "dialog": {
-              "title": "Cancel/Replace ${row.cl_ord_id}",
+              "title": "${IF(row.leg_count > 0, 'Multileg Cancel/Replace', 'Cancel/Replace')} ${row.cl_ord_id}",
               "pin": "keep",
-              "width": 420,
+              "width": 640,
               "submitPerRow": true,
               "rowData": {
                 "session_id": "${row.session_id}",
@@ -3407,7 +3898,7 @@
                   "label": "Instrument (the order's; a replace keeps it)",
                   "type": "readonly",
                   "value": "${row.instrument}",
-                  "showWhen": "row.security_type != ''"
+                  "showWhen": "row.security_type != '' && row.leg_count == 0"
                 },
                 {
                   "row": [
@@ -3514,6 +4005,157 @@
                   "type": "readonly",
                   "showWhen": "tif == '7'",
                   "value": "Defined from FIX 4.2. Earlier it is a non-standard TimeInForce, allowed for testing."
+                },
+                {
+                  "name": "legs",
+                  "label": "Legs (555) — a MultilegOrderCancelReplace (35=AC) goes out",
+                  "type": "grid",
+                  "rows": 2,
+                  "required": false,
+                  "none": "No legs yet: add rows, pick a strategy above, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.13,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(type it)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (600)",
+                      "placeholder": "ES",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "security_type",
+                      "label": "Type (609)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF (>= FIX 5.0)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (610)",
+                      "placeholder": "YYYYMM",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (612)",
+                      "type": "number",
+                      "width": 0.08
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "width": 0.08
+                    },
+                    {
+                      "name": "ratio",
+                      "label": "Ratio (623)",
+                      "type": "number",
+                      "placeholder": "1",
+                      "width": 0.07
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (624)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "width": 0.09
+                    },
+                    {
+                      "name": "position_effect",
+                      "label": "Open/Close (564)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "O",
+                          "label": "O - Open"
+                        },
+                        {
+                          "value": "C",
+                          "label": "C - Close"
+                        }
+                      ],
+                      "width": 0.1
+                    },
+                    {
+                      "name": "leg_price",
+                      "label": "Price (566)",
+                      "type": "number",
+                      "width": 0.08
+                    }
+                  ],
+                  "value": "${row.legs_json}",
+                  "showWhen": "row.leg_count > 0"
                 },
                 {
                   "name": "handl_inst",
@@ -3769,7 +4411,10 @@
         "listen": {
           "sent_list": "list_id"
         },
-        "chips": false
+        "chips": false,
+        "broadcast": {
+          "sent_order": "order_id"
+        }
       }
     },
     "trade-blotter": {
@@ -3820,7 +4465,8 @@
         "leaves_qty",
         "timestamp",
         "direction",
-        "session_status"
+        "session_status",
+        "leg_ref_id"
       ],
       "visible": [
         "trade_id",
@@ -3914,7 +4560,8 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)",
         "open_close": "Open/Close (77)",
-        "covered_uncovered": "Covered (203)"
+        "covered_uncovered": "Covered (203)",
+        "leg_ref_id": "LegRefID (654)"
       },
       "types": {
         "transact_time": {
@@ -11722,7 +12369,12 @@
         "cxl_rej_reason",
         "pending_entered",
         "market_order_id",
-        "session_status"
+        "session_status",
+        "legs",
+        "leg_count",
+        "multileg_rpt_type",
+        "pending_legs",
+        "legs_json"
       ],
       "visible": [
         "order_id",
@@ -11730,6 +12382,7 @@
         "session_id",
         "client",
         "instrument",
+        "legs",
         "side",
         "ord_type",
         "handl_inst",
@@ -11823,7 +12476,12 @@
         "open_close": "Open/Close (77)",
         "covered_uncovered": "Covered (203)",
         "list_id": "List ID (66)",
-        "list_seq_no": "List Seq (67)"
+        "list_seq_no": "List Seq (67)",
+        "legs": "Legs",
+        "leg_count": "Legs (555)",
+        "multileg_rpt_type": "Report Type (563)",
+        "pending_legs": "Pending Legs",
+        "legs_json": "Legs (grid)"
       },
       "types": {
         "updated_at": {
@@ -12111,9 +12769,64 @@
                       "type": "text",
                       "value": "${row.price}",
                       "width": 0.5,
-                      "required": true
+                      "placeholder": "required unless a leg's LegPrice"
                     }
                   ]
+                },
+                {
+                  "row": [
+                    {
+                      "name": "leg",
+                      "label": "Leg (654, or its place)",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "The whole order (442=3)"
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Leg 1 (442=2)"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Leg 2 (442=2)"
+                        },
+                        {
+                          "value": "3",
+                          "label": "3 - Leg 3 (442=2)"
+                        },
+                        {
+                          "value": "4",
+                          "label": "4 - Leg 4 (442=2)"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "report_legs",
+                      "label": "Report legs",
+                      "type": "select",
+                      "width": 0.5,
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "No"
+                        },
+                        {
+                          "value": "Y",
+                          "label": "Y - Yes, a 442=2 report per leg after it"
+                        }
+                      ],
+                      "showWhen": "COALESCE(leg, '') == ''"
+                    }
+                  ],
+                  "showWhen": "row.leg_count > 0"
+                },
+                {
+                  "type": "readonly",
+                  "showWhen": "row.leg_count > 0 && COALESCE(leg, '') != ''",
+                  "value": "A leg's quantity is in its own units (the order's times its ratio); a blank price takes the leg's LegPrice (566). The order's own fills do not move."
                 },
                 {
                   "name": "text",
@@ -12424,7 +13137,8 @@
           "label": "Clone",
           "unit": "row",
           "enable": {
-            "connected": true
+            "connected": true,
+            "when": "ALL(rows, r -> r.leg_count == 0)"
           },
           "action": {
             "type": "dialog",
@@ -13540,7 +14254,10 @@
         "listen": {
           "received_list": "list_id"
         },
-        "chips": false
+        "chips": false,
+        "broadcast": {
+          "received_order": "order_id"
+        }
       }
     },
     "market-trade-blotter": {
@@ -13591,7 +14308,8 @@
         "leaves_qty",
         "timestamp",
         "direction",
-        "session_status"
+        "session_status",
+        "leg_ref_id"
       ],
       "visible": [
         "trade_id",
@@ -13684,7 +14402,8 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)",
         "open_close": "Open/Close (77)",
-        "covered_uncovered": "Covered (203)"
+        "covered_uncovered": "Covered (203)",
+        "leg_ref_id": "LegRefID (654)"
       },
       "types": {
         "transact_time": {
@@ -20587,7 +21306,9 @@
         "text",
         "extra_tags",
         "id",
-        "created_at"
+        "created_at",
+        "legs",
+        "rpt_type"
       ],
       "visible": [
         "name",
@@ -20665,7 +21386,9 @@
         "tot_orders": "TotNoOrders (68)",
         "list_orders": "Orders",
         "status_type": "Status Type (429)",
-        "list_status": "List Status (431)"
+        "list_status": "List Status (431)",
+        "legs": "Legs",
+        "rpt_type": "Report Type (563)"
       },
       "sort": [
         "scope",
@@ -20726,14 +21449,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list', 'multileg'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list', 'multileg'], row.scope)"
                 },
                 {
                   "row": [
@@ -20743,7 +21466,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.symbol}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                     },
                     {
                       "name": "side",
@@ -20751,7 +21474,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.side}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     }
                   ]
                 },
@@ -20763,7 +21486,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.qty}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     },
                     {
                       "name": "price",
@@ -20771,7 +21494,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.price}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit', 'list_fill'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit', 'list_fill'], row.scope)"
                     }
                   ]
                 },
@@ -20805,7 +21528,7 @@
                         }
                       ],
                       "value": "${row.ord_type}",
-                      "showWhen": "row.scope == 'order'"
+                      "showWhen": "CONTAINS(['order', 'multileg'], row.scope)"
                     },
                     {
                       "name": "tif",
@@ -20847,7 +21570,7 @@
                         }
                       ],
                       "value": "${row.tif}",
-                      "showWhen": "row.scope == 'order'"
+                      "showWhen": "CONTAINS(['order', 'multileg'], row.scope)"
                     }
                   ]
                 },
@@ -21254,7 +21977,7 @@
                     }
                   ],
                   "value": "${row.handl_inst}",
-                  "showWhen": "row.scope == 'order'"
+                  "showWhen": "CONTAINS(['order', 'multileg'], row.scope)"
                 },
                 {
                   "row": [
@@ -21932,6 +22655,182 @@
                   ],
                   "value": "${row.list_orders}",
                   "showWhen": "row.scope == 'list'"
+                },
+                {
+                  "name": "legs",
+                  "label": "Legs (555)",
+                  "type": "grid",
+                  "rows": 2,
+                  "required": false,
+                  "none": "No legs yet: add rows, pick a strategy above, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.13,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(type it)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (600)",
+                      "placeholder": "ES",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "security_type",
+                      "label": "Type (609)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF (>= FIX 5.0)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (610)",
+                      "placeholder": "YYYYMM",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (612)",
+                      "type": "number",
+                      "width": 0.08
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "width": 0.08
+                    },
+                    {
+                      "name": "ratio",
+                      "label": "Ratio (623)",
+                      "type": "number",
+                      "placeholder": "1",
+                      "width": 0.07
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (624)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "width": 0.09
+                    },
+                    {
+                      "name": "position_effect",
+                      "label": "Open/Close (564)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "O",
+                          "label": "O - Open"
+                        },
+                        {
+                          "value": "C",
+                          "label": "C - Close"
+                        }
+                      ],
+                      "width": 0.1
+                    },
+                    {
+                      "name": "leg_price",
+                      "label": "Price (566)",
+                      "type": "number",
+                      "width": 0.08
+                    }
+                  ],
+                  "value": "${row.legs}",
+                  "showWhen": "row.scope == 'multileg'"
+                },
+                {
+                  "name": "rpt_type",
+                  "label": "Report Type (563)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": "(not asked)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - The multileg security only"
+                    },
+                    {
+                      "value": "1",
+                      "label": "1 - The multileg security and its legs"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - The legs only"
+                    }
+                  ],
+                  "value": "${row.rpt_type}",
+                  "showWhen": "row.scope == 'multileg'"
                 },
                 {
                   "row": [
@@ -22014,14 +22913,14 @@
                     "label": "session_id"
                   },
                   "compute": "row.session_id",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list', 'multileg'], row.scope)"
                 },
                 {
                   "name": "client",
                   "label": "Client",
                   "type": "text",
                   "value": "${row.client}",
-                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list'], row.scope)"
+                  "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'rfq_request', 'list', 'multileg'], row.scope)"
                 },
                 {
                   "row": [
@@ -22031,7 +22930,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.symbol}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote'], row.scope)"
                     },
                     {
                       "name": "side",
@@ -22039,7 +22938,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.side}",
-                      "showWhen": "CONTAINS(['order', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     }
                   ]
                 },
@@ -22051,7 +22950,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.qty}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'fill', 'correct', 'restate', 'ioi', 'advert', 'allocation', 'rfq', 'new_quote', 'hit'], row.scope)"
                     },
                     {
                       "name": "price",
@@ -22059,7 +22958,7 @@
                       "type": "text",
                       "width": 0.5,
                       "value": "${row.price}",
-                      "showWhen": "CONTAINS(['order', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit', 'list_fill'], row.scope)"
+                      "showWhen": "CONTAINS(['order', 'multileg', 'fill', 'correct', 'restate', 'ioi', 'advert', 'hit', 'list_fill'], row.scope)"
                     }
                   ]
                 },
@@ -22093,7 +22992,7 @@
                         }
                       ],
                       "value": "${row.ord_type}",
-                      "showWhen": "row.scope == 'order'"
+                      "showWhen": "CONTAINS(['order', 'multileg'], row.scope)"
                     },
                     {
                       "name": "tif",
@@ -22135,7 +23034,7 @@
                         }
                       ],
                       "value": "${row.tif}",
-                      "showWhen": "row.scope == 'order'"
+                      "showWhen": "CONTAINS(['order', 'multileg'], row.scope)"
                     }
                   ]
                 },
@@ -22542,7 +23441,7 @@
                     }
                   ],
                   "value": "${row.handl_inst}",
-                  "showWhen": "row.scope == 'order'"
+                  "showWhen": "CONTAINS(['order', 'multileg'], row.scope)"
                 },
                 {
                   "row": [
@@ -23220,6 +24119,182 @@
                   ],
                   "value": "${row.list_orders}",
                   "showWhen": "row.scope == 'list'"
+                },
+                {
+                  "name": "legs",
+                  "label": "Legs (555)",
+                  "type": "grid",
+                  "rows": 2,
+                  "required": false,
+                  "none": "No legs yet: add rows, pick a strategy above, or paste them from a spreadsheet",
+                  "columns": [
+                    {
+                      "name": "instrument",
+                      "label": "Instrument",
+                      "type": "select",
+                      "width": 0.13,
+                      "optionsFrom": {
+                        "service": "instruments_list",
+                        "value": "name",
+                        "label": "name",
+                        "empty": "(type it)"
+                      },
+                      "fill": {
+                        "symbol": "symbol",
+                        "security_type": "security_type",
+                        "maturity": "maturity",
+                        "strike_price": "strike_price",
+                        "put_or_call": "put_or_call",
+                        "cfi_code": "cfi_code",
+                        "multiplier": "multiplier",
+                        "security_exchange": "security_exchange",
+                        "security_id": "security_id",
+                        "security_id_source": "security_id_source"
+                      }
+                    },
+                    {
+                      "name": "symbol",
+                      "label": "Symbol (600)",
+                      "placeholder": "ES",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "security_type",
+                      "label": "Type (609)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": "(none: a stock)"
+                        },
+                        {
+                          "value": "CS",
+                          "label": "CS - Common Stock"
+                        },
+                        {
+                          "value": "OPT",
+                          "label": "OPT - Option"
+                        },
+                        {
+                          "value": "FUT",
+                          "label": "FUT - Future"
+                        },
+                        {
+                          "value": "OOF",
+                          "label": "OOF (>= FIX 5.0)"
+                        }
+                      ],
+                      "width": 0.11
+                    },
+                    {
+                      "name": "maturity",
+                      "label": "Maturity (610)",
+                      "placeholder": "YYYYMM",
+                      "width": 0.1
+                    },
+                    {
+                      "name": "strike_price",
+                      "label": "Strike (612)",
+                      "type": "number",
+                      "width": 0.08
+                    },
+                    {
+                      "name": "put_or_call",
+                      "label": "Put/Call",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "1",
+                          "label": "1 - Call"
+                        },
+                        {
+                          "value": "0",
+                          "label": "0 - Put"
+                        }
+                      ],
+                      "width": 0.08
+                    },
+                    {
+                      "name": "ratio",
+                      "label": "Ratio (623)",
+                      "type": "number",
+                      "placeholder": "1",
+                      "width": 0.07
+                    },
+                    {
+                      "name": "side",
+                      "label": "Side (624)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "1",
+                          "label": "1 - Buy"
+                        },
+                        {
+                          "value": "2",
+                          "label": "2 - Sell"
+                        }
+                      ],
+                      "width": 0.09
+                    },
+                    {
+                      "name": "position_effect",
+                      "label": "Open/Close (564)",
+                      "type": "select",
+                      "options": [
+                        {
+                          "value": "",
+                          "label": ""
+                        },
+                        {
+                          "value": "O",
+                          "label": "O - Open"
+                        },
+                        {
+                          "value": "C",
+                          "label": "C - Close"
+                        }
+                      ],
+                      "width": 0.1
+                    },
+                    {
+                      "name": "leg_price",
+                      "label": "Price (566)",
+                      "type": "number",
+                      "width": 0.08
+                    }
+                  ],
+                  "value": "${row.legs}",
+                  "showWhen": "row.scope == 'multileg'"
+                },
+                {
+                  "name": "rpt_type",
+                  "label": "Report Type (563)",
+                  "type": "select",
+                  "options": [
+                    {
+                      "value": "",
+                      "label": "(not asked)"
+                    },
+                    {
+                      "value": "0",
+                      "label": "0 - The multileg security only"
+                    },
+                    {
+                      "value": "1",
+                      "label": "1 - The multileg security and its legs"
+                    },
+                    {
+                      "value": "2",
+                      "label": "2 - The legs only"
+                    }
+                  ],
+                  "value": "${row.rpt_type}",
+                  "showWhen": "row.scope == 'multileg'"
                 },
                 {
                   "row": [
@@ -24511,7 +25586,8 @@
         "security_id_source",
         "description",
         "created_at",
-        "updated_at"
+        "updated_at",
+        "legs"
       ],
       "visible": [
         "name",
@@ -24544,7 +25620,8 @@
         "multiplier": "Multiplier (231)",
         "security_exchange": "Exchange (207)",
         "security_id": "Security ID (48)",
-        "security_id_source": "ID Source (22)"
+        "security_id_source": "ID Source (22)",
+        "legs": "Legs (a strategy)"
       },
       "types": {
         "created_at": {
@@ -24779,6 +25856,162 @@
                         {
                           "value": "A",
                           "label": "A - Bloomberg Symbol (>= FIX 4.2)"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "group": "Strategy legs",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "legs",
+                      "label": "Legs (555)",
+                      "type": "grid",
+                      "rows": 2,
+                      "required": false,
+                      "none": "No legs: a single instrument. Legs make it a strategy for New Multileg…",
+                      "columns": [
+                        {
+                          "name": "instrument",
+                          "label": "Instrument",
+                          "type": "select",
+                          "width": 0.13,
+                          "optionsFrom": {
+                            "service": "instruments_list",
+                            "value": "name",
+                            "label": "name",
+                            "empty": "(type it)"
+                          },
+                          "fill": {
+                            "symbol": "symbol",
+                            "security_type": "security_type",
+                            "maturity": "maturity",
+                            "strike_price": "strike_price",
+                            "put_or_call": "put_or_call",
+                            "cfi_code": "cfi_code",
+                            "multiplier": "multiplier",
+                            "security_exchange": "security_exchange",
+                            "security_id": "security_id",
+                            "security_id_source": "security_id_source"
+                          }
+                        },
+                        {
+                          "name": "symbol",
+                          "label": "Symbol (600)",
+                          "placeholder": "ES",
+                          "width": 0.1
+                        },
+                        {
+                          "name": "security_type",
+                          "label": "Type (609)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": "(none: a stock)"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            },
+                            {
+                              "value": "OPT",
+                              "label": "OPT - Option"
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "OOF",
+                              "label": "OOF (>= FIX 5.0)"
+                            }
+                          ],
+                          "width": 0.11
+                        },
+                        {
+                          "name": "maturity",
+                          "label": "Maturity (610)",
+                          "placeholder": "YYYYMM",
+                          "width": 0.1
+                        },
+                        {
+                          "name": "strike_price",
+                          "label": "Strike (612)",
+                          "type": "number",
+                          "width": 0.08
+                        },
+                        {
+                          "name": "put_or_call",
+                          "label": "Put/Call",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Call"
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Put"
+                            }
+                          ],
+                          "width": 0.08
+                        },
+                        {
+                          "name": "ratio",
+                          "label": "Ratio (623)",
+                          "type": "number",
+                          "placeholder": "1",
+                          "width": 0.07
+                        },
+                        {
+                          "name": "side",
+                          "label": "Side (624)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "1",
+                              "label": "1 - Buy"
+                            },
+                            {
+                              "value": "2",
+                              "label": "2 - Sell"
+                            }
+                          ],
+                          "width": 0.09
+                        },
+                        {
+                          "name": "position_effect",
+                          "label": "Open/Close (564)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "O",
+                              "label": "O - Open"
+                            },
+                            {
+                              "value": "C",
+                              "label": "C - Close"
+                            }
+                          ],
+                          "width": 0.1
+                        },
+                        {
+                          "name": "leg_price",
+                          "label": "Price (566)",
+                          "type": "number",
+                          "width": 0.08
                         }
                       ]
                     }
@@ -25031,6 +26264,163 @@
                   ]
                 },
                 {
+                  "group": "Strategy legs",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "legs",
+                      "label": "Legs (555)",
+                      "type": "grid",
+                      "rows": 2,
+                      "required": false,
+                      "none": "No legs: a single instrument. Legs make it a strategy for New Multileg…",
+                      "columns": [
+                        {
+                          "name": "instrument",
+                          "label": "Instrument",
+                          "type": "select",
+                          "width": 0.13,
+                          "optionsFrom": {
+                            "service": "instruments_list",
+                            "value": "name",
+                            "label": "name",
+                            "empty": "(type it)"
+                          },
+                          "fill": {
+                            "symbol": "symbol",
+                            "security_type": "security_type",
+                            "maturity": "maturity",
+                            "strike_price": "strike_price",
+                            "put_or_call": "put_or_call",
+                            "cfi_code": "cfi_code",
+                            "multiplier": "multiplier",
+                            "security_exchange": "security_exchange",
+                            "security_id": "security_id",
+                            "security_id_source": "security_id_source"
+                          }
+                        },
+                        {
+                          "name": "symbol",
+                          "label": "Symbol (600)",
+                          "placeholder": "ES",
+                          "width": 0.1
+                        },
+                        {
+                          "name": "security_type",
+                          "label": "Type (609)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": "(none: a stock)"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            },
+                            {
+                              "value": "OPT",
+                              "label": "OPT - Option"
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "OOF",
+                              "label": "OOF (>= FIX 5.0)"
+                            }
+                          ],
+                          "width": 0.11
+                        },
+                        {
+                          "name": "maturity",
+                          "label": "Maturity (610)",
+                          "placeholder": "YYYYMM",
+                          "width": 0.1
+                        },
+                        {
+                          "name": "strike_price",
+                          "label": "Strike (612)",
+                          "type": "number",
+                          "width": 0.08
+                        },
+                        {
+                          "name": "put_or_call",
+                          "label": "Put/Call",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Call"
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Put"
+                            }
+                          ],
+                          "width": 0.08
+                        },
+                        {
+                          "name": "ratio",
+                          "label": "Ratio (623)",
+                          "type": "number",
+                          "placeholder": "1",
+                          "width": 0.07
+                        },
+                        {
+                          "name": "side",
+                          "label": "Side (624)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "1",
+                              "label": "1 - Buy"
+                            },
+                            {
+                              "value": "2",
+                              "label": "2 - Sell"
+                            }
+                          ],
+                          "width": 0.09
+                        },
+                        {
+                          "name": "position_effect",
+                          "label": "Open/Close (564)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "O",
+                              "label": "O - Open"
+                            },
+                            {
+                              "value": "C",
+                              "label": "C - Close"
+                            }
+                          ],
+                          "width": 0.1
+                        },
+                        {
+                          "name": "leg_price",
+                          "label": "Price (566)",
+                          "type": "number",
+                          "width": 0.08
+                        }
+                      ],
+                      "value": "${row.legs}"
+                    }
+                  ]
+                },
+                {
                   "name": "description",
                   "label": "Description",
                   "type": "text",
@@ -25279,6 +26669,163 @@
                         }
                       ],
                       "value": "${row.security_id_source}"
+                    }
+                  ]
+                },
+                {
+                  "group": "Strategy legs",
+                  "collapsible": true,
+                  "collapsed": true,
+                  "fields": [
+                    {
+                      "name": "legs",
+                      "label": "Legs (555)",
+                      "type": "grid",
+                      "rows": 2,
+                      "required": false,
+                      "none": "No legs: a single instrument. Legs make it a strategy for New Multileg…",
+                      "columns": [
+                        {
+                          "name": "instrument",
+                          "label": "Instrument",
+                          "type": "select",
+                          "width": 0.13,
+                          "optionsFrom": {
+                            "service": "instruments_list",
+                            "value": "name",
+                            "label": "name",
+                            "empty": "(type it)"
+                          },
+                          "fill": {
+                            "symbol": "symbol",
+                            "security_type": "security_type",
+                            "maturity": "maturity",
+                            "strike_price": "strike_price",
+                            "put_or_call": "put_or_call",
+                            "cfi_code": "cfi_code",
+                            "multiplier": "multiplier",
+                            "security_exchange": "security_exchange",
+                            "security_id": "security_id",
+                            "security_id_source": "security_id_source"
+                          }
+                        },
+                        {
+                          "name": "symbol",
+                          "label": "Symbol (600)",
+                          "placeholder": "ES",
+                          "width": 0.1
+                        },
+                        {
+                          "name": "security_type",
+                          "label": "Type (609)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": "(none: a stock)"
+                            },
+                            {
+                              "value": "CS",
+                              "label": "CS - Common Stock"
+                            },
+                            {
+                              "value": "OPT",
+                              "label": "OPT - Option"
+                            },
+                            {
+                              "value": "FUT",
+                              "label": "FUT - Future"
+                            },
+                            {
+                              "value": "OOF",
+                              "label": "OOF (>= FIX 5.0)"
+                            }
+                          ],
+                          "width": 0.11
+                        },
+                        {
+                          "name": "maturity",
+                          "label": "Maturity (610)",
+                          "placeholder": "YYYYMM",
+                          "width": 0.1
+                        },
+                        {
+                          "name": "strike_price",
+                          "label": "Strike (612)",
+                          "type": "number",
+                          "width": 0.08
+                        },
+                        {
+                          "name": "put_or_call",
+                          "label": "Put/Call",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "1",
+                              "label": "1 - Call"
+                            },
+                            {
+                              "value": "0",
+                              "label": "0 - Put"
+                            }
+                          ],
+                          "width": 0.08
+                        },
+                        {
+                          "name": "ratio",
+                          "label": "Ratio (623)",
+                          "type": "number",
+                          "placeholder": "1",
+                          "width": 0.07
+                        },
+                        {
+                          "name": "side",
+                          "label": "Side (624)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "1",
+                              "label": "1 - Buy"
+                            },
+                            {
+                              "value": "2",
+                              "label": "2 - Sell"
+                            }
+                          ],
+                          "width": 0.09
+                        },
+                        {
+                          "name": "position_effect",
+                          "label": "Open/Close (564)",
+                          "type": "select",
+                          "options": [
+                            {
+                              "value": "",
+                              "label": ""
+                            },
+                            {
+                              "value": "O",
+                              "label": "O - Open"
+                            },
+                            {
+                              "value": "C",
+                              "label": "C - Close"
+                            }
+                          ],
+                          "width": 0.1
+                        },
+                        {
+                          "name": "leg_price",
+                          "label": "Price (566)",
+                          "type": "number",
+                          "width": 0.08
+                        }
+                      ],
+                      "value": "${row.legs}"
                     }
                   ]
                 },
@@ -27597,6 +29144,248 @@
           }
         }
       ]
+    },
+    "sent-legs": {
+      "title": "Sent Order Legs",
+      "type": "mkio-table",
+      "service": "order_legs_query",
+      "protocol": "query",
+      "filter": "direction == 'TX'",
+      "columns": [
+        "id",
+        "session_id",
+        "direction",
+        "order_id",
+        "cl_ord_id",
+        "seq",
+        "leg_ref_id",
+        "symbol",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "instrument",
+        "ratio",
+        "side",
+        "side_code",
+        "position_effect",
+        "covered",
+        "leg_price",
+        "leg_qty",
+        "cum_qty",
+        "avg_price",
+        "last_qty",
+        "last_price",
+        "created_at",
+        "updated_at"
+      ],
+      "visible": [
+        "cl_ord_id",
+        "seq",
+        "leg_ref_id",
+        "instrument",
+        "side",
+        "ratio",
+        "position_effect",
+        "leg_price",
+        "leg_qty",
+        "cum_qty",
+        "avg_price",
+        "last_qty",
+        "last_price",
+        "updated_at"
+      ],
+      "labels": {
+        "id": "Row",
+        "session_id": "Session",
+        "direction": "Dir",
+        "order_id": "Order ID",
+        "cl_ord_id": "ClOrdID",
+        "seq": "#",
+        "leg_ref_id": "LegRefID (654)",
+        "symbol": "Symbol (600)",
+        "security_type": "Sec Type (609)",
+        "maturity": "Maturity (610)",
+        "strike_price": "Strike (612)",
+        "put_or_call": "Put/Call",
+        "cfi_code": "CFI Code (608)",
+        "multiplier": "Multiplier (614)",
+        "security_exchange": "Exchange (616)",
+        "security_id": "Security ID (602)",
+        "security_id_source": "ID Source (603)",
+        "instrument": "Instrument",
+        "ratio": "Ratio (623)",
+        "side": "Side (624)",
+        "side_code": "Side Code",
+        "position_effect": "Open/Close (564)",
+        "covered": "Covered (565)",
+        "leg_price": "Leg Px (566)",
+        "leg_qty": "Leg Qty",
+        "cum_qty": "Cum Qty",
+        "avg_price": "Avg Px",
+        "last_qty": "Last Qty",
+        "last_price": "Last Px (637)",
+        "created_at": "Created",
+        "updated_at": "Updated"
+      },
+      "types": {
+        "created_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "side": [
+          {
+            "when": "value == 'Buy'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "link": {
+        "listen": {
+          "sent_order": "order_id"
+        },
+        "chips": false
+      }
+    },
+    "received-legs": {
+      "title": "Received Order Legs",
+      "type": "mkio-table",
+      "service": "order_legs_query",
+      "protocol": "query",
+      "filter": "direction == 'RX'",
+      "columns": [
+        "id",
+        "session_id",
+        "direction",
+        "order_id",
+        "cl_ord_id",
+        "seq",
+        "leg_ref_id",
+        "symbol",
+        "security_type",
+        "maturity",
+        "strike_price",
+        "put_or_call",
+        "cfi_code",
+        "multiplier",
+        "security_exchange",
+        "security_id",
+        "security_id_source",
+        "instrument",
+        "ratio",
+        "side",
+        "side_code",
+        "position_effect",
+        "covered",
+        "leg_price",
+        "leg_qty",
+        "cum_qty",
+        "avg_price",
+        "last_qty",
+        "last_price",
+        "created_at",
+        "updated_at"
+      ],
+      "visible": [
+        "cl_ord_id",
+        "seq",
+        "leg_ref_id",
+        "instrument",
+        "side",
+        "ratio",
+        "position_effect",
+        "leg_price",
+        "leg_qty",
+        "cum_qty",
+        "avg_price",
+        "last_qty",
+        "last_price",
+        "updated_at"
+      ],
+      "labels": {
+        "id": "Row",
+        "session_id": "Session",
+        "direction": "Dir",
+        "order_id": "Order ID",
+        "cl_ord_id": "ClOrdID",
+        "seq": "#",
+        "leg_ref_id": "LegRefID (654)",
+        "symbol": "Symbol (600)",
+        "security_type": "Sec Type (609)",
+        "maturity": "Maturity (610)",
+        "strike_price": "Strike (612)",
+        "put_or_call": "Put/Call",
+        "cfi_code": "CFI Code (608)",
+        "multiplier": "Multiplier (614)",
+        "security_exchange": "Exchange (616)",
+        "security_id": "Security ID (602)",
+        "security_id_source": "ID Source (603)",
+        "instrument": "Instrument",
+        "ratio": "Ratio (623)",
+        "side": "Side (624)",
+        "side_code": "Side Code",
+        "position_effect": "Open/Close (564)",
+        "covered": "Covered (565)",
+        "leg_price": "Leg Px (566)",
+        "leg_qty": "Leg Qty",
+        "cum_qty": "Cum Qty",
+        "avg_price": "Avg Px",
+        "last_qty": "Last Qty",
+        "last_price": "Last Px (637)",
+        "created_at": "Created",
+        "updated_at": "Updated"
+      },
+      "types": {
+        "created_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        },
+        "updated_at": {
+          "type": "time",
+          "parse": "%Y%m%d-%H:%M:%S.%f",
+          "format": "%Y-%m-%d %H:%M:%S.%f %Z",
+          "zone": "local"
+        }
+      },
+      "styles": {
+        "side": [
+          {
+            "when": "value == 'Buy'",
+            "color": "#4ec9b0"
+          },
+          {
+            "when": "CONTAINS(['Sell', 'SellShort', 'SellShortExempt', 'SellPlus'], value)",
+            "color": "#f44747"
+          }
+        ]
+      },
+      "link": {
+        "listen": {
+          "received_order": "order_id"
+        },
+        "chips": false
+      }
     }
   },
   "frames": [
@@ -27680,7 +29469,8 @@
             "type": "tabs",
             "active": 0,
             "children": [
-              "trade-blotter"
+              "trade-blotter",
+              "sent-legs"
             ]
           }
         ]
@@ -27719,7 +29509,8 @@
             "type": "tabs",
             "active": 0,
             "children": [
-              "market-trade-blotter"
+              "market-trade-blotter",
+              "received-legs"
             ]
           }
         ]
@@ -27829,7 +29620,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.78",
+      "version": "0.79",
       "mkio": "1.5",
       "expr": "2"
     },

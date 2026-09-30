@@ -129,7 +129,8 @@ def _start(port: int, *extra: str) -> subprocess.Popen:
     )
 
 
-def _read_until(proc: subprocess.Popen, marker: str, limit: int = 40) -> list[str]:
+def _read_until(proc: subprocess.Popen, marker: str, limit: int = 80) -> list[str]:
+    # A fresh database prints a line per table created before the banner.
     lines: list[str] = []
     for _ in range(limit):
         line = proc.stdout.readline()

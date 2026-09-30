@@ -855,6 +855,86 @@
   "211": {
    "name": "PegDifference",
    "type": "FLOAT"
+  },
+  "442": {
+   "name": "MultiLegReportingType",
+   "type": "CHAR"
+  },
+  "555": {
+   "name": "NoLegs",
+   "type": "NUMINGROUP"
+  },
+  "563": {
+   "name": "MultiLegRptTypeReq",
+   "type": "INT"
+  },
+  "564": {
+   "name": "LegPositionEffect",
+   "type": "CHAR"
+  },
+  "565": {
+   "name": "LegCoveredOrUncovered",
+   "type": "INT"
+  },
+  "566": {
+   "name": "LegPrice",
+   "type": "PRICE"
+  },
+  "600": {
+   "name": "LegSymbol",
+   "type": "STRING"
+  },
+  "602": {
+   "name": "LegSecurityID",
+   "type": "STRING"
+  },
+  "603": {
+   "name": "LegSecurityIDSource",
+   "type": "STRING"
+  },
+  "608": {
+   "name": "LegCFICode",
+   "type": "STRING"
+  },
+  "609": {
+   "name": "LegSecurityType",
+   "type": "STRING"
+  },
+  "610": {
+   "name": "LegMaturityMonthYear",
+   "type": "MONTHYEAR"
+  },
+  "611": {
+   "name": "LegMaturityDate",
+   "type": "LOCALMKTDATE"
+  },
+  "612": {
+   "name": "LegStrikePrice",
+   "type": "PRICE"
+  },
+  "614": {
+   "name": "LegContractMultiplier",
+   "type": "FLOAT"
+  },
+  "616": {
+   "name": "LegSecurityExchange",
+   "type": "EXCHANGE"
+  },
+  "623": {
+   "name": "LegRatioQty",
+   "type": "FLOAT"
+  },
+  "624": {
+   "name": "LegSide",
+   "type": "CHAR"
+  },
+  "637": {
+   "name": "LegLastPx",
+   "type": "PRICE"
+  },
+  "654": {
+   "name": "LegRefID",
+   "type": "STRING"
   }
  },
  "enums": {
@@ -976,7 +1056,9 @@
    "Q": "DontKnowTrade",
    "R": "QuoteRequest",
    "S": "Quote",
-   "T": "SettlementInstructions"
+   "T": "SettlementInstructions",
+   "AB": "NewOrderMultileg",
+   "AC": "MultilegOrderCancelReplace"
   },
   "39": {
    "0": "New",
@@ -1273,7 +1355,8 @@
    "TD": "TimeDeposit",
    "USTB": "UsTreasuryBillOld",
    "WAR": "Warrant",
-   "ZOO": "CatsTigersAndLions"
+   "ZOO": "CatsTigersAndLions",
+   "MLEG": "MultilegInstrument"
   },
   "169": {
    "0": "Other",
@@ -1305,6 +1388,16 @@
    "1": "Match",
    "2": "Forward",
    "3": "ForwardAndMatch"
+  },
+  "442": {
+   "1": "SingleSecurity",
+   "2": "IndividualLegOfAMultiLegSecurity",
+   "3": "MultiLegSecurity"
+  },
+  "563": {
+   "0": "ReportByMulitlegSecurityOnly",
+   "1": "ReportByMultilegSecurityAndInstrumentLegs",
+   "2": "ReportByInstrumentLegsOnly"
   }
  },
  "messages": {
@@ -1419,6 +1512,14 @@
   "T": {
    "name": "SettlementInstructions",
    "category": "app"
+  },
+  "AB": {
+   "name": "NewOrderMultileg",
+   "category": "app"
+  },
+  "AC": {
+   "name": "MultilegOrderCancelReplace",
+   "category": "app"
   }
  },
  "groups": {
@@ -1506,6 +1607,28 @@
    "delim": "104",
    "members": [
     "104"
+   ]
+  },
+  "555": {
+   "delim": "600",
+   "members": [
+    "600",
+    "602",
+    "603",
+    "608",
+    "609",
+    "610",
+    "611",
+    "612",
+    "614",
+    "616",
+    "623",
+    "624",
+    "564",
+    "565",
+    "654",
+    "566",
+    "637"
    ]
   }
  }

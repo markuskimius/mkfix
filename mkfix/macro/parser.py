@@ -22,7 +22,8 @@ from mkio import expr
 
 from . import vocab
 from .nodes import (
-    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Instrument, Let, Log, OrderLine, Repeat, Macro, Share,
+    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Instrument, LegLine, Let, Log, OrderLine, Repeat,
+    Macro, Share,
     Signal,
     Statement, Stop, Term, TradeTarget, Wait, When, While, walk,
 )
@@ -38,7 +39,7 @@ _UNIT_SECONDS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 _EVENTS = sorted(vocab.EVENTS, key=lambda name: -len(name.split()))
 _VERBS = sorted(vocab.VERBS, key=lambda name: -len(name.split()))
 _BLOCKS = sorted(vocab.BLOCK_HEADERS, key=lambda name: -len(name.split()))
-_CREATOR_SUBJECT = {verb: subject for subject, verb in vocab.CREATORS.items()}
+_CREATOR_SUBJECT = vocab.SENDERS
 _SIMPLE = ("after", "wait", "expect", "when", "if", "else", "while", "repeat", "let", "stop", "pass", "fail", "log",
            "signal", "share")
 _HEADERS = ("seed", "on", "run")
@@ -220,8 +221,11 @@ class _Parser:
                     at = (line.no, line.indent)
                     name = self.quoted(line, "An instrument", "instrument 'ESZ6' symbol: 'ES', sec_type: future")
                     line.take_char(",")
-                    macro.instruments.append(
-                        Instrument(*at, name=name, terms=self.terms(line, "instrument", vocab.DECLARED_TERMS)))
+                    decl = Instrument(*at, name=name, terms=self.terms(line, "instrument", vocab.DECLARED_TERMS))
+                    if self._indented(line):
+                        # A strategy: its `leg` lines.
+                        decl.legs = [st for st in self.body(line) if isinstance(st, LegLine)]
+                    macro.instruments.append(decl)
                 elif line.take_phrase("share"):
                     # What the run starts with: before any block, so before any macro of it.
                     if macro.blocks:
@@ -452,6 +456,10 @@ class _Parser:
             line.end()
             return lg
 
+        if line.take_phrase("leg"):
+            # One leg of the `new multileg` (or `replace`) above, or of a declared strategy.
+            return LegLine(*at, terms=self.terms(line, "leg", vocab.LEG_TERMS))
+
         if line.take_phrase("order"):
             # One order of the `new list` above; a block under it is its own macro.
             st = OrderLine(*at, terms=self.terms(line, "new", vocab.VERBS["new"].terms))
@@ -462,7 +470,7 @@ class _Parser:
         verb = line.first_of(_VERBS)
         if verb:
             act = self.action(line, at, verb)
-            if verb in ("new list", "add order") and self._indented(line):
+            if verb in ("new list", "add order", "new multileg", "replace") and self._indented(line):
                 act.body = self.body(line)
             return act
 
