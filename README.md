@@ -417,7 +417,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   saved with legs in Config > Instruments), a net price and the Report Type
   (563); Replace sends the AC. Received Orders' Fill reports the whole order
   (MultiLegReportingType 3), each leg after it, or one leg alone (type 2).
-  Sent/Received Order Legs follow the selected order with each leg's fills.
+  Sent/Received Order Legs follow the selected order with each leg's fills;
+  on the order blotters a multileg order's row is tinted and its Legs and
+  MLEG instrument coloured.
   FIX 4.1 and 4.2 carry the multileg subset of 4.4 (no Parties); FIX 4.0
   has none. Macros send them with `new multileg` and `leg` lines, replace
   them with legs, and fill them with `fill leg:` and `report_legs:`.

@@ -2181,6 +2181,19 @@
             "when": "value != ''",
             "color": "#f44747"
           }
+        ],
+        "legs": [
+          {
+            "when": "value != ''",
+            "color": "#9cdcfe",
+            "bold": true
+          }
+        ],
+        "instrument": [
+          {
+            "when": "ENDS_WITH(value, ' MLEG')",
+            "color": "#9cdcfe"
+          }
         ]
       },
       "buttons": [
@@ -4415,7 +4428,13 @@
         "broadcast": {
           "sent_order": "order_id"
         }
-      }
+      },
+      "rowStyle": [
+        {
+          "when": "leg_count > 0",
+          "background": "#223350"
+        }
+      ]
     },
     "trade-blotter": {
       "title": "Received Trades",
@@ -12555,6 +12574,19 @@
             "bold": true,
             "background": "#3a2f1b"
           }
+        ],
+        "legs": [
+          {
+            "when": "value != ''",
+            "color": "#9cdcfe",
+            "bold": true
+          }
+        ],
+        "instrument": [
+          {
+            "when": "ENDS_WITH(value, ' MLEG')",
+            "color": "#9cdcfe"
+          }
         ]
       },
       "buttons": [
@@ -14258,7 +14290,13 @@
         "broadcast": {
           "received_order": "order_id"
         }
-      }
+      },
+      "rowStyle": [
+        {
+          "when": "leg_count > 0",
+          "background": "#223350"
+        }
+      ]
     },
     "market-trade-blotter": {
       "title": "Sent Trades",

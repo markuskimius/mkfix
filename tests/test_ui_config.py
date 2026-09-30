@@ -3872,6 +3872,26 @@ class TestFamilyInstrumentFields:
             assert "security_type" in spec["columns"] and "security_type" not in spec["visible"], pane_id
 
 
+class TestMultilegRows:
+    """A multileg order stands out on both order blotters: its row tinted
+    by its leg count, its Legs cell and MLEG instrument coloured."""
+
+    @pytest.mark.parametrize("pane_id", ["order-blotter", "market-order-blotter"])
+    def test_a_multileg_row_stands_out(self, app_config, pane_id):
+        from mkio import expr
+        pane = app_config["panes"][pane_id]
+        (tint,) = pane["rowStyle"]
+        assert tint["background"] and "legs" in pane["visible"]
+        multileg = {"leg_count": 2, "legs": "-1 ES Dec26 / +1 ES Mar27", "instrument": "ES MLEG"}
+        single = {"leg_count": 0, "legs": "", "instrument": "ES Dec26"}
+        assert expr.evaluate(tint["when"], multileg) and not expr.evaluate(tint["when"], single)
+        for column in ("legs", "instrument"):
+            (style,) = pane["styles"][column]
+            assert style["color"], column
+            assert expr.evaluate(style["when"], {"value": multileg[column]}), column
+            assert not expr.evaluate(style["when"], {"value": single[column]}), column
+
+
 class TestListBlotters:
     """0.77: Sent Lists and Received Lists over lists_query split by
     direction; New List… with its orders in a grid (mkui 1.24), Clone from
