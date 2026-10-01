@@ -1,0 +1,44 @@
+# House rules
+#
+# Shows:   `define` and `do` — a venue's rules named once and used by every block: how
+#          requests are answered, how an order is worked (with parameters for the pace and
+#          the price), and a define calling the others
+# Needs:   any session: arm it on LOOP-MKT and send orders from Sent Orders on LOOP-CLI, or
+#          run loopback-client there
+# Watch:   Received Orders: IBM filled at its limit in two clips a second apart, anything
+#          else a cent better in two clips two seconds apart; Market Macro Runs
+# Outcome: every order is accepted and filled in halves; replaces are accepted and cancels
+#          honoured, by the same rules in both blocks
+
+on error continue
+
+# The rules every block keeps, named once. A `when` in a define lives as
+# long as it would written where the `do` stands.
+define answer_requests
+    when replace
+        accept
+    when cancel
+        accept text: 'as asked'
+        stop
+
+define work(step, px)
+    fill qty: CEIL(order.leaves_qty / 2), price: px
+    after step
+    if order.leaves_qty > 0
+        fill qty: order.leaves_qty, price: px
+
+define work_at_limit
+    do answer_requests
+    accept
+    do work(1s, order.price)
+
+on order where symbol == 'IBM'
+    do work_at_limit
+    pass '${order.symbol}: ${order.cum_qty} filled'
+
+on order where symbol != 'IBM'
+    do answer_requests
+    after 500ms
+    accept text: 'working'
+    do work(2s, ROUND(order.price - 0.01, 2))
+    pass '${order.symbol}: ${order.cum_qty} filled at ${order.avg_price}'

@@ -395,6 +395,32 @@ A macro never hears its own actions.
 | `stop` | Ends this order's macro with no verdict |
 | `pass 'WHY'` | Ends it as passed |
 | `fail 'WHY'` | Ends it as failed |
+| `do NAME(ARGS)` | Runs a `define`'s lines here; see [Defines](#defines) |
+
+## Defines
+
+Lines several blocks share are named once, at the top of the macro, and run with `do`:
+
+```macro
+define fill_in_halves(px)
+    fill qty: CEIL(order.leaves_qty / 2), price: px
+    after 1s
+    fill qty: order.leaves_qty, price: px
+
+on order where symbol == 'IBM'
+    accept
+    do fill_in_halves(order.price)
+
+on order where symbol == 'MSFT'
+    after 2s
+    accept
+    do fill_in_halves(order.price - 0.01)
+```
+
+- `define NAME(PARAMS)` goes before the first block, like `instrument` and `share`; its lines are indented under it, and the parentheses may be left out when it takes nothing.
+- `do NAME(ARGS)` runs those lines where it stands, as if they were written there: they act on that block's order (or IOI, RFQ…), and a `when` among them lives as long as one written in place would. Each argument sets a parameter first, a name like a `let`'s.
+- The checker checks a define's lines at each `do`, against the block it is in: `fill` in a define called from a `run` block is reported there.
+- A define may call another, never itself. It sends nothing of its own — `new`, `ioi`, `rfq`… stay in the block, so what a block sends is always in sight. A define nothing calls is warned about.
 
 ## What an expression can see
 

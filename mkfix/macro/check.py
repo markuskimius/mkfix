@@ -18,7 +18,7 @@ from mkfix.fix.instrument import INSTRUMENT_COLS, normalize_instrument
 from . import vocab
 from .functions import ENV
 from .nodes import (
-    After, Instrument, LegLine, OrderLine, Term, LEGGED,
+    After, Define, Do, Instrument, LegLine, OrderLine, Term, LEGGED,
     Action, Block, Diagnostic, Expect, Expr, If, Let, Repeat, Macro, Share, Signal, Statement, Wait, When,
     expressions, walk,
 )
@@ -154,8 +154,15 @@ class _Checker:
             self.expression(st.value, {"shared": {name: None for name in self.shared}})
         for decl in macro.instruments:
             self.declaration(decl)
+        self.defines, self.called, self.calling = list(macro.defines), set(), []
+        for d in macro.defines:
+            self.define(d)
         for block in macro.blocks:
             self.block(block)
+        for d in macro.defines:
+            if d.name not in self.called:
+                self.report(d.line, d.col, d.col + len("define ") + len(d.name),
+                            f"`{d.name}` is defined but never called: `do {d.name}(…)`", severity="warning")
 
     def declaration(self, decl: Instrument) -> None:
         """`instrument 'NAME' …`: its own terms, written out."""
@@ -242,6 +249,7 @@ class _Checker:
                         f"No session named {block.session!r}{_close(block.session, self.sessions)}")
         names = [st.name for st in walk(block.body) if isinstance(st, Let)]
         names += [st.var for st in walk(block.body) if isinstance(st, Repeat) and st.var]
+        names += [p for st in walk(block.body) if isinstance(st, Do) and st.define for p in st.define.params]
         schema = vocab.scope_schema(names, block.subject, self.shared)
         self.body(block.body, block, schema, trade_in_hand=False)
         if block.kind == vocab.CLIENT:
@@ -313,6 +321,8 @@ class _Checker:
                     self.body(st.orelse, block, schema, trade_in_hand)
             elif isinstance(st, OrderLine):
                 self.order_line(st, block, schema, list_body)
+            elif isinstance(st, Do):
+                self.do(st, block, schema, trade_in_hand)
             elif isinstance(st, LegLine):
                 self.report(st.line, st.col, st.col + 3, "A `leg` line belongs under `new multileg`, a `replace` "
                                                          "of a multileg order, or a declared strategy")
@@ -325,6 +335,45 @@ class _Checker:
                     self.member(st.body, st, schema)
             elif hasattr(st, "body"):
                 self.body(st.body, block, schema, trade_in_hand, list_body)
+
+    def do(self, st: Do, block: Block, schema: Mapping[str, Any], trade_in_hand: bool) -> None:
+        """`do NAME(…)`: a define of this macro, given one argument a
+        parameter, its lines checked here — in this block, about its subject —
+        as if written in place. A define may call another, not itself."""
+        end = st.col + len("do ") + len(st.name)
+        define = st.define
+        self.called.add(st.name)
+        if define is None:
+            known = [d.name for d in self.defines]
+            self.report(st.line, st.col, end, f"No define named {st.name!r}: `define {st.name}(…)` belongs at the "
+                                              f"top of the macro{_close(st.name, known)}")
+            return
+        if len(st.args) != len(define.params):
+            want = f"{len(define.params)} argument{'s' if len(define.params) != 1 else ''}"
+            self.report(st.line, st.col, end, f"`{st.name}` takes {want} ({', '.join(define.params) or 'none'}), "
+                                              f"not {len(st.args)}")
+        if st.name in self.calling:
+            self.report(st.line, st.col, end, f"`{st.name}` calls itself"
+                        + (f" (through {', '.join(self.calling[self.calling.index(st.name) + 1:])})"
+                           if self.calling[-1] != st.name else "") + ": a define runs once where it is called")
+            return
+        self.calling.append(st.name)
+        try:
+            self.body(define.body, block, schema, trade_in_hand)
+        finally:
+            self.calling.pop()
+
+    def define(self, d: Define) -> None:
+        """`define NAME(…)`: once, and sending nothing — what a block sends
+        stays in the block."""
+        end = d.col + len("define ") + len(d.name)
+        if sum(1 for x in self.defines if x.name == d.name) > 1 and d is not next(x for x in self.defines
+                                                                                   if x.name == d.name):
+            self.report(d.line, d.col, end, f"{d.name!r} is defined twice")
+        for st in walk(d.body):
+            if isinstance(st, Action) and st.verb in vocab.SENDERS:
+                self.report(st.line, st.col, st.col + len(st.verb),
+                            f"`{st.verb}` sends a block's subject: it belongs in the block, not in `define {d.name}`")
 
     def legs(self, st: Action, schema: Mapping[str, Any]) -> None:
         """The `leg` lines under `new multileg` or `replace`: two at least,
@@ -439,6 +488,7 @@ class _Checker:
         macro about an order already sent, as an `on sent order` block is."""
         block = Block(vocab.ATTACHED, at.line, at.col, subject=vocab.ORDER, body=body)
         names = [x.name for x in walk(body) if isinstance(x, Let)] + \
+            [p for x in walk(body) if isinstance(x, Do) and x.define for p in x.define.params] + \
             [x.var for x in walk(body) if isinstance(x, Repeat) and x.var] + \
             [k for k, v in outer.items() if v is None and k not in vocab.CONTEXT_DOCS]
         self.body(body, block, vocab.scope_schema(names, vocab.ORDER, self.shared), trade_in_hand=False)

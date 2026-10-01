@@ -81,6 +81,24 @@ class LegLine(Statement):
 
 
 @dataclass(slots=True)
+class Define(Statement):
+    """`define NAME(PARAMS)` at the top of a macro: lines run, as if written
+    there, wherever a `do NAME(…)` stands."""
+    name: str = ""
+    params: list[str] = field(default_factory=list)
+    body: list[Statement] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class Do(Statement):
+    """`do NAME(ARGS)`: the define's lines, its parameters set to the
+    arguments first. ``define`` is resolved once the macro is parsed."""
+    name: str = ""
+    args: list[Expr] = field(default_factory=list)
+    define: Define | None = None
+
+
+@dataclass(slots=True)
 class After(Statement):
     delay: Expr | None = None
     jitter: Expr | None = None
@@ -191,6 +209,7 @@ class Macro:
     blocks: list[Block] = field(default_factory=list)
     shares: list[Share] = field(default_factory=list)   # `share NAME = EXPR` before the blocks: what a run starts with
     instruments: list[Instrument] = field(default_factory=list)   # `instrument 'NAME' …` before the blocks
+    defines: list[Define] = field(default_factory=list)   # `define NAME(…)` before the blocks
     declared: str = ""                # the side it was checked for — the editor it is kept in — when one was given
 
     @property
@@ -243,19 +262,24 @@ class Macro:
 LEGGED = ("new multileg", "replace")
 
 
-def walk(body: list[Statement]):
-    """Every statement under ``body``, depth first, in source order."""
+def walk(body: list[Statement], _defines: frozenset[str] = frozenset()):
+    """Every statement under ``body``, depth first, in source order — a
+    `do`'s define's lines included, as they run there (each define once on
+    a path, so a define calling itself ends the walk)."""
     for st in body:
         yield st
+        if isinstance(st, Do) and st.define is not None and st.name not in _defines:
+            yield from walk(st.define.body, _defines | {st.name})
+            continue
         if isinstance(st, (When, While, Repeat)) or (isinstance(st, Action) and st.verb == "new list"):
-            yield from walk(st.body)
+            yield from walk(st.body, _defines)
         elif isinstance(st, Action) and st.verb in LEGGED:
             yield from st.body                      # its `leg` lines
         elif isinstance(st, If):
             for _, branch in st.branches:
-                yield from walk(branch)
+                yield from walk(branch, _defines)
             if st.orelse:
-                yield from walk(st.orelse)
+                yield from walk(st.orelse, _defines)
 
 
 def expressions(st: Statement):
@@ -268,6 +292,8 @@ def expressions(st: Statement):
     if isinstance(st, If):
         for test, _ in st.branches:
             yield test
+    if isinstance(st, Do):
+        yield from st.args
     if isinstance(st, (OrderLine, LegLine)):
         for term in st.terms:
             if term.value is not None:

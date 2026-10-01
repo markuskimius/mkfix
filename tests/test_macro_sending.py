@@ -480,6 +480,70 @@ class TestExamples:
         assert sides == set(vocab.MACRO_KINDS), "a macro of each side, and end-to-end ones of both"
         assert {"Repeat", "repeat at", "repeat every", "repeat with", "else fail", "or timeout", "Expect", "Wait"} <= shapes
         # what the macros of a run say to each other, in every form it takes
+        assert {"Do"} <= shapes, "a define called"
         assert {"Signal", "signal with", "Share", "share at the top", "on signal", "on signal where",
                 "When signal", "Expect signal"} <= shapes
         assert set(vocab.CONTEXT_DOCS) - roots == set(), "every name an expression can see is used somewhere"
+
+
+class TestDefines:
+    """`define NAME(PARAMS)` / `do NAME(ARGS)`: named lines run where they
+    are called, as if written there."""
+
+    @pytest.mark.asyncio
+    async def test_house_rules_works_both_blocks_by_the_same_lines(self, pair):
+        desk = pair.arm("house-rules", session="LOOP-MKT")
+        run = pair.arm("run\n    repeat 2 with sym = ['IBM', 'MSFT']\n"
+                       "        new symbol: sym, side: buy, qty: 100, price: 10\n"
+                       "        expect filled within 10s\n        pass\n")
+        await pair.advance(10)
+        assert sorted(i.message for i in desk.instances) == ["IBM: 100 filled", "MSFT: 100 filled at 9.99"]
+        assert [i.status for i in run.instances] == [PASSED, PASSED]
+        fills = await pair.trades("TX")
+        assert [(t["symbol"], t["last_qty"], t["last_price"]) for t in fills] == [
+            ("IBM", 50.0, 10.0), ("MSFT", 50.0, 9.99), ("IBM", 50.0, 10.0), ("MSFT", 50.0, 9.99)]
+
+    @pytest.mark.asyncio
+    async def test_a_when_in_a_define_outlives_it(self, pair):
+        """The define's `when cancel` answers a cancel that comes after the
+        define's own lines have run, as one written in place would."""
+        pair.arm("define rules\n    when cancel\n        accept\n        stop\non order\n    do rules\n    accept\n",
+                 session="LOOP-MKT")
+        run = pair.arm("run\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n    expect ack within 2s\n"
+                       "    after 1s\n    cancel\n    expect canceled within 2s\n    pass\n")
+        await pair.advance(5)
+        assert [i.status for i in run.instances] == [PASSED]
+
+    @pytest.mark.asyncio
+    async def test_parameters_are_names_set_at_the_call(self, pair):
+        pair.arm("define note(what, count)\n    log '${what} ${count}'\non order\n    do note('first', 1)\n"
+                 "    do note('second', count + 1)\n    pass '${what} ${count}'\n", session="LOOP-MKT")
+        pair.arm("run\n    new symbol: 'IBM', side: buy, qty: 1, price: 1\n")
+        await pair.advance(1)
+        desk = pair.runner.runs[0]
+        assert [e[3] for e in desk.log][:2] == ["first 1", "second 2"]
+        assert desk.instances[0].message == "second 2"
+
+    @pytest.mark.parametrize("text, message", [
+        ("define a\n    do b\ndefine b\n    do a\non order\n    do a\n", "`a` calls itself (through b)"),
+        ("define a\n    do a\non order\n    do a\n", "`a` calls itself:"),
+        ("define x(q)\n    accept\non order\n    do x(1, 2)\n", "`x` takes 1 argument (q), not 2"),
+        ("on order\n    do nope\n", "No define named 'nope'"),
+        ("define s\n    new symbol: 'A', side: buy, qty: 1\nrun\n    new symbol: 'B', side: buy, qty: 1\n    do s\n",
+         "it belongs in the block, not in `define s`"),
+        ("define f\n    fill qty: 1, price: 1\nrun\n    new symbol: 'A', side: buy, qty: 1\n    do f\n",
+         "`fill` belongs in an `on order` block"),
+        ("define a\n    accept\ndefine a\n    reject\non order\n    do a\n", "'a' is defined twice"),
+        ("define a(order)\n    accept\non order\n    do a(1)\n", "'order' is the macro's own name"),
+        ("define a(x, x)\n    accept\non order\n    do a(1, 2)\n", "'x' is a parameter twice"),
+        ("on order\n    accept\ndefine late\n    accept\n", "it belongs before the first block"),
+        ("define empty\non order\n    do empty\n", "needs its lines"),
+    ])
+    def test_what_is_refused(self, text, message):
+        found = [d.message for d in macro.check(text)[1]]
+        assert any(message in m for m in found), found
+
+    def test_one_never_called_is_warned_about(self):
+        diags = macro.check("define unused\n    accept\non order\n    accept\n")[1]
+        assert [(d.severity, d.message) for d in diags] == [
+            ("warning", "`unused` is defined but never called: `do unused(…)`")]

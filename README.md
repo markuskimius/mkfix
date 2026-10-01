@@ -221,7 +221,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   desk does not answer its orders; it is over when what it sent is done; and
   what its blocks `signal` and `share` crosses the sides, since it never
   leaves the run. Every order gets its own copy of the macro, so
-  the same few lines handle one order or a thousand.
+  the same few lines handle one order or a thousand. Lines several blocks
+  share are named once with `define NAME(PARAMS)` and run with `do
+  NAME(ARGS)`, as if written where the `do` stands.
 
   ```
   on order where symbol in ['IBM', 'MSFT']

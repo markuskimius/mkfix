@@ -32,8 +32,8 @@ from mkio import expr
 from . import vocab
 from .functions import ENV, RNG_NAME
 from .nodes import (
-    Action, After, Block, Expect, Expr, Finish, If, LegLine, Let, Log, OrderLine, Repeat, Share, Signal, Statement,
-    Stop, Wait, When, While,
+    Action, After, Block, Do, Expect, Expr, Finish, If, LegLine, Let, Log, OrderLine, Repeat, Share, Signal,
+    Statement, Stop, Wait, When, While,
 )
 
 if TYPE_CHECKING:
@@ -280,6 +280,21 @@ class Instance:
 
     # -- statements ----------------------------------------------------------------------
 
+    async def _do(self, flow: Flow, st: Do, depth: int) -> None:
+        """`do NAME(…)`: the arguments, evaluated here, set the define's
+        parameters — names like a `let`'s — then its lines run as if written
+        here, at this depth, so a `when` in it lives as long as one written
+        in place would."""
+        if st.define is None:
+            raise ScriptError(st.line, f"no define named {st.name!r}")
+        values = [await self.value(flow, a) for a in st.args]
+        self.vars.update(zip(st.define.params, values))
+        for line in st.define.body:
+            await self._gate(flow)
+            flow.line = line.line
+            await self._statement(flow, line, depth)
+        flow.line = st.line
+
     async def _body(self, flow: Flow, body: list[Statement], depth: int) -> None:
         declared = len(self.handlers)
         try:
@@ -298,6 +313,8 @@ class Instance:
             await self._list_order(flow, st)
         elif isinstance(st, LegLine):
             raise ScriptError(st.line, "a `leg` line belongs under `new multileg` or a multileg `replace`")
+        elif isinstance(st, Do):
+            await self._do(flow, st, depth)
         elif isinstance(st, After):
             delay = await self._seconds(flow, st.delay)
             if st.jitter is not None:

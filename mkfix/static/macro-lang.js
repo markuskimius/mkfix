@@ -202,9 +202,14 @@ export function completionsAt(vocab, lines, row, col, extras = {}) {
   if (!/^\s/.test(lines[row] ?? "") && trimmed === "") {
     const mine = extras.side ? sideBlocks(vocab, extras.side) : null;
     // `share` before the blocks is what a run starts with; an older vocabulary has no such word.
-    const top = [...HEADERS.slice(0, 2), ...(vocab.statements.share ? ["share"] : []), ...HEADERS.slice(2)];
+    const top = [...HEADERS.slice(0, 2), ...(vocab.statements.share ? ["share"] : []),
+      ...(vocab.statements.define ? ["define"] : []), ...HEADERS.slice(2)];
     return top.filter((h) => !mine || !blockHeaders(vocab).includes(h) || mine.includes(h))
       .map((h) => item(h, "block", vocab.statements[h]?.[1] ?? vocab.statements[h]?.doc));
+  }
+  if (/^do( \w*)?$/.test(trimmed)) {
+    return defineNames(lines).map(([n, params]) => item(`${n}(${params})`, "define", `do ${n}(${params})`,
+      { caption: n }));
   }
   if (/^on signal$/.test(trimmed)) return [item("'", "signal", "The signal that starts this block, in quotes", { caption: "'NAME'" })];
   if (/^run$/.test(trimmed)) return [item("on ", "session", "Name the session here, or leave it to be chosen at Run…", { caption: "on" })];
@@ -264,6 +269,16 @@ export function signalNames(lines, row = -1) {
     for (const m of code.matchAll(/\bsignal\s+'((?:[^'\\]|\\.)+)'/gi)) names.add(m[1].trim().replace(/\s+/g, " "));
   });
   return [...names].sort();
+}
+
+// The macro's defines, as [name, parameters] pairs: what `do` may call.
+export function defineNames(lines) {
+  const found = [];
+  for (const line of lines) {
+    const m = /^define\s+([A-Za-z_]\w*)\s*(?:\(([^)]*)\))?/.exec(line);
+    if (m) found.push([m[1], (m[2] ?? "").split(",").map((p) => p.trim()).filter(Boolean).join(", ")]);
+  }
+  return found;
 }
 
 export function sharedNames(lines) {

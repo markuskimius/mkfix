@@ -22,8 +22,8 @@ from mkio import expr
 
 from . import vocab
 from .nodes import (
-    Action, After, Block, Diagnostic, Expect, Expr, Finish, If, Instrument, LegLine, Let, Log, OrderLine, Repeat,
-    Macro, Share,
+    Action, After, Block, Define, Diagnostic, Do, Expect, Expr, Finish, If, Instrument, LegLine, Let, Log, OrderLine,
+    Repeat, Macro, Share,
     Signal,
     Statement, Stop, Term, TradeTarget, Wait, When, While, walk,
 )
@@ -41,7 +41,7 @@ _VERBS = sorted(vocab.VERBS, key=lambda name: -len(name.split()))
 _BLOCKS = sorted(vocab.BLOCK_HEADERS, key=lambda name: -len(name.split()))
 _CREATOR_SUBJECT = vocab.SENDERS
 _SIMPLE = ("after", "wait", "expect", "when", "if", "else", "while", "repeat", "let", "stop", "pass", "fail", "log",
-           "signal", "share")
+           "signal", "share", "do")
 _HEADERS = ("seed", "on", "run")
 
 
@@ -226,6 +226,11 @@ class _Parser:
                         # A strategy: its `leg` lines.
                         decl.legs = [st for st in self.body(line) if isinstance(st, LegLine)]
                     macro.instruments.append(decl)
+                elif line.take_phrase("define"):
+                    if macro.blocks:
+                        raise _Problem("`define` names lines the blocks share: it belongs before the first block",
+                                       line.indent, len(line.text))
+                    macro.defines.append(self.define(line))
                 elif line.take_phrase("share"):
                     # What the run starts with: before any block, so before any macro of it.
                     if macro.blocks:
@@ -243,7 +248,39 @@ class _Parser:
             except _Problem as p:
                 self.problem(line, p)
                 self.skip_body(line.indent)
+        # Each `do` to its define, by name: the checker says which name is unknown.
+        defines = {d.name: d for d in macro.defines}
+        for body in [*(d.body for d in macro.defines), *(b.body for b in macro.blocks)]:
+            for st in _every(body):
+                if isinstance(st, Do):
+                    st.define = defines.get(st.name)
         return macro
+
+    def define(self, line: _Line) -> Define:
+        """`define NAME(PARAMS)` and its indented lines."""
+        at = (line.no, line.indent)
+        m = line.take_re(_WORD)
+        if not m:
+            raise _Problem("Expected a name: define fill_in_halves(price)", line.pos)
+        name, params = m.group(), []
+        if line.take_char("("):
+            while not line.take_char(")"):
+                p = line.take_re(_WORD)
+                if not p:
+                    raise _Problem("Expected a parameter's name, or `)`", line.pos)
+                if p.group() in vocab.RESERVED:
+                    raise _Problem(f"{p.group()!r} is the macro's own name for something", p.start(), p.end())
+                if p.group() in params:
+                    raise _Problem(f"{p.group()!r} is a parameter twice", p.start(), p.end())
+                params.append(p.group())
+                if not line.take_char(","):
+                    if not line.take_char(")"):
+                        raise _Problem("Expected `,` or `)`", line.pos)
+                    break
+        line.end()
+        if not self._indented(line):
+            raise _Problem(f"`define {name}` needs its lines, indented under it", line.indent, len(line.text))
+        return Define(*at, name=name, params=params, body=self.body(line))
 
     def quoted(self, line: _Line, what: str, example: str) -> str:
         """A name in quotes, as it stands: a signal's. Read as a string and
@@ -413,6 +450,21 @@ class _Parser:
         if line.take_phrase("repeat"):
             return self.repeat(line, at)
 
+        if line.take_phrase("do"):
+            m = line.take_re(_WORD)
+            if not m:
+                raise _Problem("Expected the name of a `define`: do fill_in_halves(order.price)", line.pos)
+            st = Do(*at, name=m.group())
+            if line.take_char("("):
+                while not line.take_char(")"):
+                    st.args.append(line.expr("an argument", stop=(",", ")")))
+                    if not line.take_char(","):
+                        if not line.take_char(")"):
+                            raise _Problem("Expected `,` or `)`", line.pos)
+                        break
+            line.end()
+            return st
+
         if line.take_phrase("let"):
             m = line.take_re(_WORD)
             if not m:
@@ -579,6 +631,15 @@ class _Parser:
         m = _WORD.match(line.text, line.pos)
         rest = line.text[m.end():].lstrip() if m else "x"
         return rest == "" or rest.startswith(",")
+
+
+def _every(body: list[Statement]):
+    """Every statement under ``body`` as written — not following a `do`."""
+    for st in body:
+        yield st
+        for child in (getattr(st, "body", None) or [], *(b for _, b in getattr(st, "branches", None) or []),
+                      getattr(st, "orelse", None) or []):
+            yield from _every(child)
 
 
 def parse(text: str) -> tuple[Macro, list[Diagnostic]]:

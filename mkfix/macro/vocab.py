@@ -466,6 +466,10 @@ STATEMENTS: dict[str, tuple[str, str]] = {
     "log": ("log EXPR", "Write a value to the run's log."),
     "signal": ("signal 'NAME' [with EXPR]", "Tell every other macro of this run: each hears the event `signal 'NAME'`, "
                                            "with the value as event.value and this macro's row as event.sender."),
+    "define": ("define NAME(PARAMS)", "Name some lines, at the top of the macro, before its blocks: `do NAME(…)` runs "
+                                      "them where it stands, as if written there, the parameters set to its "
+                                      "arguments. A define may call another, not itself, and sends nothing of its own."),
+    "do": ("do NAME(ARGS)", "Run the lines of `define NAME` here, its parameters set to these arguments."),
     "instrument": ("instrument 'NAME' symbol: …, sec_type: …, maturity: …",
                    "Name an instrument for `new … instrument: 'NAME'`, at the top of the macro, before its blocks. "
                    "It wins over one saved under the same name in Config › Instruments, so the macro runs on "

@@ -118,7 +118,7 @@ class TestCompletion:
         assert self.names(tmp_path, 7, 3) == ["last trade", "first trade", "trade where"]
         assert self.names(tmp_path, 8) == ["half", "all"]
         assert self.names(tmp_path, 9) == ["S1", "S2"]
-        assert self.names(tmp_path, 10) == ["seed", "on error", "share", *macro.vocabulary()["blocks"]]
+        assert self.names(tmp_path, 10) == ["seed", "on error", "share", "define", *macro.vocabulary()["blocks"]]
         assert self.names(tmp_path, 14) == ["on"], "`run` may name its session, or leave it to Run…"
         assert "new" in self.names(tmp_path, 15), "a bare `run` opens a client block"
 
@@ -143,10 +143,10 @@ class TestCompletion:
         """The market side receives orders and RFQs and sends the rest; the
         client side the other way round. `run` sends for either."""
         assert self.names(tmp_path, 10, side="market") == [
-            "seed", "on error", "share", "on order", "run", "on signal", "on sent ioi", "on sent advert",
+            "seed", "on error", "share", "define", "on order", "run", "on signal", "on sent ioi", "on sent advert",
             "on sent allocation", "on rfq", "on sent quote", "on sent rfq request", "on list"]
         assert self.names(tmp_path, 10, side="client") == [
-            "seed", "on error", "share", "on sent order", "run", "on signal", "on ioi", "on advert", "on allocation",
+            "seed", "on error", "share", "define", "on sent order", "run", "on signal", "on ioi", "on advert", "on allocation",
             "on sent rfq", "on quote", "on rfq request", "on sent list"]
         assert {"response_to", "reason", "prev", "tag"} <= set(self.names(tmp_path, 13))
 
@@ -158,6 +158,13 @@ class TestCompletion:
     def together(self, tmp_path, row):
         return run_js(tmp_path, f"L.completionsAt(vocab, {json.dumps(self.TOGETHER)}, {row}, "
                                 f"{len(self.TOGETHER[row])}, {{}}).map((c) => c.caption)")
+
+    def test_do_offers_the_macros_defines(self, tmp_path):
+        lines = ["define halves(px)", "    accept", "define rules", "    accept", "on order", "    do "]
+        got = run_js(tmp_path, f"L.completionsAt(vocab, {json.dumps(lines)}, 5, 7, {{}})"
+                               ".map((c) => [c.caption, c.value ?? c.snippet ?? c.text])")
+        assert [c for c, _ in got] == ["halves", "rules"]
+        assert [v for _, v in got] == ["halves(px)", "rules()"], "the call, its parameters to fill in"
 
     def test_an_order_line_is_offered_only_under_new_list(self, tmp_path):
         lines = ["run", "    new list mode: list", "        ", "        repeat 3", "            ", "    "]
@@ -1033,7 +1040,7 @@ class TestWiring:
     @needs_node
     def test_the_end_to_end_editor_offers_every_block_and_the_status_bar_says_its_runs(self, tmp_path):
         every = run_js(tmp_path, 'L.completionsAt(vocab, [""], 0, 0, { side: "end-to-end" }).map((c) => c.caption)')
-        assert every == ["seed", "on error", "share", *macro.vocabulary()["blocks"]]
+        assert every == ["seed", "on error", "share", "define", *macro.vocabulary()["blocks"]]
         assert "on order" in every and "on sent order" in every and "on ioi" in every
         runs = [{"id": 1, "side": "end-to-end", "status": "armed", "macro": "round trip", "verdict": "", "orders": 2,
                  "passed": 0, "failed": 0, "started_at": "20260920-11:00:00.000", "ended_at": "", "session": "C"},
