@@ -107,7 +107,7 @@ Every blotter is the same kind of table.
 
 - **Filter** — the ≡ in a column's header opens its filter: a checklist of the column's values, or bounds for a number or a time. Time columns offer Today, Last hour and Last 15 minutes. Active filters show as chips on the toolbar, where a chip's box switches it off without losing it.
 - **Sort** — click a column's name, and again to reverse it. Shift-click a second column to sort by both.
-- **Columns** — the picker at the right end of the header row lists every column the table has. Many are hidden to begin with.
+- **Columns** — the picker at the right end of the header row lists every column the table has, in sections such as IDs, Instrument, Derivative and Status. Click a section's name to fold it, or tick its box to show or hide all of its columns. Many columns are hidden to begin with. A History window's picker has the same sections.
 - **Select** — click a row; Ctrl/Cmd-click and Shift-click select several. Most buttons act on every selected row.
 - **Find** and **Copy** — see the keys below. Copied rows paste into a spreadsheet.
 

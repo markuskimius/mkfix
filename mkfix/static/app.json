@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.83",
+    "version": "0.84",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -1059,7 +1059,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.83"
+        "text": "mkfix v0.84"
       }
     ],
     "bindStyle": {
@@ -1155,6 +1155,60 @@
         "last_tx_time": "Last TX",
         "last_rx_time": "Last RX"
       },
+      "groups": [
+        {
+          "label": "Identity",
+          "columns": [
+            "session_id",
+            "fix_version",
+            "dictionary",
+            "sender_comp_id",
+            "target_comp_id",
+            "description"
+          ]
+        },
+        {
+          "label": "Connection",
+          "columns": [
+            "host",
+            "port",
+            "heartbeat_interval",
+            "logout_timeout",
+            "logout_test_request"
+          ]
+        },
+        {
+          "label": "Sequence",
+          "columns": [
+            "tx_seq_num",
+            "rx_seq_num",
+            "reset_on_logon"
+          ]
+        },
+        {
+          "label": "Options",
+          "columns": [
+            "client_tags",
+            "timestamp_precision",
+            "enabled"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "error_text"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "session_start",
+            "last_tx_time",
+            "last_rx_time"
+          ]
+        }
+      ],
       "styles": {
         "status": [
           {
@@ -1871,6 +1925,52 @@
         "body_length": "Body Length",
         "checksum": "Checksum"
       },
+      "groups": [
+        {
+          "label": "Message",
+          "columns": [
+            "direction",
+            "seq_num",
+            "msg_type_name",
+            "category",
+            "raw_message"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "sender_comp",
+            "target_comp"
+          ]
+        },
+        {
+          "label": "Order",
+          "columns": [
+            "cl_ord_id",
+            "order_id",
+            "exec_id",
+            "symbol",
+            "side"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "msg_type",
+            "body_length",
+            "checksum"
+          ]
+        }
+      ],
       "display": {
         "raw_message": "${REPLACE(value, '\\u{1}', '|')}"
       },
@@ -2103,6 +2203,132 @@
         "pending_legs": "Pending Legs",
         "legs_json": "Legs (grid)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "order_id",
+            "market_order_id",
+            "cl_ord_id",
+            "orig_cl_ord_id",
+            "ioi_id",
+            "quote_id",
+            "list_id",
+            "list_seq_no"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity",
+            "open_close",
+            "covered_uncovered"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "ord_type",
+            "handl_inst",
+            "price",
+            "order_qty",
+            "stop_price",
+            "time_in_force",
+            "expire_time",
+            "expire_date",
+            "entered_qty",
+            "entered_price"
+          ]
+        },
+        {
+          "label": "Legs",
+          "columns": [
+            "legs",
+            "leg_count",
+            "multileg_rpt_type"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "cum_qty",
+            "avg_price",
+            "leaves_qty",
+            "last_qty",
+            "last_price",
+            "cxl_rej_reason"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_cl_ord_id",
+            "pending_qty",
+            "pending_price",
+            "pending_entered",
+            "pending_legs",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at",
+            "updated_at",
+            "transact_time"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "side_code",
+            "ord_type_code",
+            "tif_code",
+            "handl_inst_code",
+            "legs_json"
+          ]
+        }
+      ],
       "types": {
         "updated_at": {
           "type": "time",
@@ -4582,6 +4808,96 @@
         "covered_uncovered": "Covered (203)",
         "leg_ref_id": "LegRefID (654)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "trade_id",
+            "exec_id",
+            "exec_ref_id",
+            "order_id",
+            "market_order_id",
+            "cl_ord_id",
+            "leg_ref_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity",
+            "open_close",
+            "covered_uncovered"
+          ]
+        },
+        {
+          "label": "Fill",
+          "columns": [
+            "side",
+            "last_qty",
+            "last_price",
+            "cum_qty",
+            "avg_price",
+            "leaves_qty",
+            "exec_type"
+          ]
+        },
+        {
+          "label": "DK",
+          "columns": [
+            "dk_reason",
+            "dk_text"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "text",
+            "extra_tags"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "side_code",
+            "exec_type_code"
+          ]
+        }
+      ],
       "types": {
         "transact_time": {
           "type": "time",
@@ -4936,6 +5252,95 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "ioi_id",
+            "ioi_ref_id",
+            "order_cl_ord_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "ioi_qty",
+            "price",
+            "currency",
+            "valid_until",
+            "qlty_ind",
+            "natural_flag",
+            "qualifiers"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "ioi_trans_type"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "ioi_trans_type_code",
+            "side_code",
+            "qlty_ind_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -6474,6 +6879,91 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "adv_id",
+            "adv_ref_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "quantity",
+            "price",
+            "currency",
+            "trade_date",
+            "last_mkt"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "adv_trans_type"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "adv_trans_type_code",
+            "side_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -7894,6 +8384,114 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "alloc_id",
+            "ref_alloc_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "quantity",
+            "avg_price",
+            "trade_date"
+          ]
+        },
+        {
+          "label": "Allocation",
+          "columns": [
+            "alloc_type",
+            "allocs",
+            "num_allocs",
+            "orders",
+            "execs"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "alloc_trans_type",
+            "alloc_status",
+            "alloc_rej_reason"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_alloc_id",
+            "pending_terms",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "alloc_trans_type_code",
+            "alloc_type_code",
+            "side_code",
+            "alloc_status_code",
+            "alloc_rej_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -9509,6 +10107,130 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "quote_req_id",
+            "rfq_req_id",
+            "quote_id",
+            "quote_ref_id",
+            "order_cl_ord_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "order_qty",
+            "currency",
+            "quote_request_type"
+          ]
+        },
+        {
+          "label": "Quote",
+          "columns": [
+            "bid_size",
+            "bid_px",
+            "offer_px",
+            "offer_size",
+            "valid_until",
+            "quote_type",
+            "quote_status",
+            "quote_extra_tags"
+          ]
+        },
+        {
+          "label": "Response",
+          "columns": [
+            "quote_resp_id",
+            "quote_resp_type",
+            "rej_reason"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_bid_px",
+            "pending_offer_px",
+            "pending_bid_size",
+            "pending_offer_size",
+            "pending_resp_id",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "origin",
+            "direction",
+            "side_code",
+            "quote_request_type_code",
+            "quote_type_code",
+            "quote_status_code",
+            "rej_reason_code",
+            "quote_resp_type_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -10293,6 +11015,130 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "quote_req_id",
+            "rfq_req_id",
+            "quote_id",
+            "quote_ref_id",
+            "order_cl_ord_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "order_qty",
+            "currency",
+            "quote_request_type"
+          ]
+        },
+        {
+          "label": "Quote",
+          "columns": [
+            "bid_size",
+            "bid_px",
+            "offer_px",
+            "offer_size",
+            "valid_until",
+            "quote_type",
+            "quote_status",
+            "quote_extra_tags"
+          ]
+        },
+        {
+          "label": "Response",
+          "columns": [
+            "quote_resp_id",
+            "quote_resp_type",
+            "rej_reason"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_bid_px",
+            "pending_offer_px",
+            "pending_bid_size",
+            "pending_offer_size",
+            "pending_resp_id",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "origin",
+            "direction",
+            "side_code",
+            "quote_request_type_code",
+            "quote_type_code",
+            "quote_status_code",
+            "rej_reason_code",
+            "quote_resp_type_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -11811,6 +12657,68 @@
         "instrument_terms": "Instrument Terms",
         "instrument_names": "Instrument Names"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "rfq_req_id",
+            "last_quote_req_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Request",
+          "columns": [
+            "instruments",
+            "symbols",
+            "num_symbols",
+            "instrument_names",
+            "subscription_type",
+            "quote_request_type",
+            "quote_type"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "quote_requests"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "quote_request_type_code",
+            "quote_type_code",
+            "subscription_type_code",
+            "instrument_terms",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -12536,6 +13444,132 @@
         "pending_legs": "Pending Legs",
         "legs_json": "Legs (grid)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "order_id",
+            "market_order_id",
+            "cl_ord_id",
+            "orig_cl_ord_id",
+            "ioi_id",
+            "quote_id",
+            "list_id",
+            "list_seq_no"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity",
+            "open_close",
+            "covered_uncovered"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "ord_type",
+            "handl_inst",
+            "price",
+            "order_qty",
+            "stop_price",
+            "time_in_force",
+            "expire_time",
+            "expire_date",
+            "entered_qty",
+            "entered_price"
+          ]
+        },
+        {
+          "label": "Legs",
+          "columns": [
+            "legs",
+            "leg_count",
+            "multileg_rpt_type"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "cum_qty",
+            "avg_price",
+            "leaves_qty",
+            "last_qty",
+            "last_price",
+            "cxl_rej_reason"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_cl_ord_id",
+            "pending_qty",
+            "pending_price",
+            "pending_entered",
+            "pending_legs",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at",
+            "updated_at",
+            "transact_time"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "side_code",
+            "ord_type_code",
+            "tif_code",
+            "handl_inst_code",
+            "legs_json"
+          ]
+        }
+      ],
       "types": {
         "updated_at": {
           "type": "time",
@@ -14477,6 +15511,96 @@
         "covered_uncovered": "Covered (203)",
         "leg_ref_id": "LegRefID (654)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "trade_id",
+            "exec_id",
+            "exec_ref_id",
+            "order_id",
+            "market_order_id",
+            "cl_ord_id",
+            "leg_ref_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity",
+            "open_close",
+            "covered_uncovered"
+          ]
+        },
+        {
+          "label": "Fill",
+          "columns": [
+            "side",
+            "last_qty",
+            "last_price",
+            "cum_qty",
+            "avg_price",
+            "leaves_qty",
+            "exec_type"
+          ]
+        },
+        {
+          "label": "DK",
+          "columns": [
+            "dk_reason",
+            "dk_text"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "text",
+            "extra_tags"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "side_code",
+            "exec_type_code"
+          ]
+        }
+      ],
       "types": {
         "transact_time": {
           "type": "time",
@@ -15402,6 +16526,95 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "ioi_id",
+            "ioi_ref_id",
+            "order_cl_ord_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "ioi_qty",
+            "price",
+            "currency",
+            "valid_until",
+            "qlty_ind",
+            "natural_flag",
+            "qualifiers"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "ioi_trans_type"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "ioi_trans_type_code",
+            "side_code",
+            "qlty_ind_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -16243,6 +17456,91 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "adv_id",
+            "adv_ref_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "quantity",
+            "price",
+            "currency",
+            "trade_date",
+            "last_mkt"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "adv_trans_type"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "adv_trans_type_code",
+            "side_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -16488,6 +17786,114 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "alloc_id",
+            "ref_alloc_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "quantity",
+            "avg_price",
+            "trade_date"
+          ]
+        },
+        {
+          "label": "Allocation",
+          "columns": [
+            "alloc_type",
+            "allocs",
+            "num_allocs",
+            "orders",
+            "execs"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "alloc_trans_type",
+            "alloc_status",
+            "alloc_rej_reason"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_alloc_id",
+            "pending_terms",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "alloc_trans_type_code",
+            "alloc_type_code",
+            "side_code",
+            "alloc_status_code",
+            "alloc_rej_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -17143,6 +18549,130 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "quote_req_id",
+            "rfq_req_id",
+            "quote_id",
+            "quote_ref_id",
+            "order_cl_ord_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "order_qty",
+            "currency",
+            "quote_request_type"
+          ]
+        },
+        {
+          "label": "Quote",
+          "columns": [
+            "bid_size",
+            "bid_px",
+            "offer_px",
+            "offer_size",
+            "valid_until",
+            "quote_type",
+            "quote_status",
+            "quote_extra_tags"
+          ]
+        },
+        {
+          "label": "Response",
+          "columns": [
+            "quote_resp_id",
+            "quote_resp_type",
+            "rej_reason"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_bid_px",
+            "pending_offer_px",
+            "pending_bid_size",
+            "pending_offer_size",
+            "pending_resp_id",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "origin",
+            "direction",
+            "side_code",
+            "quote_request_type_code",
+            "quote_type_code",
+            "quote_status_code",
+            "rej_reason_code",
+            "quote_resp_type_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -19220,6 +20750,130 @@
         "security_id": "Security ID (48)",
         "security_id_source": "ID Source (22)"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "quote_req_id",
+            "rfq_req_id",
+            "quote_id",
+            "quote_ref_id",
+            "order_cl_ord_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "side",
+            "order_qty",
+            "currency",
+            "quote_request_type"
+          ]
+        },
+        {
+          "label": "Quote",
+          "columns": [
+            "bid_size",
+            "bid_px",
+            "offer_px",
+            "offer_size",
+            "valid_until",
+            "quote_type",
+            "quote_status",
+            "quote_extra_tags"
+          ]
+        },
+        {
+          "label": "Response",
+          "columns": [
+            "quote_resp_id",
+            "quote_resp_type",
+            "rej_reason"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_bid_px",
+            "pending_offer_px",
+            "pending_bid_size",
+            "pending_offer_size",
+            "pending_resp_id",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "transact_time",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "origin",
+            "direction",
+            "side_code",
+            "quote_request_type_code",
+            "quote_type_code",
+            "quote_status_code",
+            "rej_reason_code",
+            "quote_resp_type_code",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -20336,6 +21990,68 @@
         "instrument_terms": "Instrument Terms",
         "instrument_names": "Instrument Names"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "rfq_req_id",
+            "last_quote_req_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Request",
+          "columns": [
+            "instruments",
+            "symbols",
+            "num_symbols",
+            "instrument_names",
+            "subscription_type",
+            "quote_request_type",
+            "quote_type"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "quote_requests"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "updated_at",
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "quote_request_type_code",
+            "quote_type_code",
+            "subscription_type_code",
+            "instrument_terms",
+            "raw_message"
+          ]
+        }
+      ],
       "filters": {
         "updated_at": {
           "preset": "today"
@@ -20965,6 +22681,65 @@
         "summary": "Summary",
         "default_direction": "Default Direction"
       },
+      "groups": [
+        {
+          "label": "Job",
+          "columns": [
+            "id",
+            "name",
+            "file_path",
+            "summary"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "target_session",
+            "session_status",
+            "direction",
+            "default_direction"
+          ]
+        },
+        {
+          "label": "Progress",
+          "columns": [
+            "sent_messages",
+            "selected_messages",
+            "total_messages",
+            "pairs"
+          ]
+        },
+        {
+          "label": "Filter",
+          "columns": [
+            "time_from",
+            "time_to",
+            "msg_filter"
+          ]
+        },
+        {
+          "label": "Playback",
+          "columns": [
+            "speed",
+            "max_gap"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "error_text"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "first_time",
+            "last_time",
+            "created_at"
+          ]
+        }
+      ],
       "types": {
         "first_time": {
           "type": "time",
@@ -21471,6 +23246,135 @@
         "rpt_type": "Report Type (563)",
         "instruments": "Instruments"
       },
+      "groups": [
+        {
+          "label": "Template",
+          "columns": [
+            "name",
+            "scope"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity",
+            "open_close",
+            "covered_uncovered"
+          ]
+        },
+        {
+          "label": "Order",
+          "columns": [
+            "side",
+            "ord_type",
+            "qty",
+            "price",
+            "tif",
+            "handl_inst",
+            "dk_reason",
+            "restate_reason"
+          ]
+        },
+        {
+          "label": "Legs",
+          "columns": [
+            "legs",
+            "rpt_type"
+          ]
+        },
+        {
+          "label": "List",
+          "columns": [
+            "mode",
+            "bid_type",
+            "exec_inst_type",
+            "tot_orders",
+            "list_orders",
+            "status_type",
+            "list_status"
+          ]
+        },
+        {
+          "label": "IOI & Advert",
+          "columns": [
+            "currency",
+            "qlty_ind",
+            "natural_flag",
+            "qualifiers",
+            "trade_date",
+            "last_mkt"
+          ]
+        },
+        {
+          "label": "Allocation",
+          "columns": [
+            "avg_price",
+            "alloc_type",
+            "allocs",
+            "alloc_status",
+            "alloc_rej_code"
+          ]
+        },
+        {
+          "label": "RFQ",
+          "columns": [
+            "quote_request_type",
+            "quote_type",
+            "bid_px",
+            "offer_px",
+            "bid_size",
+            "offer_size",
+            "valid_for",
+            "quote_rej_reason",
+            "instruments",
+            "symbols",
+            "subscription_type"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "text",
+            "extra_tags"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
       "sort": [
         "scope",
         "name"
@@ -24628,6 +26532,17 @@
             "order_id",
             "updated_at"
           ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "side",
+            "kind",
+            "key",
+            "parent_key",
+            "order_row"
+          ]
         }
       ],
       "types": {
@@ -24852,6 +26767,37 @@
         "order_row": "Order Row",
         "side": "Side"
       },
+      "groups": [
+        {
+          "label": "Run",
+          "columns": [
+            "run_id",
+            "macro"
+          ]
+        },
+        {
+          "label": "Entry",
+          "columns": [
+            "cl_ord_id",
+            "side",
+            "line",
+            "text"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "order_row"
+          ]
+        }
+      ],
       "types": {
         "timestamp": {
           "type": "time",
@@ -25020,6 +26966,17 @@
             "actions",
             "order_id",
             "updated_at"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "side",
+            "kind",
+            "key",
+            "parent_key",
+            "order_row"
           ]
         }
       ],
@@ -25245,6 +27202,37 @@
         "order_row": "Order Row",
         "side": "Side"
       },
+      "groups": [
+        {
+          "label": "Run",
+          "columns": [
+            "run_id",
+            "macro"
+          ]
+        },
+        {
+          "label": "Entry",
+          "columns": [
+            "cl_ord_id",
+            "side",
+            "line",
+            "text"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "order_row"
+          ]
+        }
+      ],
       "types": {
         "timestamp": {
           "type": "time",
@@ -25414,6 +27402,17 @@
             "actions",
             "order_id",
             "updated_at"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "side",
+            "kind",
+            "key",
+            "parent_key",
+            "order_row"
           ]
         }
       ],
@@ -25639,6 +27638,37 @@
         "order_row": "Order Row",
         "side": "Side"
       },
+      "groups": [
+        {
+          "label": "Run",
+          "columns": [
+            "run_id",
+            "macro"
+          ]
+        },
+        {
+          "label": "Entry",
+          "columns": [
+            "cl_ord_id",
+            "side",
+            "line",
+            "text"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "timestamp"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "order_row"
+          ]
+        }
+      ],
       "types": {
         "timestamp": {
           "type": "time",
@@ -25732,6 +27762,52 @@
         "security_id_source": "ID Source (22)",
         "legs": "Legs (a strategy)"
       },
+      "groups": [
+        {
+          "label": "Name",
+          "columns": [
+            "name",
+            "description"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "instrument",
+            "symbol",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "underlying_symbol",
+            "underlying_security_type",
+            "underlying_maturity"
+          ]
+        },
+        {
+          "label": "Legs",
+          "columns": [
+            "legs"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at",
+            "updated_at"
+          ]
+        }
+      ],
       "types": {
         "created_at": {
           "type": "time",
@@ -27060,6 +29136,85 @@
         "list_orders": "Orders (JSON)",
         "order_count": "Order Count"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "list_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "mode",
+            "bid_type",
+            "exec_inst_type"
+          ]
+        },
+        {
+          "label": "Orders",
+          "columns": [
+            "orders",
+            "done_orders",
+            "pending_orders",
+            "filled_qty",
+            "order_count",
+            "tot_no_orders"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "status_type"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at",
+            "updated_at",
+            "last_order_at"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "bid_type_code",
+            "exec_inst_type_code",
+            "status_type_code",
+            "list_status_code",
+            "list_orders",
+            "raw_message"
+          ]
+        }
+      ],
       "history": {
         "table": "fix_lists",
         "key": [
@@ -28784,6 +30939,85 @@
         "list_orders": "Orders (JSON)",
         "order_count": "Order Count"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "list_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id",
+            "client",
+            "session_status"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "mode",
+            "bid_type",
+            "exec_inst_type"
+          ]
+        },
+        {
+          "label": "Orders",
+          "columns": [
+            "orders",
+            "done_orders",
+            "pending_orders",
+            "filled_qty",
+            "order_count",
+            "tot_no_orders"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "status",
+            "status_type"
+          ]
+        },
+        {
+          "label": "Pending",
+          "columns": [
+            "pending_action",
+            "pending_extra_tags"
+          ]
+        },
+        {
+          "label": "Text & Tags",
+          "columns": [
+            "sent_text",
+            "text",
+            "extra_tags",
+            "macro"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at",
+            "updated_at",
+            "last_order_at"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "bid_type_code",
+            "exec_inst_type_code",
+            "status_type_code",
+            "list_status_code",
+            "list_orders",
+            "raw_message"
+          ]
+        }
+      ],
       "history": {
         "table": "fix_lists",
         "key": [
@@ -29502,6 +31736,79 @@
         "created_at": "Created",
         "updated_at": "Updated"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "order_id",
+            "cl_ord_id",
+            "seq",
+            "leg_ref_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "position_effect",
+            "covered"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "ratio",
+            "side",
+            "leg_price",
+            "leg_qty"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "cum_qty",
+            "avg_price",
+            "last_qty",
+            "last_price"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "side_code"
+          ]
+        }
+      ],
       "types": {
         "created_at": {
           "type": "time",
@@ -29623,6 +31930,79 @@
         "created_at": "Created",
         "updated_at": "Updated"
       },
+      "groups": [
+        {
+          "label": "IDs",
+          "columns": [
+            "order_id",
+            "cl_ord_id",
+            "seq",
+            "leg_ref_id"
+          ]
+        },
+        {
+          "label": "Session",
+          "columns": [
+            "session_id"
+          ]
+        },
+        {
+          "label": "Instrument",
+          "columns": [
+            "symbol",
+            "instrument",
+            "security_type",
+            "cfi_code",
+            "security_exchange",
+            "security_id",
+            "security_id_source"
+          ]
+        },
+        {
+          "label": "Derivative",
+          "columns": [
+            "maturity",
+            "strike_price",
+            "put_or_call",
+            "multiplier",
+            "position_effect",
+            "covered"
+          ]
+        },
+        {
+          "label": "Terms",
+          "columns": [
+            "ratio",
+            "side",
+            "leg_price",
+            "leg_qty"
+          ]
+        },
+        {
+          "label": "Status",
+          "columns": [
+            "cum_qty",
+            "avg_price",
+            "last_qty",
+            "last_price"
+          ]
+        },
+        {
+          "label": "Times",
+          "columns": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        {
+          "label": "Internal",
+          "columns": [
+            "id",
+            "direction",
+            "side_code"
+          ]
+        }
+      ],
       "types": {
         "created_at": {
           "type": "time",
@@ -29889,7 +32269,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.83",
+      "version": "0.84",
       "mkio": "1.5",
       "expr": "2"
     },

@@ -1600,6 +1600,104 @@ class TestEveryColumnReachable:
                 assert spec["display"]["raw_message"] == template, pane_id
 
 
+class TestColumnGroups:
+    """Every table pane sections its column picker with `groups`, and a
+    history window borrows its blotter's (mkui 1.31.0). mkui files a column
+    no group names under "Other" and skips a name that is no column, both
+    without a word, so the sections are checked here."""
+
+    # One vocabulary, in one order: a pane's sections are a subsequence.
+    SECTIONS = ["Template", "Name", "Job", "Identity", "Message", "Run", "IDs", "Session",
+                "Connection", "Sequence", "Options", "Instrument", "Derivative", "Order",
+                "Terms", "Fill", "DK", "Legs", "List", "IOI & Advert", "Allocation", "RFQ",
+                "Request", "Quote", "Response", "Orders", "Progress", "Filter", "Playback",
+                "Entry", "Status", "Pending", "Text & Tags", "Times", "Internal"]
+
+    DERIVATIVE = {"maturity", "strike_price", "put_or_call", "multiplier",
+                  "underlying_symbol", "underlying_security_type", "underlying_maturity",
+                  "open_close", "covered_uncovered", "position_effect", "covered"}
+
+    @pytest.fixture(scope="class")
+    def table_panes(self, app_config):
+        panes = {pid: spec for pid, spec in app_config["panes"].items()
+                 if spec.get("type") == "mkio-table"}
+        assert panes
+        return panes
+
+    def test_every_table_pane_is_grouped(self, table_panes):
+        for pid, spec in table_panes.items():
+            groups = spec.get("groups")
+            assert groups, f"pane {pid!r} has no column groups"
+            for g in groups:
+                assert set(g) == {"label", "columns"} and g["columns"], f"{pid}: {g}"
+
+    def test_every_column_sits_in_exactly_one_group(self, table_panes):
+        for pid, spec in table_panes.items():
+            named = [c for g in spec["groups"] for c in g["columns"]]
+            twice = sorted({c for c in named if named.count(c) > 1})
+            assert not twice, f"pane {pid!r} groups {twice} twice"
+            other = [c for c in spec["columns"] if c not in named]
+            assert not other, f"pane {pid!r} leaves {other} to the picker's Other section"
+            unknown = [c for c in named if c not in spec["columns"]]
+            assert not unknown, f"pane {pid!r} groups columns it does not list: {unknown}"
+
+    def test_sections_keep_one_vocabulary_and_order(self, table_panes):
+        for pid, spec in table_panes.items():
+            labels = [g["label"] for g in spec["groups"]]
+            assert len(set(labels)) == len(labels), f"{pid}: {labels}"
+            strange = [label for label in labels if label not in self.SECTIONS]
+            assert not strange, f"pane {pid!r} has sections outside the vocabulary: {strange}"
+            assert labels == sorted(labels, key=self.SECTIONS.index), \
+                f"pane {pid!r} orders its sections its own way: {labels}"
+
+    def test_history_is_left_to_the_history_window(self, table_panes):
+        """mkui puts mkio's own columns under a "History" section it adds to
+        a history window; a pane section of that name would switch it off."""
+        assert "History" not in self.SECTIONS
+
+    def test_panes_over_one_service_share_their_groups(self, table_panes):
+        by_service = {}
+        for pid, spec in table_panes.items():
+            first_pid, first = by_service.setdefault(spec["service"], (pid, spec["groups"]))
+            assert spec["groups"] == first, f"{pid} and {first_pid} group {spec['service']} differently"
+
+    def test_internals_stay_out_of_the_default_view(self, table_panes):
+        for pid, spec in table_panes.items():
+            for g in spec["groups"]:
+                if g["label"] == "Internal":
+                    shown = [c for c in g["columns"] if c in spec["visible"]]
+                    assert not shown, f"pane {pid!r} shows internals by default: {shown}"
+
+    def test_instrument_and_derivative_are_two_sections(self, table_panes):
+        split = 0
+        for pid, spec in table_panes.items():
+            by_label = {g["label"]: set(g["columns"]) for g in spec["groups"]}
+            derivative = self.DERIVATIVE & set(spec["columns"])
+            if not derivative:
+                continue
+            split += 1
+            assert by_label.get("Derivative") == derivative, pid
+            assert "symbol" in by_label["Instrument"], pid
+        assert split == 18
+
+    def test_history_columns_are_all_grouped(self, table_panes):
+        """A history window shows `history.columns` under the blotter's
+        groups, so each must be in one."""
+        checked = 0
+        for pid, spec in table_panes.items():
+            if "history" not in spec:
+                continue
+            checked += 1
+            named = {c for g in spec["groups"] for c in g["columns"]}
+            loose = [c for c in spec["history"].get("columns", []) if c not in named]
+            assert not loose, f"{pid}: history columns outside every group: {loose}"
+        assert checked
+
+    def test_mkui_floor_groups_the_history_window(self):
+        floor = _mkui_floor()
+        assert floor >= (1, 31, 0), f"mkui floor {floor} predates history-window column groups"
+
+
 class TestTimeTypedColumns:
     """mkui's range-filter time detection recognises only ISO-8601 and mkio
     refs; FIX-format stamps (`YYYYMMDD-HH:MM:SS.mmm`) must be declared via the

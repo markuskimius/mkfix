@@ -123,7 +123,10 @@ A FIX protocol testing engine for capital markets connectivity, built on
   ExecID without ExecRefID, so it is a new trade and the disputed one keeps
   its mark). Both trade blotters show each trade's Order ID, and Sent Trades the
   ClOrdID its report went out under. Every blotter lists every stored column
-  in its column picker, the less useful ones hidden by default. On the market side an
+  in its column picker, the less useful ones hidden by default, sorted into
+  sections (IDs, Session, Instrument, Derivative, Terms, Status, Pending, …)
+  that fold and show or hide as one; a History window's picker has the same
+  sections. On the market side an
   inbound DK marks the sent trade it names -- the reason and text show in the
   Sent Trades blotter's DK column, and the trade can still be corrected or
   busted, which clears the mark. Re-notify answers the DK: the trade's
@@ -657,7 +660,7 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.25.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.31.0, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction
