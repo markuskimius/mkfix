@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.82",
+    "version": "0.83",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -131,11 +131,6 @@
           "args": "order-blotter"
         },
         {
-          "label": "Sent Order Legs",
-          "action": "pane.show",
-          "args": "sent-legs"
-        },
-        {
           "label": "Received Trades",
           "action": "pane.show",
           "args": "trade-blotter"
@@ -147,6 +142,11 @@
           "label": "Sent Lists",
           "action": "pane.show",
           "args": "list-blotter"
+        },
+        {
+          "label": "Sent Order Legs",
+          "action": "pane.show",
+          "args": "sent-legs"
         },
         {
           "sep": true
@@ -195,11 +195,6 @@
           "args": "market-order-blotter"
         },
         {
-          "label": "Received Order Legs",
-          "action": "pane.show",
-          "args": "received-legs"
-        },
-        {
           "label": "Sent Trades",
           "action": "pane.show",
           "args": "market-trade-blotter"
@@ -211,6 +206,11 @@
           "label": "Received Lists",
           "action": "pane.show",
           "args": "market-list-blotter"
+        },
+        {
+          "label": "Received Order Legs",
+          "action": "pane.show",
+          "args": "received-legs"
         },
         {
           "sep": true
@@ -1059,7 +1059,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.82"
+        "text": "mkfix v0.83"
       }
     ],
     "bindStyle": {
@@ -29889,7 +29889,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.82",
+      "version": "0.83",
       "mkio": "1.5",
       "expr": "2"
     },

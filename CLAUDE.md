@@ -165,4 +165,4 @@ Message Replay loads production FIX logs into test sessions, so files and hosts 
 - FIX tags are always string keys (`"35"`, not `35`)
 - Timestamps use FIX form: `YYYYMMDD-HH:MM:SS.mmm` UTC. Outgoing wire timestamps (52/60) follow the session's `timestamp_precision` (`''` = protocol standard: seconds through FIX 4.1, milliseconds from 4.2; explicit second through picosecond override, sub-nanosecond digits zero-padded). The factory owns the resolved value (`FixMessageFactory.timestamp_precision`; `standard_precision` in message.py); DB timestamps stay milliseconds.
 - Static JS: plain ES modules, unbuilt
-- Custom panes register with `window.Mkui.registerPaneType()`
+- Custom panes register with `window.Mkui.registerPaneType()`, the config keys they read as its third argument: mkui reports any other key on the pane (`TestCustomPaneKeys`)

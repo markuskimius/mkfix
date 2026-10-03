@@ -657,7 +657,7 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.24.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.25.0, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction

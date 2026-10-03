@@ -353,4 +353,4 @@ registerPaneType("message-detail", async (spec, app, host) => {
   paneEl?.addEventListener("mkui-pane-open", () => {
     if (!sessionsSubId) subscribeSessions();
   });
-});
+}, []);   // the config keys it reads: mkui reports any other on the pane

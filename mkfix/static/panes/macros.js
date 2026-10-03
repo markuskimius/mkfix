@@ -935,4 +935,4 @@ registerPaneType("macros", async (spec, app, host) => {
   });
   paneEl.addEventListener("mkui-pane-open", () => { if (!subs.length) followAll(); editor.resize(); pollRecord(); });
   void unwatch; void unexample; void unopen; void unrecording;
-});
+}, ["side"]);   // the config keys it reads: mkui reports any other on the pane

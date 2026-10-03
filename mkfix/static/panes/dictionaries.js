@@ -582,4 +582,4 @@ registerPaneType("dictionaries", async (spec, app, host) => {
   });
 
   await refreshList();
-});
+}, []);   // the config keys it reads: mkui reports any other on the pane

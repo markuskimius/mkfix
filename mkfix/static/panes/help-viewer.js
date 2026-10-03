@@ -145,4 +145,4 @@ registerPaneType("help-viewer", async (spec, app, host) => {
   first = false;
   const start = app.state.get("help_target");
   await show(home, start?.page === home ? start.anchor : undefined);
-});
+}, ["page"]);   // the config keys it reads: mkui reports any other on the pane

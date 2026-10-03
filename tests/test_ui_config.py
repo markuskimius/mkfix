@@ -1719,9 +1719,9 @@ class TestMenubar:
     # neither side — Config what the rest is set up with.
     PANES = {
         "FIX": ["session-blotter", None, "raw-messages", "message-detail", None, "replay-control"],
-        "Client": ["order-blotter", "sent-legs", "trade-blotter", None, "list-blotter", None, "ioi-blotter", "advert-blotter",
+        "Client": ["order-blotter", "trade-blotter", None, "list-blotter", "sent-legs", None, "ioi-blotter", "advert-blotter",
                    "allocation-blotter", None, "rfq-blotter", "quote-blotter", "rfq-request-blotter"],
-        "Market": ["market-order-blotter", "received-legs", "market-trade-blotter", None, "market-list-blotter", None,
+        "Market": ["market-order-blotter", "market-trade-blotter", None, "market-list-blotter", "received-legs", None,
                    "market-ioi-blotter", "market-advert-blotter", "market-allocation-blotter", None,
                    "market-rfq-blotter", "market-quote-blotter", "market-rfq-request-blotter"],
         "Macro": ["client-macros", "client-runs", None, "market-macros", "market-runs", None,
@@ -3874,6 +3874,38 @@ class TestFamilyInstrumentFields:
             spec = app_config["panes"][pane_id]
             assert "instrument" in spec["visible"] and "symbol" not in spec["visible"], pane_id
             assert "security_type" in spec["columns"] and "security_type" not in spec["visible"], pane_id
+
+
+class TestCustomPaneKeys:
+    """Each custom pane type tells mkui the config keys it reads
+    (`registerPaneType`'s third argument), so mkui reports any other key on
+    the pane — on the console and in a strip across the pane."""
+
+    COMMON = {"title", "type", "widgets", "content"}
+
+    @staticmethod
+    def _declared():
+        import re
+        from pathlib import Path
+        out = {}
+        for path in (Path(__file__).parent.parent / "mkfix" / "static" / "panes").glob("*.js"):
+            text = path.read_text(encoding="utf-8")
+            for m in re.finditer(r'registerPaneType\("([\w-]+)"', text):
+                close = re.search(r'^\}, (\[[^\]]*\])\);', text[m.end():], re.M)
+                assert close, f"{path.name}: {m.group(1)} declares no keys"
+                out[m.group(1)] = set(json.loads(close.group(1)))
+        return out
+
+    def test_every_custom_type_declares_its_keys(self):
+        assert self._declared() == {"help-viewer": {"page"}, "dictionaries": set(), "message-detail": set(),
+                                    "macros": {"side"}}
+
+    def test_every_pane_of_a_custom_type_keeps_to_them(self, app_config):
+        declared = self._declared()
+        for pane_id, spec in app_config["panes"].items():
+            if spec.get("type") in declared:
+                extra = set(spec) - self.COMMON - declared[spec["type"]]
+                assert not extra, f"{pane_id}: mkui would report {sorted(extra)}"
 
 
 class TestMultilegRows:
