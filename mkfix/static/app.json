@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.84",
+    "version": "0.85",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -1059,7 +1059,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.84"
+        "text": "mkfix v0.85"
       }
     ],
     "bindStyle": {
@@ -26395,7 +26395,8 @@
       "tree": {
         "child": "parent_key",
         "parent": "key",
-        "expand": 1
+        "expand": 1,
+        "flat": "leaves"
       },
       "select": {
         "state": "selected_macro_order"
@@ -26443,27 +26444,22 @@
         "run_id",
         "macro",
         "status",
+        "verdict",
         "subject",
         "cl_ord_id",
         "symbol",
-        "session",
-        "line",
-        "waiting_for",
         "message",
-        "actions",
-        "priority",
-        "verdict",
         "orders",
         "live",
         "passed",
         "failed",
-        "speed",
-        "seed",
-        "version",
-        "started_at",
-        "ended_at",
-        "updated_at"
+        "started_at"
       ],
+      "filters": {
+        "started_at": {
+          "preset": "today"
+        }
+      },
       "labels": {
         "run_id": "Run",
         "macro": "Macro",
@@ -26830,7 +26826,8 @@
       "tree": {
         "child": "parent_key",
         "parent": "key",
-        "expand": 1
+        "expand": 1,
+        "flat": "leaves"
       },
       "select": {
         "state": "selected_macro_order"
@@ -26878,27 +26875,22 @@
         "run_id",
         "macro",
         "status",
+        "verdict",
         "subject",
         "cl_ord_id",
         "symbol",
-        "session",
-        "line",
-        "waiting_for",
         "message",
-        "actions",
-        "priority",
-        "verdict",
         "orders",
         "live",
         "passed",
         "failed",
-        "speed",
-        "seed",
-        "version",
-        "started_at",
-        "ended_at",
-        "updated_at"
+        "started_at"
       ],
+      "filters": {
+        "started_at": {
+          "preset": "today"
+        }
+      },
       "labels": {
         "run_id": "Run",
         "macro": "Macro",
@@ -27265,7 +27257,8 @@
       "tree": {
         "child": "parent_key",
         "parent": "key",
-        "expand": 1
+        "expand": 1,
+        "flat": "leaves"
       },
       "select": {
         "state": "selected_macro_order"
@@ -27313,28 +27306,22 @@
         "run_id",
         "macro",
         "status",
+        "verdict",
         "subject",
         "cl_ord_id",
         "symbol",
-        "session",
-        "market_session",
-        "line",
-        "waiting_for",
         "message",
-        "actions",
-        "priority",
-        "verdict",
         "orders",
         "live",
         "passed",
         "failed",
-        "speed",
-        "seed",
-        "version",
-        "started_at",
-        "ended_at",
-        "updated_at"
+        "started_at"
       ],
+      "filters": {
+        "started_at": {
+          "preset": "today"
+        }
+      },
       "labels": {
         "run_id": "Run",
         "macro": "Macro",
@@ -32269,7 +32256,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.84",
+      "version": "0.85",
       "mkio": "1.5",
       "expr": "2"
     },

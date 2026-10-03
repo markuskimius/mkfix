@@ -111,7 +111,7 @@ Every blotter is the same kind of table.
 - **Select** — click a row; Ctrl/Cmd-click and Shift-click select several. Most buttons act on every selected row.
 - **Find** and **Copy** — see the keys below. Copied rows paste into a spreadsheet.
 
-The order and trade blotters open on today's rows. Clear the *Today* chip to see older ones. Times are shown in your browser's time zone and stored in UTC.
+The order and trade blotters and the Macro Runs windows open on today's rows. Clear the *Today* chip to see older ones. Times are shown in your browser's time zone and stored in UTC.
 
 | Key | Does |
 |---|---|
@@ -454,4 +454,4 @@ Each takes `-h` for its options and examples.
 | The order you sent is `Rejected` with *Send failed* | The message never left: the session dropped as it was sent. |
 | A macro's run says `interrupted` | The server was restarted while it ran. Start it again. |
 | `mkfix` exits at once saying the port is taken | Another server is using it. Choose another with `-p`. |
-| Yesterday's orders are gone | They are hidden, not gone: the blotter opens on today. Clear the *Today* chip. |
+| Yesterday's orders or macro runs are gone | They are hidden, not gone: the blotter opens on today. Clear the *Today* chip. |

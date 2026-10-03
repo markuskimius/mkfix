@@ -660,7 +660,13 @@ class TestWiring:
         # to that run. Link names are one namespace across the app, so each side
         # has its own: shared names let the Client tree filter the Market log.
         tree = app["panes"][f"{side}-macro-runs"]
-        assert tree["tree"] == {"child": "parent_key", "parent": "key", "expand": 1}, "expand lives inside `tree`: at the pane level mkui ignores it"
+        # Flattened, the tree drops its run rows: a run only groups its orders
+        assert tree["tree"] == {"child": "parent_key", "parent": "key", "expand": 1, "flat": "leaves"}, "expand lives inside `tree`: at the pane level mkui ignores it"
+        # It opens on what says whether a run is worth opening — what ran, how it
+        # ended, what it took, when — and on today's runs; the picker has the rest
+        assert tree["visible"] == ["run_id", "macro", "status", "verdict", "subject", "cl_ord_id", "symbol", "message",
+                                   "orders", "live", "passed", "failed", "started_at"]
+        assert tree["filters"] == {"started_at": {"preset": "today"}} and tree["types"]["started_at"]["type"] == "time"
         names = {f"{side}_macro_run": "run_id", f"{side}_macro_order": "order_row"}
         assert tree["link"] == {"broadcast": names}
         assert app["panes"][f"{side}-macro-log"]["link"] == {"listen": names}
@@ -684,6 +690,52 @@ class TestWiring:
         frames = {f["id"]: f for f in app["frames"]}
         client = json.dumps(frames["client-runs"]).replace("client", "market").replace("Client", "Market")
         assert client == json.dumps(frames["market-runs"])
+
+    @pytest.mark.parametrize("side", SIDES)
+    def test_the_runs_tree_opens_on_today_and_on_what_matters(self, side):
+        """The default view is a choice among the columns, never a loss: what
+        is hidden stays in the picker, the buttons still read what they gate
+        on, and the Today filter sits on a stamp every row carries — a run's
+        and an order's alike — in the form its column type parses."""
+        import tomllib
+        from datetime import datetime
+        from mkfix.fix.message import _fix_timestamp
+        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        toml = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
+        tree = app["panes"][f"{side}-macro-runs"]
+        shown, listed = tree["visible"], tree["columns"]
+        assert shown[0] == "run_id", "the tree's toggle rides the first column"
+        assert len(shown) == len(set(shown)) and not [c for c in shown if c not in listed]
+        hidden = [c for c in listed if c not in shown]
+        assert {"session", "market_session", "line", "waiting_for", "actions", "priority", "speed", "seed", "version",
+                "ended_at", "updated_at"} <= set(hidden), "the detail is a click away, not in the way"
+        grouped = [c for g in tree["groups"] for c in g["columns"]]
+        assert sorted(grouped) == sorted(listed), "a hidden column is still in the picker"
+        internal = next(g["columns"] for g in tree["groups"] if g["label"] == "Internal")
+        assert not [c for c in shown if c in internal]
+        # What a hidden column still does: buttons gate on it, styles colour by it, the sort and links read it
+        read = " ".join(json.dumps(b.get("enable", "")) for b in tree["buttons"]) + json.dumps(tree["rowStyle"])
+        for column in ("kind", "priority", "status"):
+            assert f"r.{column}" in read or f"{column} ==" in read, column
+            assert column in listed, column
+        assert tree["sort"] == ["-id"] and "id" in listed
+        assert set(tree["link"]["broadcast"].values()) <= set(listed)
+        # Today: one filter, on a column both halves of the union fill
+        assert list(tree["filters"]) == ["started_at"]
+        runs, orders = toml["services"]["macro_runs_tree"]["sql"].split("UNION ALL")
+        assert "r.started_at" in runs and "o.started_at" in orders, "a row without the stamp would never be today's"
+        assert "'' AS updated_at" in runs, "updated_at is blank on a run row: filtering on it would hide every run"
+        kind = tree["types"]["started_at"]
+        assert kind["type"] == "time" and kind["zone"] == "local"
+        datetime.strptime(_fix_timestamp(), kind["parse"])
+        # Flat: the leaves alone is mkui 1.32.0 — an older one warns of nothing and shows every row
+        assert tree["tree"]["flat"] == "leaves"
+        from mkui.__init__ import __version__ as mkui_version
+        assert tuple(map(int, mkui_version.split(".")[:2])) >= (1, 32)
+        floor = re.search(r'"mkui>=(\d+)\.(\d+)\.\d+,<2"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert floor and tuple(map(int, floor.groups())) >= (1, 32), "the pyproject pin must reach `tree.flat`"
+        table = (Path(__import__("mkui").__file__).parent / "static" / "src" / "widgets" / "mkio-table.js").read_text(encoding="utf-8")
+        assert 'flat !== "all" && flat !== "leaves"' in table, "mkui no longer reads `tree.flat` this way"
 
     @pytest.mark.parametrize("side", SIDES)
     def test_a_run_row_is_named_for_whatever_it_is(self, side):
@@ -1000,9 +1052,8 @@ class TestWiring:
         runs, clients = panes["end-to-end-macro-runs"], as_end_to_end(panes["client-macro-runs"])
         # Session is the run's client session — and, on a row under it, the session of that row, either side's
         assert runs["labels"]["session"] == "Session" and runs["labels"]["market_session"] == "Market Session"
-        at = runs["visible"].index("session")
-        assert runs["visible"][at:at + 2] == ["session", "market_session"]
-        clients["visible"].insert(clients["visible"].index("session") + 1, "market_session")
+        at = runs["columns"].index("session")
+        assert runs["columns"][at:at + 2] == ["session", "market_session"]
         assert runs == clients
         for side in TWO:
             spec = panes[f"{side}-macro-runs"]

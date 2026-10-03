@@ -29,7 +29,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   sorting, and clipboard copy. Heartbeats are hidden by default (every other
   message type shows); the header filter on the message type column restores
   them. The same filtering applies across every blotter, and the order and
-  trade blotters open showing today's activity by default.
+  trade blotters and the Macro Runs windows open showing today's activity by
+  default.
 - **Message Detail** -- Field-by-field breakdown of the message selected in
   the Messages viewer, translated through the owning session's dictionary:
   collapsible header/body/trailer sections and repeating-group trees,
@@ -257,7 +258,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the macros in a panel whose edge drags (double-click fits the longest name). Each
   side's **Macro Runs** window shows its runs as a tree -- each run opening
   to its orders' macros, the line each is on and what it is waiting for, with
-  Pause, Stop and Detach -- over the log, which follows the selection: click
+  Pause, Stop and Detach; it opens on today's runs and on the columns that
+  say whether a run is worth opening (the Columns button has the rest), and
+  its Flatten box lists the orders alone, without the run rows -- over the log, which follows the selection: click
   a run and the log is that run's lines, click an order and it is that
   order's, and the *Listen* chip on the log's toolbar pauses the link for
   the whole log. The order blotters name the macro that took an order. Received orders are offered to the armed runs in their **Priority**
@@ -660,7 +663,7 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.31.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.32.0, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction
