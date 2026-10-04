@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "mkio>=1.5.0,<2",  # 1.5.0: expression language 2 (and/or/not/in, durations, COUNT), which app.json's `expect.expr` pins
-    "mkui>=1.32.0,<2",  # 1.32.0: a tree shown flat can drop its parents (`tree.flat`, the Macro Runs windows); 1.31.0: a history window sections its column picker by its blotter's `groups`; 1.25.0: a config mistake shown in a strip on its pane; 1.24.0: the dialog grid field (New List… orders); 1.23.0: a resize snaps unless Shift is held, a move only with it, and Alt+Ctrl sizes a window (the User Guide and Keyboard Shortcuts say so); 1.22.1: sloppy focus with Alt+P/Alt+N, and `focus.sloppy` in state from the first load (the Keyboard Shortcuts box reads it); 1.16.1: closed frames and `frame.show`
+    "mkui>=1.34.0,<2",  # 1.34.0: a button label may be a template and a button may `recall` its rows (Hide/Unhide), and a cursor that lands on a neighbour selects nothing; 1.33.0: a history window opens on its blotter's `visible`; 1.32.0: a tree shown flat can drop its parents (`tree.flat`, the Macro Runs windows); 1.31.0: a history window sections its column picker by its blotter's `groups`; 1.25.0: a config mistake shown in a strip on its pane; 1.24.0: the dialog grid field (New List… orders); 1.23.0: a resize snaps unless Shift is held, a move only with it, and Alt+Ctrl sizes a window (the User Guide and Keyboard Shortcuts say so); 1.22.1: sloppy focus with Alt+P/Alt+N, and `focus.sloppy` in state from the first load (the Keyboard Shortcuts box reads it); 1.16.1: closed frames and `frame.show`
 ]
 
 [project.optional-dependencies]

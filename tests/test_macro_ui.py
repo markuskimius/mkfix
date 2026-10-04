@@ -537,7 +537,9 @@ class TestHelpPages:
         for heading, pane in sections.items():
             section = text.split(f"### {heading}\n", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
             named = re.findall(r"^\| \*\*([^*]+)\*\* \|", section, re.M)
-            buttons = [b["label"] for b in app["panes"][pane]["buttons"]]
+            # a template label names the words it can read: Hide, Unhide
+            buttons = [word for b in app["panes"][pane]["buttons"]
+                       for word in (re.findall(r"'([^']+)'", b["label"]) if "${" in b["label"] else [b["label"]])]
             assert set(named) <= set(buttons), (heading, set(named) - set(buttons))
             assert set(buttons) - set(named) <= {"History"}, (heading, set(buttons) - set(named))
             if "Macro…" in buttons:

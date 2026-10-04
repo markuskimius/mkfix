@@ -74,6 +74,7 @@ class TestHttp:
             async with s.get(server + "/api/services") as resp:
                 names = [svc["name"] for svc in await resp.json()]
         assert "fix_cmd" in names
+        assert "row_visibility" in names, "Hide/Unhide on the order and trade blotters"
         assert "sessions_query" in names
         assert "messages_stream" in names
 

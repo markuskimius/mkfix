@@ -519,12 +519,12 @@ class TestServiceReferences:
         a reorder that swaps actions under the labels would be worse than the
         old order."""
         buttons = app_config["panes"]["order-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["New", "New Multileg…", "Clone", "Replace", "Cancel", "History",
-                                                 "Macro…"]
+        assert [b["label"] for b in buttons] == ["New", "New Multileg…", "Clone", "Replace", "Cancel", HIDE_LABEL,
+                                                 "Macro…", "History"]
         ops = {
             b["label"]: b["action"].get("op")
             or b["action"]["dialog"]["submit"]["op"]
-            for b in buttons if b["action"]["type"] != "action"
+            for b in buttons if b["action"]["type"] != "action" and b["label"] != HIDE_LABEL
         }
         assert ops == {"New": "send_new_order", "New Multileg…": "send_new_multileg", "Clone": "send_new_order",
                        "Replace": "send_cancel_replace", "Cancel": "send_cancel",
@@ -598,7 +598,7 @@ class TestServiceReferences:
         pending request must not block them on the still-working order."""
         buttons = app_config["panes"]["market-order-blotter"]["buttons"]
         assert [b["label"] for b in buttons] == \
-            ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Clone", "Allocate", "History", "Macro…"]
+            ["Accept", "Reject", "Fill", "Unsol Cxl", "Restate", "Clone", "Allocate", HIDE_LABEL, "Macro…", "History"]
         by = {b["label"]: b for b in buttons}
         pending = {"pending_action": ["New", "Cancel", "Replace"], "session_status": ["ACTIVE"]}
         assert _conditions(by["Accept"]["enable"]["when"]) == pending
@@ -663,8 +663,8 @@ class TestServiceReferences:
         checked = 0
         for pane_id in send_panes:
             for button in app_config["panes"][pane_id]["buttons"]:
-                if button["action"]["type"] == "action":
-                    continue
+                if button["action"]["type"] == "action" or button["action"].get("service") == "row_visibility":
+                    continue                     # History, and Hide/Unhide: a local mark, nothing sent
                 dialog = button["action"]["dialog"]
                 if dialog["submit"]["service"] != "fix_cmd" or dialog["submit"]["op"] == "macro_from_history":
                     continue                     # Macro… writes a macro: it sends nothing
@@ -685,7 +685,7 @@ class TestServiceReferences:
         shows the ExecRefID(19) a correction or bust will carry again."""
         from mkio import expr
         buttons = app_config["panes"]["market-trade-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "Allocate", "History"]
+        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "Allocate", HIDE_LABEL, "History"]
         when = next(b for b in buttons if b["label"] == "Re-notify")["enable"]["when"]
         def enabled(*rows):
             return expr.evaluate(when, {"rows": [
@@ -2041,6 +2041,11 @@ class TestConfiguredFilters:
                 f"pane {pane_id!r} default filter is {spec!r}, expected today preset"
 
 
+# The one button that hides and unhides (TestHiddenRows): its label is a
+# template, so it is written out wherever a blotter's buttons are listed.
+HIDE_LABEL = "${IF(selection.rowCount > 0 and ALL(rows, r -> r.hidden), 'Unhide', 'Hide')}"
+
+
 def _dependency_floor(name: str) -> tuple[int, ...]:
     """The `>=` floor pyproject.toml declares for a framework dependency."""
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -2082,7 +2087,7 @@ class TestMacroFromHistory:
         side, subject, id_col = self.PANES[pane]
         spec = app_config["panes"][pane]
         button = next(b for b in spec["buttons"] if b["label"] == "Macro…")
-        assert spec["buttons"][[b["label"] for b in spec["buttons"]].index("Macro…") - 1]["label"] == "History"
+        assert spec["buttons"][[b["label"] for b in spec["buttons"]].index("Macro…") + 1]["label"] == "History"
         # any row, whatever its session is doing: nothing is sent
         assert button["enable"] == {"connected": True, "minSelected": 1} and "unit" not in button
         dialog = button["action"]["dialog"]
@@ -2897,8 +2902,9 @@ class TestRecordHistory:
         the history blocks key records by."""
         tables = toml_config["tables"]
         services = toml_config["services"]
-        assert not any("unversioned" in t for t in tables.values()), \
-            "no engine-written mirror columns remain"
+        assert {n: t["unversioned"] for n, t in tables.items() if "unversioned" in t} == \
+            {"fix_orders": ["hidden"], "fix_executions": ["hidden"]}, \
+            "no engine-written mirror columns remain: only the blotters' Hidden mark is unversioned"
         assert not {"status", "tx_seq_num", "rx_seq_num"} & set(tables["fix_sessions"]["columns"])
         for table in ("fix_orders", "fix_executions"):
             assert "session_status" not in tables[table]["columns"]
@@ -3430,7 +3436,7 @@ class TestFamilyBlotters:
     def test_sent_blotters_send_replace_and_cancel_the_chain(self, app_config, toml_config):
         for family, (table, id_col, send, replace, cancel) in self.FAMILIES.items():
             buttons = {b["label"]: b for b in app_config["panes"][f"market-{family}-blotter"]["buttons"]}
-            assert list(buttons) == ["New", "Clone", "Replace", "Cancel", "History", "Macro…"], family
+            assert list(buttons) == ["New", "Clone", "Replace", "Cancel", "Macro…", "History"], family
             ops = {label: b["action"]["dialog"]["submit"]["op"] for label, b in buttons.items()
                    if label not in ("History", "Macro…")}
             assert ops == {"New": send, "Clone": send, "Replace": replace, "Cancel": cancel}, family
@@ -3480,8 +3486,8 @@ class TestFamilyBlotters:
         Reject over the request slot, the Received Orders way."""
         panes = app_config["panes"]
         assert [b["label"] for b in panes["advert-blotter"]["buttons"]] == ["History"]
-        order, history, written = panes["ioi-blotter"]["buttons"]
-        assert (order["label"], history["label"], written["label"]) == ("Order", "History", "Macro…")
+        order, written, history = panes["ioi-blotter"]["buttons"]
+        assert (order["label"], written["label"], history["label"]) == ("Order", "Macro…", "History")
         dialog = order["action"]["dialog"]
         assert dialog["submit"]["op"] == "send_new_order" and dialog["fields"][0].get("name") != "_template"
         fields = self._fields(dialog)
@@ -3492,7 +3498,7 @@ class TestFamilyBlotters:
         assert "expire_time" in fields and "value" not in fields["expire_time"]
         assert _conditions(order["enable"]["when"]) == {"session_status": ["ACTIVE"]}, "any IOI, even a canceled one"
 
-        accept, reject, history, _written = panes["allocation-blotter"]["buttons"]
+        accept, reject, _written, history = panes["allocation-blotter"]["buttons"]
         assert (accept["label"], reject["label"], history["label"]) == ("Accept", "Reject", "History")
         for button in (accept, reject):
             assert _conditions(button["enable"]["when"]) == {
@@ -3514,7 +3520,7 @@ class TestFamilyBlotters:
         total and their average onto the form; remembered, so the next open
         fills at once."""
         button = next(b for b in app_config["panes"]["market-order-blotter"]["buttons"] if b["label"] == "Allocate")
-        assert [b["label"] for b in app_config["panes"]["market-order-blotter"]["buttons"]][-3:] == ["Allocate", "History", "Macro…"]
+        assert [b["label"] for b in app_config["panes"]["market-order-blotter"]["buttons"]][-4:] == ["Allocate", HIDE_LABEL, "Macro…", "History"]
         dialog = button["action"]["dialog"]
         assert dialog["submit"]["op"] == "send_allocation" and dialog["fields"][0].get("name") != "_template"
         assert {n for n in _dialog_field_names(dialog) if not n.startswith("_")} == \
@@ -3541,7 +3547,7 @@ class TestFamilyBlotters:
         """Sent Trades allocates one fill: the same form, that trade as the
         executions line and its quantity and price as the block."""
         buttons = app_config["panes"]["market-trade-blotter"]["buttons"]
-        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "Allocate", "History"]
+        assert [b["label"] for b in buttons] == ["Correct", "Bust", "Re-notify", "Allocate", HIDE_LABEL, "History"]
         button = buttons[3]
         dialog = button["action"]["dialog"]
         assert dialog["submit"]["op"] == "send_allocation" and button["unit"] == "row"
@@ -3659,7 +3665,7 @@ class TestRfqBlotters:
             spec = app_config["panes"][pane_id]
             assert spec["title"] == title and spec["service"] == "rfqs_query"
             assert spec["filter"] == f"direction == '{direction}' && origin == '{origin}'"
-            assert [b["label"] for b in spec["buttons"]] == [*ops, "History", "Macro…"], pane_id
+            assert [b["label"] for b in spec["buttons"]] == [*ops, "Macro…", "History"], pane_id
             for button in spec["buttons"][:-2]:
                 dialog = button["action"]["dialog"]
                 op = dialog["submit"]["op"]
@@ -3784,8 +3790,8 @@ class TestRfqRequestBlotters:
         assert (sent["title"], sent["filter"]) == ("Sent RFQ Requests", "direction == 'TX'")
         assert (received["title"], received["filter"]) == ("Received RFQ Requests", "direction == 'RX'")
         assert sent["service"] == received["service"] == "rfq_requests_query"
-        assert [b["label"] for b in sent["buttons"]] == ["New", "Clone", "Unsubscribe", "History", "Macro…"]
-        assert [b["label"] for b in received["buttons"]] == ["RFQ…", "History", "Macro…"]
+        assert [b["label"] for b in sent["buttons"]] == ["New", "Clone", "Unsubscribe", "Macro…", "History"]
+        assert [b["label"] for b in received["buttons"]] == ["RFQ…", "Macro…", "History"]
         for spec in (sent, received):
             assert spec["visible"][0] == "rfq_req_id" and {"symbols", "status", "quote_requests"} <= set(spec["visible"])
             assert set(spec["history"]["columns"]) <= set(toml_config["tables"]["fix_rfq_requests"]["columns"])
@@ -4008,14 +4014,16 @@ class TestCustomPaneKeys:
 
 class TestMultilegRows:
     """A multileg order stands out on both order blotters: its row tinted
-    by its leg count, its Legs cell and MLEG instrument coloured."""
+    by its leg count — which shows in the default view — and its Legs cell
+    and MLEG instrument coloured, for whoever turns those columns on."""
 
     @pytest.mark.parametrize("pane_id", ["order-blotter", "market-order-blotter"])
     def test_a_multileg_row_stands_out(self, app_config, pane_id):
         from mkio import expr
         pane = app_config["panes"][pane_id]
-        (tint,) = pane["rowStyle"]
-        assert tint["background"] and "legs" in pane["visible"]
+        tint, hidden = pane["rowStyle"]
+        assert hidden["when"] == "hidden"
+        assert tint["background"] and "legs" in pane["columns"]
         multileg = {"leg_count": 2, "legs": "-1 ES Dec26 / +1 ES Mar27", "instrument": "ES MLEG"}
         single = {"leg_count": 0, "legs": "", "instrument": "ES Dec26"}
         assert expr.evaluate(tint["when"], multileg) and not expr.evaluate(tint["when"], single)
@@ -4024,6 +4032,144 @@ class TestMultilegRows:
             assert style["color"], column
             assert expr.evaluate(style["when"], {"value": multileg[column]}), column
             assert not expr.evaluate(style["when"], {"value": single[column]}), column
+
+
+class TestEquityDefaultView:
+    """The order and trade blotters open on what single-order equity
+    testing reads: the symbol rather than the derivative-aware Instrument,
+    no legs, list, derivative or macro columns. Those stay in the picker.
+    A history window takes its default view from its blotter's `visible`
+    (mkui lends it, as it lends `groups`), so trimming here trims there."""
+
+    ORDERS = ("order-blotter", "market-order-blotter")
+    TRADES = ("trade-blotter", "market-trade-blotter")
+    NOT_EQUITY = {"Derivative", "Legs", "Internal"}
+
+    @pytest.mark.parametrize("pane_id", ORDERS + TRADES)
+    def test_the_default_view_is_an_equity_one(self, app_config, pane_id):
+        pane = app_config["panes"][pane_id]
+        visible = pane["visible"]
+        assert "symbol" in visible and "instrument" not in visible
+        assert visible.index("symbol") == visible.index("side") - 1
+        hidden_sections = {c for g in pane["groups"] if g["label"] in self.NOT_EQUITY for c in g["columns"]}
+        assert not hidden_sections & set(visible)
+        assert not {"macro", "list_id", "list_seq_no", "ioi_id", "quote_id", "security_type"} & set(visible)
+
+    @pytest.mark.parametrize("pane_id", ORDERS)
+    def test_an_order_shows_its_terms_and_progress(self, app_config, pane_id):
+        visible = app_config["panes"][pane_id]["visible"]
+        terms = ["side", "ord_type", "time_in_force", "price", "order_qty", "status"]
+        assert [c for c in visible if c in terms] == terms
+        assert {"order_id", "cl_ord_id", "session_id", "client", "cum_qty", "avg_price", "leaves_qty",
+                "sent_text", "text", "extra_tags", "updated_at"} <= set(visible)
+        assert "handl_inst" not in visible
+
+    def test_mkui_floor_lends_the_default_view(self):
+        floor = _mkui_floor()
+        assert floor >= (1, 33, 0), f"mkui floor {floor} predates a history window opening on `visible`"
+
+    @pytest.mark.parametrize("pane_id", ORDERS + TRADES)
+    def test_the_history_window_has_something_to_open_on(self, app_config, toml_config, pane_id):
+        """What mkui shows first in a history window: the blotter's visible
+        columns the history carries — `history.columns` on a trade, the
+        table's own on an order."""
+        pane = app_config["panes"][pane_id]
+        table = toml_config["tables"][pane["history"]["table"]]["columns"]
+        carried = pane["history"].get("columns", table)
+        shown = [c for c in pane["visible"] if c in carried]
+        assert len(shown) >= 10 and len(shown) < len(carried), pane_id
+
+
+class TestHiddenRows:
+    """Hide and Unhide, one button, on the four order and trade blotters: a local mark
+    on the row (`hidden`, 0/1), set through the `row_visibility` service,
+    which the blotters filter out by default. The filter is a default
+    `filters` entry, not the pane's `filter`, so its chip can be switched
+    off to find a hidden row and unhide it. The column is unversioned:
+    hiding is no part of an order's FIX lifecycle and records no version."""
+
+    PANES = {"order-blotter": ("order", "fix_orders"), "market-order-blotter": ("order", "fix_orders"),
+             "trade-blotter": ("trade", "fix_executions"), "market-trade-blotter": ("trade", "fix_executions")}
+
+    def test_the_column_is_an_unversioned_flag(self, toml_config):
+        for table in ("fix_orders", "fix_executions"):
+            spec = toml_config["tables"][table]
+            assert spec["columns"]["hidden"] == "INTEGER NOT NULL DEFAULT 0"
+            assert spec["unversioned"] == ["hidden"]
+        assert not [n for n, t in toml_config["tables"].items()
+                    if "hidden" in t["columns"] and n not in ("fix_orders", "fix_executions")]
+
+    def test_the_engine_never_writes_it(self):
+        """The engine's writes name their columns, so an ExecutionReport
+        landing on a hidden order leaves it hidden."""
+        from mkfix.fix import engine
+        source = (ROOT / "mkfix" / "fix" / "engine.py").read_text(encoding="utf-8")
+        assert "hidden" not in engine.ORDER_COLS and "hidden" not in engine.ORDER_UPDATE_COLS
+        assert "INSERT OR REPLACE INTO fix_orders" not in source
+        assert "INSERT OR REPLACE INTO fix_executions" not in source
+
+    def test_the_ops_touch_only_the_flag(self, toml_config):
+        ops = toml_config["services"]["row_visibility"]["ops"]
+        assert ops == {
+            "order": [{"table": "fix_orders", "op_type": "update", "key": ["id"], "fields": ["hidden"]}],
+            "trade": [{"table": "fix_executions", "op_type": "update", "key": ["id"], "fields": ["hidden"]}],
+        }
+
+    @pytest.mark.parametrize("pane_id", PANES)
+    def test_one_button_reads_hide_or_unhide(self, app_config, pane_id):
+        """One button, named by what it would do (mkui 1.34.0 reads a
+        template label with the gate): Unhide when every row it has is
+        hidden, Hide otherwise — a mixed selection hides. The click does
+        what the label says to every row, and `recall` hands the button
+        back the rows it just hid, which the default filter took out of
+        view, so the next press unhides them."""
+        from mkio import expr
+        op, _ = self.PANES[pane_id]
+        buttons = app_config["panes"][pane_id]["buttons"]
+        labels = [b["label"] for b in buttons]
+        at = labels.index(HIDE_LABEL)
+        assert labels[at + 1:] in (["History"], ["Macro…", "History"]), "History closes the row"
+        toggle = buttons[at]
+        assert toggle["recall"] is True
+        # no session gate: the mark is local, a stopped session's rows hide too
+        assert toggle["enable"] == {"connected": True, "minSelected": 1}
+        action = toggle["action"]
+        assert {k: action[k] for k in ("type", "service", "op")} == \
+            {"type": "transaction", "service": "row_visibility", "op": op}
+        assert set(action["data"]) == {"id", "hidden"} and action["data"]["id"] == "${row.id}"
+
+        def scope(*marks):
+            rows = [{"hidden": m} for m in marks]
+            return {"rows": rows, "row": rows[0] if rows else None, "selection": {"rowCount": len(rows)}}
+        inner = lambda template: template[2:-1]
+        assert HIDE_LABEL.startswith("${") and HIDE_LABEL.endswith("}") and HIDE_LABEL.count("${") == 1
+        label = lambda *marks: expr.evaluate(inner(HIDE_LABEL), scope(*marks))
+        sets = lambda *marks: expr.evaluate(inner(action["data"]["hidden"]), scope(*marks))
+        assert label() == "Hide", "nothing selected"
+        assert (label(0), sets(0)) == ("Hide", 1)
+        assert (label(1, 1), sets(1, 1)) == ("Unhide", 0)
+        assert (label(0, 1), sets(0, 1)) == ("Hide", 1), "a mix hides"
+
+    def test_mkui_floor_reads_the_label_and_recalls(self):
+        floor = _mkui_floor()
+        assert floor >= (1, 34, 0), f"mkui floor {floor} predates template button labels and `recall`"
+
+    @pytest.mark.parametrize("pane_id", PANES)
+    def test_hidden_rows_are_filtered_out_by_default(self, app_config, pane_id):
+        """mkui filters on the derived value as text, so `values` turns the
+        stored 0/1 into true/false and the default excludes "true"."""
+        from mkio import expr
+        pane = app_config["panes"][pane_id]
+        assert pane["values"] == {"hidden": "value == 1"}
+        assert expr.evaluate(pane["values"]["hidden"], {"value": 1}) is True
+        assert expr.evaluate(pane["values"]["hidden"], {"value": 0}) is False
+        assert pane["filters"]["hidden"] == {"exclude": ["true"]}
+        assert "hidden" not in pane["filter"], "a pane filter could never be switched off"
+        assert pane["labels"]["hidden"] == "Hidden" and "hidden" not in pane["visible"]
+        assert "hidden" in next(g for g in pane["groups"] if g["label"] == "Status")["columns"]
+        assert "hidden" not in pane["history"].get("columns", [])
+        grey = pane["rowStyle"][-1]
+        assert grey["when"] == "hidden" and grey["color"]
 
 
 class TestListBlotters:
@@ -4039,9 +4185,9 @@ class TestListBlotters:
     def test_the_two_blotters(self, app_config, toml_config):
         for pane_id, title, direction, labels in (
                 ("list-blotter", "Sent Lists", "TX",
-                 ["New List…", "Clone", "Add Order…", "Execute", "Cancel", "Status Request", "History", "Macro…"]),
+                 ["New List…", "Clone", "Add Order…", "Execute", "Cancel", "Status Request", "Macro…", "History"]),
                 ("market-list-blotter", "Received Lists", "RX",
-                 ["Accept", "Reject", "Status", "Fill All", "Unsol Cxl", "History", "Macro…"])):
+                 ["Accept", "Reject", "Status", "Fill All", "Unsol Cxl", "Macro…", "History"])):
             spec = app_config["panes"][pane_id]
             assert (spec["title"], spec["service"], spec["filter"]) == (title, "lists_query", f"direction == '{direction}'")
             assert list(self._buttons(app_config, pane_id)) == labels

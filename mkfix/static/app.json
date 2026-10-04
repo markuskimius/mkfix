@@ -2,7 +2,7 @@
   "app": {
     "title": "mkfix — FIX Protocol Testing Engine",
     "theme": "dark",
-    "version": "0.85",
+    "version": "0.86",
     "description": "FIX protocol testing engine built on mkio and mkui",
     "copyright": "© Mark Kim · GPL-2.0-only",
     "links": [
@@ -1059,7 +1059,7 @@
       },
       {
         "type": "text",
-        "text": "mkfix v0.85"
+        "text": "mkfix v0.86"
       }
     ],
     "bindStyle": {
@@ -2092,7 +2092,8 @@
         "leg_count",
         "multileg_rpt_type",
         "pending_legs",
-        "legs_json"
+        "legs_json",
+        "hidden"
       ],
       "visible": [
         "order_id",
@@ -2100,11 +2101,10 @@
         "cl_ord_id",
         "session_id",
         "client",
-        "instrument",
-        "legs",
+        "symbol",
         "side",
         "ord_type",
-        "handl_inst",
+        "time_in_force",
         "price",
         "order_qty",
         "status",
@@ -2119,7 +2119,6 @@
         "sent_text",
         "text",
         "extra_tags",
-        "macro",
         "updated_at"
       ],
       "history": {
@@ -2201,7 +2200,8 @@
         "leg_count": "Legs (555)",
         "multileg_rpt_type": "Report Type (563)",
         "pending_legs": "Pending Legs",
-        "legs_json": "Legs (grid)"
+        "legs_json": "Legs (grid)",
+        "hidden": "Hidden"
       },
       "groups": [
         {
@@ -2284,7 +2284,8 @@
             "leaves_qty",
             "last_qty",
             "last_price",
-            "cxl_rej_reason"
+            "cxl_rej_reason",
+            "hidden"
           ]
         },
         {
@@ -2352,6 +2353,11 @@
       "filters": {
         "updated_at": {
           "preset": "today"
+        },
+        "hidden": {
+          "exclude": [
+            "true"
+          ]
         }
       },
       "styles": {
@@ -4552,18 +4558,21 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
+          "label": "${IF(selection.rowCount > 0 and ALL(rows, r -> r.hidden), 'Unhide', 'Hide')}",
           "enable": {
-            "connected": true
+            "connected": true,
+            "minSelected": 1
           },
           "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "order-blotter"
+            "type": "transaction",
+            "service": "row_visibility",
+            "op": "order",
+            "data": {
+              "id": "${row.id}",
+              "hidden": "${IF(ALL(rows, r -> r.hidden), 0, 1)}"
             }
-          }
+          },
+          "recall": true
         },
         {
           "label": "Macro…",
@@ -4644,6 +4653,20 @@
               }
             }
           }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "order-blotter"
+            }
+          }
         }
       ],
       "link": {
@@ -4659,8 +4682,16 @@
         {
           "when": "leg_count > 0",
           "background": "#223350"
+        },
+        {
+          "when": "hidden",
+          "italic": true,
+          "color": "#858585"
         }
-      ]
+      ],
+      "values": {
+        "hidden": "value == 1"
+      }
     },
     "trade-blotter": {
       "title": "Received Trades",
@@ -4711,7 +4742,8 @@
         "timestamp",
         "direction",
         "session_status",
-        "leg_ref_id"
+        "leg_ref_id",
+        "hidden"
       ],
       "visible": [
         "trade_id",
@@ -4721,7 +4753,7 @@
         "market_order_id",
         "session_id",
         "client",
-        "instrument",
+        "symbol",
         "side",
         "last_qty",
         "last_price",
@@ -4806,7 +4838,8 @@
         "security_id_source": "ID Source (22)",
         "open_close": "Open/Close (77)",
         "covered_uncovered": "Covered (203)",
-        "leg_ref_id": "LegRefID (654)"
+        "leg_ref_id": "LegRefID (654)",
+        "hidden": "Hidden"
       },
       "groups": [
         {
@@ -4875,6 +4908,12 @@
           ]
         },
         {
+          "label": "Status",
+          "columns": [
+            "hidden"
+          ]
+        },
+        {
           "label": "Text & Tags",
           "columns": [
             "text",
@@ -4915,6 +4954,11 @@
       "filters": {
         "transact_time": {
           "preset": "today"
+        },
+        "hidden": {
+          "exclude": [
+            "true"
+          ]
         }
       },
       "styles": {
@@ -4973,6 +5017,11 @@
       "rowStyle": [
         {
           "when": "CONTAINS(['Cancel', 'TradeCancel'], exec_type)",
+          "color": "#858585"
+        },
+        {
+          "when": "hidden",
+          "italic": true,
           "color": "#858585"
         }
       ],
@@ -5093,6 +5142,23 @@
           }
         },
         {
+          "label": "${IF(selection.rowCount > 0 and ALL(rows, r -> r.hidden), 'Unhide', 'Hide')}",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "transaction",
+            "service": "row_visibility",
+            "op": "trade",
+            "data": {
+              "id": "${row.id}",
+              "hidden": "${IF(ALL(rows, r -> r.hidden), 0, 1)}"
+            }
+          },
+          "recall": true
+        },
+        {
           "label": "History",
           "unit": "row",
           "enable": {
@@ -5106,7 +5172,10 @@
             }
           }
         }
-      ]
+      ],
+      "values": {
+        "hidden": "value == 1"
+      }
     },
     "market-ioi-blotter": {
       "title": "Sent IOIs",
@@ -6654,20 +6723,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-ioi-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -6744,6 +6799,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-ioi-blotter"
             }
           }
         }
@@ -8120,20 +8189,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-advert-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -8210,6 +8265,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-advert-blotter"
             }
           }
         }
@@ -9815,20 +9884,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-allocation-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -9905,6 +9960,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-allocation-blotter"
             }
           }
         }
@@ -10725,20 +10794,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-rfq-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -10815,6 +10870,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-rfq-blotter"
             }
           }
         }
@@ -12463,20 +12532,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-quote-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -12553,6 +12608,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-quote-blotter"
             }
           }
         }
@@ -13165,20 +13234,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-rfq-request-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -13255,6 +13310,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-rfq-request-blotter"
             }
           }
         }
@@ -13335,18 +13404,18 @@
         "leg_count",
         "multileg_rpt_type",
         "pending_legs",
-        "legs_json"
+        "legs_json",
+        "hidden"
       ],
       "visible": [
         "order_id",
         "cl_ord_id",
         "session_id",
         "client",
-        "instrument",
-        "legs",
+        "symbol",
         "side",
         "ord_type",
-        "handl_inst",
+        "time_in_force",
         "price",
         "order_qty",
         "status",
@@ -13360,7 +13429,6 @@
         "sent_text",
         "text",
         "extra_tags",
-        "macro",
         "updated_at"
       ],
       "history": {
@@ -13442,7 +13510,8 @@
         "leg_count": "Legs (555)",
         "multileg_rpt_type": "Report Type (563)",
         "pending_legs": "Pending Legs",
-        "legs_json": "Legs (grid)"
+        "legs_json": "Legs (grid)",
+        "hidden": "Hidden"
       },
       "groups": [
         {
@@ -13525,7 +13594,8 @@
             "leaves_qty",
             "last_qty",
             "last_price",
-            "cxl_rej_reason"
+            "cxl_rej_reason",
+            "hidden"
           ]
         },
         {
@@ -13593,6 +13663,11 @@
       "filters": {
         "updated_at": {
           "preset": "today"
+        },
+        "hidden": {
+          "exclude": [
+            "true"
+          ]
         }
       },
       "styles": {
@@ -15256,18 +15331,21 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
+          "label": "${IF(selection.rowCount > 0 and ALL(rows, r -> r.hidden), 'Unhide', 'Hide')}",
           "enable": {
-            "connected": true
+            "connected": true,
+            "minSelected": 1
           },
           "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-order-blotter"
+            "type": "transaction",
+            "service": "row_visibility",
+            "op": "order",
+            "data": {
+              "id": "${row.id}",
+              "hidden": "${IF(ALL(rows, r -> r.hidden), 0, 1)}"
             }
-          }
+          },
+          "recall": true
         },
         {
           "label": "Macro…",
@@ -15348,6 +15426,20 @@
               }
             }
           }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-order-blotter"
+            }
+          }
         }
       ],
       "link": {
@@ -15363,8 +15455,16 @@
         {
           "when": "leg_count > 0",
           "background": "#223350"
+        },
+        {
+          "when": "hidden",
+          "italic": true,
+          "color": "#858585"
         }
-      ]
+      ],
+      "values": {
+        "hidden": "value == 1"
+      }
     },
     "market-trade-blotter": {
       "title": "Sent Trades",
@@ -15415,7 +15515,8 @@
         "timestamp",
         "direction",
         "session_status",
-        "leg_ref_id"
+        "leg_ref_id",
+        "hidden"
       ],
       "visible": [
         "trade_id",
@@ -15425,7 +15526,7 @@
         "cl_ord_id",
         "session_id",
         "client",
-        "instrument",
+        "symbol",
         "side",
         "last_qty",
         "last_price",
@@ -15509,7 +15610,8 @@
         "security_id_source": "ID Source (22)",
         "open_close": "Open/Close (77)",
         "covered_uncovered": "Covered (203)",
-        "leg_ref_id": "LegRefID (654)"
+        "leg_ref_id": "LegRefID (654)",
+        "hidden": "Hidden"
       },
       "groups": [
         {
@@ -15578,6 +15680,12 @@
           ]
         },
         {
+          "label": "Status",
+          "columns": [
+            "hidden"
+          ]
+        },
+        {
           "label": "Text & Tags",
           "columns": [
             "text",
@@ -15618,6 +15726,11 @@
       "filters": {
         "transact_time": {
           "preset": "today"
+        },
+        "hidden": {
+          "exclude": [
+            "true"
+          ]
         }
       },
       "styles": {
@@ -15676,6 +15789,11 @@
       "rowStyle": [
         {
           "when": "CONTAINS(['Cancel', 'TradeCancel'], exec_type)",
+          "color": "#858585"
+        },
+        {
+          "when": "hidden",
+          "italic": true,
           "color": "#858585"
         }
       ],
@@ -16367,6 +16485,23 @@
           }
         },
         {
+          "label": "${IF(selection.rowCount > 0 and ALL(rows, r -> r.hidden), 'Unhide', 'Hide')}",
+          "enable": {
+            "connected": true,
+            "minSelected": 1
+          },
+          "action": {
+            "type": "transaction",
+            "service": "row_visibility",
+            "op": "trade",
+            "data": {
+              "id": "${row.id}",
+              "hidden": "${IF(ALL(rows, r -> r.hidden), 0, 1)}"
+            }
+          },
+          "recall": true
+        },
+        {
           "label": "History",
           "unit": "row",
           "enable": {
@@ -16380,7 +16515,10 @@
             }
           }
         }
-      ]
+      ],
+      "values": {
+        "hidden": "value == 1"
+      }
     },
     "ioi-blotter": {
       "title": "Received IOIs",
@@ -17231,20 +17369,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "ioi-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -17321,6 +17445,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "ioi-blotter"
             }
           }
         }
@@ -18259,20 +18397,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "allocation-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -18349,6 +18473,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "allocation-blotter"
             }
           }
         }
@@ -20462,20 +20600,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "rfq-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -20552,6 +20676,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "rfq-blotter"
             }
           }
         }
@@ -21796,20 +21934,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "quote-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -21886,6 +22010,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "quote-blotter"
             }
           }
         }
@@ -22512,20 +22650,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "rfq-request-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -22602,6 +22726,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "rfq-request-blotter"
             }
           }
         }
@@ -30741,20 +30879,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "list-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -30831,6 +30955,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "list-blotter"
             }
           }
         }
@@ -31540,20 +31678,6 @@
           }
         },
         {
-          "label": "History",
-          "unit": "row",
-          "enable": {
-            "connected": true
-          },
-          "action": {
-            "type": "action",
-            "name": "table.history",
-            "args": {
-              "pane": "market-list-blotter"
-            }
-          }
-        },
-        {
           "label": "Macro…",
           "enable": {
             "connected": true,
@@ -31630,6 +31754,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "label": "History",
+          "unit": "row",
+          "enable": {
+            "connected": true
+          },
+          "action": {
+            "type": "action",
+            "name": "table.history",
+            "args": {
+              "pane": "market-list-blotter"
             }
           }
         }
@@ -32256,7 +32394,7 @@
     "url": "auto",
     "expect": {
       "name": "mkfix",
-      "version": "0.85",
+      "version": "0.86",
       "mkio": "1.5",
       "expr": "2"
     },

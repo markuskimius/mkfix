@@ -4536,3 +4536,65 @@ class TestReplaceTermsWaitForAccept:
         row = await _order(db)
         assert row["pending_entered"] == "" and row["entered_qty"] == 100.0
 
+
+
+class TestHiddenMarkSurvivesTheEngine:
+    """Hide on a blotter sets `hidden` through a plain update (mkfix.toml's
+    `row_visibility`). The mark is local: the engine's own writes name their
+    columns, so the counterparty's reports go on updating a hidden row and
+    leave it hidden, and the column is unversioned, so hiding is no part of
+    the row's history."""
+
+    @staticmethod
+    async def _mark(writer, table, row_id, hidden):
+        op = CompiledOp(
+            table=table, op_type="update",
+            sql=f"UPDATE {table} SET hidden = ?, _mkio_ref = ? WHERE id = ? RETURNING *",
+            param_names=("hidden", "_mkio_ref", "id"),
+        )
+        await writer.submit((op,), ((hidden, None, row_id),), {"id": row_id})
+
+    @pytest.mark.asyncio
+    async def test_reports_update_a_hidden_order_and_trade_without_unhiding(self, stack):
+        db, writer, engine = stack
+        stub = StubSession()
+        engine.sessions["S1"] = stub
+        cl_ord_id = await engine.send_new_order("S1", symbol="AAPL", side="1", qty=100, price=150.0)
+        (order,) = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert order["hidden"] == 0, "a new row is shown"
+        versions = len(await _fetch_all(db, "SELECT 1 FROM fix_orders__history"))
+
+        await self._mark(writer, "fix_orders", order["id"], 1)
+        (order,) = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert order["hidden"] == 1
+        assert len(await _fetch_all(db, "SELECT 1 FROM fix_orders__history")) == versions, \
+            "hiding records no version"
+
+        fill = (f"8=FIX.4.2|35=8|11={cl_ord_id}|37=O1|17=E1|20=0|150=2|39=2|55=AAPL|54=1|"
+                "38=100|32=100|31=150|14=100|6=150|151=0")
+        await engine.on_app_message(stub, "8", parse_fix(fill))
+        (order,) = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert order["status"] == "Filled" and order["cum_qty"] == 100, "a hidden order keeps updating"
+        assert order["hidden"] == 1, "and stays hidden"
+
+        (trade,) = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert trade["hidden"] == 0, "its trade is a row of its own, shown until hidden"
+        await self._mark(writer, "fix_executions", trade["id"], 1)
+        correct = (f"8=FIX.4.2|35=8|11={cl_ord_id}|37=O1|17=E2|19=E1|20=2|150=2|39=2|55=AAPL|54=1|"
+                   "38=100|32=100|31=151|14=100|6=151|151=0")
+        await engine.on_app_message(stub, "8", parse_fix(correct))
+        (trade,) = await _fetch_all(db, "SELECT * FROM fix_executions")
+        assert trade["last_price"] == 151 and trade["exec_id"] == "E2", "a hidden trade is corrected like any other"
+        assert trade["hidden"] == 1
+
+        await self._mark(writer, "fix_orders", order["id"], 0)
+        (order,) = await _fetch_all(db, "SELECT * FROM fix_orders")
+        assert order["hidden"] == 0 and order["status"] == "Filled", "unhiding changes nothing else"
+
+    @pytest.mark.asyncio
+    async def test_history_tables_never_carry_the_mark(self, stack):
+        db, _, _ = stack
+        for table in ("fix_orders", "fix_executions"):
+            live = {r["name"] for r in await _fetch_all(db, f"PRAGMA table_info({table})")}
+            history = {r["name"] for r in await _fetch_all(db, f"PRAGMA table_info({table}__history)")}
+            assert "hidden" in live and "hidden" not in history, table

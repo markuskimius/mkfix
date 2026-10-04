@@ -107,9 +107,11 @@ Every blotter is the same kind of table.
 
 - **Filter** — the ≡ in a column's header opens its filter: a checklist of the column's values, or bounds for a number or a time. Time columns offer Today, Last hour and Last 15 minutes. Active filters show as chips on the toolbar, where a chip's box switches it off without losing it.
 - **Sort** — click a column's name, and again to reverse it. Shift-click a second column to sort by both.
-- **Columns** — the picker at the right end of the header row lists every column the table has, in sections such as IDs, Instrument, Derivative and Status. Click a section's name to fold it, or tick its box to show or hide all of its columns. Many columns are hidden to begin with. A History window's picker has the same sections.
+- **Columns** — the picker at the right end of the header row lists every column the table has, in sections such as IDs, Instrument, Derivative and Status. Click a section's name to fold it, or tick its box to show or hide all of its columns. Many columns are hidden to begin with: the order and trade blotters open on the columns single-order equity testing reads, so the option, future, multileg, list and macro columns wait in the picker. A History window's picker has the same sections, and it opens on its blotter's starting columns.
 - **Select** — click a row; Ctrl/Cmd-click and Shift-click select several. Most buttons act on every selected row.
 - **Find** and **Copy** — see the keys below. Copied rows paste into a spreadsheet.
+
+- **Hide** and **Unhide** — one button on the order and trade blotters. It reads **Hide** and takes the selected rows out of view; right after, it reads **Unhide** and brings those same rows back, until you click or press a key in the table. When every row you select is already hidden it reads **Unhide**; a mix of hidden and shown rows reads **Hide**. A hidden row is only marked: it is still there, still updated by the counterparty's messages, and nothing is sent. To find one later, switch off the *Hidden* chip on the toolbar; hidden rows then show in grey italics, and the **Hidden** column (the picker's Status section) says `true`. Hiding is not part of a row's History.
 
 The order and trade blotters and the Macro Runs windows open on today's rows. Clear the *Today* chip to see older ones. Times are shown in your browser's time zone and stored in UTC.
 
@@ -133,6 +135,8 @@ The order and trade blotters and the Macro Runs windows open on today's rows. Cl
 | **Replace** | OrderCancelReplaceRequest, the form filled from the terms last accepted; for a multileg order a MultilegOrderCancelReplace with its legs | the order is working, or filled |
 | **Cancel** | OrderCancelRequest | the order is working |
 | **History** | nothing; see [History](#history) | one order is selected |
+| **Hide** | nothing; takes the selected rows out of view, see [Working with a table](#working-with-a-table) | any selected row is not hidden |
+| **Unhide** | nothing; the same button, once every selected row is hidden: brings them back | every selected row is hidden |
 | **Macro…** | nothing; writes a macro, see [Macros](#macros) | any order is selected |
 
 A Replace or Cancel waits on the row as **Pending**, with the request's ClOrdID and terms beside it, until the counterparty answers:
@@ -144,7 +148,7 @@ Fills keep arriving while a request is pending.
 
 ### Received Trades
 
-Each fill is a row. **DK** disputes one with a DontKnowTrade carrying a reason and an optional text. The row keeps the dispute in its DK columns until a correction or a bust answers it.
+Each fill is a row. **DK** disputes one with a DontKnowTrade carrying a reason and an optional text. The row keeps the dispute in its DK columns until a correction or a bust answers it. **Hide** and **Unhide** work as on the other blotters.
 
 ### The IDs on a row
 
@@ -170,6 +174,8 @@ A new order, a cancel request and a replace request all arrive the same way: as 
 | **Restate** | ExecutionReport Restated with new quantity and price | the same |
 | **Clone** | the order, sent out again as your own | one order, not a multileg one, is selected |
 | **Allocate** | AllocationInstruction for the order's fills | the session is active |
+| **Hide** | nothing; takes the selected rows out of view, see [Working with a table](#working-with-a-table) | any selected row is not hidden |
+| **Unhide** | nothing; the same button, once every selected row is hidden: brings them back | every selected row is hidden |
 | **Macro…** | nothing; writes a macro, see [Macros](#macros) | any order is selected |
 
 Things the buttons allow on purpose:
@@ -185,6 +191,8 @@ Things the buttons allow on purpose:
 | **Bust** | the trade's cancellation |
 | **Re-notify** | the trade's current report under a new ExecID, in answer to a DK |
 | **Allocate** | AllocationInstruction for that one fill |
+| **Hide** | nothing; takes the selected rows out of view, see [Working with a table](#working-with-a-table) |
+| **Unhide** | nothing; the same button, once every selected row is hidden: brings them back |
 
 A busted trade is finished and shown muted. A DK from the counterparty marks the trade in its DK column.
 
@@ -284,7 +292,7 @@ A list is a basket of orders under one ListID (66): **Client › Sent Lists** an
 An order can be in an option, a future or an option on a future as well as a stock. The New dialog's **Instrument** section, under Symbol and Side, holds what says which one: Security Type (167), Maturity (200), and for options Strike (202), Put/Call (201) and the underlying, with Multiplier, Exchange, CFI Code, Security ID and Open/Close. Left alone, the order is a stock.
 
 - **Saved instrument** fills the section from **Config › Instruments**, where instruments are kept by name (New, Edit, Clone, Delete). Everything it fills can still be changed for this order. **Save instrument as** keeps what you entered under a name.
-- The order keeps its instrument for good: a Replace shows it and cannot change it, a Clone starts from it, and the trades carry it. The blotters' **Instrument** column shows it short — `ES Dec26`, `AAPL 18Dec26 250 C` — and the column picker has each field.
+- The order keeps its instrument for good: a Replace shows it and cannot change it, a Clone starts from it, and the trades carry it. The blotters' **Instrument** column shows it short — `ES Dec26`, `AAPL 18Dec26 250 C` — and the column picker has each field. The order and trade blotters start on **Symbol** instead; turn Instrument on in the picker's Instrument section.
 - Each FIX version says it differently, and mkfix says it the session's way: FIX 4.1 and 4.2 split a maturity date into month and day, FIX 4.3 names futures and options by CFI Code instead of Security Type, and Option on Future (OOF) exists only from FIX 5.0 — on 4.x send an Option whose Underlying Type is Future. A FIX 4.0 session sends no instrument at all.
 - IOIs, adverts, allocations, RFQs and quotes have the same section (without Open/Close and Covered, which are an order's). An order sent from Received IOIs or Received Quotes opens in that IOI's or quote's instrument, a Hit's order is in the quote's, and Allocate opens in the order's. Quotes streamed on two series of one symbol are two rows.
 - A template keeps the instrument too. Macros name one the same way; see the Macro Language page.
@@ -297,7 +305,7 @@ A multileg order trades several instruments at once as one order: a calendar spr
 - A **strategy** is an instrument with legs. **Strategy** at the top of the dialog fills the grid from one saved in **Config › Instruments**, whose editor has a **Strategy legs** section; **Save strategy as** keeps the grid's legs under a name.
 - **Replace** on a multileg order sends a MultilegOrderCancelReplace (35=AC) with the legs in its grid: change a maturity or a strike to roll a leg. Cancel is an ordinary OrderCancelRequest.
 - On **Market › Received Orders**, **Fill** fills the whole order (MultiLegReportingType 3), and with **Report legs** follows it with a report of each leg at its price (type 2). Its **Leg** choice fills one leg alone, in the leg's own quantity; the order's own fills do not move.
-- **Client › Sent Order Legs** and **Market › Received Order Legs**, tabs beside the trade blotters, show the legs of the order selected in the order blotter above, with each leg's fills. The order blotters' **Legs** column shows them short: `-1 ES Dec26 / +1 ES Mar27`, and a multileg order's row is tinted blue, its Legs and its `MLEG` instrument in light blue, so it stands out among the rest. To see only multileg orders, filter **Sec Type (167)** to `MLEG`. A leg's trade carries its **LegRefID**.
+- **Client › Sent Order Legs** and **Market › Received Order Legs**, tabs beside the trade blotters, show the legs of the order selected in the order blotter above, with each leg's fills. A multileg order's row is tinted blue, so it stands out among the rest. The order blotters' **Legs** column, hidden to begin with (the picker's Legs section), shows the legs short: `-1 ES Dec26 / +1 ES Mar27`, in light blue like the order's `MLEG` instrument. To see only multileg orders, filter **Sec Type (167)** to `MLEG`. A leg's trade carries its **LegRefID**.
 - FIX 4.3 defined these messages. mkfix's FIX 4.1 and 4.2 dictionaries carry the part of them a multileg order needs; FIX 4.0 has none, and New Multileg… is refused there. Before FIX 5.0 SP1 a leg's Put/Call rides in its LegCFICode.
 - Macros send and fill multileg orders too: `new multileg` with a `leg` line for each leg; see the Macro Language page and the examples `calendar-spread` and `spread-desk`.
 

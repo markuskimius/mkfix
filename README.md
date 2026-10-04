@@ -124,10 +124,18 @@ A FIX protocol testing engine for capital markets connectivity, built on
   ExecID without ExecRefID, so it is a new trade and the disputed one keeps
   its mark). Both trade blotters show each trade's Order ID, and Sent Trades the
   ClOrdID its report went out under. Every blotter lists every stored column
-  in its column picker, the less useful ones hidden by default, sorted into
+  in its column picker, sorted into
   sections (IDs, Session, Instrument, Derivative, Terms, Status, Pending, …)
   that fold and show or hide as one; a History window's picker has the same
-  sections. On the market side an
+  sections. The order and trade blotters open on the columns single-order
+  equity testing reads (Symbol, side, type, TIF, price, quantity, status,
+  the pending request, fills, text and tags); the option, future, multileg,
+  list and macro columns start hidden, and a History window opens on its
+  blotter's starting columns. One button on the same four blotters reads Hide or Unhide by what is
+  selected (Unhide once every selected row is hidden) and, right after a
+  Hide, brings the same rows back: the blotters leave hidden rows out
+  until the Hidden filter chip is switched off, nothing is sent, the row
+  keeps updating, and the mark is no part of its history. On the market side an
   inbound DK marks the sent trade it names -- the reason and text show in the
   Sent Trades blotter's DK column, and the trade can still be corrected or
   busted, which clears the mark. Re-notify answers the DK: the trade's
@@ -200,7 +208,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
 - **Handling Instructions & Text** -- The New and Replace dialogs carry
   HandlInst (21; default 1), and every order and trade dialog a Text (58)
   field; an Extra Tag naming 21 or 58 still wins. The order blotters show
-  Handl Inst, Extra Tags, and the text in both directions: Sent Text is the
+  Extra Tags and the text in both directions (Handl Inst is in the column
+  picker): Sent Text is the
   58 of the last message this side sent on the order (a New, Replace or
   Cancel on Sent Orders; an Accept, Reject, Fill, Unsol Cxl or Restate on
   Received Orders) and Rcvd Text the counterparty's last -- their ExecutionReports, or
@@ -663,7 +672,7 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.32.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.34.0, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction
