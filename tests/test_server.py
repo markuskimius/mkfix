@@ -59,7 +59,7 @@ class TestHttp:
         async with aiohttp.ClientSession() as s:
             for path, expect in [
                 ("/", "mkfix"),
-                ("/static/app.json", "menubar"),
+                ("/config/app.json", "menubar"),
                 ("/static/mkfix.css", "mkfix"),
                 ("/mkio.js", "mkio"),
                 ("/mkui/src/index.js", "Mkui"),
@@ -217,6 +217,23 @@ class TestDeliveryConfig:
         custom.write_text("ws_heartbeat_s = 0\nws_send_buffer_mb = 64\n" + shipped, encoding="utf-8")
         cfg = _load_config(custom)
         assert cfg["ws_heartbeat_s"] == 0 and cfg["ws_send_buffer_mb"] == 64
+
+    @pytest.mark.asyncio
+    async def test_ui_config_is_served_as_json_from_the_toml(self, server):
+        """The browser reads JSON; the file is TOML. mkio converts on the
+        `[config]` route, and what arrives is the file, value for value."""
+        import tomllib
+        from pathlib import Path
+        source = tomllib.loads(
+            (Path(__file__).parent.parent / "mkfix" / "config" / "app.toml").read_text(encoding="utf-8"))
+        async with aiohttp.ClientSession() as s:
+            async with s.get(server + "/config/app.json") as resp:
+                assert resp.status == 200
+                assert resp.content_type == "application/json"
+                assert resp.headers["Cache-Control"] == "no-cache"
+                assert await resp.json() == source
+            async with s.get(server + "/static/app.json") as resp:
+                assert resp.status == 404, "the pre-0.87 JSON config is gone"
 
     @pytest.mark.asyncio
     async def test_server_speaks_the_protocol_with_reset_nacks(self, server):

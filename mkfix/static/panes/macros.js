@@ -1,6 +1,6 @@
 // Macros pane: the list of saved macros and an Ace editor over the one
 // selected. It comes in three — Client Macros, Market Macros and
-// End-to-end Macros, the same pane type told its `side` in app.json. A
+// End-to-end Macros, the same pane type told its `side` in app.toml. A
 // macro is for one side: a client macro sends orders and RFQs and receives
 // IOIs, adverts, allocations, quotes and RFQ requests, a market macro the
 // other way round. An end-to-end macro holds blocks of both and plays them in

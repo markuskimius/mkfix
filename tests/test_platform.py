@@ -1,7 +1,7 @@
 """Guards for what only breaks on Windows.
 
 Python's default text encoding there is the ANSI code page, which cannot
-hold the em-dashes and box rules in mkfix.toml, app.json and the sources,
+hold the em-dashes and box rules in mkfix.toml, app.toml and the sources,
 so every text read or write in the repository has to name its encoding;
 and a checkout with autocrlf must not turn the files the tests read
 verbatim into something they no longer match, so .gitattributes pins LF.
@@ -53,7 +53,7 @@ def test_repository_text_is_utf8():
     ANSI code page has no room for, so a default-encoded read gets them
     wrong, and the standard dictionaries stay ASCII-only so a hand edit can
     never depend on the reader's encoding."""
-    for name in ("mkfix/mkfix.toml", "mkfix/static/app.json"):
+    for name in ("mkfix/mkfix.toml", "mkfix/config/app.toml"):
         text = (ROOT / name).read_bytes().decode("utf-8")
         assert any(ord(c) > 127 for c in text), name
     for path in sorted((ROOT / "mkfix" / "fix" / "dictionary_data").glob("*.json")):
@@ -64,5 +64,5 @@ def test_checkout_pins_lf_line_endings():
     rules = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
     assert "* text=auto eol=lf" in rules
     assert "*.db binary" in rules
-    for name in ("mkfix/mkfix.toml", "mkfix/static/app.json", "mkfix/static/index.html"):
+    for name in ("mkfix/mkfix.toml", "mkfix/config/app.toml", "mkfix/static/index.html"):
         assert b"\r" not in (ROOT / name).read_bytes(), name

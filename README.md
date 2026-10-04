@@ -653,6 +653,22 @@ db_path = "mkfix.db"
 Tables, services, and static routes are also configured in the TOML file. See
 the built-in `mkfix.toml` for the full schema.
 
+The web UI -- menus, dialogs, panes and their layout -- is configured in a
+TOML file of its own, `config/app.toml` beside `mkfix.toml` (it was
+`static/app.json` through mkfix 0.86.0). The browser still receives JSON:
+`mkfix.toml` declares the route, and mkio parses the file and serves it as
+`/config/app.json` on each page load, so an edit shows on the next reload.
+
+```toml
+[config]
+"/config" = "./config"
+```
+
+A custom `mkfix.toml` copied from an earlier release needs that route added,
+with `config/app.toml` in the directory it names; without it the page says
+so instead of loading. TOML has no null, so the file writes `""` where the
+JSON had `null`.
+
 Two mkio keys govern the browser connections (mkio >= 1.3.0). Each page has
 its own send queue, so one that stops reading -- a laptop asleep, a tab frozen
 in the background -- no longer holds up the blotters of every other page, as

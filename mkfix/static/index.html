@@ -13,10 +13,16 @@
     import "/static/panes/help-viewer.js";
     import "/static/macro-status.js";
 
-    // Revalidate rather than trust heuristic freshness: mkio serves static
-    // files without Cache-Control, so a stale app.json silently pins the UI
-    // to an old layout.
-    const res = await fetch("/static/app.json", { cache: "no-cache" });
+    // config/app.toml, which mkio serves as JSON. Revalidate rather than
+    // trust heuristic freshness: a stale config silently pins the UI to an
+    // old layout.
+    const res = await fetch("/config/app.json", { cache: "no-cache" });
+    if (!res.ok) {
+      // A custom mkfix.toml written before 0.87.0 has no [config] route.
+      document.body.textContent = `mkfix: /config/app.json answered ${res.status}. `
+        + 'The server config needs the [config] route: "/config" = "./config".';
+      throw new Error("no UI config");
+    }
     const config = await res.json();
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     config.mkio.url = `${wsProto}//${location.host}/ws`;

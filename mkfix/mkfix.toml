@@ -655,7 +655,7 @@ SELECT t.key AS value,
 # change to a row lands in <table>__history and the live row's _mkio_version
 # is the cursor into that chain. mkio advertises no history table and writes
 # no service for one, so the services below are what the blotters' `history`
-# blocks in app.json name: one record's chain, where its cursor sits, the
+# blocks in app.toml name: one record's chain, where its cursor sits, the
 # feed the History pane is built on, and the table as it stood at a moment.
 # Sent/Received Orders share the orders chain and feed (both read fix_orders),
 # as do the two trade blotters; only the as-of views are split by direction,
@@ -1111,3 +1111,8 @@ buffer_size = 50000
 "/" = "./static"
 "/mkui" = "__mkui__"
 "/dictionaries" = "./fix/dictionary_data"
+
+# The UI config: mkio parses config/app.toml and serves it as
+# /config/app.json, so the browser never reads TOML.
+[config]
+"/config" = "./config"

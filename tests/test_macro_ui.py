@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from mkfix import macro
 
 ROOT = Path(__file__).parent.parent
 STATIC = ROOT / "mkfix" / "static"
+APP_TOML = ROOT / "mkfix" / "config" / "app.toml"
 TWO = ("client", "market")
 SIDES = (*TWO, "end-to-end")          # the kinds of macro: one a side, and the ones that hold both
 HELP = STATIC / "help"
@@ -289,7 +291,7 @@ class TestRecordingNames:
 
     def test_both_stops_suggest_it_and_export_writes_it(self):
         """Two paths end a recording: the editor's Stop and the blotter toolbar's ● Stop,
-        whose dialog lives in app.json. Both must offer the stamped name."""
+        whose dialog lives in app.toml. Both must offer the stamped name."""
         pane = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
         assert "recordingName(side)" in pane and "download: exportFileName(current)" in pane
         assert "exportFileName, helpAt, hoverAt, recordingName" in pane
@@ -298,7 +300,7 @@ class TestRecordingNames:
         assert 'import { recordingName } from "/static/macro-lang.js";' in toolbar
         assert 'app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })' in toolbar, \
             "computed at the click, not at mount"
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         name = next(f for f in app["dialogs"]["stop_recording"]["fields"] if f.get("name") == "name")
         assert name["value"] == "${row.name}" and name["required"] is True
         assert not [f for f in app["dialogs"]["stop_recording"]["fields"] if f.get("value") == "recorded"]
@@ -470,7 +472,7 @@ class TestHelpPages:
     PAGES = json.loads((HELP / "index.json").read_text(encoding="utf-8"))
 
     def test_every_page_is_there_and_reachable_from_the_help_menu(self):
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         for page in self.PAGES:
             assert page.get("builtin") == "examples" or (HELP / page["file"]).is_file(), page
         help_menu = app["menubar"][-1]["items"]
@@ -511,13 +513,13 @@ class TestHelpPages:
         assert unpin and set(json.loads(unpin.group(1))) == {"wheel", "pointerdown", "keydown", "touchstart"}
         assert "const unpin = () => { pinned = null; };" in viewer
         guide = (HELP / "user-guide.md").read_text(encoding="utf-8")
-        from_box = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))["dialogs"]["shortcuts"]["buttons"][0]["set"]["help_target"]
+        from_box = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))["dialogs"]["shortcuts"]["buttons"][0]["set"]["help_target"]
         assert from_box["page"] == "user-guide" and f"\n## Sloppy focus\n" in guide and from_box["anchor"] == "sloppy-focus"
 
     def test_the_user_guide_names_what_the_application_has(self):
         """The guide is prose about the UI, so what it names in bold as a
         menu, a pane or a button has to be there under that name."""
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         text = (HELP / "user-guide.md").read_text(encoding="utf-8")
         menus = {m["label"]: m["items"] for m in app["menubar"]}
         # Menu › Item paths
@@ -626,7 +628,7 @@ class TestWiring:
         assert "ace-builds 1.44.0" in pane and "1.44.0" in (ROOT / "README.md").read_text(encoding="utf-8")
 
     def test_the_panes_are_loaded_declared_and_on_a_menu(self):
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         index = (STATIC / "index.html").read_text(encoding="utf-8")
         for module in ("macros.js", "help-viewer.js"):
             assert f'/static/panes/{module}' in index
@@ -642,7 +644,7 @@ class TestWiring:
         """The two sides share tables and services; a pane's `filter` is all
         that keeps a client run out of Market Runs."""
         import tomllib
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         toml = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
         word = side.capitalize()
         editor = app["panes"][f"{side}-macros"]
@@ -685,7 +687,7 @@ class TestWiring:
             assert "side" in toml["tables"][table]["columns"], table
 
     def test_the_two_sides_panes_differ_only_by_side(self):
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         for pane in ("macro-runs", "macro-log"):
             client = json.dumps(app["panes"][f"client-{pane}"]).replace("client", "market").replace("Client", "Market")
             assert client == json.dumps(app["panes"][f"market-{pane}"]), pane
@@ -702,7 +704,7 @@ class TestWiring:
         import tomllib
         from datetime import datetime
         from mkfix.fix.message import _fix_timestamp
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         toml = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
         tree = app["panes"][f"{side}-macro-runs"]
         shown, listed = tree["visible"], tree["columns"]
@@ -744,7 +746,7 @@ class TestWiring:
         """A macro's row is an order, an IOI, an advert or an allocation: the
         tree says which (Subject, among the row's own columns) and both panes
         call its identifier ID — under ClOrdID an IOIID read as an order's."""
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         tree, log = app["panes"][f"{side}-macro-runs"], app["panes"][f"{side}-macro-log"]
         assert tree["labels"]["subject"] == "Subject"
         assert tree["labels"]["cl_ord_id"] == log["labels"]["cl_ord_id"] == "ID"
@@ -788,7 +790,7 @@ class TestWiring:
     def test_the_order_blotters_carry_the_macro_controls_and_the_status_bar_the_status(self):
         from tests.test_ui_config import _fix_cmd_commands
         import tomllib
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         toml = tomllib.loads((ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8", errors="replace"))
         module = (STATIC / "macro-status.js").read_text(encoding="utf-8")
         assert 'import "/static/macro-status.js";' in (STATIC / "index.html").read_text(encoding="utf-8")
@@ -896,7 +898,7 @@ class TestWiring:
     def test_every_template_in_the_macro_dialogs_is_in_the_expression_language(self):
         """A `?:` slipped into a label once: mkui warns on the console and shows nothing."""
         from mkio import expr
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         seen = 0
         for name in ("play_macro", "pause_runs", "stop_runs", "record_macro", "stop_recording", "arm_macro", "run_macro"):
             def walk(node):
@@ -969,7 +971,7 @@ class TestWiring:
         margin = int(re.search(r"\.macro-toolbar \.macro-controls \{[^}]*?margin-left: (\d+)px", css).group(1))
         padding = int(re.search(r"\.macro-controls \{[^}]*?padding-left: (\d+)px", css).group(1))
         assert gap + margin == padding, (gap, margin, padding)
-        keys = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))["dialogs"]["macro_keys"]["facts"]
+        keys = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))["dialogs"]["macro_keys"]["facts"]
         assert any("Ctrl/Cmd+Click" in f["label"] and "Shift+Click" in f["label"] for f in keys), "the list's selection is a documented key"
 
     def test_the_list_is_resizable_and_remembers_its_width(self):
@@ -988,7 +990,7 @@ class TestWiring:
 
     def test_the_run_panes_send_commands_that_exist(self):
         from tests.test_ui_config import _fix_cmd_commands
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         for side in SIDES:
             buttons = app["panes"][f"{side}-macro-runs"]["buttons"]
             ops = {b["action"]["op"] for b in buttons}
@@ -1030,7 +1032,7 @@ class TestWiring:
         assert 'app.state.set("open_macro", { name: args.name, side: args.side, from: args.from ?? "recording" });' in status
         editor = (STATIC / "panes" / "macros.js").read_text(encoding="utf-8")
         assert '${wanted.from === "history" ? "Written from history" : "Recorded"} as ${wanted.name}' in editor
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         fired = [b["action"]["dialog"]["submit"]["then"] for pane in app["panes"].values() for b in pane.get("buttons", [])
                  if b.get("label") == "Macro…"]
         assert len(fired) == 15 and all(t["action"] == "macro.recorded" and t["args"]["from"] == "history" for t in fired)
@@ -1046,7 +1048,7 @@ class TestWiring:
         """A third set of the same panes, over the same tables: they differ
         from the client's by the name, and by the second session a run of
         both sides has."""
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         panes = app["panes"]
         as_end_to_end = lambda spec: json.loads(json.dumps(spec).replace("Client", "End-to-end").replace("client", "end-to-end"))  # noqa: E731
         assert panes["end-to-end-macros"] == {"title": "End-to-end Macros", "type": "macros", "side": "end-to-end"}
@@ -1067,7 +1069,7 @@ class TestWiring:
         assert [f["id"] for f in app["frames"]][-3:] == ["client-runs", "market-runs", "end-to-end-runs"]
 
     def test_an_end_to_end_macro_is_run_on_two_sessions(self):
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         dialog = app["dialogs"]["run_end_to_end"]
         assert dialog["submit"] == {"label": "Run", "service": "fix_cmd", "op": "run_macro"} and "modal" not in dialog
         fields = {f["name"]: f for item in dialog["fields"] for f in item.get("row", [item]) if f.get("name")}
@@ -1137,6 +1139,6 @@ class TestWiring:
             assert name in viewer
 
     def test_orders_show_which_macro_took_them(self):
-        app = json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         for pane in ("order-blotter", "market-order-blotter"):
             assert "macro" in app["panes"][pane]["columns"] and app["panes"][pane]["labels"]["macro"] == "Macro"

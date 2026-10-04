@@ -210,6 +210,15 @@ def _load_config(config: str | Path | dict[str, Any]) -> dict[str, Any]:
             resolved = (config_dir / directory).resolve()
             statics[route] = str(resolved)
 
+    # The UI config (config/app.toml, served as JSON): a directory, or
+    # mkio's { path = ..., cache_control = ... } form.
+    configs = cfg.get("config", {})
+    for route, entry in list(configs.items()):
+        if isinstance(entry, dict):
+            entry["path"] = str((config_dir / entry["path"]).resolve())
+        else:
+            configs[route] = str((config_dir / entry).resolve())
+
     return cfg
 
 

@@ -3,6 +3,7 @@ examples, which are its acceptance set."""
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -459,7 +460,7 @@ class TestVocabulary:
         """Each set of words is held to the dialog of the op that takes it:
         `side` is one list on New Order, another on New IOI (Undisclosed,
         Cross) and a third on New Advert (AdvSide's B/S/X/T)."""
-        app = json.loads((ROOT / "mkfix" / "static" / "app.json").read_text(encoding="utf-8"))
+        app = tomllib.loads((ROOT / "mkfix" / "config" / "app.toml").read_text(encoding="utf-8"))
         def options(op, name):
             found = {}
             def walk(o, inside):

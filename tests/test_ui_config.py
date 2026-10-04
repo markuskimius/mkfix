@@ -1,6 +1,6 @@
-"""Static integrity checks on the UI config (app.json) and its assets.
+"""Static integrity checks on the UI config (app.toml) and its assets.
 
-app.json drives the whole UI declaratively, so a dangling pane reference or a
+app.toml drives the whole UI declaratively, so a dangling pane reference or a
 JS module that no longer exists fails silently in the browser rather than at
 import time. These tests fail the build instead.
 """
@@ -19,6 +19,7 @@ import pytest
 from mkfix import __version__
 
 STATIC = Path(__file__).resolve().parent.parent / "mkfix" / "static"
+APP_TOML = STATIC.parent / "config" / "app.toml"
 TEMPLATE_SCOPES = {"order", "cancel", "accept", "reject", "fill", "unsolicited", "restate", "dk", "correct", "bust",
                    "renotify", "ioi", "advert", "allocation", "alloc_accept", "alloc_reject",
                    "rfq", "quote", "new_quote", "quote_reject", "hit", "counter", "pass", "rfq_request",
@@ -28,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="module")
 def app_config() -> dict:
-    return json.loads((STATIC / "app.json").read_text(encoding="utf-8"))
+    return tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -74,7 +75,7 @@ _COND_IN = re.compile(r"CONTAINS\(\[([^\]]*)\], (?:r\.)?([A-Za-z_]\w*)\)")
 
 
 def _conditions(when):
-    """Column -> values an app.json `when` expression compares it against.
+    """Column -> values an app.toml `when` expression compares it against.
     Cell rules name the cell `value`; enable gates name the row `r`."""
     out = {}
     for name, value in _COND_EQ.findall(when or ""):
@@ -127,7 +128,7 @@ def _find_dialog(app_config: dict, op: str) -> dict:
     row instead (`_clone_button` finds those); the first one when none
     carries a pick."""
     dialogs = [node for node in _walk_dicts(app_config) if node.get("submit", {}).get("op") == op]
-    assert dialogs, f"no {op} dialog in app.json"
+    assert dialogs, f"no {op} dialog in app.toml"
     led = [d for d in dialogs if d.get("fields") and d["fields"][0].get("name") == "_template"]
     return (led or dialogs)[0]
 
@@ -305,7 +306,7 @@ class TestPaneModuleIntegrity:
         """A dead op name nacks the transaction only when the button is
         clicked. The custom panes send every write through fix_cmd (a TOML
         transaction service called from JS would need its op checked here
-        the way app.json's dialogs are)."""
+        the way app.toml's dialogs are)."""
         for name, source in pane_sources.items():
             for service, op in re.findall(r'client\.send\("(\w+)".*\{ op: "(\w+)" \}', source):
                 spec = toml_config["services"].get(service, {})
@@ -313,7 +314,7 @@ class TestPaneModuleIntegrity:
                     f"{name} sends unknown {service} op {op!r}"
 
     def test_fix_cmd_commands_have_dispatch_branches(self, pane_sources):
-        """Same guard app.json gets, for commands sent from pane JS: the
+        """Same guard app.toml gets, for commands sent from pane JS: the
         panes call fix_cmd through a `cmd("name", …)` helper, or spell the
         command out in the payload."""
         handled = _fix_cmd_commands()
@@ -349,7 +350,7 @@ class TestPaneModuleIntegrity:
             assert not unknown, \
                 f"dialog {node.get('title')!r} sends fields {submit['service']} ignores: {sorted(unknown)}"
             checked += 1
-        assert checked, "no transaction dialogs found in app.json"
+        assert checked, "no transaction dialogs found in app.toml"
 
     def test_button_row_tokens_name_real_columns(self, app_config, toml_config):
         """`${row.X}` resolves against the pane's service rows; a token naming
@@ -437,7 +438,7 @@ class TestServiceReferences:
         assert len(dialogs) >= 16, "the guard looks at the dialogs it thinks it does"
 
     def test_fix_cmd_ops_have_dispatch_branches(self, app_config):
-        """An op in app.json with no _dispatch branch fails only when the
+        """An op in app.toml with no _dispatch branch fails only when the
         button is clicked, and only in the browser."""
         handled = _fix_cmd_commands()
         used = {
@@ -445,9 +446,9 @@ class TestServiceReferences:
             for node in _walk_dicts(app_config["panes"])
             if node.get("service") == "fix_cmd" and "op" in node
         }
-        assert used, "no fix_cmd ops referenced by app.json"
+        assert used, "no fix_cmd ops referenced by app.toml"
         missing = used - handled
-        assert not missing, f"app.json sends unhandled fix_cmd ops: {sorted(missing)}"
+        assert not missing, f"app.toml sends unhandled fix_cmd ops: {sorted(missing)}"
 
     def test_dialog_options_services_are_reqrep(self, app_config, toml_config):
         """optionsFrom fetches via request-reply; a query/stream service there
@@ -1040,7 +1041,7 @@ class TestReplayControl:
         assert field["options"][0]["value"] == "", "a file path is the other way in"
         listed = {o["value"]: o["label"] for o in field["options"][1:]}
         shipped = {e["name"]: f"{e['name']} — {e['title']}" for e in replay.examples()}
-        assert listed == shipped, "the example list in app.json drifted from mkfix/fix/replay_examples"
+        assert listed == shipped, "the example list in app.toml drifted from mkfix/fix/replay_examples"
         assert len(shipped) >= 5
 
     def test_start_asks_the_direction_from_the_files_summary(self, app_config, toml_config):
@@ -1096,7 +1097,7 @@ class TestSavedLayouts:
 
     def test_layouts_block_enables_the_feature(self, app_config):
         layouts = app_config.get("layouts")
-        assert isinstance(layouts, dict), "app.json needs a `layouts` block for the Layout menu to do anything"
+        assert isinstance(layouts, dict), "app.toml needs a `layouts` block for the Layout menu to do anything"
         assert layouts.get("key") == "mkfix", "store key must not ride on the app title"
         assert layouts.get("store", "mkio") == "mkio"
 
@@ -1204,7 +1205,7 @@ class TestSavedLayouts:
 class TestStyleAndGateValues:
     """Style rules and enable gates compare against displayed values; a
     renamed column or display value leaves them silently dead in the browser,
-    so both are checked statically like everything else in app.json."""
+    so both are checked statically like everything else in app.toml."""
 
     LEGACY_KEYS = {"rowMatch", "formatters", "eq", "ne", "in", "lt", "lte",
                    "gt", "gte", "match"}
@@ -1801,7 +1802,7 @@ class TestTimeTypedColumns:
 
 
 class TestMenubar:
-    """The menubar is app.json data mkui renders verbatim: an item with a
+    """The menubar is app.toml data mkui renders verbatim: an item with a
     typo'd key or an action mkui does not register is a dead entry with at
     most a console warning, and the order of the menus is a layout the eye
     learns, so both are pinned here."""
@@ -2388,6 +2389,106 @@ class TestHelpMenu:
                 assert (ROOT / path).is_file(), f"{href} names no file"
 
 
+class TestUiConfigIsToml:
+    """The UI config is config/app.toml, which mkio serves to the browser as
+    /config/app.json. Route, file and fetch must name each other, and the
+    file must stay inside what TOML can say."""
+
+    def test_route_names_the_directory_holding_the_file(self, toml_config):
+        assert toml_config["config"] == {"/config": "./config"}
+        assert APP_TOML.is_file()
+        assert APP_TOML.parent == (ROOT / "mkfix" / "config")
+
+    def test_index_fetches_the_json_the_route_serves(self):
+        index = (STATIC / "index.html").read_text(encoding="utf-8")
+        assert 'fetch("/config/app.json", { cache: "no-cache" })' in index
+        assert "/static/app.json" not in index
+
+    def test_index_says_so_when_the_route_is_missing(self):
+        """A custom mkfix.toml from before 0.87.0 has no `[config]` route; the
+        fetch then 404s and `res.json()` would leave a blank page."""
+        index = (STATIC / "index.html").read_text(encoding="utf-8")
+        guard, parse = index.index("if (!res.ok)"), index.index("await res.json()")
+        assert guard < parse
+        assert '"/config" = "./config"' in index[guard:parse]
+
+    def test_no_json_copy_shadows_or_outlives_it(self):
+        """mkio prefers app.toml over an app.json beside it, so a leftover
+        JSON would be a second copy nothing reads."""
+        assert not (APP_TOML.parent / "app.json").exists()
+        assert not (STATIC / "app.json").exists()
+
+    def test_load_config_resolves_the_directory(self, tmp_path):
+        """mkio resolves a route against the working directory; mkfix must
+        hand it the config file's own, in either form mkio accepts."""
+        from mkfix.__main__ import _load_config
+        cfg = _load_config(ROOT / "mkfix" / "mkfix.toml")
+        assert Path(cfg["config"]["/config"]) == APP_TOML.parent.resolve()
+
+        shipped = (ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8")
+        custom = tmp_path / "custom.toml"
+        custom.write_text(shipped.replace(
+            '"/config" = "./config"', '"/config" = { path = "./ui", cache_control = "no-store" }'), encoding="utf-8")
+        entry = _load_config(custom)["config"]["/config"]
+        assert Path(entry["path"]) == (tmp_path / "ui").resolve()
+        assert entry["cache_control"] == "no-store"
+
+    def test_a_config_without_the_route_still_loads(self, tmp_path):
+        from mkfix.__main__ import _load_config
+        shipped = (ROOT / "mkfix" / "mkfix.toml").read_text(encoding="utf-8")
+        custom = tmp_path / "custom.toml"
+        custom.write_text(shipped.replace('[config]\n"/config" = "./config"', ""), encoding="utf-8")
+        assert "config" not in tomllib.loads(custom.read_text(encoding="utf-8"))
+        assert _load_config(custom).get("config", {}) == {}
+
+    def test_blank_stands_in_for_null(self, app_config):
+        """TOML has no null. The state defaults a pane publishes into start
+        blank, and the connected colours are blank so the statusbar goes
+        back to its stylesheet: mkui removes a bound style on "" as on null."""
+        state = app_config["state"]
+        for path in ("selected_session", "selected_message", "selected_macro", "selected_macro_order",
+                     "help_target", "open_example", "open_macro", "macros"):
+            assert state[path] == "", path
+        connected = app_config["mkio"]["connected"]
+        assert connected["status.color"] == "" and connected["status.background"] == ""
+        assert app_config["statusbar"]["bindStyle"] == {
+            "color": "status.color", "background": "status.background"}
+        import mkui
+        statusbar = (Path(mkui.static_dir) / "src" / "components" / "statusbar.js").read_text(encoding="utf-8")
+        assert 'v == null || v === ""' in statusbar
+
+    def test_blank_state_is_read_as_unset(self, app_config):
+        """A reader handed the blank default must take it as nothing there:
+        each subscriber guards on truthiness before it touches the value
+        (`show` is Message Detail's, which does the same), and none compares
+        the state value with null."""
+        blank = [path for path, value in app_config["state"].items() if value == ""]
+        files = [*sorted((STATIC / "panes").glob("*.js")), STATIC / "macro-status.js"]
+        source = "\n".join(p.read_text(encoding="utf-8") for p in files)
+        assert "if (!msg || !msg.raw_message)" in source
+        readers = 0
+        for path in blank:
+            assert not re.search(rf'state\.get\("{path}"\)\s*[!=]==?\s*null', source), path
+            for found in re.finditer(rf'state\.subscribe\("{path}", (?:async )?\((\w+)\) => \{{(.{{0,120}})', source, re.S):
+                readers += 1
+                name, body = found.groups()
+                assert re.search(rf"!{name}\b|show\({name}\)", body), f"{path}: {body!r}"
+        assert readers >= 5, "the subscribers were not found: has the idiom changed?"
+
+    def test_file_reads_as_toml_and_keeps_its_sections(self, app_config):
+        assert list(app_config) == ["app", "state", "menubar", "dialogs", "layouts", "statusbar",
+                                    "panes", "frames", "mkio"]
+        text = APP_TOML.read_text(encoding="utf-8")
+        assert "null" not in re.sub(r'"(?:[^"\\]|\\.)*"|\'[^\']*\'', "", text).lower().split()
+
+    def test_wheel_ships_it(self):
+        """hatch packs the package directory whole; an `exclude` or `only-include`
+        that dropped config/ would ship a server with no UI."""
+        wheel = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["hatch"]["build"]["targets"]["wheel"]
+        assert set(wheel) == {"exclude"}
+        assert not any("config" in pattern or pattern.endswith(".toml") for pattern in wheel["exclude"])
+
+
 class TestVersions:
     def test_expected_version_matches_package(self, app_config):
         """A stale `expect` makes every client report a version mismatch."""
@@ -2413,7 +2514,7 @@ class TestVersions:
 
     def test_both_ends_speak_the_pinned_language(self, app_config):
         """The handshake only compares the server's language with the pin.
-        The browser evaluates app.json with the copy mkui vendors, so an mkui
+        The browser evaluates app.toml with the copy mkui vendors, so an mkui
         behind the installed mkio would leave `and`/`in`/durations parsing on
         the server (and in these tests) and failing in the page."""
         import re
@@ -2451,7 +2552,7 @@ class TestVersions:
             f"expect.mkio {expected!r} should pin major.minor only"
         floor = _dependency_floor("mkio")
         assert tuple(int(n) for n in expected.split(".")) == floor[:2], \
-            f"app.json expects mkio {expected}, pyproject installs >= {'.'.join(map(str, floor))}"
+            f"app.toml expects mkio {expected}, pyproject installs >= {'.'.join(map(str, floor))}"
 
     def test_expected_mkio_pin_is_caret_compatible_with_installed(self):
         """Mirror of mkio's own rule, run against the installed package, so a
@@ -2649,7 +2750,7 @@ class TestVersions:
         frame; the session form is tall enough to need the auto-grow."""
         uses_dialog = any(
             "mkui-dialog.js" in p.read_text(encoding="utf-8") for p in (STATIC / "panes").glob("*.js")
-        ) or '"type": "dialog"' in (STATIC / "app.json").read_text(encoding="utf-8")
+        ) or 'type = "dialog"' in APP_TOML.read_text(encoding="utf-8")
         if not uses_dialog:
             pytest.skip("no pane opens an mkui dialog")
 
@@ -2676,7 +2777,7 @@ class TestDictionaryConfig:
 
         selects = [node for node in _walk_dicts(app_config)
                    if node.get("name") == "fix_version" and node.get("type") == "select"]
-        assert selects, "no fix_version selects in app.json"
+        assert selects, "no fix_version selects in app.toml"
         for select in selects:
             values = [o["value"] for o in select["options"]]
             assert values == list(STANDARD_VERSIONS)

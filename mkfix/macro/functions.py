@@ -1,7 +1,7 @@
 """Functions only a macro may call.
 
 Registered as an opt-in mkio library, so they never pass validation for an
-expression the browser must evaluate (app.json's gates and filters).
+expression the browser must evaluate (app.toml's gates and filters).
 """
 
 from __future__ import annotations

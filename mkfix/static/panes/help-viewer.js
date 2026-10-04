@@ -7,7 +7,7 @@
 // to open a copy in the Macros pane.
 //
 // `app.state.help_target = { page, anchor }` opens a page at a heading — the
-// editor's F1 sets it. A pane's `page` (app.json) is the page it opens on:
+// editor's F1 sets it. A pane's `page` (app.toml) is the page it opens on:
 // the Help menu has a pane for each page it names.
 
 import { ensureMkio } from "/mkui/src/mkio-bridge.js";
