@@ -9,7 +9,9 @@
 //     their tooltips — in the toolbars of each side's blotters (mkio-table's
 //     `_toolbar` slot). mkui's declared buttons cannot
 //     follow app state, and these must: enabled by what is live, the record
-//     button red and counting while it records.
+//     button red and counting while it records. ⏸ and ■ are the recording's
+//     too: at once when it is all they could mean, else as a row of the
+//     list their dialogs ask with.
 // The editors read the same state, so a recording started on a blotter can be
 // stopped in an editor and the other way round.
 
@@ -90,22 +92,32 @@ registerWidget("macro-status", (spec, app, host) => {
     return b;
   }
 
+  // Stop suggests the name at the click: the side, then the time Stop was pressed.
+  const stopRecording = (side) => app.dialog("stop_recording", { row: { side, Side: Side(side), name: recordingName(side) } });
+
   function mountControls() {
     for (const [paneId, side] of Object.entries(BLOTTERS)) {
       const slot = document.querySelector(`mkui-pane[data-id="${paneId}"]`)?._toolbar;
       if (!slot) continue;
       const extras = slot.extras();
       if (controls.get(paneId)?.group.isConnected && extras.contains(controls.get(paneId).group)) continue;
-      const context = { row: { side, Side: Side(side) } };
+      // Read at the click: the dialogs' lists are fed the side's recording
+      // ('', 'on' or 'paused'), which only the engine and this state know.
+      const now = () => app.state.get("macros")?.[side] ?? {};
+      const context = () => ({ row: { side, Side: Side(side),
+        recording: !now().recording ? "" : now().recordingPaused ? "paused" : "on" } });
       // In the order the editors' toolbars have them: record, play, pause, stop.
       const buttons = {
-        // Stop suggests the name at the click, not at mount: the side, then the time Stop was pressed
-        record: button("●", "", () => (app.state.get("macros")?.[side]?.recording
-          ? app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })
-          : app.dialog("record_macro", context))),
-        play: button("▶", `Play a ${side} macro, or resume a paused run…`, () => app.dialog("play_macro", context)),
-        pause: button("⏸", `Pause ${side} macro runs…`, () => app.dialog("pause_runs", context)),
-        stop: button("■", `Stop ${side} macro runs…`, () => app.dialog("stop_runs", context)),
+        record: button("●", "", () => (now().recording ? stopRecording(side) : app.dialog("record_macro", context()))),
+        play: button("▶", `Play a ${side} macro, or resume a paused run…`, () => app.dialog("play_macro", context())),
+        // A recording with no run beside it is all ⏸ and ■ could mean: one
+        // press pauses it and the next carries on, ■ asks for its name.
+        // With runs live as well, the dialog lists it among them.
+        pause: button("⏸", `Pause ${side} macro runs…`, () => (now().recording && !now().playing
+          ? cmd(now().recordingPaused ? "record_resume" : "record_pause", { side }).then(poll, poll)
+          : app.dialog("pause_runs", context()))),
+        stop: button("■", `Stop ${side} macro runs…`, () => (now().recording && !now().live
+          ? stopRecording(side) : app.dialog("stop_runs", context()))),
       };
       const group = document.createElement("span");
       group.className = "macro-controls";
@@ -146,26 +158,32 @@ registerWidget("macro-status", (spec, app, host) => {
       const count = (n) => `${n} run${n === 1 ? "" : "s"}`;      // not `runs`: that is the map of them
       for (const b of Object.values(buttons)) b.disabled = !!s.offline;
       if (s.offline) {
-        for (const [b, cls] of [[buttons.play, "macro-playing"], [buttons.pause, "macro-paused"], [buttons.record, "macro-recording"]]) b.classList.remove(cls);
+        for (const [b, cls] of [[buttons.play, "macro-playing"], [buttons.pause, "macro-paused"], [buttons.record, "macro-recording"], [buttons.record, "macro-recording-paused"]]) b.classList.remove(cls);
         for (const b of Object.values(buttons)) { b.title = "The server is away"; b.setAttribute("aria-label", b.title); }
         continue;
       }
       buttons.play.classList.toggle("macro-playing", s.playing > 0);
-      buttons.play.title = (s.playing ? `Playing: ${count(s.playing)}, ${s.orders} order${s.orders === 1 ? "" : "s"}. ` : "")
+      buttons.play.title = (s.recordingPaused ? "The recording is paused — Play… resumes it. " : "") + (s.playing ? `Playing: ${count(s.playing)}, ${s.orders} order${s.orders === 1 ? "" : "s"}. ` : "")
         + (s.paused ? `Resume a paused run, or play another ${side} macro…` : `Play a ${side} macro…`);
-      buttons.pause.classList.toggle("macro-paused", s.paused > 0);
+      const recording = s.recording && !s.recordingPaused;
+      buttons.pause.classList.toggle("macro-paused", s.paused > 0 || s.recordingPaused);
       buttons.pause.title = (s.paused ? `Paused: ${count(s.paused)} — ▶ resumes. ` : "")
-        + (s.playing ? `Pause ${side} macro runs…` : `Nothing of the ${side} side is playing`);
-      buttons.stop.title = s.live ? `Stop ${side} macro runs… (${count(s.live)} live)` : `No ${side} macro run is live`;
+        + (s.playing ? `Pause ${side} macro runs${recording ? ", or the recording" : ""}…`
+          : s.recordingPaused ? "The recording is paused — press again to carry on recording"
+            : recording ? "Pause the recording: nothing you do is followed until you carry on"
+              : `Nothing of the ${side} side is playing`);
+      buttons.stop.title = s.live ? `Stop ${side} macro runs${s.recording ? ", or the recording" : ""}… (${count(s.live)} live)`
+        : s.recording ? "Stop recording and save the macro…" : `No ${side} macro run is live`;
       for (const b of [buttons.play, buttons.pause, buttons.stop]) b.setAttribute("aria-label", b.title);
       buttons.play.setAttribute("aria-pressed", String(s.playing > 0));
-      buttons.pause.setAttribute("aria-pressed", String(s.paused > 0));
-      buttons.pause.disabled = !s.playing;
-      buttons.stop.disabled = !s.live;
+      buttons.pause.setAttribute("aria-pressed", String(s.paused > 0 || s.recordingPaused));
+      buttons.pause.disabled = !s.playing && !s.recording;
+      buttons.stop.disabled = !s.live && !s.recording;
       buttons.record.classList.toggle("macro-recording", s.recording);
+      buttons.record.classList.toggle("macro-recording-paused", s.recordingPaused);
       // The dot alone, red while it records; the count is in the tooltip and the status bar.
       buttons.record.title = s.recording
-        ? `Recording — ${s.actions} action${s.actions === 1 ? "" : "s"} so far. Stop recording and save the macro…`
+        ? `${s.recordingPaused ? "Recording paused" : "Recording"} — ${s.actions} action${s.actions === 1 ? "" : "s"} so far. Stop recording and save the macro…`
         : side === "client" ? "Record what you do by hand to the orders you send — Replace, Cancel, and DK on Received Trades — as a macro"
           : "Record what you do by hand to the orders that arrive — Accept, Reject, Fill, and Correct, Bust, Re-notify on Sent Trades — as a macro";
       buttons.record.setAttribute("aria-label", buttons.record.title);
@@ -174,6 +192,11 @@ registerWidget("macro-status", (spec, app, host) => {
 
   // What the dialogs fire once the server has said yes.
   app.registerAction("macro.refresh", () => poll());
+  // Stop…'s list held the recording's row: its macro wants a name.
+  app.registerAction("macro.stopped", (_app, args) => {
+    poll();
+    if (KINDS.includes(args?.side) && String(args.runs ?? "").split(",").includes("recording")) stopRecording(args.side);
+  });
   app.registerAction("macro.recorded", (_app, args) => {
     poll();
     if (!args?.name || !KINDS.includes(args.side)) return;

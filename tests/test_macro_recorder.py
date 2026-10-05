@@ -77,7 +77,7 @@ class TestMarketRecording:
     async def test_a_worked_order_becomes_its_script(self, hand):
         recorder = hand.recorder("market")
         await lifecycle(hand)
-        assert recorder.status() == {"recording": True, "side": "market", "session": "", "orders": 1, "actions": 4,
+        assert recorder.status() == {"recording": True, "paused": False, "side": "market", "session": "", "orders": 1, "actions": 4,
                                      "since": recorder.started_at}
         result = await recorder.stop("venue")
         assert (result["orders"], result["actions"]) == (1, 4) and not recorder.recording
@@ -272,6 +272,27 @@ class TestWhatTriggersAnAction:
             "on order where symbol in ['IBM', 'MSFT']", "    when cancel", "        accept", "        stop", "    accept"]
 
     @pytest.mark.asyncio
+    async def test_a_paused_recording_follows_nothing_and_counts_no_time(self, hand):
+        """⏸: what is done while paused is not written, an order that comes
+        meanwhile is never followed, and the pause is in no delay."""
+        recorder = hand.recorder("market", delays=True)
+        cl = await hand.new()
+        await hand.market("accept_request", cl, wait=1.2)
+        recorder.pause()
+        recorder.pause()                                    # once paused, paused: the first press set the mark
+        assert recorder.paused and recorder.recording and recorder.status()["paused"] is True
+        await hand.market("fill_order", cl, wait=5, qty=10, price=10)
+        other = await hand.new(symbol="MSFT")
+        hand.now += 30
+        recorder.resume()
+        assert not recorder.paused and recorder.actions == 1
+        await hand.market("fill_order", cl, wait=2, qty=50, price=10)
+        await hand.market("accept_request", other, wait=1)
+        assert recorder.actions == 2
+        assert body((await recorder.stop())["source"]) == [
+            "on order where symbol == 'IBM'", "    after 1.2s", "    accept", "    after 2s", "    fill qty: 50, price: 10"]
+
+    @pytest.mark.asyncio
     async def test_every_event_heard_is_expected_in_the_order_it_came(self, hand):
         recorder = hand.recorder("client")
         cl = await hand.new(qty=300)
@@ -462,6 +483,30 @@ class TestThroughTheManager:
                                                           "qty": "100", "price": "10"}))["cl_ord_id"]
             await ask("accept_request", {"session_id": "LOOP-MKT", "cl_ord_id": cl})
             assert (await ask("record_status", {"side": "market"}))["actions"] == 1
+            # ⏸ and ▶: paused it follows nothing, a side at a time, and each is said once
+            paused = await ask("record_pause", {"side": "market"})
+            assert (paused["recording"], paused["paused"]) == (True, True)
+            assert (await ask("macro_status", {}))["market"]["paused"] is True
+            assert (await ask("macro_status", {}))["client"]["paused"] is False
+            await ask("fill_order", {"session_id": "LOOP-MKT", "cl_ord_id": cl, "qty": "10", "price": "10"})
+            assert (await ask("record_status", {"side": "market"}))["actions"] == 1
+            for command, data, why in (("record_pause", {"side": "market"}, "The market recording is already paused"),
+                                       ("record_resume", {"side": "client"}, "The client recording is not paused"),
+                                       ("record_pause", {"side": "end-to-end"}, "No end-to-end recording is under way")):
+                with pytest.raises(ValueError, match=why):
+                    await ask(command, data)
+            assert (await ask("record_resume", {"side": "market"}))["paused"] is False
+            # the blotters' lists carry the recording as a row beside the runs: Pause… pauses it,
+            # Play… resumes it, and Stop… only says it was asked — its macro wants a name first
+            assert await ask("pause_runs", {"side": "market", "runs": "recording"}) == {"ok": True, "paused": 0, "recording": True}
+            with pytest.raises(ValueError, match="No market recording is under way and not paused"):
+                await ask("pause_runs", {"side": "market", "runs": "recording"})
+            with pytest.raises(ValueError, match="No client recording is paused"):
+                await ask("play_macro", {"side": "client", "what": "resume:recording"})
+            assert (await ask("play_macro", {"side": "market", "what": "resume:recording"}))["resumed"] == 0
+            assert (await ask("record_status", {"side": "market"}))["paused"] is False
+            assert await ask("stop_runs", {"side": "market", "runs": "recording"}) == {"ok": True, "stopped": 0, "recording": True}
+            assert (await ask("record_status", {"side": "market"}))["recording"] is True
             venue = await ask("record_stop", {"side": "market", "name": "  my   venue "})
             assert venue["orders"] == 1 and venue["name"] == "my venue" and "macro my venue" not in venue["source"]
             assert venue["source"].startswith("# Market side, recorded "), "a renamed file still says which editor it belongs in"
@@ -499,12 +544,29 @@ class TestEndToEnd:
     """Both sides recorded at once, written as one macro."""
 
     @pytest.mark.asyncio
+    async def test_a_pause_is_of_both_sides(self, hand):
+        from mkfix.macro.recorder import EndToEndRecorder
+        recorder = EndToEndRecorder(hand.engine, clock=hand.clock)
+        cl = await hand.new()
+        recorder.pause()
+        assert recorder.paused and recorder.client.paused and recorder.market.paused and recorder.status()["paused"] is True
+        await hand.market("accept_request", cl, wait=1)
+        await hand.new(symbol="MSFT")
+        assert (recorder.actions, len(recorder.client.timelines), len(recorder.market.timelines)) == (0, 1, 1)
+        recorder.resume()
+        assert not recorder.paused and not recorder.client.paused and not recorder.market.paused
+        await hand.market("fill_order", cl, wait=1, qty=100, price=10)
+        result = await recorder.stop()
+        assert result["actions"] == 1 and "fill qty: 100, price: 10" in result["source"] and "accept" not in body(result["source"])[-1]
+        assert "MSFT" not in result["source"], "an order sent while paused is never followed"
+
+    @pytest.mark.asyncio
     async def test_both_sides_of_what_was_done_by_hand_are_one_macro(self, hand):
         from mkfix.macro.recorder import EndToEndRecorder
         recorder = EndToEndRecorder(hand.engine, clock=hand.clock)
         market, client = hand.recorder("market"), hand.recorder("client")
         await lifecycle(hand)
-        assert recorder.status() == {"recording": True, "side": "end-to-end", "session": "", "market_session": "",
+        assert recorder.status() == {"recording": True, "paused": False, "side": "end-to-end", "session": "", "market_session": "",
                                      "orders": 2, "actions": 6, "since": recorder.started_at}
         result = await recorder.stop("test")
         venue, chase = await market.stop("venue"), await client.stop("chase")

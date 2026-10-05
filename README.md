@@ -302,7 +302,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   or all) -- and the status bar says what the macros are doing:
   recording, playing, paused, or how the last run ended. **●**, there or in either editor, writes the
   first draft for you: work orders by hand -- accept, fill, answer a cancel
-  on one side; send, replace, cancel, DK on the other -- and Stop recording
+  on one side; send, replace, cancel, DK on the other -- **⏸** pauses the
+  recording and carries on, and **■** (or **●** again)
   opens the macro that would have done the same, ready to run and to
   loosen, offered as `Market 2026-09-22 14:30:15` (its side, then the time
   you pressed Stop; Export writes the colons as dots). It is triggered by events, not the clock: each action waits for

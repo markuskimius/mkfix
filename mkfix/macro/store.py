@@ -48,6 +48,10 @@ EXAMPLES = Path(__file__).parent / "examples"
 # The pair of sessions the sending examples run over: this engine talking to
 # itself, so both sides of an order are on the screen.
 LOOPBACK = {"market": "LOOP-MKT", "client": "LOOP-CLI"}
+
+# The row the blotters' Play…, Pause… and Stop… checklists carry for a side's
+# recording, beside its runs' numbers.
+RECORDING = "recording"
 LOOPBACK_PORT = 9880
 # FIX 4.4, the first version with every message the examples send — the
 # QuoteResponse of an RFQ's Hit, Counter and Pass. Through 0.73 the pair
@@ -575,15 +579,20 @@ class MacroManager:
             raise ValueError("Say which side: client or market")
         names: list[str] = []
         resume: list[Run] = []
+        recording = False
         for choice in dict.fromkeys(part.strip() for part in str(what or "").split(",") if part.strip()):
             kind, _, value = choice.partition(":")
-            if kind == "resume" and value:
+            if choice == f"resume:{RECORDING}":
+                recording = True
+                if not getattr(self.recorders.get(side), "paused", False):
+                    raise ValueError(f"No {side} recording is paused")
+            elif kind == "resume" and value:
                 resume += [r for r in self._side_runs(side, "" if value == "all" else value, paused=True) if r not in resume]
             elif kind in ("macro", "needs") and value:
                 names.append(value)
             else:
                 raise ValueError("Choose a macro to play, or a paused run to resume")
-        if not names and not resume and "resume:all" not in str(what or ""):
+        if not names and not resume and not recording and "resume:all" not in str(what or ""):
             raise ValueError("Choose a macro to play, or a paused run to resume")
         for name in names:
             _, macro = await self._armable(name, side, session)
@@ -591,6 +600,8 @@ class MacroManager:
                 self.runner.validate(macro, session=session or None, speed=float(speed or 1.0))
             except MacroError as e:
                 raise ValueError(f"{name}: {e}") from None
+        if recording:
+            self.record_pause(side, paused=False)
         for run in resume:
             await self.resume_run(self._run_rows[run])
         started = [await self.arm(name, side=side, session=session, seed=seed, speed=speed) for name in names]
@@ -599,17 +610,35 @@ class MacroManager:
             result.update(started[0])           # one macro: what Arm… and Run… answer
         return result
 
+    @staticmethod
+    def _without_recording(run: Any) -> tuple[bool, str]:
+        """A checklist's answer as (the recording's row was ticked, the runs' numbers)."""
+        parts = [part.strip() for part in str(run or "").split(",") if part.strip()]
+        return RECORDING in parts, ",".join(p for p in parts if p != RECORDING)
+
     async def pause_runs(self, side: str, run: Any = "") -> dict[str, Any]:
-        runs = self._side_runs(side, run, paused=False)
+        """Pause a side's playing runs — all, or the ones numbered — and,
+        when the list names it, its recording: whole or not at all."""
+        recording, numbers = self._without_recording(run)
+        if recording and getattr(self.recorders.get(self._side(side)), "paused", True):
+            raise ValueError(f"No {side} recording is under way and not paused")
+        # The recording alone is no "every run": a blank list means all of them only when it is all there was.
+        runs = self._side_runs(side, numbers, paused=False) if numbers or not recording else []
         for r in runs:
             await self.pause_run(self._run_rows[r])
-        return {"paused": len(runs)}
+        if recording:
+            self.record_pause(side)
+        return {"paused": len(runs), **({"recording": True} if recording else {})}
 
     async def stop_runs(self, side: str, run: Any = "") -> dict[str, Any]:
-        runs = self._side_runs(side, run)
+        """Stop a side's live runs. The recording's row is answered, not
+        acted on: stopping a recording writes a macro, which wants a name —
+        the dialog asks for it next (`record_stop`)."""
+        recording, numbers = self._without_recording(run)
+        runs = self._side_runs(side, numbers) if numbers or not recording else []
         for r in runs:
             await self.stop_run(self._run_rows[r])
-        return {"stopped": len(runs)}
+        return {"stopped": len(runs), **({"recording": True} if recording else {})}
 
     # -- recording ---------------------------------------------------------------------------
 
@@ -650,6 +679,18 @@ class MacroManager:
             result["saved"] = True
         return result
 
+    def record_pause(self, side: str, paused: bool = True) -> dict[str, Any]:
+        """Pause the recording of a side, or (``paused=False``) carry on with
+        it: paused, it follows nothing and counts no time."""
+        side = self._side(side)
+        recorder = self.recorders.get(side)
+        if recorder is None:
+            raise ValueError(f"No {side} recording is under way")
+        if recorder.paused == paused:
+            raise ValueError(f"The {side} recording is " + ("already paused" if paused else "not paused"))
+        recorder.pause() if paused else recorder.resume()
+        return recorder.status()
+
     async def from_history(self, side: str, subject: str, rows: Any, name: str = "", save: bool = False,
                            delays: bool = False) -> dict[str, Any]:
         """The macro that would have played this side's part in what these
@@ -689,7 +730,7 @@ class MacroManager:
 
     def record_status(self, side: str) -> dict[str, Any]:
         recorder = self.recorders.get(self._side(side))
-        return recorder.status() if recorder else {"recording": False, "side": side, "session": "", "orders": 0,
+        return recorder.status() if recorder else {"recording": False, "paused": False, "side": side, "session": "", "orders": 0,
                                                    "actions": 0, "since": ""}
 
     async def report(self, run_id: Any, after: Any = 0) -> dict[str, Any]:

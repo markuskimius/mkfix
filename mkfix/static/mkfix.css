@@ -618,6 +618,7 @@
 .mkui-btn.macro-control.macro-paused, .mkui-btn.macro-control.macro-paused:disabled { color: #1e1e1e; background: #dcdcaa; border-color: #dcdcaa; opacity: 1; }
 .mkui-btn.macro-control.macro-recording::before { content: none; }      /* the symbol is the dot */
 .mkui-btn.macro-control.macro-recording { animation: macro-rec 1.2s ease-in-out infinite; }
+.mkui-btn.macro-control.macro-recording-paused { animation: none; }      /* red, and still: ⏸ has the light */
 @keyframes macro-rec { 50% { opacity: 0.45; } }
 /* The rule between the table's own buttons and ours. The toolbar's flex gap (6px) already stands to its
    left, so the margin makes that up to the padding on its right: 8px either side. */

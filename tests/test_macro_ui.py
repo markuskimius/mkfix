@@ -298,8 +298,8 @@ class TestRecordingNames:
         assert '"recorded"' not in pane and "recorded-${n}" not in pane, "the counter gave way to the stamp"
         toolbar = (STATIC / "macro-status.js").read_text(encoding="utf-8")
         assert 'import { recordingName } from "/static/macro-lang.js";' in toolbar
-        assert 'app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })' in toolbar, \
-            "computed at the click, not at mount"
+        assert ('const stopRecording = (side) => app.dialog("stop_recording", '
+                '{ row: { side, Side: Side(side), name: recordingName(side) } });') in toolbar, "computed at the click, not at mount"
         app = tomllib.loads(APP_TOML.read_text(encoding="utf-8"))
         name = next(f for f in app["dialogs"]["stop_recording"]["fields"] if f.get("name") == "name")
         assert name["value"] == "${row.name}" and name["required"] is True
@@ -348,6 +348,11 @@ class TestMacroStatus:
             ("playing", "▶ market slow-fill · 0 orders", "market-runs")]
         state = self.state(tmp_path, [], rec)
         assert (state["market"]["recording"], state["market"]["actions"], state["client"]["recording"]) == (True, 1, False)
+        # paused, it says so, and ⏸ has the light
+        rec["market"]["paused"] = True
+        assert self.items(tmp_path, [], rec) == [("recording", "⏸ REC market · paused · 1 action on LOOP-MKT", "market-macros")]
+        state = self.state(tmp_path, [], rec)
+        assert (state["market"]["recordingPaused"], state["client"]["recordingPaused"]) == (True, False)
 
     def test_an_ended_run_is_news_for_a_minute(self, tmp_path):
         fresh = self.run(1, "client", "finished", macro="chase", verdict="passed", orders=3, passed=3, ended="20260920-11:59:30.000")
@@ -813,19 +818,35 @@ class TestWiring:
                "record_macro": "record_start", "stop_recording": "record_stop"}
         for dialog, op in ops.items():
             spec = app["dialogs"][dialog]
-            opened = ('app.dialog("stop_recording", { row: { ...context.row, name: recordingName(side) } })'
-                      if dialog == "stop_recording" else f'app.dialog("{dialog}", context)')
+            # the context is read at the click: it carries the side's recording, which the lists are fed
+            opened = ('app.dialog("stop_recording", { row: { side, Side: Side(side), name: recordingName(side) } })'
+                      if dialog == "stop_recording" else f'app.dialog("{dialog}", context())')
             assert opened in module, dialog
             assert spec["submit"]["service"] == "fix_cmd" and spec["submit"]["op"] == op and op in _fix_cmd_commands()
             assert spec["fields"][0] == {"name": "side", "type": "hidden", "value": "${row.side}"}
             assert "modal" not in spec
-        for dialog, service, params in (("play_macro", "macro_play_options", {"side": "${row.side}"}),
-                                        ("pause_runs", "macro_run_options", {"side": "${row.side}", "paused": 0}),
-                                        ("stop_runs", "macro_run_options", {"side": "${row.side}", "paused": 1})):
+        rec = {"recording": "${row.recording}"}
+        for dialog, service, params in (("play_macro", "macro_play_options", {"side": "${row.side}", **rec}),
+                                        ("pause_runs", "macro_run_options", {"side": "${row.side}", "paused": 0, **rec}),
+                                        ("stop_runs", "macro_run_options", {"side": "${row.side}", "paused": 1, **rec})):
             select = app["dialogs"][dialog]["fields"][1]
             assert select["optionsFrom"]["service"] == service and select["optionsFrom"]["params"] == params
             assert "empty" not in select["optionsFrom"], "Play… must be given a macro, and a checklist has no blank row"
             assert set(re.findall(r":(\w+)", toml["services"][service]["sql"].replace("'resume:", "").replace("'macro:", ""))) == set(params)
+        # ⏸ and ■ are a recording's too: at once when no run is beside it, else as the lists' `recording` row,
+        # which Stop… hands on to the dialog that names the macro
+        assert 'recording: !now().recording ? "" : now().recordingPaused ? "paused" : "on"' in module
+        assert 'cmd(now().recordingPaused ? "record_resume" : "record_pause", { side }).then(poll, poll)' in module
+        assert "now().recording && !now().playing" in module and "now().recording && !now().live" in module
+        assert "buttons.pause.disabled = !s.playing && !s.recording;" in module
+        assert "buttons.stop.disabled = !s.live && !s.recording;" in module
+        assert app["dialogs"]["stop_runs"]["submit"]["then"] == {
+            "action": "macro.stopped", "args": {"side": "${row.side}", "runs": "${runs}"}}
+        assert 'app.registerAction("macro.stopped"' in module and '.split(",").includes("recording")) stopRecording(args.side)' in module
+        assert app["dialogs"]["pause_runs"]["submit"]["then"] == {"action": "macro.refresh"}
+        assert {"record_pause", "record_resume"} <= _fix_cmd_commands()
+        from mkfix.macro.store import RECORDING
+        assert RECORDING == "recording" and "'resume:recording'" in toml["services"]["macro_play_options"]["sql"]
         # Pause and Stop show the runs together, as a scrolling list rather than behind a dropdown — a
         # `size` on a select, which mkui reads from 1.11.0: an older one shows a dropdown and says nothing
         from mkui.__init__ import __version__ as mkui_version
@@ -834,7 +855,8 @@ class TestWiring:
         assert floor and tuple(map(int, floor.groups())) >= (1, 11), "the pyproject pin must reach the checklist field"
         import mkui
         assert 'field.type === "checklist"' in (Path(mkui.static_dir) / "src" / "widgets" / "mkui-dialog.js").read_text(encoding="utf-8")
-        for dialog, every in (("pause_runs", "Every playing run"), ("stop_runs", "Every live run")):
+        for dialog, every in (("pause_runs", "${IF(row.recording == 'on', 'Everything', 'Every playing run')}"),
+                              ("stop_runs", "${IF(row.recording != '', 'Everything', 'Every live run')}")):
             runs = app["dialogs"][dialog]["fields"][1]
             assert (runs["name"], runs["type"], runs["size"], runs["all"]) == ("runs", "checklist", 8, every)
             assert (runs["value"], runs["required"]) == ("*", True), "opens with every run ticked; nothing ticked is nothing to do"
@@ -875,8 +897,9 @@ class TestWiring:
         assert gap + margin == padding, (gap, margin, padding)
         # lit like a tape deck: ▶ while the side plays, ⏸ while it has a paused run, ● while it records
         css = (STATIC / "mkfix.css").read_text(encoding="utf-8")
-        for button, cls, when in (("play", "macro-playing", "s.playing > 0"), ("pause", "macro-paused", "s.paused > 0"),
-                                  ("record", "macro-recording", "s.recording")):
+        for button, cls, when in (("play", "macro-playing", "s.playing > 0"), ("pause", "macro-paused", "s.paused > 0 || s.recordingPaused"),
+                                  ("record", "macro-recording", "s.recording"),
+                                  ("record", "macro-recording-paused", "s.recordingPaused")):
             assert f'buttons.{button}.classList.toggle("{cls}", {when});' in module, button
             assert f".mkui-btn.macro-control.{cls}" in css, cls
         # dark while the server is away: the last picture goes with the connection, since a restart
@@ -955,9 +978,16 @@ class TestWiring:
             assert f'act === "{act}"' in pane or act == "vim", act
         assert "Record…</button>" not in pane and "Stop all" not in pane and "From example" not in pane
         # the same lit states as the blotters' deck, from the open macro's runs
-        for cls, when in (("macro-playing", "playing.length > 0"), ("macro-paused", "paused > 0"), ("macro-recording", "!!recording")):
+        for cls, when in (("macro-playing", "playing.length > 0"), ("macro-paused", "paused > 0 || (taping && recording.paused)"),
+                          ("macro-recording", "!!recording"), ("macro-recording-paused", "!!recording?.paused")):
             assert f'classList.toggle("{cls}", {when})' in pane, cls
         assert 'cmd(playing ? "pause_macro" : "resume_macro", { name: current })' in pane
+        # with no run of the open macro to mean, ⏸ and ■ are the recording's
+        assert "const taping = !live.length && !!recording;" in pane
+        assert "pause.disabled = !live.length && !taping;" in pane and "stop.disabled = !live.length && !taping;" in pane
+        assert "if (recording && !liveRuns(current).length) return pauseRecord();" in pane
+        assert "if (recording && !liveRuns(current).length) return toggleRecord();" in pane
+        assert 'cmd(recording.paused ? "record_resume" : "record_pause", { side })' in pane
         assert {"pause_macro", "resume_macro", "stop_macro", "delete_macro"} <= _fix_cmd_commands()
         # Clone: the text shown, the original untouched, so no discard question
         assert "const source = viewing ? viewing.source : editor.getValue();" in pane and "`${base} copy`" in pane and 'current.replace(/ copy( \\d+)?$/, "")' in pane

@@ -6,7 +6,7 @@
 [app]
 title = "mkfix — FIX Protocol Testing Engine"
 theme = "dark"
-version = "0.87"
+version = "0.88"
 description = "FIX protocol testing engine built on mkio and mkui"
 copyright = "© Mark Kim · GPL-2.0-only"
 
@@ -487,7 +487,7 @@ width = 440
 
     [dialogs.play_macro.fields.optionsFrom]
     service = "macro_play_options"
-    params = { side = "${row.side}" }
+    params = { side = "${row.side}", recording = "${row.recording}" }
     value = "value"
     label = "label"
 
@@ -531,9 +531,14 @@ width = 440
   value = "The session, speed and seed are for every macro ticked; a seed left blank is each macro's own, or random."
 
 [dialogs.pause_runs]
-title = "Pause ${row.side} macro runs"
+title = "Pause on the ${row.side} side"
 width = 440
-submit = { label = "Pause", service = "fix_cmd", op = "pause_runs" }
+
+  [dialogs.pause_runs.submit]
+  label = "Pause"
+  service = "fix_cmd"
+  op = "pause_runs"
+  then = { action = "macro.refresh" }
 
   [[dialogs.pause_runs.fields]]
   name = "side"
@@ -542,18 +547,18 @@ submit = { label = "Pause", service = "fix_cmd", op = "pause_runs" }
 
   [[dialogs.pause_runs.fields]]
   name = "runs"
-  label = "Runs"
+  label = "${IF(row.recording == 'on', 'Runs and the recording', 'Runs')}"
   type = "checklist"
   size = 8
-  all = "Every playing run"
+  all = "${IF(row.recording == 'on', 'Everything', 'Every playing run')}"
   none = "No run of this side is playing"
   value = "*"
   required = true
-  invalidMessage = "Tick at least one run"
+  invalidMessage = "Tick at least one"
 
     [dialogs.pause_runs.fields.optionsFrom]
     service = "macro_run_options"
-    params = { side = "${row.side}", paused = 0 }
+    params = { side = "${row.side}", paused = 0, recording = "${row.recording}" }
     value = "value"
     label = "label"
 
@@ -561,10 +566,20 @@ submit = { label = "Pause", service = "fix_cmd", op = "pause_runs" }
   type = "readonly"
   value = "A paused run parks each order's macro before its next line; a wait under way runs out. ▶ resumes it."
 
+  [[dialogs.pause_runs.fields]]
+  type = "readonly"
+  showWhen = "row.recording == 'on'"
+  value = "A paused recording follows nothing you do, and no order that comes meanwhile; the time is in no delay. ▶ resumes it."
+
 [dialogs.stop_runs]
-title = "Stop ${row.side} macro runs"
+title = "Stop on the ${row.side} side"
 width = 440
-submit = { label = "Stop", service = "fix_cmd", op = "stop_runs" }
+
+  [dialogs.stop_runs.submit]
+  label = "Stop"
+  service = "fix_cmd"
+  op = "stop_runs"
+  then = { action = "macro.stopped", args = { side = "${row.side}", runs = "${runs}" } }
 
   [[dialogs.stop_runs.fields]]
   name = "side"
@@ -573,24 +588,29 @@ submit = { label = "Stop", service = "fix_cmd", op = "stop_runs" }
 
   [[dialogs.stop_runs.fields]]
   name = "runs"
-  label = "Runs"
+  label = "${IF(row.recording != '', 'Runs and the recording', 'Runs')}"
   type = "checklist"
   size = 8
-  all = "Every live run"
+  all = "${IF(row.recording != '', 'Everything', 'Every live run')}"
   none = "No run of this side is live"
   value = "*"
   required = true
-  invalidMessage = "Tick at least one run"
+  invalidMessage = "Tick at least one"
 
     [dialogs.stop_runs.fields.optionsFrom]
     service = "macro_run_options"
-    params = { side = "${row.side}", paused = 1 }
+    params = { side = "${row.side}", paused = 1, recording = "${row.recording}" }
     value = "value"
     label = "label"
 
   [[dialogs.stop_runs.fields]]
   type = "readonly"
   value = "A stopped run is over: its orders are yours again, and no new ones are taken."
+
+  [[dialogs.stop_runs.fields]]
+  type = "readonly"
+  showWhen = "row.recording != ''"
+  value = "Stopping the recording writes its macro: you are asked for a name next."
 
 [dialogs.record_macro]
 title = "Record a ${row.side} macro"
@@ -736,7 +756,7 @@ keepDays = 7
 
 [statusbar]
 left = [{ type = "text", bind = "status.message" }]
-right = [{ type = "macro-status" }, { type = "text", text = "mkfix v0.87" }]
+right = [{ type = "macro-status" }, { type = "text", text = "mkfix v0.88" }]
 bindStyle = { color = "status.color", background = "status.background" }
 
 # ─── Panes ────────────────────────────────────────────────────────
@@ -21608,7 +21628,7 @@ h = 0.8
 
 [mkio]
 url = "auto"
-expect = { name = "mkfix", version = "0.87", mkio = "1.5", expr = "2" }
+expect = { name = "mkfix", version = "0.88", mkio = "1.5", expr = "2" }
 connected = { "status.message" = "Connected", "status.color" = "", "status.background" = "" }
 
   [mkio.disconnected]

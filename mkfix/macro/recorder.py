@@ -106,6 +106,8 @@ class Recorder:
         self.timelines: dict[tuple[str, int], _Timeline] = {}
         self.started = clock()
         self.started_at = _fix_timestamp()
+        self._paused_at: float | None = None        # the clock when `pause` was pressed
+        self._paused_for = 0.0                      # the time spent paused, which no delay counts
         self._unsubscribe: Callable[[], None] | None = engine.events.subscribe(self._on_event)
 
     # -- listening ---------------------------------------------------------------------------
@@ -118,8 +120,24 @@ class Recorder:
     def actions(self) -> int:
         return sum(1 for t in self.timelines.values() for s in t.steps if s.kind == "did")
 
+    @property
+    def paused(self) -> bool:
+        return self._paused_at is not None
+
+    def pause(self) -> None:
+        """Stop following until `resume`: nothing heard or done meanwhile is
+        written, an order that arrives (or is sent) meanwhile is never
+        followed, and the time spent paused is in no delay."""
+        if self._paused_at is None:
+            self._paused_at = self.clock()
+
+    def resume(self) -> None:
+        if self._paused_at is not None:
+            self._paused_for += self.clock() - self._paused_at
+            self._paused_at = None
+
     def status(self) -> dict[str, Any]:
-        return {"recording": self.recording, "side": self.side, "session": self.session,
+        return {"recording": self.recording, "paused": self.paused, "side": self.side, "session": self.session,
                 "orders": len(self.timelines), "actions": self.actions, "since": self.started_at}
 
     def _sends(self, subject: str) -> bool:
@@ -128,6 +146,8 @@ class Recorder:
         return (subject in vocab.CLIENT_SENDS) == (self.side == "client")
 
     def _on_event(self, ev: EngineEvent) -> None:
+        if self.paused:
+            return
         if ev.table:
             subject, row = vocab.subject_of_row(ev.table, ev.row), ev.row
             prefix = vocab.SUBJECT_WORDS.get(subject, subject) + " "
@@ -139,7 +159,7 @@ class Recorder:
         sends = self._sends(subject)
         if row["direction"] != ("TX" if sends else "RX") or row.get("macro"):
             return
-        now, key = self.clock(), (subject, row["id"])
+        now, key = self.clock() - self._paused_for, (subject, row["id"])
         line = self.timelines.get(key)
         if line is None:
             # What we receive is followed from its arrival, what we send from
@@ -642,8 +662,20 @@ class EndToEndRecorder:
     def actions(self) -> int:
         return self.client.actions + self.market.actions
 
+    @property
+    def paused(self) -> bool:
+        return self.client.paused
+
+    def pause(self) -> None:
+        self.client.pause()
+        self.market.pause()
+
+    def resume(self) -> None:
+        self.client.resume()
+        self.market.resume()
+
     def status(self) -> dict[str, Any]:
-        return {"recording": self.recording, "side": self.side, "session": self.session,
+        return {"recording": self.recording, "paused": self.paused, "side": self.side, "session": self.session,
                 "market_session": self.market_session,
                 "orders": len(self.client.timelines) + len(self.market.timelines), "actions": self.actions,
                 "since": self.started_at}

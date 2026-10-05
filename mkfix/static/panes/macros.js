@@ -197,6 +197,8 @@ registerPaneType("macros", async (spec, app, host) => {
 
   const text = () => (viewing ? draft : editor.getValue());
   const dirty = () => current !== null && text() !== saved;
+  let recording = null;                 // the server's status while a recording is under way
+  let recordTimer = null;
   const liveRuns = (name) => [...runs.values()].filter((r) => r.macro === name && LIVE.includes(r.status));
 
   function renderList() {
@@ -251,16 +253,20 @@ registerPaneType("macros", async (spec, app, host) => {
           // sends (a `run` block) or it waits, whichever side it is for.
           + (checked.sends ? `Run… — send what this macro sends${live.length ? ", another run beside the " + count(live.length) + " live" : ""}`
             : `Arm… — let this macro take what matches`);
-    pause.disabled = !live.length;
-    pause.classList.toggle("macro-paused", paused > 0);
-    pause.title = !live.length ? (current ? "No run of this macro is live" : "") : playing.length
+    // With no run of the open macro to mean, ⏸ and ■ are the recording's.
+    const taping = !live.length && !!recording;
+    pause.disabled = !live.length && !taping;
+    pause.classList.toggle("macro-paused", paused > 0 || (taping && recording.paused));
+    pause.title = taping ? (recording.paused ? "The recording is paused — press again to carry on recording"
+      : "Pause the recording: nothing you do is followed until you carry on")
+      : !live.length ? (current ? "No run of this macro is live" : "") : playing.length
       ? `Pause ${count(playing.length)} of this macro${paused ? ` (${count(paused)} already paused)` : ""}`
       : `Paused: ${count(paused)} — press again to resume`;
-    stop.disabled = !live.length;
-    stop.title = live.length ? `Stop ${live.length > 1 ? "all " : ""}${count(live.length)} of this macro` : current ? "No run of this macro is live" : "";
+    stop.disabled = !live.length && !taping;
+    stop.title = taping ? "Stop recording and save the macro…" : live.length ? `Stop ${live.length > 1 ? "all " : ""}${count(live.length)} of this macro` : current ? "No run of this macro is live" : "";
     for (const b of [play, pause, stop]) b.setAttribute("aria-label", b.title);
     play.setAttribute("aria-pressed", String(playing.length > 0));
-    pause.setAttribute("aria-pressed", String(paused > 0));
+    pause.setAttribute("aria-pressed", String(paused > 0 || (taping && recording.paused)));
   }
 
   function status(text, kind = "") {
@@ -508,19 +514,32 @@ registerPaneType("macros", async (spec, app, host) => {
   // The server listens while you work orders by hand on this side's blotters;
   // Stop writes what you did as a macro and opens it here. The recording
   // lives in the server, so it survives this pane closing: the button asks.
-  let recording = null;                 // the server's status while one is under way
-  let recordTimer = null;
-
+  // ⏸ and ■ are the recording's as well, while the open macro has no run of
+  // its own for them to mean (`renderButtons`).
   function renderRecord() {
     const b = button("record");
     b.classList.toggle("macro-recording", !!recording);
+    b.classList.toggle("macro-recording-paused", !!recording?.paused);
     // The dot alone, red while it records; the count is in the tooltip.
-    b.title = recording ? `Recording — ${recording.actions} action${recording.actions === 1 ? "" : "s"} so far. Stop recording and save the macro…`
+    b.title = recording ? `${recording.paused ? "Recording paused" : "Recording"} — ${recording.actions} action${recording.actions === 1 ? "" : "s"} so far. Stop recording and save the macro…`
       : "Record… — work orders by hand and get the macro that would have done it";
     b.setAttribute("aria-label", b.title);
     b.setAttribute("aria-pressed", String(!!recording));
     clearInterval(recordTimer);
     if (recording) recordTimer = setInterval(pollRecord, 1500);
+    renderButtons();
+  }
+
+  async function pauseRecord() {
+    try {
+      recording = await cmd(recording.paused ? "record_resume" : "record_pause", { side });
+      status(recording.paused ? "Recording paused: nothing you do is followed, and no order that comes meanwhile. ⏸ again carries on."
+        : "Recording again", "live");
+    } catch (err) {
+      status(String(err.message ?? err), "error");
+      return pollRecord();
+    }
+    renderRecord();
   }
 
   async function pollRecord() {
@@ -750,12 +769,14 @@ registerPaneType("macros", async (spec, app, host) => {
       return checked.sends ? app.dialog("run_macro", context) : app.dialog("arm_macro", context);
     }
     if (act === "pause") {
+      if (recording && !liveRuns(current).length) return pauseRecord();
       // Every playing run of the open macro; once all are paused, the same button resumes them.
       const playing = liveRuns(current).some((r) => r.status !== "paused");
       cmd(playing ? "pause_macro" : "resume_macro", { name: current }).catch((err) => status(String(err.message ?? err), "error"));
       return;
     }
     if (act === "stop") {
+      if (recording && !liveRuns(current).length) return toggleRecord();
       // One run of several is stopped from the Macro Runs pane; this stops the macro.
       cmd("stop_macro", { name: current }).catch((err) => status(String(err.message ?? err), "error"));
       return;
@@ -906,7 +927,7 @@ registerPaneType("macros", async (spec, app, host) => {
   });
   // The recording is the server's and the blotters can start and stop it too.
   const unrecording = app.state.subscribe(`macros.${side}`, (s) => {
-    if (!s || !!recording === !!s.recording) return;
+    if (!s || (!!recording === !!s.recording && !!recording?.paused === !!s.recordingPaused)) return;
     pollRecord();
   });
   // The Help viewer's "Open in editor".

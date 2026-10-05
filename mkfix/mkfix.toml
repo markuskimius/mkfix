@@ -485,10 +485,15 @@ sql = "SELECT _mkio_version, name, side, source, problems, updated_at FROM fix_m
 # clean. The value says which — `resume:ID`, `macro:NAME`, or `needs:NAME`
 # for a macro that names no session of its own — so the form can ask for a
 # session only when something ticked needs one (a name holds no `:` or `,`).
+# `:recording` is the side's recording as the client knows it — '', 'on' or
+# 'paused' — since a recording lives in the engine, not in a table: paused,
+# it is offered first, as `resume:recording`.
 [services.macro_play_options]
 protocol = "reqrep"
 description = "What Play… offers on one side: paused runs to resume, then the macros that check clean"
 sql = """
+SELECT 'resume:recording' AS value, '● Resume the recording' AS label, 0 AS ord WHERE :recording = 'paused'
+UNION ALL
 SELECT 'resume:' || id AS value,
        'Resume run #' || id || ' · ' || macro || CASE WHEN session != '' THEN ' on ' || session ELSE '' END AS label, 1 AS ord
   FROM fix_macro_runs WHERE side = :side AND status = 'paused'
@@ -500,17 +505,23 @@ ORDER BY ord, label
 """
 
 # Pause… and Stop… list a side's live runs: the playing ones, or with
-# `:paused` = 1 the paused ones too.
+# `:paused` = 1 the paused ones too — and, first, the side's recording
+# (`:recording`, as above) as the row `recording`: Pause… while it records,
+# Stop… while there is one.
 [services.macro_run_options]
 protocol = "reqrep"
 description = "One side's live macro runs, for the Pause… and Stop… dialogs"
 sql = """
+SELECT 'recording' AS value, '● The recording' || CASE :recording WHEN 'paused' THEN ' · paused' ELSE '' END AS label, 0 AS ord
+ WHERE :recording = 'on' OR (:paused = 1 AND :recording = 'paused')
+UNION ALL
 SELECT CAST(id AS TEXT) AS value,
        '#' || id || ' · ' || macro || CASE WHEN session != '' THEN ' on ' || session ELSE '' END
-           || ' · ' || CASE status WHEN 'armed' THEN 'playing' ELSE status END || ' · ' || orders || ' order' || CASE orders WHEN 1 THEN '' ELSE 's' END AS label
+           || ' · ' || CASE status WHEN 'armed' THEN 'playing' ELSE status END || ' · ' || orders || ' order' || CASE orders WHEN 1 THEN '' ELSE 's' END AS label,
+       id AS ord
   FROM fix_macro_runs
  WHERE side = :side AND (status = 'armed' OR (:paused = 1 AND status = 'paused'))
- ORDER BY id
+ ORDER BY ord
 """
 
 [services.macro_runs_query]

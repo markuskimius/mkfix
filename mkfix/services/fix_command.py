@@ -210,6 +210,8 @@ class FixCommandService(Service):
             yes = lambda key: str(data.get(key, "")).lower() in ("1", "true", "yes")  # noqa: E731
             return {"ok": True, **await macros.record_stop(data.get("side", ""), data.get("name", "recorded"),
                                                            save=yes("save"), delays=yes("delays"))}
+        elif command == "record_pause" or command == "record_resume":
+            return {"ok": True, **macros.record_pause(data.get("side", ""), paused=command == "record_pause")}
         elif command == "macro_from_history":
             yes = lambda key: str(data.get(key, "")).lower() in ("1", "true", "yes")  # noqa: E731
             return {"ok": True, **await macros.from_history(

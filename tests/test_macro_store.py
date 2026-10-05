@@ -765,6 +765,7 @@ def _service_sql(name):
 
 
 async def _ask_sql(db, name, **params):
+    params.setdefault("recording", "")          # the side's recording, as the dialogs hand it on
     cursor = await db.read_conn.execute(_service_sql(name), params)
     rows = [dict(r) for r in await cursor.fetchall()]
     await cursor.close()
@@ -896,6 +897,24 @@ class TestBlotterControls:
             await ask("stop_runs", {"side": "market", "runs": "4,x"})
         assert len([r for r in manager.live_runs() if r.side == "market"]) == 4, "nothing was stopped by a list with a wrong number in it"
         assert await ask("pause_runs", {"side": "market", "runs": "4, 5,4"}) == {"ok": True, "paused": 2}
+        # the side's recording is a row of the lists, first: Pause… has it while it records, Stop… while
+        # there is one, Play… while it is paused — and a list of it alone is not "every run"
+        rows = lambda name, **p: _ask_sql(db, name, side="market", **p)  # noqa: E731
+        assert (await rows("macro_run_options", paused=0, recording="on"))[0] == {"value": "recording", "label": "● The recording", "ord": 0}
+        assert [o["value"] for o in await rows("macro_run_options", paused=0, recording="paused")] == ["1"]
+        assert (await rows("macro_run_options", paused=1, recording="paused"))[0]["label"] == "● The recording · paused"
+        assert (await rows("macro_play_options", recording="paused"))[0]["value"] == "resume:recording"
+        assert all(o["value"] != "resume:recording" for o in await rows("macro_play_options", recording="on"))
+        manager.record_start("market")
+        assert await ask("pause_runs", {"side": "market", "runs": "recording"}) == {"ok": True, "paused": 0, "recording": True}
+        assert [r.paused for r in manager.live_runs() if r.side == "market"] == [False, True, True, True]
+        with pytest.raises(ValueError, match="Run 9 is not a live market run"):
+            await ask("play_macro", {"side": "market", "what": "resume:recording,resume:9"})
+        assert manager.recorders["market"].paused, "nothing was resumed by a list with a wrong number in it"
+        assert (await ask("play_macro", {"side": "market", "what": "resume:recording,resume:2"}))["resumed"] == 1
+        assert not manager.recorders["market"].paused
+        assert await ask("pause_runs", {"side": "market", "runs": "1,recording"}) == {"ok": True, "paused": 1, "recording": True}
+        await manager.record_stop("market")
         assert await ask("stop_runs", {"side": "market", "runs": "5,4"}) == {"ok": True, "stopped": 2}
         assert await ask("stop_runs", {"side": "market", "run": "2"}) == {"ok": True, "stopped": 1}
         assert await ask("stop_runs", {"side": "market"}) == {"ok": True, "stopped": 1}

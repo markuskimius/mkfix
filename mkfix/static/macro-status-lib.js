@@ -18,7 +18,7 @@ export function stampMs(fix) {
   return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6], +(m[7] ?? "0").padEnd(3, "0")) : NaN;
 }
 
-// One side's state: { recording, actions, session, playing, paused, live,
+// One side's state: { recording, recordingPaused, actions, session, playing, paused, live,
 // orders, runs: [live rows], last: the ended run still worth showing | null }.
 export function sideState(side, runs, recording, now) {
   const mine = runs.filter((r) => r.side === side);
@@ -38,7 +38,7 @@ export function sideState(side, runs, recording, now) {
     if (!keep) last = null;
   }
   return {
-    recording: !!recording?.recording, actions: recording?.actions ?? 0, session: recording?.session ?? "",
+    recording: !!recording?.recording, recordingPaused: !!recording?.recording && !!recording?.paused, actions: recording?.actions ?? 0, session: recording?.session ?? "",
     playing: playing.length, paused: live.length - playing.length, live: live.length,
     orders: live.reduce((n, r) => n + (r.orders || 0), 0), runs: live, last,
   };
@@ -61,7 +61,7 @@ export function statusItems(state) {
     if (!s) continue;
     if (s.recording) {
       items.push({ kind: "recording", side, pane: `${side}-macros`,
-        text: `● REC ${side} · ${plural(s.actions, "action")}${s.session ? " on " + s.session : ""}` });
+        text: `${s.recordingPaused ? "⏸ REC" : "● REC"} ${side} · ${s.recordingPaused ? "paused · " : ""}${plural(s.actions, "action")}${s.session ? " on " + s.session : ""}` });
     }
     const playing = s.runs.filter((r) => r.status === "armed");
     const paused = s.runs.filter((r) => r.status === "paused");
