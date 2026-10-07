@@ -6,7 +6,7 @@
 [app]
 title = "mkfix — FIX Protocol Testing Engine"
 theme = "dark"
-version = "0.88"
+version = "0.89"
 description = "FIX protocol testing engine built on mkio and mkui"
 copyright = "© Mark Kim · GPL-2.0-only"
 
@@ -756,7 +756,7 @@ keepDays = 7
 
 [statusbar]
 left = [{ type = "text", bind = "status.message" }]
-right = [{ type = "macro-status" }, { type = "text", text = "mkfix v0.88" }]
+right = [{ type = "macro-status" }, { type = "text", text = "mkfix v0.89" }]
 bindStyle = { color = "status.color", background = "status.background" }
 
 # ─── Panes ────────────────────────────────────────────────────────
@@ -3194,7 +3194,8 @@ columns = [
   "security_exchange", "security_id", "security_id_source", "open_close", "covered_uncovered",
   "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "dk_reason", "dk_text",
   "text", "extra_tags", "transact_time", "id", "cl_ord_id", "side_code", "exec_type_code",
-  "leaves_qty", "timestamp", "direction", "session_status", "leg_ref_id", "hidden",
+  "leaves_qty", "timestamp", "direction", "session_status", "leg_ref_id", "list_id",
+  "hidden",
 ]
 visible = [
   "trade_id", "exec_id", "exec_ref_id", "order_id", "market_order_id", "session_id", "client",
@@ -3207,6 +3208,7 @@ rowStyle = [
   { when = "hidden", italic = true, color = "#858585" },
 ]
 values = { hidden = "value == 1" }
+link = { listen = { sent_order = "order_id", sent_list = "list_id", sent_leg = "leg_ref_id" }, chips = false }
 
   [panes.trade-blotter.history]
   table = "fix_executions"
@@ -3266,12 +3268,14 @@ values = { hidden = "value == 1" }
   open_close = "Open/Close (77)"
   covered_uncovered = "Covered (203)"
   leg_ref_id = "LegRefID (654)"
+  list_id = "List ID (66)"
   hidden = "Hidden"
 
   [[panes.trade-blotter.groups]]
   label = "IDs"
   columns = [
     "trade_id", "exec_id", "exec_ref_id", "order_id", "market_order_id", "cl_ord_id", "leg_ref_id",
+    "list_id",
   ]
 
   [[panes.trade-blotter.groups]]
@@ -10662,7 +10666,8 @@ columns = [
   "security_exchange", "security_id", "security_id_source", "open_close", "covered_uncovered",
   "side", "last_qty", "last_price", "cum_qty", "avg_price", "exec_type", "dk_reason", "dk_text",
   "text", "extra_tags", "transact_time", "id", "market_order_id", "side_code", "exec_type_code",
-  "leaves_qty", "timestamp", "direction", "session_status", "leg_ref_id", "hidden",
+  "leaves_qty", "timestamp", "direction", "session_status", "leg_ref_id", "list_id",
+  "hidden",
 ]
 visible = [
   "trade_id", "exec_id", "exec_ref_id", "order_id", "cl_ord_id", "session_id", "client", "symbol",
@@ -10675,6 +10680,7 @@ rowStyle = [
   { when = "hidden", italic = true, color = "#858585" },
 ]
 values = { hidden = "value == 1" }
+link = { listen = { received_order = "order_id", received_list = "list_id", received_leg = "leg_ref_id" }, chips = false }
 
   [panes.market-trade-blotter.history]
   table = "fix_executions"
@@ -10734,12 +10740,14 @@ values = { hidden = "value == 1" }
   open_close = "Open/Close (77)"
   covered_uncovered = "Covered (203)"
   leg_ref_id = "LegRefID (654)"
+  list_id = "List ID (66)"
   hidden = "Hidden"
 
   [[panes.market-trade-blotter.groups]]
   label = "IDs"
   columns = [
     "trade_id", "exec_id", "exec_ref_id", "order_id", "market_order_id", "cl_ord_id", "leg_ref_id",
+    "list_id",
   ]
 
   [[panes.market-trade-blotter.groups]]
@@ -21284,7 +21292,7 @@ visible = [
   "cl_ord_id", "seq", "leg_ref_id", "instrument", "side", "ratio", "position_effect", "leg_price",
   "leg_qty", "cum_qty", "avg_price", "last_qty", "last_price", "updated_at",
 ]
-link = { listen = { sent_order = "order_id" }, chips = false }
+link = { listen = { sent_order = "order_id" }, broadcast = { sent_leg = "leg_ref_id" }, chips = false }
 
   [panes.sent-legs.labels]
   id = "Row"
@@ -21395,7 +21403,7 @@ visible = [
   "cl_ord_id", "seq", "leg_ref_id", "instrument", "side", "ratio", "position_effect", "leg_price",
   "leg_qty", "cum_qty", "avg_price", "last_qty", "last_price", "updated_at",
 ]
-link = { listen = { received_order = "order_id" }, chips = false }
+link = { listen = { received_order = "order_id" }, broadcast = { received_leg = "leg_ref_id" }, chips = false }
 
   [panes.received-legs.labels]
   id = "Row"
@@ -21628,7 +21636,7 @@ h = 0.8
 
 [mkio]
 url = "auto"
-expect = { name = "mkfix", version = "0.88", mkio = "1.5", expr = "2" }
+expect = { name = "mkfix", version = "0.89", mkio = "1.5", expr = "2" }
 connected = { "status.message" = "Connected", "status.color" = "", "status.background" = "" }
 
   [mkio.disconnected]

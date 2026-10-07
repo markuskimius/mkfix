@@ -356,13 +356,19 @@ protocol = "query"
 primary_table = "fix_order_legs"
 filterable = ["session_id", "direction", "order_id", "symbol", "instrument"]
 
+# `list_id` is the trade's order's (a trade's direction is the opposite of
+# its order's), for the trade blotters to follow a selected list by. An
+# order's list is written once, at insert, so fix_orders is not watched.
 [services.executions_query]
 protocol = "query"
 primary_table = "fix_executions"
 watch_tables = ["fix_executions", "fix_session_state"]
 watch_columns = { fix_session_state = ["status"] }
 key = ["id"]
-sql = """SELECT e.*, COALESCE(t.status, 'DOWN') AS session_status
+sql = """SELECT e.*, COALESCE(t.status, 'DOWN') AS session_status,
+         COALESCE((SELECT o.list_id FROM fix_orders o
+                    WHERE o.session_id = e.session_id AND o.order_id = e.order_id AND o.direction != e.direction
+                      AND e.order_id != ''), '') AS list_id
          FROM fix_executions e LEFT JOIN fix_session_state t ON t.session_id = e.session_id"""
 filterable = ["session_id", "symbol", "side", "direction", "session_status", "client", "market_order_id", "instrument", "security_type"]
 
@@ -773,7 +779,11 @@ change_log_size = 10000
 protocol = "reqrep"
 description = "The received trades as they stood at a moment"
 sql = """
-SELECT h.* FROM fix_executions__history h
+SELECT h.*,
+       COALESCE((SELECT o.list_id FROM fix_orders o
+                  WHERE o.session_id = h.session_id AND o.order_id = h.order_id AND o.direction != h.direction
+                    AND h.order_id != ''), '') AS list_id
+  FROM fix_executions__history h
   JOIN (SELECT id, MAX(_mkio_version) AS v
           FROM fix_executions__history
          WHERE _mkio_ref <= :as_of
@@ -787,7 +797,11 @@ SELECT h.* FROM fix_executions__history h
 protocol = "reqrep"
 description = "The sent trades as they stood at a moment"
 sql = """
-SELECT h.* FROM fix_executions__history h
+SELECT h.*,
+       COALESCE((SELECT o.list_id FROM fix_orders o
+                  WHERE o.session_id = h.session_id AND o.order_id = h.order_id AND o.direction != h.direction
+                    AND h.order_id != ''), '') AS list_id
+  FROM fix_executions__history h
   JOIN (SELECT id, MAX(_mkio_version) AS v
           FROM fix_executions__history
          WHERE _mkio_ref <= :as_of

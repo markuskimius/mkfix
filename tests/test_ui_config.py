@@ -4313,6 +4313,32 @@ class TestListBlotters:
                 "part of the setup: no chips, the filter chip shows when a list is selected"
             assert {"list_id", "list_seq_no"} <= set(panes[orders_pane]["columns"])
 
+    @pytest.mark.parametrize("side, orders, lists, legs, trades", [
+        ("sent", "order-blotter", "list-blotter", "sent-legs", "trade-blotter"),
+        ("received", "market-order-blotter", "market-list-blotter", "received-legs", "market-trade-blotter")])
+    def test_a_trade_blotter_follows_its_sides_orders_lists_and_legs(self, app_config, toml_config,
+                                                                    side, orders, lists, legs, trades):
+        """Selecting orders, a list or a leg narrows the side's trade
+        blotter to their fills. Link names are app-wide, so each side has
+        its own and no two panes broadcast one."""
+        panes = app_config["panes"]
+        assert panes[trades]["link"] == {
+            "listen": {f"{side}_order": "order_id", f"{side}_list": "list_id", f"{side}_leg": "leg_ref_id"},
+            "chips": False}
+        assert panes[orders]["link"]["broadcast"] == {f"{side}_order": "order_id"}
+        assert panes[lists]["link"]["broadcast"] == {f"{side}_list": "list_id"}
+        assert panes[legs]["link"] == {"listen": {f"{side}_order": "order_id"},
+                                       "broadcast": {f"{side}_leg": "leg_ref_id"}, "chips": False}
+        assert set(panes[trades]["link"]["listen"].values()) <= set(panes[trades]["columns"])
+        assert "list_id" not in panes[trades]["visible"]
+        assert " AS list_id" in toml_config["services"]["executions_query"]["sql"], \
+            "a trade has no list of its own: the query looks up its order's"
+
+    def test_no_link_name_has_two_broadcasters(self, app_config):
+        names = [name for pane in app_config["panes"].values()
+                 for name in pane.get("link", {}).get("broadcast", {})]
+        assert len(names) == len(set(names))
+
     def test_the_grid_offers_the_new_order_dialogs_choices(self, app_config):
         new_order = {f["name"]: f for item in _find_dialog(app_config, "send_new_order")["fields"]
                      for f in _leaves(item) if f.get("name")}

@@ -150,6 +150,8 @@ Fills keep arriving while a request is pending.
 
 Each fill is a row. **DK** disputes one with a DontKnowTrade carrying a reason and an optional text. The row keeps the dispute in its DK columns until a correction or a bust answers it. **Hide** and **Unhide** work as on the other blotters.
 
+The blotter follows **Sent Orders** above it: select one or more orders and it shows only their fills; press Escape twice in Sent Orders, or clear the selection, to see every trade again. The blotter's other filters still apply, so an older order's fills show once the **Time** filter is off.
+
 ### The IDs on a row
 
 - **ClOrdID** changes: it is the latest ID the counterparty accepted.
@@ -184,6 +186,8 @@ Things the buttons allow on purpose:
 - An unsolicited cancel leaves a pending request where it is, so it can still be rejected as too late.
 
 ### Sent Trades
+
+The blotter follows **Received Orders** above it as Received Trades follows Sent Orders: select orders and it shows only their fills.
 
 | Button | Sends |
 |---|---|
@@ -278,7 +282,7 @@ Macros work RFQs, quotes and RFQ requests on both sides too: see RFQs and quotes
 
 ## Lists
 
-A list is a basket of orders under one ListID (66): **Client › Sent Lists** and **Market › Received Lists**. Selecting a list narrows the side's order blotter to its orders; clearing the selection shows them all again.
+A list is a basket of orders under one ListID (66): **Client › Sent Lists** and **Market › Received Lists**. Selecting a list narrows the side's order blotter to its orders and its trade blotter to their fills; clearing the selection shows them all again.
 
 - **New List…** takes the orders in a grid: pick a saved instrument, or type the symbol, side, quantity, type, price and TIF, one row an order. Pasting rows copied from a spreadsheet (or comma-separated lines) into a cell fills the grid from there. Text and Extra Tags apply to every order.
 - **Send as** chooses how it travels. **E** sends one NewOrderList (35=E) holding the orders, with a Bid Type and an Execution instruction; before FIX 4.2 a NewOrderList carries one order, so mkfix sends one for each. **D** sends each order as a NewOrderSingle carrying the ListID, with TotNoOrders (68) if asked.
@@ -305,7 +309,7 @@ A multileg order trades several instruments at once as one order: a calendar spr
 - A **strategy** is an instrument with legs. **Strategy** at the top of the dialog fills the grid from one saved in **Config › Instruments**, whose editor has a **Strategy legs** section; **Save strategy as** keeps the grid's legs under a name.
 - **Replace** on a multileg order sends a MultilegOrderCancelReplace (35=AC) with the legs in its grid: change a maturity or a strike to roll a leg. Cancel is an ordinary OrderCancelRequest.
 - On **Market › Received Orders**, **Fill** fills the whole order (MultiLegReportingType 3), and with **Report legs** follows it with a report of each leg at its price (type 2). Its **Leg** choice fills one leg alone, in the leg's own quantity; the order's own fills do not move.
-- **Client › Sent Order Legs** and **Market › Received Order Legs**, tabs beside the trade blotters, show the legs of the order selected in the order blotter above, with each leg's fills. A multileg order's row is tinted blue, so it stands out among the rest. The order blotters' **Legs** column, hidden to begin with (the picker's Legs section), shows the legs short: `-1 ES Dec26 / +1 ES Mar27`, in light blue like the order's `MLEG` instrument. To see only multileg orders, filter **Sec Type (167)** to `MLEG`. A leg's trade carries its **LegRefID**.
+- **Client › Sent Order Legs** and **Market › Received Order Legs**, tabs beside the trade blotters, show the legs of the order selected in the order blotter above, with each leg's fills. A multileg order's row is tinted blue, so it stands out among the rest. The order blotters' **Legs** column, hidden to begin with (the picker's Legs section), shows the legs short: `-1 ES Dec26 / +1 ES Mar27`, in light blue like the order's `MLEG` instrument. To see only multileg orders, filter **Sec Type (167)** to `MLEG`. A leg's trade carries its **LegRefID**, and selecting a leg narrows the trade blotter beside it to that leg's trades.
 - FIX 4.3 defined these messages. mkfix's FIX 4.1 and 4.2 dictionaries carry the part of them a multileg order needs; FIX 4.0 has none, and New Multileg… is refused there. Before FIX 5.0 SP1 a leg's Put/Call rides in its LegCFICode.
 - Macros send and fill multileg orders too: `new multileg` with a `leg` line for each leg; see the Macro Language page and the examples `calendar-spread` and `spread-desk`.
 
@@ -385,7 +389,7 @@ Restarting the server stops every macro, and none starts again by itself.
 
 ## Layouts
 
-**Layout › Save Layout** keeps the arrangement of the windows, with each table's filters, sort and columns. The newest save is restored when the page opens, earlier ones are under **Restore Layout**, and **Reset to Default** returns to the arrangement mkfix ships with.
+**Layout › Save Layout** keeps the arrangement of the windows, with each table's filters, sort and columns. The newest save is restored when the page opens, earlier ones are under **Restore Layout**, and **Reset to Default** returns to the arrangement mkfix ships with. A layout also keeps which tables follow which, so one saved before mkfix 0.89 opens with the trade blotters not following their orders: press **Reset to Default** once, then save again.
 
 Layouts are kept on the server. mkfix has no login, so everyone on a server shares them.
 

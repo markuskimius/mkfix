@@ -59,6 +59,9 @@ A FIX protocol testing engine for capital markets connectivity, built on
   OrderID(37) as last reported on an ExecutionReport or OrderCancelReject;
   Received Trades carries the same pair, so a trade matches its order on
   Order ID and its DK names the counterparty's.
+  Each trade blotter follows its side's order blotter: select orders in
+  Sent Orders and Received Trades shows only their fills, and likewise
+  Received Orders and Sent Trades.
   A Replace or Cancel stays on the row as Pending -- with the request's
   ClOrdID and terms under Pending ID, New Qty and New Px -- until the
   counterparty answers it: an accepting ExecutionReport moves the order to the request's
@@ -424,7 +427,7 @@ A FIX protocol testing engine for capital markets connectivity, built on
   Received Lists: Accept and Reject of the list, an Execute or a Cancel
   (with ListStatus where it was a NewOrderList), Status, Fill All, Unsol
   Cxl; a ListStatusRequest is answered at once. Selecting a list narrows
-  the order blotter to its orders. Macros send lists (`new list` with an
+  the order blotter to its orders and the trade blotter to their fills. Macros send lists (`new list` with an
   `order` line an order, each line able to carry the order's own block;
   `mode: orders` paces a D list line by line), work them from either side
   (`add order`, `execute list`, `cancel list`, `request list status`;
@@ -440,7 +443,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   saved with legs in Config > Instruments), a net price and the Report Type
   (563); Replace sends the AC. Received Orders' Fill reports the whole order
   (MultiLegReportingType 3), each leg after it, or one leg alone (type 2).
-  Sent/Received Order Legs follow the selected order with each leg's fills;
+  Sent/Received Order Legs follow the selected order with each leg's fills,
+  and a selected leg narrows the trade blotter to that leg's trades;
   on the order blotters a multileg order's row is tinted and its Legs and
   MLEG instrument coloured.
   FIX 4.1 and 4.2 carry the multileg subset of 4.4 (no Parties); FIX 4.0
@@ -689,7 +693,7 @@ its toolbar instead of sitting still with old rows.
 - [mkio](https://github.com/markuskimius/mkio) >= 1.5.0, < 2 -- async microservice
   framework (aiohttp + aiosqlite); 1.5.0 brings expression language 2
   (`and`/`or`/`not`/`in`, durations, `COUNT`), which the client handshake pins
-- [mkui](https://github.com/markuskimius/mkui) >= 1.34.0, < 2 -- Web Components UI
+- [mkui](https://github.com/markuskimius/mkui) >= 1.34.2, < 2 -- Web Components UI
   framework; 1.10.0 evaluates the same language 2 in the browser, 1.11.0
   adds the dialog's checklist field (the Pause and Stop run lists), and
   1.14.0 renders time columns in the browser's zone with every fraction

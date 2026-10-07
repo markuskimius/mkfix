@@ -153,6 +153,27 @@ class TestNewOrderList:
         assert "|429=2|" in reply and f"|11={orders[0]['cl_ord_id']}|14=40|39=1|151=60|" in reply
 
     @pytest.mark.asyncio
+    async def test_a_trade_carries_its_orders_list(self, linked):
+        """executions_query's `list_id`, which the trade blotters follow a
+        selected list by: the trade's order's, on both sides, blank for an
+        order outside any list."""
+        import tomllib
+        from pathlib import Path
+        import mkfix
+        config = tomllib.loads((Path(mkfix.__file__).parent / "mkfix.toml").read_text(encoding="utf-8"))
+        db, engine, cli, mkt = linked
+        list_id = await engine.send_new_list("Client", BASKET)
+        await engine.accept_list("Server", list_id)
+        await engine.fill_order("Server", (await _orders(db, "RX"))[0]["cl_ord_id"], 40, 10)
+        await engine.send_new_order("Client", "ORCL", "1", 10, "2", 5)
+        loose = (await _orders(db, "RX"))[0]
+        assert loose["list_id"] == ""
+        await engine.fill_order("Server", loose["cl_ord_id"], 10, 5)
+        trades = await _fetch_all(db, config["services"]["executions_query"]["sql"])
+        assert sorted((t["direction"], t["symbol"], t["list_id"]) for t in trades) == [
+            ("RX", "IBM", list_id), ("RX", "ORCL", ""), ("TX", "IBM", list_id), ("TX", "ORCL", "")]
+
+    @pytest.mark.asyncio
     async def test_unknown_lists_are_answered(self, linked):
         db, engine, cli, mkt = linked
         await engine.on_app_message(mkt, "L", parse_fix("8=FIX.4.4|35=L|66=NOPE|"))

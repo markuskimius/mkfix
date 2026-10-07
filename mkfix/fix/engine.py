@@ -752,6 +752,10 @@ class FixEngine:
             await (await conn.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table}(session_id)"
             )).close()
+        # executions_query looks up each trade's order for its list_id.
+        await (await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fix_orders_order_id ON fix_orders(session_id, order_id)"
+        )).close()
         # A chain is found by its current ID; an Ack by the request the slot holds.
         for table, id_col in (("fix_iois", "ioi_id"), ("fix_adverts", "adv_id"), ("fix_allocations", "alloc_id"),
                               ("fix_allocations", "pending_alloc_id"), ("fix_rfqs", "quote_req_id"),
