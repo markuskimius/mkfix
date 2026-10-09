@@ -87,6 +87,7 @@ A menu item brings its pane to the front, opening it if it was closed. Panes sit
 
 **Start** and **Stop** run and end a session. **Edit**, **Delete**, **Reset Seq** and **Change Seq** are offered only while it is stopped.
 
+- **Clone** opens the New Session form filled from the selected session, under the ID `<id>-COPY`; change what should differ and save. The copy starts stopped at sequence numbers 1 and takes none of the original's messages, orders or history. It can be made while the original runs.
 - **Reset Seq** sets both sequence numbers to 1. Nothing sent before the reset is ever replayed to a later ResendRequest.
 - **Change Seq** sets them to numbers you type, to provoke a gap or a sequence-too-low Logout.
 - **Stop** logs out the way the specification asks: a TestRequest first, to know the counterparty has caught up, then the Logout, then a wait for theirs. The wait is bounded by the Logout Timeout, which at 0 is twice the heartbeat interval.

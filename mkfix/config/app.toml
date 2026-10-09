@@ -6,7 +6,7 @@
 [app]
 title = "mkfix — FIX Protocol Testing Engine"
 theme = "dark"
-version = "0.89"
+version = "0.90"
 description = "FIX protocol testing engine built on mkio and mkui"
 copyright = "© Mark Kim · GPL-2.0-only"
 
@@ -756,7 +756,7 @@ keepDays = 7
 
 [statusbar]
 left = [{ type = "text", bind = "status.message" }]
-right = [{ type = "macro-status" }, { type = "text", text = "mkfix v0.89" }]
+right = [{ type = "macro-status" }, { type = "text", text = "mkfix v0.90" }]
 bindStyle = { color = "status.color", background = "status.background" }
 
 # ─── Panes ────────────────────────────────────────────────────────
@@ -1051,6 +1051,156 @@ select = { state = "selected_session" }
         name = "enabled"
         type = "hidden"
         value = "${row.enabled}"
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "fix_version"
+          label = "FIX Version"
+          type = "select"
+          value = "${row.fix_version}"
+          options = [
+            { value = "FIX.4.0", label = "FIX.4.0" },
+            { value = "FIX.4.1", label = "FIX.4.1" },
+            { value = "FIX.4.2", label = "FIX.4.2" },
+            { value = "FIX.4.3", label = "FIX.4.3" },
+            { value = "FIX.4.4", label = "FIX.4.4" },
+            { value = "FIX.5.0", label = "FIX.5.0" },
+            { value = "FIX.5.0SP1", label = "FIX.5.0SP1" },
+            { value = "FIX.5.0SP2", label = "FIX.5.0SP2" },
+          ]
+          width = 0.5
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "dictionary"
+          label = "Dictionary"
+          type = "select"
+          value = "${row.dictionary}"
+          optionsFrom = { service = "dictionaries_list", value = "name", label = "label" }
+          width = 0.5
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "client_tags"
+          label = "Client Tag(s)"
+          type = "text"
+          value = "${row.client_tags}"
+          placeholder = "blank = 448[452=3],109,115,1 — first present wins"
+          width = 0.5
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "timestamp_precision"
+          label = "Timestamps"
+          type = "select"
+          value = "${row.timestamp_precision}"
+          options = [
+            { value = "", label = "Protocol standard" },
+            { value = "second", label = "Second" },
+            { value = "millisecond", label = "Millisecond" },
+            { value = "microsecond", label = "Microsecond" },
+            { value = "nanosecond", label = "Nanosecond" },
+            { value = "picosecond", label = "Picosecond" },
+          ]
+          width = 0.5
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "sender_comp_id"
+          label = "SenderCompID"
+          type = "text"
+          value = "${row.sender_comp_id}"
+          width = 0.5
+          required = true
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "target_comp_id"
+          label = "TargetCompID"
+          type = "text"
+          value = "${row.target_comp_id}"
+          width = 0.5
+          required = true
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "host"
+          label = "Host (empty=acceptor)"
+          type = "text"
+          value = "${row.host}"
+          width = 0.5
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "port"
+          label = "Port"
+          type = "number"
+          value = "${row.port}"
+          min = 1
+          width = 0.5
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "heartbeat_interval"
+          label = "Heartbeat (s)"
+          type = "number"
+          value = "${row.heartbeat_interval}"
+          min = 1
+          width = 0.5
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "reset_on_logon"
+          label = "Reset on Logon"
+          type = "select"
+          value = "${row.reset_on_logon}"
+          width = 0.5
+          options = [{ value = "0", label = "No" }, { value = "1", label = "Yes" }]
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "logout_timeout"
+          label = "Logout Timeout (s, 0=2x heartbeat)"
+          type = "number"
+          value = "${row.logout_timeout}"
+          min = 0
+          width = 0.5
+
+          [[panes.session-blotter.buttons.action.dialog.fields.row]]
+          name = "logout_test_request"
+          label = "TestRequest before Logout"
+          type = "select"
+          value = "${row.logout_test_request}"
+          width = 0.5
+          options = [{ value = "1", label = "Yes" }, { value = "0", label = "No" }]
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+        name = "description"
+        label = "Description"
+        type = "text"
+        value = "${row.description}"
+        placeholder = "Optional description"
+
+  [[panes.session-blotter.buttons]]
+  label = "Clone"
+  unit = "row"
+  enable = { connected = true }
+
+    [panes.session-blotter.buttons.action]
+    type = "dialog"
+
+      [panes.session-blotter.buttons.action.dialog]
+      title = "Clone Session ${row.session_id}"
+      width = 440
+      submit = { label = "Save", service = "session_mgmt", op = "add" }
+
+        [[panes.session-blotter.buttons.action.dialog.fields]]
+        name = "session_id"
+        label = "Session ID"
+        type = "text"
+        value = "${row.session_id}-COPY"
+        required = true
 
         [[panes.session-blotter.buttons.action.dialog.fields]]
 
@@ -21636,7 +21786,7 @@ h = 0.8
 
 [mkio]
 url = "auto"
-expect = { name = "mkfix", version = "0.89", mkio = "1.5", expr = "2" }
+expect = { name = "mkfix", version = "0.90", mkio = "1.5", expr = "2" }
 connected = { "status.message" = "Connected", "status.color" = "", "status.background" = "" }
 
   [mkio.disconnected]

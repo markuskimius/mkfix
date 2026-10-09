@@ -2827,12 +2827,13 @@ class TestSessionDialogs:
     SETTINGS = ("heartbeat_interval", "logout_timeout", "logout_test_request", "reset_on_logon")
 
     def _dialogs(self, app_config):
+        # New and Clone both submit `add`, so the op alone names no dialog.
         found = {}
-        for node in _walk_dicts(app_config):
-            submit = node.get("submit")
-            if isinstance(submit, dict) and submit.get("service") == "session_mgmt":
-                found[submit["op"]] = node
-        assert set(found) >= {"add", "update"}, sorted(found)
+        for label in ("New", "Edit", "Clone"):
+            dialog = _session_button(app_config, label)["action"]["dialog"]
+            assert dialog["submit"]["service"] == "session_mgmt", label
+            found[label] = dialog
+        assert (found["New"]["submit"]["op"], found["Edit"]["submit"]["op"]) == ("add", "update")
         return found
 
     def _fields(self, dialog):
@@ -2845,17 +2846,46 @@ class TestSessionDialogs:
 
     def test_new_defaults_match_toml_defaults(self, app_config, toml_config):
         defaults = toml_config["services"]["session_mgmt"]["ops"]["add"][0]["defaults"]
-        fields = self._fields(self._dialogs(app_config)["add"])
+        fields = self._fields(self._dialogs(app_config)["New"])
         for name in self.SETTINGS:
             assert name in fields, f"New Session dialog lacks {name}"
             assert str(fields[name]["value"]) == str(defaults[name]), \
                 f"New Session default for {name} is {fields[name]['value']!r}, TOML says {defaults[name]!r}"
 
     def test_edit_prefills_every_setting_from_the_row(self, app_config):
-        fields = self._fields(self._dialogs(app_config)["update"])
+        fields = self._fields(self._dialogs(app_config)["Edit"])
         for name in self.SETTINGS:
             assert name in fields, f"Edit Session dialog lacks {name}"
             assert fields[name]["value"] == "${row.%s}" % name
+
+    def test_clone_is_new_prefilled_from_the_row(self, app_config, toml_config):
+        """Clone saves through `add`, so it must ask exactly what New asks —
+        a setting on one and not the other is a clone that silently differs
+        from its source — and every answer starts as the row's."""
+        dialogs = self._dialogs(app_config)
+        clone, new = self._fields(dialogs["Clone"]), self._fields(dialogs["New"])
+        assert dialogs["Clone"]["submit"]["op"] == "add"
+        assert set(clone) == set(new)
+        step = toml_config["services"]["session_mgmt"]["ops"]["add"][0]
+        assert set(clone) == set(step["fields"])
+        for name, field in clone.items():
+            if name == "session_id":
+                # The key must differ from the source's, or the insert fails.
+                assert field["value"] == "${row.session_id}-COPY"
+                assert field["type"] == "text" and field["required"] is True
+            else:
+                assert field["value"] == "${row.%s}" % name, name
+                assert field.get("required") == new[name].get("required"), name
+
+    def test_clone_reads_one_row_whatever_its_status(self, app_config):
+        """Cloning only reads the row, so unlike Edit it is offered on a
+        running session too."""
+        button = _session_button(app_config, "Clone")
+        assert button["unit"] == "row"
+        assert button["enable"] == {"connected": True}
+        labels = [b["label"] for b in app_config["panes"]["session-blotter"]["buttons"]]
+        assert labels == ["New", "Edit", "Clone", "Start", "Stop", "Delete",
+                          "Reset Seq", "Change Seq", "History"]
 
     def test_logout_settings_are_columns_and_op_fields(self, toml_config):
         columns = toml_config["tables"]["fix_sessions"]["columns"]
@@ -3403,7 +3433,7 @@ class TestClientColumn:
 
     def test_session_dialogs_ask_for_client_tags(self, app_config, toml_config):
         ops = toml_config["services"]["session_mgmt"]["ops"]
-        for label, op in (("New", "add"), ("Edit", "update")):
+        for label, op in (("New", "add"), ("Edit", "update"), ("Clone", "add")):
             dialog = _session_button(app_config, label)["action"]["dialog"]
             assert "client_tags" in _dialog_field_names(dialog), label
             step = next(s for s in ops[op] if s["table"] == "fix_sessions")

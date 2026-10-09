@@ -11,7 +11,8 @@ A FIX protocol testing engine for capital markets connectivity, built on
   the last error,
   created and edited through dialogs. Buttons follow the session's state:
   Start, Edit, Delete, Reset Seq, and Change Seq only while a session is
-  down, Stop only while it runs. Reset Seq resets a session in one click:
+  down, Stop only while it runs. Clone opens the New Session form filled
+  from the selected session, to save under a new ID. Reset Seq resets a session in one click:
   both sequence numbers return to 1 and a resend request from the
   counterparty never replays anything sent before the reset; Change Seq
   opens a dialog prefilled with the current sequence numbers for setting
